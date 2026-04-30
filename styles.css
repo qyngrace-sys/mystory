@@ -27,7 +27,8 @@
   --nav-h: 64px;
   --nav-safe: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
   /** 助手页底部输入区：避开底栏 + 中间凸起 FAB 所占的竖直范围 */
-  --assistant-composer-inset: calc(var(--nav-safe) - 10px);
+  --assistant-composer-inset: calc(28px + env(safe-area-inset-bottom, 0px));
+  --main-scroll-pad-end: calc(40px + env(safe-area-inset-bottom, 0px));
   --status-h: 32px;
   /** 顶部模拟状态栏总占位（与 .status-bar 上下 padding + min-height 一致），供全屏层与顶栏对齐 */
   --shell-status-offset: calc(max(10px, env(safe-area-inset-top, 0px)) + var(--status-h) + 6px);
@@ -206,7 +207,7 @@ html[data-theme="dark"] .phone-screen {
 
   /**
    * 必须限制为视口高度：若 height:auto + max-height:none，长页面会把 .phone-screen 撑高，
-   * .bottom-nav（相对 .app-shell 的 position:absolute）会落到整页最底，须滚到底才见。
+   * 底栏会一起被挤到滚动区域外。配合 .bottom-nav 在 .app-shell 内作为 flex 尾栏，始终在屏底可见。
    */
   .phone-screen {
     flex: 1 1 auto;
@@ -375,9 +376,11 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
 .main-scroll {
   flex: 1;
   min-width: 0;
+  /** 允许在 .app-shell 的 flex 列内收缩，否则长内容会把整屏撑高、底栏被顶到滚动区外 */
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 8px 16px calc(var(--nav-safe) + 12px);
+  padding: 8px 16px var(--main-scroll-pad-end);
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -689,6 +692,15 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
   flex-shrink: 0;
   font-size: 0.53rem;
   padding: 2px 7px;
+  min-height: 30px;
+  box-sizing: border-box;
+}
+
+@media (pointer: coarse) {
+  .assistant-tool-strip .story-tag-chip {
+    min-height: 34px;
+    padding: 4px 8px;
+  }
 }
 
 .assistant-tool-strip .assistant-tool-tag__inner {
@@ -1820,10 +1832,9 @@ html[data-theme="dark"] #modal-plot-edit .plot-tag {
 }
 
 .bottom-nav {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  /** 置于 .app-shell 的 flex 列末尾，始终在「手机屏幕」视口底部，避免 absolute 在长内容或滚动容器下偶发卡到文档最底端 */
+  position: relative;
+  flex-shrink: 0;
   width: 100%;
   max-width: none;
   transform: none;
@@ -1839,6 +1850,11 @@ html[data-theme="dark"] #modal-plot-edit .plot-tag {
   z-index: 50;
   min-height: var(--nav-h);
   isolation: isolate;
+  pointer-events: none;
+}
+
+.bottom-nav .nav-item {
+  pointer-events: auto;
 }
 
 .bottom-nav::before {
@@ -2303,6 +2319,28 @@ html[data-theme="dark"] #modal-plot-edit .plot-tag {
   background: var(--surface);
   color: var(--text);
   caret-color: var(--text);
+}
+
+/**
+ * 移动端 Safari / Chromium 等对「首个文本字段」套用自动填充高亮底色（常见淡蓝），
+ * 会破坏与下拉/多行输入一致的玻璃底。用大内阴影盖住 autofill 背景并统一配色。
+ */
+.field__input:-webkit-autofill,
+.field__input:-webkit-autofill:hover,
+.field__input:-webkit-autofill:focus,
+.field__input:-webkit-autofill:active,
+.field__textarea:-webkit-autofill,
+.field__textarea:-webkit-autofill:hover,
+.field__textarea:-webkit-autofill:focus {
+  box-shadow: 0 0 0 1000px var(--surface) inset;
+  -webkit-text-fill-color: var(--text);
+  caret-color: var(--text);
+  border-color: var(--border);
+}
+
+select.field__input:-webkit-autofill {
+  box-shadow: 0 0 0 1000px var(--surface) inset;
+  -webkit-text-fill-color: var(--text);
 }
 
 .field__input::placeholder,
