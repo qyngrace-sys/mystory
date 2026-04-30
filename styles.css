@@ -26,9 +26,9 @@
   --radius-sm: 12px;
   --nav-h: 64px;
   --nav-safe: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
-  /** 助手页底部输入区：避开底栏 + 中间凸起 FAB 所占的竖直范围 */
-  --assistant-composer-inset: calc(28px + env(safe-area-inset-bottom, 0px));
   --main-scroll-pad-end: calc(40px + env(safe-area-inset-bottom, 0px));
+  /** 助手底栏垂直微调 */
+  --assistant-bottom-nudge-y: 8px;
   --status-h: 32px;
   /** 顶部模拟状态栏总占位（与 .status-bar 上下 padding + min-height 一致），供全屏层与顶栏对齐 */
   --shell-status-offset: calc(max(10px, env(safe-area-inset-top, 0px)) + var(--status-h) + 6px);
@@ -39,7 +39,6 @@
   --glass-blur: 16px;
   --phone-screen-start: #d8d8dc;
   --phone-screen-end: #c8c8ce;
-  --bottom-nav-glass-offset: 26px;
   --tag-bg: color-mix(in srgb, var(--accent) 10%, var(--surface));
   --tag-border: color-mix(in srgb, var(--accent) 20%, var(--border));
   --tag-fg: var(--text);
@@ -387,8 +386,15 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
 }
 
 .main-scroll.main-scroll--assistant {
+  /** 底栏中间凸起圆钮会向上侵入主区域；须高于 .bottom-nav(z-index:50)，否则毛玻璃圆会盖住助手快捷条 */
+  position: relative;
+  z-index: 55;
   overflow: hidden;
-  padding-bottom: var(--assistant-composer-inset);
+  /** 逐项写满 padding：覆盖 shorthand，且勿引用已删除变量（否则整条 padding-bottom 失效，仍会留下 main-scroll-pad-end 级的大缝） */
+  padding-top: 8px;
+  padding-left: 16px;
+  padding-right: 16px;
+  padding-bottom: 0;
 }
 
 .main-scroll::-webkit-scrollbar {
@@ -636,16 +642,18 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
 .assistant-bottom {
   position: sticky;
   bottom: 0;
-  z-index: 2;
+  z-index: 4;
   flex-shrink: 0;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-  padding-bottom: 8px;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-top: none;
+  padding-top: 6px;
+  padding-bottom: 4px;
   display: flex;
   flex-direction: column;
+  transform: translateY(var(--assistant-bottom-nudge-y));
+  margin-bottom: calc(-1 * var(--assistant-bottom-nudge-y));
 }
 
 .assistant-tool-strip {
@@ -655,7 +663,7 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
   justify-content: center;
   width: 100%;
   margin: 0;
-  padding: 8px 0 0;
+  padding: 4px 2px 0;
   gap: 0;
   box-sizing: border-box;
 }
@@ -669,15 +677,16 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
   min-width: 0;
 }
 
+/** 左簇向右贴中间「剧情」、右簇向左贴，四处按键紧挨凸起圆钮两侧 */
 .assistant-tool-strip__cluster--start {
-  justify-content: flex-start;
-}
-
-.assistant-tool-strip__cluster--end {
   justify-content: flex-end;
 }
 
-/** 与底栏「剧情」圆形按钮同宽，腾出中间凸台，避免两侧快捷键与圆钮水平重叠 */
+.assistant-tool-strip__cluster--end {
+  justify-content: flex-start;
+}
+
+/** 与底栏圆形「剧情」同宽占位，四角 pill 与中栏凸起竖直对齐、互不遮挡 */
 .assistant-tool-strip__fab-gap {
   flex: 0 0 56px;
   width: 56px;
@@ -913,7 +922,7 @@ html[data-theme="dark"] .assistant-chat-item .bubble {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 2px 12px 0;
+  padding: 0 12px 0;
   flex-shrink: 0;
 }
 
@@ -1858,19 +1867,7 @@ html[data-theme="dark"] #modal-plot-edit .plot-tag {
 }
 
 .bottom-nav::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  /* nav 上内边距 + flex-end 下「剧情列 − 常驻列」高度差（标签行高两边一致抵消） */
-  top: calc(6px + var(--bottom-nav-glass-offset));
-  z-index: 0;
-  pointer-events: none;
-  background: color-mix(in srgb, var(--glass-bg) 85%, var(--bg));
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
-  border-top: 1px solid var(--glass-edge);
+  content: none;
 }
 
 .bottom-nav > * {
@@ -2311,6 +2308,9 @@ html[data-theme="dark"] #modal-plot-edit .plot-tag {
 }
 
 .field__input {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 12px 14px;
@@ -2321,9 +2321,16 @@ html[data-theme="dark"] #modal-plot-edit .plot-tag {
   caret-color: var(--text);
 }
 
+input.field__input,
+textarea.field__input,
+.field__textarea {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 /**
- * 移动端 Safari / Chromium 等对「首个文本字段」套用自动填充高亮底色（常见淡蓝），
- * 会破坏与下拉/多行输入一致的玻璃底。用大内阴影盖住 autofill 背景并统一配色。
+ * 自动填充：勿用超大 inset box-shadow（手机 Safari 常把文字层与底色层拆成两块，出现「白字块 + 蓝条」错位）。
+ * 用 !important 底色 + 超长 transition 压住 WebKit 的黄色/蓝色 autofill 动画。
  */
 .field__input:-webkit-autofill,
 .field__input:-webkit-autofill:hover,
@@ -2331,16 +2338,26 @@ html[data-theme="dark"] #modal-plot-edit .plot-tag {
 .field__input:-webkit-autofill:active,
 .field__textarea:-webkit-autofill,
 .field__textarea:-webkit-autofill:hover,
-.field__textarea:-webkit-autofill:focus {
-  box-shadow: 0 0 0 1000px var(--surface) inset;
-  -webkit-text-fill-color: var(--text);
+.field__textarea:-webkit-autofill:focus,
+.field__textarea:-webkit-autofill:active {
+  border: 1px solid var(--border);
+  -webkit-text-fill-color: var(--text) !important;
   caret-color: var(--text);
-  border-color: var(--border);
+  background-color: var(--surface) !important;
+  transition:
+    background-color 99999s ease-out 0s,
+    color 99999s ease-out 0s;
 }
 
-select.field__input:-webkit-autofill {
-  box-shadow: 0 0 0 1000px var(--surface) inset;
-  -webkit-text-fill-color: var(--text);
+select.field__input:-webkit-autofill,
+select.field__input:-webkit-autofill:hover,
+select.field__input:-webkit-autofill:focus {
+  border: 1px solid var(--border);
+  -webkit-text-fill-color: var(--text) !important;
+  background-color: var(--surface) !important;
+  transition:
+    background-color 99999s ease-out 0s,
+    color 99999s ease-out 0s;
 }
 
 .field__input::placeholder,
@@ -2352,6 +2369,9 @@ select.field__input:-webkit-autofill {
 .field__textarea {
   resize: vertical;
   min-height: 80px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .field-wb-well {

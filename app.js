@@ -204,6 +204,9 @@
   const BACKUP_FORMAT = "hj-backup";
   const BACKUP_VERSION = 1;
   const BACKUP_IMPORT_MAX_SIZE = 100 * 1024 * 1024;
+  /** 单个自定义字体上限（节选/完整中文族、可变字体可达数十 MB） */
+  const FONT_UPLOAD_MAX_BYTES = 96 * 1024 * 1024;
+  const FONT_UPLOAD_MAX_LABEL = Math.round(FONT_UPLOAD_MAX_BYTES / (1024 * 1024)) + "MB";
   const CLEAR_DATA_KEEP_KEYS = [STORAGE_API_CONFIGS, STORAGE_ACTIVE_API_ID];
   const IDB_NAME = "hj_narrative_ui";
   const IDB_STORE = "assets";
@@ -858,8 +861,8 @@
         alert("请选择 TTF、OTF、WOFF 或 WOFF2 格式的字体文件。");
         return;
       }
-      if (file.size > 12 * 1024 * 1024) {
-        alert("字体文件过大（超过 12MB），请换用较小的字体文件。");
+      if (file.size > FONT_UPLOAD_MAX_BYTES) {
+        alert("字体文件过大（超过 " + FONT_UPLOAD_MAX_LABEL + "），请换用较小的字体或使用子集字体。");
         return;
       }
       const reader = new FileReader();
@@ -10090,6 +10093,9 @@
       "</p>" +
       '<label class="field font-file-label"><span class="field__label">上传字体文件</span>' +
       '<input class="field__input" type="file" id="font-file-input" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,application/font-woff" /></label>' +
+      '<p class="field__hint" style="margin-top:-4px">支持 TTF、OTF、WOFF / WOFF2；单文件最大约 ' +
+      FONT_UPLOAD_MAX_LABEL +
+      "（偏大文件会占用本机浏览器存储）</p>" +
       '<div class="btn-row">' +
       '<button type="button" class="btn btn-secondary btn--pill" id="btn-font-clear">清除自定义字体</button></div></div></section>';
 
