@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>幻境叙事</title>
-  <link rel="stylesheet" href="styles.css?v=32" />
+  <link rel="stylesheet" href="styles.css?v=37" />
 </head>
 <body>
   <div class="page-backdrop">
@@ -71,35 +71,30 @@
             </button>
           </div>
           <div class="assistant-tool-strip" role="toolbar" aria-label="助手快捷工具">
-            <div class="assistant-tool-strip__cluster assistant-tool-strip__cluster--start">
-              <button type="button" class="story-tag-chip story-tag-chip--filled assistant-tool-tag" data-assistant-action="theme" aria-label="题材方向">
-                <span class="assistant-tool-tag__inner">
-                  <svg class="icon-linear assistant-tool-tag__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M16.24 7.76l-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"/></svg>
-                  <span class="assistant-tool-tag__text">题材方向</span>
-                </span>
-              </button>
-              <button type="button" class="story-tag-chip story-tag-chip--filled assistant-tool-tag" data-assistant-action="rewrite-persona" aria-label="改写人设">
-                <span class="assistant-tool-tag__inner">
-                  <svg class="icon-linear assistant-tool-tag__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                  <span class="assistant-tool-tag__text">改写人设</span>
-                </span>
-              </button>
-            </div>
-            <span class="assistant-tool-strip__fab-gap" aria-hidden="true"></span>
-            <div class="assistant-tool-strip__cluster assistant-tool-strip__cluster--end">
-              <button type="button" class="story-tag-chip story-tag-chip--filled assistant-tool-tag" data-assistant-action="gen-worldbook" aria-label="生成世界书">
-                <span class="assistant-tool-tag__inner">
-                  <svg class="icon-linear assistant-tool-tag__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><path d="M12 6v12"/><path d="M8 10h8"/></svg>
-                  <span class="assistant-tool-tag__text">生成世界书</span>
-                </span>
-              </button>
-              <button type="button" class="story-tag-chip story-tag-chip--filled assistant-tool-tag" data-assistant-action="inspiration" aria-label="灵感汲取">
-                <span class="assistant-tool-tag__inner">
-                  <svg class="icon-linear assistant-tool-tag__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 017 7c0 3.5-3 6-3 9H8c0-3-3-5.5-3-9a7 7 0 017-7z"/></svg>
-                  <span class="assistant-tool-tag__text">灵感汲取</span>
-                </span>
-              </button>
-            </div>
+            <button type="button" class="story-tag-chip story-tag-chip--filled assistant-tool-tag" data-assistant-action="theme" aria-label="题材方向">
+              <span class="assistant-tool-tag__inner">
+                <svg class="icon-linear assistant-tool-tag__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M16.24 7.76l-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"/></svg>
+                <span class="assistant-tool-tag__text">题材方向</span>
+              </span>
+            </button>
+            <button type="button" class="story-tag-chip story-tag-chip--filled assistant-tool-tag" data-assistant-action="rewrite-persona" aria-label="改写人设">
+              <span class="assistant-tool-tag__inner">
+                <svg class="icon-linear assistant-tool-tag__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                <span class="assistant-tool-tag__text">改写人设</span>
+              </span>
+            </button>
+            <button type="button" class="story-tag-chip story-tag-chip--filled assistant-tool-tag" data-assistant-action="gen-worldbook" aria-label="生成世界书">
+              <span class="assistant-tool-tag__inner">
+                <svg class="icon-linear assistant-tool-tag__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><path d="M12 6v12"/><path d="M8 10h8"/></svg>
+                <span class="assistant-tool-tag__text">生成世界书</span>
+              </span>
+            </button>
+            <button type="button" class="story-tag-chip story-tag-chip--filled assistant-tool-tag" data-assistant-action="inspiration" aria-label="灵感汲取">
+              <span class="assistant-tool-tag__inner">
+                <svg class="icon-linear assistant-tool-tag__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 017 7c0 3.5-3 6-3 9H8c0-3-3-5.5-3-9a7 7 0 017-7z"/></svg>
+                <span class="assistant-tool-tag__text">灵感汲取</span>
+              </span>
+            </button>
           </div>
         </div>
       </section>

@@ -27,8 +27,8 @@
   --nav-h: 64px;
   --nav-safe: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
   --main-scroll-pad-end: calc(40px + env(safe-area-inset-bottom, 0px));
-  /** 助手底栏垂直微调 */
-  --assistant-bottom-nudge-y: 8px;
+  /** 助手底栏垂直微调；0 配合留白由 padding 控制，更接近参考稿分层 */
+  --assistant-bottom-nudge-y: 0px;
   --status-h: 32px;
   /** 顶部模拟状态栏总占位（与 .status-bar 上下 padding + min-height 一致），供全屏层与顶栏对齐 */
   --shell-status-offset: calc(max(10px, env(safe-area-inset-top, 0px)) + var(--status-h) + 6px);
@@ -648,8 +648,9 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   border-top: none;
-  padding-top: 6px;
-  padding-bottom: 4px;
+  padding-top: 8px;
+  /** 与底栏纵向贴齐，不留缝 */
+  padding-bottom: 0;
   display: flex;
   flex-direction: column;
   transform: translateY(var(--assistant-bottom-nudge-y));
@@ -657,68 +658,92 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
 }
 
 .assistant-tool-strip {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  margin: 0;
-  padding: 4px 2px 0;
-  gap: 0;
+  /** 抵消 .main-scroll--assistant 左右 padding，铺满内容区宽度；四列均分且总宽不溢出屏 */
   box-sizing: border-box;
-}
-
-.assistant-tool-strip__cluster {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 3px;
-  flex: 1 1 0;
-  min-width: 0;
-}
-
-/** 左簇向右贴中间「剧情」、右簇向左贴，四处按键紧挨凸起圆钮两侧 */
-.assistant-tool-strip__cluster--start {
-  justify-content: flex-end;
-}
-
-.assistant-tool-strip__cluster--end {
-  justify-content: flex-start;
-}
-
-/** 与底栏圆形「剧情」同宽占位，四角 pill 与中栏凸起竖直对齐、互不遮挡 */
-.assistant-tool-strip__fab-gap {
-  flex: 0 0 56px;
-  width: 56px;
-  min-width: 56px;
-  max-width: 56px;
-  height: 28px;
-  flex-shrink: 0;
-  pointer-events: none;
+  width: calc(100% + 32px);
+  margin-left: -16px;
+  margin-right: -16px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 6px max(8px, env(safe-area-inset-right, 0px)) 0 max(8px, env(safe-area-inset-left, 0px));
+  column-gap: 4px;
+  row-gap: 0;
+  overflow-x: visible;
 }
 
 .assistant-tool-strip .story-tag-chip {
-  flex-shrink: 0;
-  font-size: 0.53rem;
-  padding: 2px 7px;
-  min-height: 30px;
+  width: 100%;
+  max-width: 100%;
+  justify-self: stretch;
+  min-width: 0;
+  font-size: clamp(0.54rem, 3.05vmin, 0.62rem);
+  font-weight: 600;
+  padding: 8px 4px;
+  min-height: 40px;
   box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  /** 允许在格内收缩，避免整行超出屏宽；字仍用 clamp 尽量保持可读 */
+  overflow: hidden;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+.assistant-tool-strip .story-tag-chip:focus-visible {
+  z-index: 1;
 }
 
 @media (pointer: coarse) {
   .assistant-tool-strip .story-tag-chip {
-    min-height: 34px;
-    padding: 4px 8px;
+    min-height: 42px;
+    padding: 8px 5px;
+    font-size: clamp(0.56rem, 3.12vmin, 0.64rem);
   }
 }
 
 .assistant-tool-strip .assistant-tool-tag__inner {
-  gap: 2px;
+  gap: 3px;
+  justify-content: center;
+  align-items: center;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.assistant-tool-strip .assistant-tool-tag__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  text-align: center;
+  line-height: 1.25;
 }
 
 .assistant-tool-strip .assistant-tool-tag__icon {
-  width: 11px;
-  height: 11px;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+/** 与助手聊天气泡一致的独立椭圆粒，勿连成条形分段控件 */
+.assistant-tool-strip .story-tag-chip.story-tag-chip--filled {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.07);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: var(--text);
+}
+
+html[data-theme="dark"] .assistant-tool-strip .story-tag-chip.story-tag-chip--filled {
+  background: rgba(28, 28, 32, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  color: #f2f2f5;
 }
 
 .assistant-tool-tag {
@@ -955,15 +980,16 @@ html[data-theme="dark"] .assistant-chat-item .bubble {
 .assistant-composer__send {
   width: 36px;
   height: 36px;
-  border: 1px solid var(--solid-fill-border);
+  border: 1px solid color-mix(in srgb, #7c6bb8 42%, transparent);
   border-radius: 10px;
-  background: var(--solid-fill-bg);
-  color: var(--solid-fill-fg);
+  background: linear-gradient(180deg, #b8a8e6 0%, #9b8ad4 100%);
+  color: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   cursor: pointer;
+  box-shadow: 0 2px 10px rgba(110, 90, 170, 0.22);
 }
 
 .assistant-composer__send:active {
@@ -1855,7 +1881,8 @@ html[data-theme="dark"] #modal-plot-edit .plot-tag {
   display: flex;
   justify-content: space-around;
   align-items: flex-end;
-  padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+  /** 与助手页快捷条纵向贴齐 */
+  padding: 0 4px calc(6px + env(safe-area-inset-bottom, 0px));
   z-index: 50;
   min-height: var(--nav-h);
   isolation: isolate;
@@ -1914,21 +1941,30 @@ html[data-theme="dark"] #modal-plot-edit .plot-tag {
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--glass-edge);
+  background:
+    radial-gradient(
+      circle at 32% 28%,
+      color-mix(in srgb, #ede9fe 92%, #ffffff) 0%,
+      color-mix(in srgb, #ddd6fe 55%, #faf5ff) 45%,
+      color-mix(in srgb, #c4b5fd 22%, #ffffff) 100%
+    );
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border: 1px solid color-mix(in srgb, #a78bfa 22%, var(--glass-edge));
   color: var(--text);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: -18px;
-  box-shadow: var(--glass-shadow);
+  /** 减弱上侵，与助手快捷条之间留出参考稿式的空隙 */
+  margin-bottom: -8px;
+  box-shadow:
+    0 6px 22px rgba(139, 120, 200, 0.2),
+    0 0 0 1px rgba(255, 255, 255, 0.35) inset;
 }
 
 .nav-item__label--fab {
   color: var(--text);
-  margin-top: 20px;
+  margin-top: 16px;
   font-size: 0.62rem;
 }
 
@@ -1941,15 +1977,56 @@ html[data-theme="dark"] #modal-plot-edit .plot-tag {
 }
 
 .nav-item--center.is-active .nav-item__fab {
-  background: color-mix(in srgb, var(--accent) 12%, var(--glass-bg));
-  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+  background:
+    radial-gradient(
+      circle at 32% 28%,
+      color-mix(in srgb, #ddd6fe 88%, #c4b5fd) 0%,
+      color-mix(in srgb, #c4b5fd 45%, #e9e4ff) 55%,
+      color-mix(in srgb, #a78bfa 18%, #faf5ff) 100%
+    );
+  border-color: color-mix(in srgb, #8b5cf6 28%, var(--border));
   color: var(--text);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.1);
+  box-shadow:
+    0 6px 24px rgba(124, 92, 210, 0.28),
+    0 0 0 1px rgba(255, 255, 255, 0.4) inset;
 }
 
 .nav-item--center.is-active .nav-item__label--fab {
   color: var(--text);
   font-weight: 700;
+}
+
+html[data-theme="dark"] .assistant-composer__send {
+  background: linear-gradient(180deg, #8b7ec8 0%, #6f62ae 100%);
+  border-color: color-mix(in srgb, #c4b5fd 35%, transparent);
+  color: #ffffff;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme="dark"] .nav-item__fab {
+  background:
+    radial-gradient(
+      circle at 32% 28%,
+      color-mix(in srgb, #a78bfa 38%, var(--glass-bg)) 0%,
+      color-mix(in srgb, #6d5eae 22%, var(--glass-bg)) 100%
+    );
+  border-color: color-mix(in srgb, #c4b5fd 28%, var(--glass-edge));
+  box-shadow:
+    0 8px 26px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+}
+
+html[data-theme="dark"] .nav-item--center.is-active .nav-item__fab {
+  background:
+    radial-gradient(
+      circle at 32% 28%,
+      color-mix(in srgb, #c4b5fd 42%, var(--glass-bg)) 0%,
+      color-mix(in srgb, #8b7fd8 28%, var(--glass-bg)) 100%
+    );
+  border-color: color-mix(in srgb, #a78bfa 40%, var(--border));
+  box-shadow:
+    0 8px 28px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset;
 }
 
 .overlay {
