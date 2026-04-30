@@ -204,15 +204,19 @@ html[data-theme="dark"] .phone-screen {
     flex-direction: column;
   }
 
+  /**
+   * 必须限制为视口高度：若 height:auto + max-height:none，长页面会把 .phone-screen 撑高，
+   * .bottom-nav（相对 .app-shell 的 position:absolute）会落到整页最底，须滚到底才见。
+   */
   .phone-screen {
     flex: 1 1 auto;
-    min-height: 0;
     width: 100%;
-    height: auto;
+    height: 100dvh;
+    max-height: 100dvh;
     min-height: 100dvh;
-    max-height: none;
     border-radius: 0;
     box-shadow: none;
+    overflow: hidden;
   }
 
   html[data-theme="dark"] .phone-screen {
