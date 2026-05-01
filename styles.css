@@ -4560,6 +4560,35 @@ html[data-theme="dark"] .story-scroll-nav__btn {
   vertical-align: baseline;
 }
 
+/* 想法「原句」摘选：与正文相同的排版 + 与剧情内想法标记一致的锚点虚线 */
+.story-thought-anchor-quote {
+  border-bottom: 1.5px dashed color-mix(in srgb, var(--accent) 54%, var(--border));
+  padding-bottom: 4px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.story-thought-edit-quote-field {
+  margin-bottom: 2px;
+}
+
+.story-thought-edit-quote {
+  max-height: 28vh;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 0.84rem;
+  line-height: 1.55;
+  color: var(--text);
+  box-sizing: border-box;
+}
+
+.story-thought-edit-quote.story-thought-anchor-quote {
+  border-bottom: 1.5px dashed color-mix(in srgb, var(--accent) 54%, var(--border));
+}
+
 .story-selection-bubble {
   position: fixed;
   z-index: 420;
@@ -4720,6 +4749,11 @@ html[data-theme="dark"] .story-scroll-nav__btn {
   background: var(--surface);
   border: 1px solid var(--border);
   box-sizing: border-box;
+}
+
+.story-thought-peek__quote.story-thought-peek__quote--rich {
+  white-space: normal;
+  color: var(--text);
 }
 
 .story-thought-peek__body {

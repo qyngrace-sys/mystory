@@ -1734,6 +1734,10 @@
         '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
         "</button>" +
         "</div>" +
+        '<div class="field plot-memory-edit-field story-thought-edit-quote-field" hidden>' +
+        '<span class="field__label">原句</span>' +
+        '<div id="story-thought-edit-quote" class="story-thought-edit-quote story-feed-narr--rp"></div>' +
+        "</div>" +
         '<div class="field plot-memory-edit-field">' +
         '<textarea id="story-thought-edit-input" class="field__input field__textarea plot-memory-edit-textarea" rows="8" placeholder="输入你此刻的想法"></textarea>' +
         "</div>" +
@@ -2269,7 +2273,15 @@
     const qt = String(thought.quote || "").trim();
     const em = normalizeStoryThoughtEmoji(thought.emoji);
     const bodyText = String(thought.content || "").trim();
-    if (qEl) qEl.textContent = qt || "（无摘选）";
+    if (qEl) {
+      if (qt) {
+        qEl.innerHTML = renderStoryInlineMarkup(qt);
+        qEl.classList.add("story-feed-narr--rp", "story-thought-anchor-quote", "story-thought-peek__quote--rich");
+      } else {
+        qEl.textContent = "（无摘选）";
+        qEl.classList.remove("story-feed-narr--rp", "story-thought-anchor-quote", "story-thought-peek__quote--rich");
+      }
+    }
     if (bEl) bEl.textContent = em ? em + bodyText : bodyText;
   }
 
@@ -2573,14 +2585,44 @@
     openStorySelectionCardPreview(dataUrl, filename);
   }
 
+  function ensureStoryThoughtEditQuoteBlockInModal() {
+    const modal = document.getElementById("modal-story-thought-edit");
+    if (!modal || document.getElementById("story-thought-edit-quote")) return;
+    const ta = modal.querySelector("#story-thought-edit-input");
+    const taField = ta && ta.closest(".field.plot-memory-edit-field");
+    if (!taField || !taField.parentNode) return;
+    const field = document.createElement("div");
+    field.className = "field plot-memory-edit-field story-thought-edit-quote-field";
+    field.hidden = true;
+    field.innerHTML =
+      '<span class="field__label">原句</span>' +
+      '<div id="story-thought-edit-quote" class="story-thought-edit-quote story-feed-narr--rp"></div>';
+    taField.parentNode.insertBefore(field, taField);
+  }
+
   function openStoryThoughtEditModal(meta, existingItem) {
     if (!meta || !meta.plot) return;
     const modal = getStorySelectionThoughtModalEl();
     if (!modal) return;
+    ensureStoryThoughtEditQuoteBlockInModal();
     const input = document.getElementById("story-thought-edit-input");
     const emojiInput = document.getElementById("story-thought-edit-emoji");
     const delBtn = document.getElementById("story-thought-edit-delete");
+    const quoteEl = document.getElementById("story-thought-edit-quote");
+    const quoteField = quoteEl && quoteEl.closest(".story-thought-edit-quote-field");
     if (!input || !emojiInput || !delBtn) return;
+    const quoteSrc = String((meta && meta.text) || (existingItem && existingItem.quote) || "").trim();
+    if (quoteEl && quoteField) {
+      if (quoteSrc) {
+        quoteEl.innerHTML = renderStoryInlineMarkup(quoteSrc);
+        quoteEl.classList.add("story-thought-anchor-quote");
+        quoteField.hidden = false;
+      } else {
+        quoteEl.innerHTML = "";
+        quoteEl.classList.remove("story-thought-anchor-quote");
+        quoteField.hidden = true;
+      }
+    }
     storySelectionThoughtDraftMeta = meta;
     storySelectionThoughtEditingId = existingItem ? String(existingItem.id || "") : null;
     input.value = existingItem ? String(existingItem.content || "") : "";
@@ -4257,6 +4299,8 @@
       const quoteInner = document.createElement("div");
       quoteInner.className = "story-feed-narr--rp story-favorite-card__rp";
       quoteInner.innerHTML = renderStoryInlineMarkup(quoteRaw);
+      if (quoteRaw) quoteInner.classList.add("story-thought-anchor-quote");
+      else quoteInner.classList.remove("story-thought-anchor-quote");
       quoteBody.appendChild(quoteInner);
       card.appendChild(quoteBody);
       const ideaLabel = document.createElement("div");
@@ -11392,6 +11436,7 @@
               editable.setAttribute("contenteditable", "true");
               editable.setAttribute("spellcheck", "false");
               editable.innerHTML = renderStoryInlineMarkup(narrText || rawText);
+              applyStoryLineDecorations(editable, p, String(line.id || ""));
               const actions = document.createElement("div");
               actions.className = "story-line-edit-actions";
               const btnSave = document.createElement("button");
@@ -11454,6 +11499,7 @@
             editable.setAttribute("contenteditable", "true");
             editable.setAttribute("spellcheck", "false");
             editable.innerHTML = renderStoryInlineMarkup(rawText);
+            applyStoryLineDecorations(editable, p, String(line.id || ""));
             const actions = document.createElement("div");
             actions.className = "story-line-edit-actions";
             const btnSave = document.createElement("button");
