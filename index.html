@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>幻境叙事</title>
-  <link rel="stylesheet" href="styles.css?v=37" />
+  <link rel="stylesheet" href="styles.css?v=54" />
 </head>
 <body>
   <div class="page-backdrop">
@@ -42,7 +42,7 @@
                   <div id="assistant-avatar" class="avatar assistant-avatar assistant-avatar--bar"></div>
                 </button>
               </div>
-              <p id="assistant-name" class="assistant-name assistant-name--bar">AI助手</p>
+              <p id="assistant-name" class="assistant-name assistant-name--bar">永远追随太太</p>
             </div>
             <div class="assistant-header__actions">
               <button type="button" class="icon-btn icon-btn--add" id="assistant-switch-open" aria-label="切换助手">
@@ -232,6 +232,19 @@
       </div>
     </div>
 
+    <!-- 剧情列表 · 分享给助手 -->
+    <div id="modal-plot-share-assistant" class="overlay overlay--dim" hidden>
+      <div class="modal-sheet modal-sheet--assistant-switch modal-sheet--plot-share-assistant">
+        <div class="sheet-handle"></div>
+        <div class="modal-header">
+          <h2 class="modal-title">分享给助手</h2>
+          <button type="button" class="icon-btn" id="plot-share-assistant-modal-close" aria-label="关闭"><svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+        </div>
+        <p class="plot-share-assistant-hint">选择接收本条剧情卡片的助手；发送后将附带总结与记忆（若无则附带最近正文回合），并由助手分段回复。</p>
+        <div id="plot-share-assistant-list" class="assistant-switch-list form-stack"></div>
+      </div>
+    </div>
+
     <!-- 助手 · 题材方向 -->
     <div id="modal-assistant-theme" class="overlay overlay--dim" hidden>
       <div class="modal-sheet modal-sheet--tall">
@@ -269,7 +282,7 @@
           </label>
           <div class="story-memory-edit-actions assistant-theme-result-actions">
             <button type="button" class="btn btn--secondary" id="assistant-theme-copy">复制</button>
-            <button type="button" class="btn btn--primary" id="assistant-theme-create-plot">生成新剧情</button>
+            <button type="button" class="btn btn--primary" id="assistant-theme-create-plot" disabled>生成新剧情</button>
           </div>
           <div id="assistant-theme-finalize" class="assistant-theme-finalize" hidden>
             <p class="field__hint assistant-theme-finalize__intro">
@@ -436,8 +449,8 @@
             <textarea class="field__input field__textarea" id="char-form-bg" rows="3" placeholder="例：成长环境、重要转折、与当前剧情的联系…"></textarea>
           </label>
           <label class="field">
-            <span class="field__label">人物性格</span>
-            <textarea class="field__input field__textarea" id="char-form-style" rows="2" placeholder="描述性格特点、处事方式、情绪倾向等"></textarea>
+            <span class="field__label">外貌及性格</span>
+            <textarea class="field__input field__textarea" id="char-form-style" rows="3" placeholder="描述外貌要点与性格特点（如体态、神态、穿着气质、处事方式等）"></textarea>
           </label>
           <label class="field">
             <span class="field__label">人物关系</span>
@@ -599,6 +612,10 @@
             <svg class="story-line-sheet__item-icon icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
             <span>收藏夹</span>
           </button>
+          <button type="button" class="story-line-sheet__item" data-avatar-action="thoughts">
+            <svg class="story-line-sheet__item-icon icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21h6"/><path d="M12 3a6 6 0 016 6v.1c0 2-1.2 3.8-3 4.9V17H9v-3a6 6 0 01-3-5.1A6 6 0 0112 3z"/></svg>
+            <span>查看想法</span>
+          </button>
           <button type="button" class="story-line-sheet__item" data-avatar-action="memories">
             <svg class="story-line-sheet__item-icon icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
             <span>查看记忆</span>
@@ -736,9 +753,11 @@
             <div id="story-play-feed" class="story-play-feed"></div>
             <div id="story-play-choices" class="story-play-choices"></div>
           </div>
-          <button type="button" class="story-scroll-latest-btn" id="story-scroll-latest" aria-label="滑到最新" title="滑到最新" hidden>
-            最新
-          </button>
+          <div class="story-scroll-nav" id="story-scroll-nav" hidden>
+            <button type="button" class="story-scroll-nav__btn" id="story-scroll-latest" aria-label="滑到最新" title="滑到最新" hidden>
+              <svg class="icon-linear story-scroll-nav__icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </div>
           <div class="story-composer">
             <div id="story-composer-avatar" class="avatar story-composer__avatar" title="主视角"></div>
             <label class="story-composer__field">
@@ -945,6 +964,7 @@
             新增记忆
           </button>
         </div>
+        <p id="plot-memories-hint" class="story-memories-hint"></p>
         <div id="plot-memories-list" class="story-memories-list"></div>
       </div>
     </div>
@@ -962,6 +982,18 @@
           </button>
         </div>
         <div id="plot-favorites-list" class="story-memories-list"></div>
+      </div>
+    </div>
+
+    <div id="modal-plot-thoughts" class="overlay overlay--dim" hidden>
+      <div class="modal-sheet modal-sheet--tall">
+        <div class="sheet-handle"></div>
+        <div class="modal-header">
+          <h2 class="modal-title">查看想法</h2>
+          <button type="button" class="icon-btn" id="plot-thoughts-close" aria-label="关闭"><svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+        </div>
+        <p class="field__hint">在剧情中长按选中文本后，点「记录想法」可添加或修改条目。</p>
+        <div id="plot-thoughts-list" class="story-memories-list"></div>
       </div>
     </div>
 
