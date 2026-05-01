@@ -231,12 +231,20 @@
   const FONT_META_KEY = "hj_font_meta_v1";
   const BACKUP_STORAGE_PREFIX = "hj-";
   const BACKUP_FORMAT = "hj-backup";
+  /** 当前导出的 manifest 版本号；提高此值时请勿降低「可导入」旧号段，见 isBackupManifestImportable */
   const BACKUP_VERSION = 1;
+  /** 仍可接受的最旧 manifest.version（旧备份固定为 1） */
+  const BACKUP_IMPORT_MIN_VERSION = 1;
   const BACKUP_IMPORT_MAX_SIZE = 100 * 1024 * 1024;
   /** 单个自定义字体上限（节选/完整中文族、可变字体可达数十 MB） */
   const FONT_UPLOAD_MAX_BYTES = 96 * 1024 * 1024;
   const FONT_UPLOAD_MAX_LABEL = Math.round(FONT_UPLOAD_MAX_BYTES / (1024 * 1024)) + "MB";
   const CLEAR_DATA_KEEP_KEYS = [STORAGE_API_CONFIGS, STORAGE_ACTIVE_API_ID];
+  /**
+   * 清除本地数据后、页面刷新前必须置为 true：否则 beforeunload/pagehide 等仍会
+   * 调用 flushPersistNarrative，把内存里的角色/剧情再写回 localStorage。
+   */
+  let suppressUserDataPersistence = false;
   const IDB_NAME = "hj_narrative_ui";
   const IDB_STORE = "assets";
   const FONT_FACE_NAME = "HJUserCustomFont";
@@ -580,6 +588,8 @@
   }
 
   async function clearAllUserDataExceptApiSettings() {
+    suppressUserDataPersistence = true;
+    flushPersistNarrative();
     const keepSnapshot = {};
     CLEAR_DATA_KEEP_KEYS.forEach(function (k) {
       try {
@@ -599,6 +609,9 @@
       await idbDeleteFont();
     } catch (e) {}
     showToast("数据已清除，正在刷新页面…", "success");
+    try {
+      location.hash = "#/tab/overview";
+    } catch (e) {}
     window.setTimeout(function () {
       location.reload();
     }, 150);
@@ -683,8 +696,15 @@
     }
   }
 
+  function stripJsonUtf8Bom(s) {
+    if (typeof s !== "string") return s;
+    const t = s.trim();
+    if (t.charCodeAt(0) === 0xfeff) return t.slice(1);
+    return t;
+  }
+
   function parseBackupStorageJson(raw) {
-    const obj = JSON.parse(raw);
+    const obj = JSON.parse(stripJsonUtf8Bom(String(raw)));
     if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
       throw new Error("BACKUP_STORAGE_INVALID");
     }
@@ -695,6 +715,35 @@
       if (typeof v === "string") out[k] = v;
     });
     return out;
+  }
+
+  /** 兼容 zip 根路径为「localStorage.json」或「./folder/localStorage.json」等 */
+  function zipGetFileInsensitive(zip, wantName) {
+    const exact = zip.file(wantName);
+    if (exact && !exact.dir) return exact;
+    const wantBase = String(wantName || "")
+      .split("/")
+      .pop()
+      .toLowerCase();
+    const names = Object.keys(zip.files || {});
+    for (let i = 0; i < names.length; i++) {
+      const name = names[i];
+      const meta = zip.files[name];
+      if (!meta || meta.dir) continue;
+      const base = name.split("/").pop().toLowerCase();
+      if (base === wantBase) return zip.file(name);
+    }
+    return null;
+  }
+
+  function isBackupManifestImportable(manifest) {
+    if (!manifest || typeof manifest !== "object") return false;
+    if (manifest.format !== BACKUP_FORMAT) return false;
+    let v = Number(manifest.version);
+    if (!Number.isFinite(v) && manifest.version == null) v = BACKUP_IMPORT_MIN_VERSION;
+    if (!Number.isFinite(v)) return false;
+    if (v < BACKUP_IMPORT_MIN_VERSION || v > BACKUP_VERSION) return false;
+    return true;
   }
 
   async function applyBackupFromZipFile(file) {
@@ -714,21 +763,36 @@
     }
     try {
       const zip = await JSZip.loadAsync(file);
-      const manifestEntry = zip.file("manifest.json");
-      const storageEntry = zip.file("localStorage.json");
-      if (!manifestEntry || !storageEntry) {
+      const manifestEntry = zipGetFileInsensitive(zip, "manifest.json");
+      const storageEntry = zipGetFileInsensitive(zip, "localStorage.json");
+      if (!storageEntry) {
         throw new Error("BACKUP_FILE_MISSING");
       }
-      const manifest = JSON.parse(await manifestEntry.async("string"));
-      if (!manifest || manifest.format !== BACKUP_FORMAT || manifest.version !== BACKUP_VERSION) {
+      const storageRaw = await storageEntry.async("string");
+      const snapshot = parseBackupStorageJson(storageRaw);
+      let manifest;
+      if (manifestEntry) {
+        manifest = JSON.parse(await manifestEntry.async("string"));
+      } else {
+        if (!Object.keys(snapshot).length) {
+          throw new Error("BACKUP_FILE_MISSING");
+        }
+        manifest = { format: BACKUP_FORMAT, version: BACKUP_IMPORT_MIN_VERSION };
+      }
+      if (!isBackupManifestImportable(manifest)) {
         throw new Error("BACKUP_MANIFEST_INVALID");
       }
-      const snapshot = parseBackupStorageJson(await storageEntry.async("string"));
       clearBackupStorageKeys();
       Object.keys(snapshot).forEach(function (k) {
         localStorage.setItem(k, snapshot[k]);
       });
-      const fontEntry = zip.file("userFont.bin");
+      /**
+       * 必须立刻禁止持久化并向磁盘 flush：否则会话内存仍是「导入前」的空数据，
+       * reload 前的 beforeunload/pagehide 会把空 narrative 写回盖掉刚导入的内容。
+       */
+      suppressUserDataPersistence = true;
+      flushPersistNarrative();
+      const fontEntry = zipGetFileInsensitive(zip, "userFont.bin");
       if (fontEntry) {
         const fontBuffer = await fontEntry.async("arraybuffer");
         await idbPutFont(fontBuffer);
@@ -736,11 +800,23 @@
         await idbDeleteFont();
       }
       showToast("备份导入成功，正在刷新页面…", "success");
+      try {
+        location.hash = "#/tab/overview";
+      } catch (e) {}
       window.setTimeout(function () {
         location.reload();
       }, 150);
     } catch (e) {
-      showToast("导入备份失败：文件无效或已损坏。", "error");
+      var msg = "导入备份失败：文件无效或已损坏。";
+      if (e && e.message === "BACKUP_MANIFEST_INVALID") {
+        msg =
+          "导入备份失败：备份格式与当前版本不兼容（或 manifest 损坏）。请确认是本应用导出的 hj-backup。";
+      } else if (e && e.message === "BACKUP_FILE_MISSING") {
+        msg = "导入备份失败：ZIP 内缺少可用的 localStorage.json。";
+      } else if (e && e.message === "BACKUP_STORAGE_INVALID") {
+        msg = "导入备份失败：localStorage.json 格式不正确。";
+      }
+      showToast(msg, "error");
     }
   }
 
@@ -5096,6 +5172,7 @@
   }
 
   function persistAssistantState() {
+    if (suppressUserDataPersistence) return;
     try {
       localStorage.setItem(
         STORAGE_ASSISTANT,
@@ -5196,6 +5273,7 @@
   let narrativePersistTimer = null;
 
   function persistNarrative() {
+    if (suppressUserDataPersistence) return;
     try {
       localStorage.setItem(
         STORAGE_NARRATIVE,
@@ -5221,6 +5299,7 @@
       clearTimeout(narrativePersistTimer);
       narrativePersistTimer = null;
     }
+    if (suppressUserDataPersistence) return;
     persistNarrative();
   }
 
@@ -14149,9 +14228,28 @@
     if (metaEarly) customFontMeta = JSON.parse(metaEarly);
   } catch (e) {}
 
-  applyHash();
-  renderDynamic();
-  if (appShell) appShell.classList.remove("app-shell--booting");
+  try {
+    applyHash();
+    renderDynamic();
+  } catch (bootErr) {
+    try {
+      console.error(bootErr);
+    } catch (e) {}
+    try {
+      showToast("载入界面时出错，已尝试退回主标签。", "error", 4200);
+    } catch (e2) {}
+    try {
+      location.hash = "#/tab/overview";
+      applyHash();
+      renderDynamic();
+    } catch (e3) {
+      try {
+        console.error(e3);
+      } catch (e4) {}
+    }
+  } finally {
+    if (appShell) appShell.classList.remove("app-shell--booting");
+  }
   tryLoadPersistedFont()
     .then(() => renderDynamic())
     .catch(() => {});
