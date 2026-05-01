@@ -1348,6 +1348,8 @@
   let storyShareModalState = null;
   /** 剧情正文行内编辑：{ plotId, turnIndex, lineIndex } */
   let storyLineEditState = null;
+  /** 从长按菜单进入「编辑」后开启：仅此时在正文划选才弹出复制/划线等气泡（避免与系统长按菜单冲突） */
+  let storyPlayAnnotateMode = false;
   const AUTO_SUMMARY_EVERY_TURNS = 6;
   let storySummaryEditingId = null;
   let storySummaryEditingDraft = "";
@@ -1774,6 +1776,15 @@
     storySelectionBubbleRangeMeta = null;
   }
 
+  function isStoryPlayAnnotateBubbleAllowed() {
+    if (!storyPlayAnnotateMode) return false;
+    const playPanel = document.getElementById("story-panel-play");
+    if (!playPanel || playPanel.hidden) return false;
+    const plot = getStorySelectionActivePlot();
+    if (!plot || plot.playSealed) return false;
+    return true;
+  }
+
   function getSelectionTextNodePosition(container, targetOffset) {
     const total = Math.max(0, Math.floor(targetOffset || 0));
     let remain = total;
@@ -1898,6 +1909,7 @@
         if (!st || st.moved) return;
         st.longTriggered = true;
         storySelectionSuppressClickUntil = Date.now() + 520;
+        if (!isStoryPlayAnnotateBubbleAllowed()) return;
         const ok = selectStorySentenceByPoint(target, st.x, st.y);
         if (ok) {
           storySelectionIgnoreNextBubble = false;
@@ -2054,6 +2066,10 @@
   function showStorySelectionBubble() {
     const bubble = getStorySelectionBubbleEl();
     if (!bubble) return;
+    if (!isStoryPlayAnnotateBubbleAllowed()) {
+      hideStorySelectionBubble();
+      return;
+    }
     const meta = getStorySelectionRangeMetaFromSelection();
     if (!meta) {
       hideStorySelectionBubble();
@@ -2067,15 +2083,19 @@
     if (unhighlightBtn) unhighlightBtn.hidden = !inHighlight;
     const rect = meta.rangeRect;
     const shell = document.getElementById("app-shell");
-    const shellRect = shell ? shell.getBoundingClientRect() : { left: 8, right: window.innerWidth - 8 };
+    const shellRect = shell
+      ? shell.getBoundingClientRect()
+      : { left: 8, top: 0, right: window.innerWidth - 8, bottom: window.innerHeight };
     bubble.hidden = false;
     const w = bubble.offsetWidth || 280;
     const h = bubble.offsetHeight || 44;
     const margin = 8;
     let left = rect.left + rect.width / 2 - w / 2;
     left = Math.max(shellRect.left + margin, Math.min(left, shellRect.right - w - margin));
-    let top = rect.top - h - 10;
-    if (top < 8) top = rect.bottom + 10;
+    let top = rect.bottom + 10;
+    if (top + h > shellRect.bottom - margin) {
+      top = Math.max(shellRect.top + margin, shellRect.bottom - h - margin);
+    }
     bubble.style.left = Math.round(left) + "px";
     bubble.style.top = Math.round(top) + "px";
   }
@@ -2774,6 +2794,8 @@
     btnCancel.addEventListener("click", function (e) {
       e.preventDefault();
       storyLineEditState = null;
+      storyPlayAnnotateMode = false;
+      hideStorySelectionBubble();
       rerenderStoryPlayIfCurrent(plot);
     });
     btnSave.addEventListener("click", async function (e) {
@@ -4826,6 +4848,7 @@
         storyLineActionContext = null;
         return;
       }
+      storyPlayAnnotateMode = true;
       storyLineEditState = {
         plotId: payload.plotId,
         turnIndex: payload.turnIndex,
@@ -9100,7 +9123,16 @@
     }
   }
 
-  async function sendAssistantMessage() {
+  /** 聊天记录末尾是否为「用户已发、尚未助手回复」 */
+  function assistantChatAwaitingAssistantReply() {
+    const msgs = assistantState.messages;
+    if (!msgs.length) return false;
+    const last = msgs[msgs.length - 1];
+    return !!(last && last.role === "user" && String(last.content || "").trim());
+  }
+
+  /** 纸飞机：仅把输入写入聊天记录，不调用模型 */
+  function submitAssistantUserMessage() {
     const input = els.assistantInput();
     if (!input || assistantReplying) return;
     const text = String(input.value || "").trim();
@@ -9109,13 +9141,25 @@
     assistantState.messages.push({ role: "user", content: text });
     markAssistantChatRealExchangeStarted();
     assistantState.messages = normalizeAssistantMessages(assistantState.messages);
+    persistAssistantState();
+    renderAssistantChatList();
+  }
+
+  /** 四角星：在当前对话上请求助手回复（需最新消息为用户侧） */
+  async function generateAssistantReplyFromChat() {
+    if (assistantReplying) return;
+    if (!assistantChatAwaitingAssistantReply()) {
+      showToast("请先发送一条消息到聊天记录，再点击生成助手回复。", "info", 3600);
+      return;
+    }
+    const msgs = assistantState.messages;
+    const lastUserText = String((msgs[msgs.length - 1] && msgs[msgs.length - 1].content) || "").trim();
     assistantReplying = true;
     renderAssistantChatList();
-    persistAssistantState();
-    const messages = buildAssistantApiMessageList(buildAssistantChatApiExtraSystem(text));
+    const apiMessages = buildAssistantApiMessageList(buildAssistantChatApiExtraSystem(lastUserText));
     try {
       const resolvedApiId = getAssistantResolvedApiId();
-      const reply = await callChatCompletion(messages, 0.72, 1000, { apiConfigId: resolvedApiId });
+      const reply = await callChatCompletion(apiMessages, 0.72, 1000, { apiConfigId: resolvedApiId });
       const trimmed = String(reply || "").trim() || "我暂时没有生成内容，请再试一次。";
       const segs = splitAssistantPenpalReply(trimmed);
       const toPush = segs.length ? segs : [trimmed];
@@ -9405,6 +9449,8 @@
               plotObj.playSealed = !plotObj.playSealed;
               if (plotObj.playSealed && storyLineEditState && storyLineEditState.plotId === plotObj.id) {
                 storyLineEditState = null;
+                storyPlayAnnotateMode = false;
+                hideStorySelectionBubble();
               }
               schedulePersistNarrative();
               renderDynamic();
@@ -11169,7 +11215,11 @@
     ensurePlotExtendedState(p);
     if (storyLineEditState && storyLineEditState.plotId === p.id) {
       const ectx = getLineContext(p.id, storyLineEditState.turnIndex, storyLineEditState.lineIndex);
-      if (!ectx) storyLineEditState = null;
+      if (!ectx) {
+        storyLineEditState = null;
+        storyPlayAnnotateMode = false;
+        hideStorySelectionBubble();
+      }
     }
     applyStoryBackground(p);
     const identityBlocks = getEffectiveIdentityBlocks(p);
@@ -11965,6 +12015,8 @@
   function closeStoryLayer(targetTab) {
     closeStoryLineActionSheet();
     storyLineEditState = null;
+    storyPlayAnnotateMode = false;
+    hideStorySelectionBubble();
     closeAvatarActionSheet();
     closeStorySummariesModal();
     closeStorySearchModal();
@@ -12487,12 +12539,15 @@
     openAssistantProfileModalForCreate();
   });
   document.getElementById("assistant-send").addEventListener("click", () => {
-    void sendAssistantMessage();
+    submitAssistantUserMessage();
+  });
+  document.getElementById("assistant-generate-reply").addEventListener("click", () => {
+    void generateAssistantReplyFromChat();
   });
   document.getElementById("assistant-input").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      void sendAssistantMessage();
+      submitAssistantUserMessage();
     }
   });
   document.getElementById("assistant-modal-close").addEventListener("click", closeAssistantProfileModal);
@@ -13897,6 +13952,10 @@
     const host = document.getElementById("story-play-scroll");
     const range = sel.getRangeAt(0);
     if (!host || !host.contains(range.commonAncestorContainer)) {
+      hideStorySelectionBubble();
+      return;
+    }
+    if (!isStoryPlayAnnotateBubbleAllowed()) {
       hideStorySelectionBubble();
       return;
     }

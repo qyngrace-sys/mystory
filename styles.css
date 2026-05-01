@@ -988,7 +988,15 @@ html[data-theme="dark"] .assistant-chat-item .bubble {
   border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
 }
 
-.assistant-composer__send {
+.assistant-composer__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.assistant-composer__send,
+.assistant-composer__generate {
   width: 36px;
   height: 36px;
   border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
@@ -1007,7 +1015,8 @@ html[data-theme="dark"] .assistant-chat-item .bubble {
   box-shadow: 0 2px 12px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
-.assistant-composer__send:active {
+.assistant-composer__send:active,
+.assistant-composer__generate:active {
   transform: translateY(1px);
 }
 
