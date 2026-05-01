@@ -1,0 +1,26 @@
+{
+  "id": "./",
+  "name": "嗅嗅剧场",
+  "short_name": "嗅嗅剧场",
+  "description": "互动叙事与剧情创作",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#fce4ec",
+  "theme_color": "#f5b8c8",
+  "icons": [
+    {
+      "src": "icons/app-icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/app-icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

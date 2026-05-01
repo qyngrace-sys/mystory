@@ -21,7 +21,7 @@
   --solid-fill-bg: #ffffff;
   --solid-fill-fg: #1a1a1a;
   --solid-fill-border: rgba(26, 26, 26, 0.14);
-  --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-stack: system-ui, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Hiragino Sans", "Noto Sans", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", "Microsoft YaHei UI", sans-serif;
   --radius: 18px;
   --radius-sm: 12px;
   --nav-h: 64px;

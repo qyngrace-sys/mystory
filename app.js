@@ -241,7 +241,7 @@
   const IDB_STORE = "assets";
   const FONT_FACE_NAME = "HJUserCustomFont";
   const DEFAULT_FONT_STACK =
-    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
+    'system-ui, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Hiragino Sans", "Noto Sans", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", "Microsoft YaHei UI", sans-serif';
 
   let wbCategories = [
     { id: "plot", name: "剧情输出" },
@@ -545,12 +545,20 @@
     return null;
   }
 
+  /** 参与导出/导入的 localStorage 键（hj- 前缀 + 自定义字体元数据等） */
+  function isBackupStorageKey(key) {
+    if (!key || typeof key !== "string") return false;
+    if (key.indexOf(BACKUP_STORAGE_PREFIX) === 0) return true;
+    if (key === FONT_META_KEY) return true;
+    return false;
+  }
+
   function collectLocalStorageSnapshot() {
     const out = {};
     try {
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (!key || key.indexOf(BACKUP_STORAGE_PREFIX) !== 0) continue;
+        if (!isBackupStorageKey(key)) continue;
         const val = localStorage.getItem(key);
         if (typeof val === "string") out[key] = val;
       }
@@ -563,7 +571,7 @@
       const keys = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && key.indexOf(BACKUP_STORAGE_PREFIX) === 0) keys.push(key);
+        if (key && isBackupStorageKey(key)) keys.push(key);
       }
       keys.forEach(function (k) {
         localStorage.removeItem(k);
@@ -634,7 +642,7 @@
         {
           format: BACKUP_FORMAT,
           version: BACKUP_VERSION,
-          appTitle: "幻境叙事",
+          appTitle: "嗅嗅剧场",
           exportedAt: new Date().toISOString(),
         },
         null,
@@ -682,7 +690,7 @@
     }
     const out = {};
     Object.keys(obj).forEach(function (k) {
-      if (k.indexOf(BACKUP_STORAGE_PREFIX) !== 0) return;
+      if (!isBackupStorageKey(k)) return;
       const v = obj[k];
       if (typeof v === "string") out[k] = v;
     });
@@ -5204,6 +5212,22 @@
   function applyOneTimeNarrativePresetWipe() {
     try {
       if (localStorage.getItem(STORAGE_NARRATIVE_PRESET_WIPE_DONE)) return;
+      /** 导入备份等场景：存档里已有剧情/角色/世界书但缺少本标记时，不得清空否则会把导入数据覆盖掉 */
+      const raw = localStorage.getItem(STORAGE_NARRATIVE);
+      if (raw) {
+        try {
+          const o = JSON.parse(raw);
+          if (o && typeof o === "object") {
+            const hasChars = Array.isArray(o.characters) && o.characters.length > 0;
+            const hasPlots = Array.isArray(o.plots) && o.plots.length > 0;
+            const hasWb = Array.isArray(o.worldBooks) && o.worldBooks.length > 0;
+            if (hasChars || hasPlots || hasWb) {
+              localStorage.setItem(STORAGE_NARRATIVE_PRESET_WIPE_DONE, "1");
+              return;
+            }
+          }
+        } catch (e2) {}
+      }
       characters = [];
       worldBooks = [];
       plots = [];
