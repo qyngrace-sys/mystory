@@ -11585,9 +11585,37 @@
   /** 引号内已以「。」结尾时，去掉紧挨在闭引号后的重复句号（模型常见输出；避免单独 rendered 成多一行「。」） */
   function collapseDuplicatePeriodAfterClosingQuote(s) {
     return String(s || "").replace(
-      /(。)([」”])\s*([。．])(?=\s|$|[\r\n\u4e00-\u9fff「“])/gu,
+      /(。)([\u300d\u201d"])\s*([。．])(?=\s|$|[\r\n\u4e00-\u9fff「“])/gu,
       "$1$2"
     );
+  }
+
+  /** 上一行行末是否为对白闭引（弯引号角引与半角直引号）；用于判断是否丢弃下一行孤立句号 */
+  function lineEndsWithDialogueClosing(prevLine) {
+    const t = String(prevLine || "").replace(/\s+$/u, "");
+    if (!t) return false;
+    return /[\u300d\u201d"]$/u.test(t);
+  }
+
+  /**
+   * 闭引号行之后单独占一行的「。」（仅句末点号）常为模型冗余；与用户「引号后不再保留句号」一致，整行删除。
+   * 单换行在 pre-wrap 下也会把该句号提成单独一行。
+   */
+  function stripOrphanSentencePeriodLinesAfterClosingQuote(text) {
+    const raw = String(text || "").replace(/\r\n/g, "\n");
+    if (!raw.includes("\n")) return raw;
+    const lines = raw.split("\n");
+    const out = [];
+    for (let li = 0; li < lines.length; li++) {
+      const line = lines[li];
+      const trimmed = line.trim();
+      const onlyCnPeriod = /^[。．]+$/.test(trimmed);
+      if (onlyCnPeriod && out.length && lineEndsWithDialogueClosing(out[out.length - 1])) {
+        continue;
+      }
+      out.push(line);
+    }
+    return out.join("\n");
   }
 
   function mergeOrphanPunctuationOnlyParagraphs(paras) {
@@ -11596,6 +11624,10 @@
       const p = String(paras[i] || "").trim();
       if (!p) continue;
       if (/^[。．，,！？!?；：…、]+$/u.test(p) && out.length) {
+        const prev = String(out[out.length - 1] || "");
+        if (/^[。．]+$/u.test(p) && lineEndsWithDialogueClosing(prev)) {
+          continue;
+        }
         out[out.length - 1] = out[out.length - 1] + p;
         continue;
       }
@@ -11634,8 +11666,9 @@
    * 合并「单独成行仅含句读」的段落，避免模型把句号甩成新行。
    */
   function normalizeStoryParagraphLeadingPunctuation(text) {
-    const raw = String(text || "").replace(/\r\n/g, "\n").trim();
+    let raw = String(text || "").replace(/\r\n/g, "\n").trim();
     if (!raw) return "";
+    raw = stripOrphanSentencePeriodLinesAfterClosingQuote(raw);
     const paras = raw
       .split(/\n\s*\n+/)
       .map(function (seg) {
