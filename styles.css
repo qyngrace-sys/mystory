@@ -2646,6 +2646,9 @@ select.field__input:-webkit-autofill:focus {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.24);
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
+  /* 避免纵向手势被背后是 .main-scroll 抢走；触控设备上更明显 */
+  touch-action: pan-y;
+  overscroll-behavior: contain;
 }
 
 .custom-select__panel .custom-select__option:hover,

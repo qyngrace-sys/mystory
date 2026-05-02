@@ -6449,7 +6449,10 @@
     window.addEventListener("resize", onVc);
     document.addEventListener(
       "scroll",
-      function () {
+      function (e) {
+        if (!customSelectOpenPanel) return;
+        const t = e.target;
+        if (t instanceof Node && (t === customSelectOpenPanel || customSelectOpenPanel.contains(t))) return;
         onVc();
       },
       true
@@ -11582,6 +11585,27 @@
       .replace(/'/g, "&#39;");
   }
 
+  /**
+   * 内部硬性规整：删掉「仅存句末点号、无其它正文」的整行（中英文句号）。
+   * 常见于模型在引号对白或段末多甩一个句号并单换行，pre-wrap 下会看起来像单独成行只有「。」）。
+   */
+  function stripStandalonePeriodOnlyLines(text) {
+    const raw = String(text || "").replace(/\r\n/g, "\n");
+    if (!raw.includes("\n") && raw.trim()) {
+      const lone = raw.trim();
+      if (/^[.\u3002\uFF0E]+$/u.test(lone)) return "";
+      return raw;
+    }
+    return raw
+      .split("\n")
+      .filter(function (ln) {
+        const t = String(ln || "").trim();
+        if (!t) return true;
+        return !/^[.\u3002\uFF0E]+$/u.test(t);
+      })
+      .join("\n");
+  }
+
   /** 引号内已以「。」结尾时，去掉紧挨在闭引号后的重复句号（模型常见输出；避免单独 rendered 成多一行「。」） */
   function collapseDuplicatePeriodAfterClosingQuote(s) {
     return String(s || "").replace(
@@ -11667,6 +11691,8 @@
    */
   function normalizeStoryParagraphLeadingPunctuation(text) {
     let raw = String(text || "").replace(/\r\n/g, "\n").trim();
+    if (!raw) return "";
+    raw = stripStandalonePeriodOnlyLines(raw).trim();
     if (!raw) return "";
     raw = stripOrphanSentencePeriodLinesAfterClosingQuote(raw);
     const paras = raw
