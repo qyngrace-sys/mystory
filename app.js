@@ -229,6 +229,11 @@
   /** 一次性清空旧版/无标记的预设剧情、角色、世界书（仅需执行一次） */
   const STORAGE_NARRATIVE_PRESET_WIPE_DONE = "hj-narrative-preset-wipe-v1";
   const FONT_META_KEY = "hj_font_meta_v1";
+  /** 与 hj- 前缀一致，参与备份导出/导入与「清除数据」 */
+  const STORAGE_UI_FONT_SCALE = "hj-ui-font-scale-v1";
+  const UI_FONT_SCALE_MIN = 1;
+  const UI_FONT_SCALE_MAX = 1.45;
+  const UI_FONT_SCALE_DEFAULT = 1;
   const BACKUP_STORAGE_PREFIX = "hj-";
   const BACKUP_FORMAT = "hj-backup";
   /** 当前导出的 manifest 版本号；提高此值时请勿降低「可导入」旧号段，见 isBackupManifestImportable */
@@ -881,6 +886,41 @@
     setFontStackDefault();
   }
 
+  function clampUiFontScale(v) {
+    const n = typeof v === "number" ? v : parseFloat(v);
+    if (!Number.isFinite(n)) return UI_FONT_SCALE_DEFAULT;
+    return Math.max(UI_FONT_SCALE_MIN, Math.min(UI_FONT_SCALE_MAX, n));
+  }
+
+  function getPersistedUiFontScale() {
+    try {
+      const raw = localStorage.getItem(STORAGE_UI_FONT_SCALE);
+      if (raw == null || raw === "") return UI_FONT_SCALE_DEFAULT;
+      return clampUiFontScale(parseFloat(raw));
+    } catch (e) {
+      return UI_FONT_SCALE_DEFAULT;
+    }
+  }
+
+  function persistUiFontScale(scale) {
+    const s = clampUiFontScale(scale);
+    try {
+      if (Math.abs(s - UI_FONT_SCALE_DEFAULT) < 0.0001) localStorage.removeItem(STORAGE_UI_FONT_SCALE);
+      else localStorage.setItem(STORAGE_UI_FONT_SCALE, String(s));
+    } catch (e) {}
+  }
+
+  function applyUiFontScaleToDom(scale) {
+    const s = clampUiFontScale(scale);
+    try {
+      document.documentElement.style.setProperty("--hj-font-scale", String(s));
+    } catch (e) {}
+  }
+
+  function loadUiFontScaleAndApply() {
+    applyUiFontScaleToDom(getPersistedUiFontScale());
+  }
+
   function tickStatusClock() {
     const el = document.getElementById("status-time");
     if (!el) return;
@@ -1070,6 +1110,22 @@
         }
       };
       reader.readAsArrayBuffer(file);
+    });
+
+    root.addEventListener("input", (e) => {
+      const input = e.target;
+      if (!input || input.id !== "font-scale-slider") return;
+      const pct = Number(input.value);
+      if (!Number.isFinite(pct)) return;
+      const scale = clampUiFontScale(pct / 100);
+      persistUiFontScale(scale);
+      applyUiFontScaleToDom(scale);
+      try {
+        input.setAttribute("aria-valuenow", String(Math.round(pct)));
+        input.setAttribute("aria-valuetext", Math.round(pct) + "%");
+      } catch (errAttr) {}
+      const lab = root.querySelector("#font-scale-value");
+      if (lab) lab.textContent = Math.round(pct) + "%";
     });
   }
 
@@ -2390,23 +2446,27 @@
   function storyCardIsHangToPrevPunct(ch) {
     if (!ch) return false;
     const c = String(ch);
+    // 避头尾：仅「宜挂在上行末」的句读、闭引号、闭括号等。开引号 “\u201c、‘\u2018、直角「 不在此列，换行后行首仍可为对白起笔；也不含半角 " '，避免与开引号混淆。
     return (
-      "，。！？、；：﹑,.!?;)]}\"'」』】〉》\u201c\u201d\u2018\u2019".indexOf(c) >= 0 || (c >= "\uff00" && c <= "\uff0f")
+      "，。！？、；：﹑．…\u2026,.!?;)]}」』】〉》%\u201d\u2019".indexOf(c) >= 0 || (c >= "\uff00" && c <= "\uff0f")
     );
   }
 
   function storyCardHangPunctuationFix(lines) {
+    const maxGuard = Math.max(24, (lines && lines.length ? lines.length : 0) * 8);
     let guard = 0;
-    while (guard++ < lines.length + 4) {
+    while (guard++ < maxGuard) {
       let moved = false;
       for (let k = 1; k < lines.length; k++) {
         const line = lines[k];
         if (!line || !line.length) continue;
         const head = line[0];
         if (!storyCardIsHangToPrevPunct(head)) continue;
-        const prev = lines[k - 1];
-        if (!prev || !prev.length) continue;
-        lines[k - 1] = prev + head;
+        let pi = k - 1;
+        while (pi >= 0 && (!lines[pi] || !lines[pi].length)) pi--;
+        if (pi < 0) continue;
+        const prev = lines[pi];
+        lines[pi] = prev + head;
         lines[k] = line.slice(1);
         if (!lines[k].length) lines.splice(k, 1);
         moved = true;
@@ -2465,7 +2525,7 @@
 
   async function exportStorySelectionCard(plot, text) {
     const title = String((plot && plot.title) || "").trim() || "剧情";
-    const content = String(text || "").trim();
+    const content = normalizeStoryPlainTextForLayout(String(text || ""));
     if (!content) {
       showToast("请先选中一段文字。", "info");
       return;
@@ -2935,7 +2995,7 @@
         showToast("已删除该条剧情", "success");
         return;
       }
-      ctx.line.text = v;
+      ctx.line.text = normalizeStoryParagraphLeadingPunctuation(v);
       storyLineEditState = null;
       flushPersistNarrative();
       rerenderStoryPlayIfCurrent(plot);
@@ -4607,6 +4667,7 @@
       if (buf.length) out.push(buf);
       if (pi < parts.length - 1 && out[out.length - 1] !== "") out.push("");
     });
+    if (out.length) storyCardHangPunctuationFix(out);
     return out.length ? out : [""];
   }
 
@@ -4675,7 +4736,8 @@
     const measure = document.createElement("canvas").getContext("2d");
     measure.font = BODY_FS;
     const bodyTextW = CARD_W - PAD * 2 - INNER_SIDE * 2;
-    const bodyLines = storyShareCanvasWrapLines(measure, snap.content, Math.max(80, bodyTextW));
+    const bodyPlain = normalizeStoryPlainTextForLayout(String(snap.content || ""));
+    const bodyLines = storyShareCanvasWrapLines(measure, bodyPlain, Math.max(80, bodyTextW));
 
     const plotTit = storySharePlotTitlePlain(plot);
     const avatarR = 20;
@@ -5749,7 +5811,8 @@
     "禁止诗意化、抽象化或装饰性语言。" +
     "比喻等修辞仅允许在极个别确有必要时偶尔使用，切勿泛滥；须优先选择直接、清晰、具体的语言推进剧情与对话。" +
     "保持叙述流畅自然，避免语言过于华丽或浮夸。" +
-    "避免同义反复与同一信息的重复交代；动作、心理与场景描写点到即止，勿用连环动作或与当前人际张力无关的空镜凑篇幅。";
+    "避免同义反复与同一信息的重复交代；动作、心理与场景描写点到即止，勿用连环动作或与当前人际张力无关的空镜凑篇幅。" +
+    "【中文标点】若用冒号「：」引出下文的弯引号对白或尚未写完的成分，冒号后不得紧跟句号（禁止「：。」）；该收束时用句号，该引出时冒号后直接接对白或续写，勿用句号提前截断。";
 
   function storyBriefCharCount(s) {
     return Array.from(String(s || "")).length;
@@ -6183,6 +6246,20 @@
     throw new Error("未能抓取模型列表。请检查站点地址/密钥/CORS。详情：" + lastErr);
   }
 
+  /** 设置页「刷新模型列表」失败时：弹窗说明（含上游/官网列表接口异常等），避免用户只看见简短 Toast。 */
+  async function alertModelListFetchFailed(err) {
+    const detail = err && err.message ? String(err.message) : String(err || "未知错误");
+    const body =
+      "未能从接口拉取可用模型列表。\n\n" +
+      "若站点地址与 API Key 无误，仍失败时，常见于：上游或官网的「模型列表」接口暂时故障、限流、维护，或返回格式与预期不一致；也可能是浏览器因 CORS 策略拦截了跨域请求。\n\n" +
+      "你可以先在下方「模型」里保留已有名称，或在支持的情况下直接改成目标模型名；剧情续写与助手对话只要实际对话接口正常仍可尝试。建议稍后再点「刷新模型列表」，或换用稳定的中转服务。\n\n" +
+      "技术详情：\n" +
+      detail;
+    const modal = els.modalConfirm();
+    if (modal) await showAlert(body, "模型列表获取失败");
+    else showToast("刷新失败：" + detail, "error", 5200);
+  }
+
   function wbCategoryLabel(id) {
     const x = wbCategories.find((c) => c.id === id);
     return x ? x.name : String(id || "");
@@ -6203,26 +6280,197 @@
   let customSelectDocClickBound = false;
   /** @type {HTMLElement | null} */
   let customSelectOpenRoot = null;
+  /** @type {HTMLElement | null} 面板打开时可能被移到 document.body，需单独引用以便关闭时复位 */
+  let customSelectOpenPanel = null;
+  let customSelectViewportCloseBound = false;
+
+  function unfloatCustomSelectPanel(panel) {
+    if (!panel || !panel._floatRestore) return;
+    const fr = panel._floatRestore;
+    const parent = fr.parent;
+    const next = fr.next;
+    delete panel._floatRestore;
+    if (!parent) return;
+    try {
+      if (next && next.parentNode === parent) parent.insertBefore(panel, next);
+      else parent.appendChild(panel);
+    } catch (_e) {
+      parent.appendChild(panel);
+    }
+  }
+
+  /** 优先挂在 .phone-screen（与预览区域同一层），否则 body；避免 overlay 裁切且坐标与可见视口一致 */
+  function getCustomSelectFloatMountEl() {
+    return document.querySelector(".phone-screen") || document.getElementById("app-shell") || document.body;
+  }
+
+  function floatCustomSelectPanelToMount(panel) {
+    const mount = getCustomSelectFloatMountEl();
+    if (!panel || panel.parentNode === mount) return;
+    panel._floatRestore = { parent: panel.parentNode, next: panel.nextSibling };
+    mount.appendChild(panel);
+  }
+
+  /** 与 layout viewport / Visual Viewport 对齐，用于钳制固定定位面板（避免 iframe、窄窗下宽度大于 vw 时被挤到左缘） */
+  function getFloatingSelectViewportBox() {
+    const vv = window.visualViewport;
+    if (
+      vv &&
+      typeof vv.width === "number" &&
+      vv.width > 0 &&
+      typeof vv.height === "number" &&
+      vv.height > 0
+    ) {
+      return {
+        left: Number(vv.offsetLeft) || 0,
+        top: Number(vv.offsetTop) || 0,
+        width: vv.width,
+        height: vv.height,
+      };
+    }
+    const de = document.documentElement;
+    return {
+      left: 0,
+      top: 0,
+      width: window.innerWidth || (de && de.clientWidth) || 0,
+      height: window.innerHeight || (de && de.clientHeight) || 0,
+    };
+  }
+
+  /** 下拉钳制区域：优先 .phone-screen 与下方选择框同坐标系，避免被 iframe/visualViewport 挤偏 */
+  function getFloatingSelectClipRect() {
+    const ps = document.querySelector(".phone-screen");
+    if (ps && typeof ps.getBoundingClientRect === "function") {
+      const r = ps.getBoundingClientRect();
+      if (r.width >= 64 && r.height >= 64) return r;
+    }
+    const vp = getFloatingSelectViewportBox();
+    return {
+      left: vp.left,
+      top: vp.top,
+      right: vp.left + vp.width,
+      bottom: vp.top + vp.height,
+      width: vp.width,
+      height: vp.height,
+    };
+  }
+
+  function layoutFloatedCustomSelectPanel(panel, trigger) {
+    if (!panel || !trigger || panel.hidden) return;
+    const trigRect = trigger.getBoundingClientRect();
+    const vp = getFloatingSelectViewportBox();
+    const clip = getFloatingSelectClipRect();
+    const pad = 8;
+    const gap = 6;
+
+    const clipL = clip.left;
+    const clipR = clip.right;
+    const clipT = clip.top;
+    const clipB = clip.bottom;
+
+    const availW = Math.max(80, clipR - clipL - 2 * pad);
+    const trigW = trigRect.width > 4 ? trigRect.width : trigger.offsetWidth || 200;
+    let left = trigRect.left;
+    if (left < clipL + pad) left = clipL + pad;
+    let panelWidth = Math.min(trigW, availW, clipR - pad - left);
+    panelWidth = Math.max(96, panelWidth);
+
+    const innerH = Math.max(0, clipB - clipT - 2 * pad);
+    const maxPanel = Math.min(Math.max(72, innerH - pad), Math.min(vp.height * 0.42, 300));
+
+    panel.style.boxSizing = "border-box";
+    panel.style.position = "fixed";
+    panel.style.width = Math.round(panelWidth) + "px";
+    panel.style.left = Math.round(left) + "px";
+    panel.style.right = "auto";
+    panel.style.bottom = "auto";
+
+    panel.style.visibility = "hidden";
+    panel.style.top = "0";
+    panel.style.maxHeight = maxPanel + "px";
+    const needed = Math.min(panel.scrollHeight, maxPanel);
+
+    const vpTopEdge = clipT + pad;
+    const vpBot = clipB - pad;
+
+    const aboveAvail = trigRect.top - gap - vpTopEdge;
+    const belowAvail = vpBot - trigRect.bottom - gap;
+
+    let openUp;
+    if (needed <= aboveAvail && needed <= belowAvail) openUp = true;
+    else if (needed <= aboveAvail) openUp = true;
+    else if (needed <= belowAvail) openUp = false;
+    else openUp = aboveAvail >= belowAvail;
+
+    let topPx;
+    let mh;
+    if (openUp) {
+      mh = Math.min(maxPanel, Math.max(72, aboveAvail));
+      topPx = trigRect.top - gap - Math.min(needed, mh);
+      topPx = Math.max(vpTopEdge, topPx);
+      mh = Math.min(mh, vpBot - topPx);
+      mh = Math.max(72, mh);
+    } else {
+      topPx = trigRect.bottom + gap;
+      topPx = Math.max(vpTopEdge, topPx);
+      mh = Math.min(maxPanel, Math.max(72, vpBot - topPx));
+    }
+
+    panel.style.top = Math.round(topPx) + "px";
+    panel.style.maxHeight = Math.round(mh) + "px";
+    panel.style.visibility = "";
+    panel.style.zIndex = "4800";
+  }
 
   function closeAllCustomSelectPanels() {
-    if (!customSelectOpenRoot) return;
-    customSelectOpenRoot.classList.remove("is-open");
-    const trig = customSelectOpenRoot.querySelector(".custom-select__trigger");
-    const panel = customSelectOpenRoot.querySelector(".custom-select__panel");
-    if (panel) panel.hidden = true;
-    if (trig) trig.setAttribute("aria-expanded", "false");
+    const panel = customSelectOpenPanel;
+    const root = customSelectOpenRoot;
     customSelectOpenRoot = null;
+    customSelectOpenPanel = null;
+    if (root) {
+      root.classList.remove("is-open");
+      const trig = root.querySelector(".custom-select__trigger");
+      if (trig) trig.setAttribute("aria-expanded", "false");
+    }
+    if (panel) {
+      panel.hidden = true;
+      panel.classList.remove("custom-select__panel--floated");
+      panel.removeAttribute("style");
+      unfloatCustomSelectPanel(panel);
+    }
+  }
+
+  function bindCustomSelectViewportCloseOnce() {
+    if (customSelectViewportCloseBound) return;
+    customSelectViewportCloseBound = true;
+    function onVc() {
+      if (customSelectOpenPanel) closeAllCustomSelectPanels();
+    }
+    window.addEventListener("resize", onVc);
+    document.addEventListener(
+      "scroll",
+      function () {
+        onVc();
+      },
+      true
+    );
+    try {
+      if (window.visualViewport) window.visualViewport.addEventListener("resize", onVc);
+    } catch (_e) {}
   }
 
   function bindCustomSelectDocListenersOnce() {
     if (customSelectDocClickBound) return;
     customSelectDocClickBound = true;
+    bindCustomSelectViewportCloseOnce();
     document.addEventListener(
       "click",
       function (e) {
         if (!customSelectOpenRoot) return;
         const t = e.target;
-        if (t instanceof Element && customSelectOpenRoot.contains(t)) return;
+        if (!(t instanceof Element)) return;
+        if (customSelectOpenRoot.contains(t)) return;
+        if (customSelectOpenPanel && customSelectOpenPanel.contains(t)) return;
         closeAllCustomSelectPanels();
       },
       true
@@ -6239,7 +6487,7 @@
   }
 
   function refreshCustomSelectPanel(selectEl, root) {
-    const panel = root.querySelector(".custom-select__panel");
+    const panel = root._customSelectPanel || root.querySelector(".custom-select__panel");
     const trigger = root.querySelector(".custom-select__trigger");
     if (!panel || !trigger) return;
     panel.innerHTML = "";
@@ -6280,6 +6528,10 @@
     if (!selectEl || selectEl.tagName !== "SELECT") return;
     bindCustomSelectDocListenersOnce();
     let root = selectEl.closest("[data-custom-select-root]");
+    if (root && !root._customSelectPanel) {
+      const existingPanel = root.querySelector(".custom-select__panel");
+      if (existingPanel) root._customSelectPanel = existingPanel;
+    }
     if (!root) {
       root = document.createElement("div");
       root.setAttribute("data-custom-select-root", "");
@@ -6309,6 +6561,7 @@
       parent.insertBefore(root, selectEl);
       root.appendChild(trigger);
       root.appendChild(panel);
+      root._customSelectPanel = panel;
       root.appendChild(selectEl);
 
       trigger.addEventListener("click", function (ev) {
@@ -6319,9 +6572,17 @@
         closeAllCustomSelectPanels();
         if (wasOpen) return;
         root.classList.add("is-open");
+        panel.classList.add("custom-select__panel--floated");
+        floatCustomSelectPanelToMount(panel);
         panel.hidden = false;
         trigger.setAttribute("aria-expanded", "true");
         customSelectOpenRoot = root;
+        customSelectOpenPanel = panel;
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            layoutFloatedCustomSelectPanel(panel, trigger);
+          });
+        });
       });
     }
     refreshCustomSelectPanel(selectEl, root);
@@ -10917,10 +11178,18 @@
       .trim();
   }
 
+  /** 去掉「：。」后接弯引号对白等非法连用（模型偶发；亦勿与 ensureEndingPunctuation 叠加出伪影） */
+  function fixColonPeriodBeforeCurlyQuote(s) {
+    return String(s || "").replace(/：。\s*(\u201c)/g, "：$1");
+  }
+
   /** 叙事气泡末：模型或按句拆分时常丢掉句末标点，仅在明显缺失时补「。」 */
   function ensureEndingPunctuation(raw) {
     let s = String(raw || "").trim();
     if (!s) return s;
+
+    // 若以冒号收束，多为引出下段对白或列举，补「。」会破坏「是：\n“……」类结构
+    if (/：\s*$/.test(s)) return s;
 
     // 如果以引号结尾（对话），不再额外加句号
     if (/[」”]$/.test(s)) return s;
@@ -11016,7 +11285,7 @@
       if (!paras.length) return;
       out.push({
         characterId: blk.characterId || "narrator",
-        text: paras.join("\n\n"),
+        text: fixColonPeriodBeforeCurlyQuote(paras.join("\n\n")),
       });
     });
     return out;
@@ -11184,19 +11453,95 @@
     return s;
   }
 
+  /**
+   * 将模型写在一行内的多条玩家选项拆开（弯引号两段对白粘连、半角 \" 分段、或「对白」后接无引号动作）。
+   * 用于缓解多选项被压成单个按钮的问题。
+   */
+  function expandMergedChoiceLine(raw) {
+    const s0 = String(raw || "").trim();
+    if (!s0) return [];
+    let pieces = [];
+
+    if (/"/.test(s0)) {
+      const re = /"([^"]*)"/g;
+      let m;
+      let lastIdx = 0;
+      const quoted = [];
+      while ((m = re.exec(s0)) !== null) {
+        quoted.push("\u201c" + String(m[1] || "").trim() + "\u201d");
+        lastIdx = re.lastIndex;
+      }
+      const tail = s0.slice(lastIdx).trim();
+      const cand = quoted.concat(tail ? [tail] : []);
+      if (cand.length >= 2) {
+        pieces = cand;
+      }
+    }
+
+    if (!pieces.length && /[\u201C\u201D“”]/.test(s0)) {
+      const curly = s0
+        .split(/(?<=[\u201D”])\s*(?=[\u201C“])/g)
+        .map(function (t) {
+          return String(t || "").trim();
+        })
+        .filter(Boolean);
+      if (curly.length >= 2) {
+        pieces = curly;
+      }
+    }
+
+    if (!pieces.length) {
+      pieces = [s0];
+    }
+
+    const out = [];
+    pieces.forEach(function (seg) {
+      const s = String(seg || "").trim();
+      if (!s) return;
+
+      const curlyDialogueThenAction = s.match(
+        /^([\u201C“][\s\S]*?[\u201D”])\s+([^“\s\u201C][\s\S]*)$/
+      );
+      if (curlyDialogueThenAction && String(curlyDialogueThenAction[2] || "").trim()) {
+        out.push(curlyDialogueThenAction[1].trim());
+        out.push(curlyDialogueThenAction[2].trim());
+        return;
+      }
+
+      const straightDialogueThenAction = s.match(/^"([^"]*)"\s+([^"\s][\s\S]*)$/);
+      if (straightDialogueThenAction && String(straightDialogueThenAction[2] || "").trim()) {
+        out.push(
+          "\u201c" + String(straightDialogueThenAction[1] || "").trim() + "\u201d"
+        );
+        out.push(straightDialogueThenAction[2].trim());
+        return;
+      }
+
+      out.push(s);
+    });
+
+    return out.filter(Boolean);
+  }
+
   /** 去重、过滤无效选项。数量由模型决定（最少 2 条）。 */
   function sanitizeStoryChoices(choices) {
     const out = [];
     const seen = new Set();
     (Array.isArray(choices) ? choices : []).forEach(function (c) {
-      let line = normalizeChoiceLineLength((c && c.line) || "");
-      let hint = String((c && c.hint) || "").trim() || "选择此项";
-      line = stripTrailingChoiceIndexDecor(cleanStoryLine(line));
-      if (!line || isPlaceholderLikeChoiceLine(line)) return;
-      const key = normalizeChoiceForCompare(line);
-      if (!key || seen.has(key)) return;
-      seen.add(key);
-      out.push({ line: line, hint: hint });
+      const hintBase = String((c && c.hint) || "").trim() || "选择此项";
+      const expanded = expandMergedChoiceLine((c && c.line) || "");
+      const linesToAdd =
+        expanded.length > 0 ? expanded : [String((c && c.line) || "").trim()].filter(Boolean);
+      linesToAdd.forEach(function (oneLine) {
+        let line = normalizeChoiceLineLength(oneLine);
+        const hint = hintBase;
+        line = stripTrailingChoiceIndexDecor(cleanStoryLine(line));
+        if (!line || isPlaceholderLikeChoiceLine(line)) return;
+        const key = normalizeChoiceForCompare(line);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        out.push({ line: line, hint: hint });
+      });
     });
     return out;
   }
@@ -11245,11 +11590,78 @@
     );
   }
 
+  function mergeOrphanPunctuationOnlyParagraphs(paras) {
+    const out = [];
+    for (let i = 0; i < paras.length; i++) {
+      const p = String(paras[i] || "").trim();
+      if (!p) continue;
+      if (/^[。．，,！？!?；：…、]+$/u.test(p) && out.length) {
+        out[out.length - 1] = out[out.length - 1] + p;
+        continue;
+      }
+      out.push(p);
+    }
+    return out;
+  }
+
+  function isOpeningQuoteCharForParagraphStart(ch) {
+    if (!ch) return false;
+    return (
+      ch === "\u300c" ||
+      ch === "\u201c" ||
+      ch === "\u2018" ||
+      ch === '"' ||
+      ch === "'"
+    );
+  }
+
+  function stripLeadingPunctuationExceptOpeningQuotes(para) {
+    let s = String(para || "").replace(/\r\n/g, "\n").trim();
+    if (!s) return "";
+    while (s.length) {
+      const cp = s.codePointAt(0);
+      if (cp === undefined) break;
+      const ch = String.fromCodePoint(cp);
+      if (isOpeningQuoteCharForParagraphStart(ch)) break;
+      if (!/^[\p{P}\p{S}]/u.test(ch)) break;
+      s = s.slice(ch.length).replace(/^[ \t\u00a0\u3000]+/, "");
+    }
+    return s.trim();
+  }
+
+  /**
+   * 段落首不得以逗号、句号等句读起笔（允许的段首标点仅为引号：「“‘ 与半角 "'）；
+   * 合并「单独成行仅含句读」的段落，避免模型把句号甩成新行。
+   */
+  function normalizeStoryParagraphLeadingPunctuation(text) {
+    const raw = String(text || "").replace(/\r\n/g, "\n").trim();
+    if (!raw) return "";
+    const paras = raw
+      .split(/\n\s*\n+/)
+      .map(function (seg) {
+        return String(seg || "").trim();
+      })
+      .filter(Boolean);
+    return mergeOrphanPunctuationOnlyParagraphs(paras)
+      .map(stripLeadingPunctuationExceptOpeningQuotes)
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  /** 卡片/分享图正文：与 renderStoryInlineMarkup 相同的纯文本规范化（段首句读、孤立标点行等） */
+  function normalizeStoryPlainTextForLayout(raw) {
+    const src = String(raw || "").replace(/\r\n/g, "\n").trim();
+    if (!src) return "";
+    return collapseDuplicatePeriodAfterClosingQuote(
+      fixColonPeriodBeforeCurlyQuote(
+        normalizeStoryParagraphLeadingPunctuation(src.replace(/\*\*/g, "").replace(/\*/g, "").trim())
+      )
+    );
+  }
 
   function renderStoryInlineMarkup(text) {
-    const src = String(text || "").replace(/\r\n/g, "\n").trim();
-    if (!src) return "";
-    const plain = collapseDuplicatePeriodAfterClosingQuote(src.replace(/\*\*/g, "").replace(/\*/g, "").trim());
+    const plain = normalizeStoryPlainTextForLayout(String(text || ""));
+    if (!plain) return "";
     const dialoguePunctRe = /[，。！？；：…!?]/;
 
     function quoteInnerFromFull(qfull) {
@@ -11794,7 +12206,7 @@
             content:
               "根据剧情结尾补玩家可选行动。" +
               rescuePovConstraint +
-              " 每条只写动作或对白，不要写主视角姓名；勿以配角作主语起句。只输出多行中文短句，每行一条；至少两条；不要序号、标题或解释。",
+              " 每条只写动作或对白，不要写主视角姓名；勿以配角作主语起句。每行恰好一条独立选择：禁止把多句对白或「对白+动作」写在同一行。只输出多行中文短句，每行一条；至少两条；不要序号、标题或解释。",
           },
           {
             role: "user",
@@ -11803,7 +12215,7 @@
               rescuePovLine +
               "\n\n剧情节选：\n" +
               snippet +
-              "\n\n请输出选项（每行一条，至少两条）：",
+              "\n\n请输出选项（每行仅一条独立选择，至少两条）：",
           },
         ],
         0.72,
@@ -11910,7 +12322,8 @@
       "4) 角色块标题应是该段内容主要发起人/占比最高者，只能使用提供的花名册角色名；旁白用【旁白】。\n" +
       "5) 对白一律只用中文弯引号“”（U+201C/U+201D）成对包裹台词，例如：“……”。禁止使用直角引号「」或半角直引号 \"' 作为对白标记；引号内出现收尾标点即视作对白。不要输出 Markdown 标记、编号或额外章节标题。\n" +
       "6) 正文最后一个角色块必须是非主角（其他角色或旁白），并引出玩家可选择的局面。\n" +
-      "7) 正文后必须输出【选项】块，块下每行一个选项，至少 2 条；每条 <=20 字，无序号。【选项】只写主视角的可执行动作或对白，不要写主视角姓名；人称随第 9）条——第一人称用「我」，第二人称用「你」，第三人称不用主姓名、用「他/她」或省略主语的短句。勿以配角作主语起句。【选项】里若出现台词，也必须用第 5）条规定的弯引号“”，不要用「」。\n" +
+      "7) 正文后必须输出【选项】块，块下每行恰好一个独立选项，至少 2 条；每条一行、<=20 字、无序号。【一行一项·硬约束】每行只能表达玩家的一次抉择：要么一句对白，要么一句动作/态度，禁止把多句对白、或「对白+对白」、或「对白+旁述动作」写在同一行里。若需要两句台词或先说话再做动作，必须拆成两行（每行一条）。禁止在同一行内出现两段成对弯引号对白（禁止 “……”“……” 粘在一行）；禁止用半角引号把多段台词串成一行。若违反本条，视为协议错误。\n" +
+      "7b)【选项】只写主视角的可执行动作或对白，不要写主视角姓名；人称随第 9）条——第一人称用「我」，第二人称用「你」，第三人称不用主姓名、用「他/她」或省略主语的短句。勿以配角作主语起句。【选项】里若出现台词，也必须用第 5）条规定的弯引号“”，不要用「」。\n" +
       "8) 若给了“玩家本次行动”，请先扩写为主角对应块的 1~3 段，不要原样复述；第一人称可用【我】块，第二/第三人称请用主角姓名块。\n" +
       "9) " + povConstraintPlay + "\n" +
       "10) 主导角色（开局与全程优先分配篇幅）：" + (dominantRoster || "无") + "。\n" +
@@ -11923,7 +12336,10 @@
       "17) 【文风·修辞与信息密度】" +
       STORY_PROSE_STYLE_GUIDE +
       "\n" +
-      "18) 【分段与篇幅】仍须满足上文角色块数量、每块 2～3 段及目标字数；在此前提下每段宜短而集中、一段一中心，避免单段过长与同段内同义反复。若本轮需较多情节推进，宁可多分段或多用一个角色块展开，也不要把大量内容挤成少数超长、冗杂段落。\n\n" +
+      "18) 【分段与篇幅】仍须满足上文角色块数量、每块 2～3 段及目标字数；在此前提下每段宜短而集中、一段一中心，避免单段过长与同段内同义反复。若本轮需较多情节推进，宁可多分段或多用一个角色块展开，也不要把大量内容挤成少数超长、冗杂段落。\n" +
+      "19) 【段落起笔·硬规则】每个角色块内每一段的首字符不得为逗号、顿号、句号、问号、叹号、分号、冒号、省略号等句读标点；同一段内因换行产生的「下一行首」同样不得出现上述句读及闭引号、闭括号等应留在上行行末的标点。若以对白起段，该段第一个字符必须是弯引号“（U+201C）。禁止段首出现孤立句读；禁止单独一行仅含「。」「，」等标点，此类标点必须紧接在上一段末尾。违反本条视为格式错误，须在定稿前自行改正。\n" +
+      "20) 【标点·冒号与句号】用「是：」「写道：」「发出去的是：」等引出下文的弯引号对白时，冒号后禁止写句号（禁止「：。」）；要么同段紧接“……”，要么冒号后换行再接对白；勿用句号把尚未交代完的成分提前结束。\n" +
+      "21) 【角色块衔接·禁复读】多个【角色名】/【旁白】块按时间先后一线串起：每一块只写该视角下新发生的对白、动作或反应。上一块已写明的台词、动作、神态或心理，下一块不得换说法再演一遍、不得概括复述「刚才谁说了什么」；默认读者刚读完上一块，后一块应从上一块落笔处直接续写下一拍，像镜头自然切到下一说话者或下一反应即可。\n\n" +
       STORY_PERSONA_PRIORITY_GUIDE;
     const identityBlocks = getEffectiveIdentityBlocks(plot);
     const eraBlock = identityBlocks.eraBlock || "未设定";
@@ -11976,10 +12392,10 @@
       (summaryBlock ? "\n\n阶段总结（最新 " + PLAY_SUMMARY_REF_LIMIT + " 条，供连续性参考）：\n" + summaryBlock : "") +
       (memoryBlock ? "\n\n命中关键词的记忆（最多 " + PLOT_MEMORY_PROMPT_MAX + " 条）：\n" + memoryBlock : "") +
       "\n\n最近剧情：\n" + (history || "故事刚开始。") +
-      "\n\n【选项】勿写主视角姓名，只写动作或对白。" +
+      "\n\n【选项】勿写主视角姓名；每行仅一条独立选择，禁止多句对白或多段内容挤在同一行。" +
       "\n\n本轮正文目标约 " +
         wlim2 +
-        " 字；篇幅优先落在人物互动、对话与矛盾推进上，避免冗长环境铺陈与修辞堆砌、信息重复。" +
+        " 字；篇幅优先落在人物互动、对话与矛盾推进上，避免冗长环境铺陈与修辞堆砌、信息重复；多角色块之间勿复读前一块已出现的内容，顺接写下一段即可。" +
         "只按协议输出角色块与【选项】块；若人称不符合上述硬约束，视为输出无效并重写。";
 
     try {
@@ -12000,7 +12416,7 @@
         return {
           id: line && line.id ? line.id : uid("ln"),
           characterId: line ? line.characterId : "",
-          text: line ? line.text : "",
+          text: normalizeStoryParagraphLeadingPunctuation(String(line && line.text ? line.text : "")),
         };
       });
       if (!linesWithIds.length) throw new Error("剧情生成失败，请点重生成或换模型重试。");
@@ -12217,6 +12633,8 @@
         '</span><div><h3 class="settings-panel__title">API 与模型</h3></div></div>';
     }
     html += '<div class="settings-panel__body">';
+    html +=
+      '<p class="field__hint settings-api-model-list-hint">部分中转或上游的「模型列表」接口可能间歇异常。若点击「刷新模型列表」失败，会弹出说明；你仍可手动选择或填写模型名，并用「测试模型可用性」确认对话是否正常。</p>';
 
     html += '<p class="settings-section-title">当前使用</p>';
     if (active) {
@@ -12292,7 +12710,7 @@
           persistApiConfigs();
           showToast("模型列表已更新，共 " + models.length + " 个", "success");
         } catch (err) {
-          showToast("刷新失败：" + (err && err.message ? err.message : String(err)), "error", 4800);
+          await alertModelListFetchFailed(err);
         } finally {
           modelsRefreshing = false;
           renderDynamic();
@@ -12400,6 +12818,9 @@
       customFontMeta && customFontMeta.name
         ? "当前字体：<strong>" + escapeHtml(customFontMeta.name) + "</strong>（已保存，刷新后仍保留）"
         : "当前字体：<strong>系统默认</strong>";
+    const uiFontScale = getPersistedUiFontScale();
+    const uiFontSliderPct = Math.round(uiFontScale * 100);
+    const uiFontPctLabel = uiFontSliderPct + "%";
     const paletteCards = palettes.map(function (p) {
       const cardClass = "theme-preset-card" + (p.id === paletteId ? " is-active" : "");
       return (
@@ -12519,7 +12940,22 @@
       FONT_UPLOAD_MAX_LABEL +
       "（偏大文件会占用本机浏览器存储）</p>" +
       '<div class="btn-row">' +
-      '<button type="button" class="btn btn-secondary btn--pill" id="btn-font-clear">清除自定义字体</button></div></div></section>';
+      '<button type="button" class="btn btn-secondary btn--pill" id="btn-font-clear">清除自定义字体</button></div>' +
+      '<div class="font-scale-control">' +
+      '<label class="font-scale-control__label" for="font-scale-slider">界面字体大小</label>' +
+      '<div class="font-scale-control__row">' +
+      '<input type="range" id="font-scale-slider" min="100" max="145" step="1" value="' +
+      uiFontSliderPct +
+      '" aria-valuemin="100" aria-valuemax="145" aria-valuenow="' +
+      uiFontSliderPct +
+      '" aria-valuetext="' +
+      escapeHtml(uiFontPctLabel) +
+      '" aria-label="界面字体大小，最左侧为默认" />' +
+      '<span class="font-scale-control__value" id="font-scale-value">' +
+      escapeHtml(uiFontPctLabel) +
+      "</span></div>" +
+      '<p class="field__hint">最左侧为默认大小（100%）；向右拖动可等比例放大全界面文字，设置保存在本机。</p>' +
+      "</div></div></section>";
 
     el.innerHTML = html;
     bindApiSettingsHandlers(el);
@@ -14260,6 +14696,7 @@
   const appShell = document.getElementById("app-shell");
 
   loadAppearance();
+  loadUiFontScaleAndApply();
   loadApiConfigs();
   loadAssistantState();
   migrateLegacyAssistantDefaultsOnce();

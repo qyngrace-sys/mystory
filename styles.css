@@ -45,6 +45,8 @@
   --wb-tag-bg: #1a1a1a;
   --wb-tag-fg: #ffffff;
   --wb-tag-border: rgba(26, 26, 26, 0.22);
+  /** 界面字体缩放（1 = 默认）；由设置滑块与脚本写入 html 的 style */
+  --hj-font-scale: 1;
   color-scheme: light;
 }
 
@@ -116,6 +118,7 @@ html {
   touch-action: manipulation;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  font-size: calc(16px * var(--hj-font-scale, 1));
 }
 
 body {
@@ -298,7 +301,7 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
   padding: 10px 16px 6px;
   padding-top: max(10px, env(safe-area-inset-top, 0px));
   min-height: var(--status-h);
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--text);
@@ -317,7 +320,7 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
     "Apple Chancery",
     "Snell Roundhand",
     cursive;
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
@@ -330,7 +333,7 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 600;
   color: var(--muted);
 }
@@ -345,7 +348,7 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
   border: none;
   background: none;
   font: inherit;
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--muted);
@@ -2132,6 +2135,11 @@ html[data-theme="dark"] .nav-item--center.is-active .nav-item__fab {
   z-index: 260;
 }
 
+/* API「编辑配置」须高于剧情层 overlay（含 #modal-story-api 260），否则在剧情里点铅笔改密钥时弹窗被压在下面 */
+#modal-api {
+  z-index: 280;
+}
+
 #modal-story-summaries,
 #modal-story-search,
 #modal-story-api,
@@ -2244,6 +2252,8 @@ html[data-theme="dark"] .nav-item--center.is-active .nav-item__fab {
 .modal-sheet--confirm {
   width: min(280px, calc(100% - 32px));
   max-width: min(280px, calc(100% - 32px));
+  max-height: min(85dvh, calc(100% - 24px));
+  overflow-y: auto;
   margin: auto;
   border-radius: var(--radius);
   padding: 20px;
@@ -2272,6 +2282,9 @@ html[data-theme="dark"] .nav-item--center.is-active .nav-item__fab {
   color: var(--text);
   font-size: 0.95rem;
   line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-align: left;
 }
 
 .confirm-actions {
@@ -2611,11 +2624,39 @@ select.field__input:-webkit-autofill:focus {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   border-radius: var(--radius-sm);
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
-  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--border);
+  background-color: var(--bg);
+  opacity: 1;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
   padding: 6px;
   box-sizing: border-box;
+}
+
+/* 打开时由 JS 挂到 body + fixed，避免设置页 / 剧情弹层 overlay 的 overflow:hidden 裁切顶部 */
+.custom-select__panel.custom-select__panel--floated {
+  position: fixed !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  z-index: 4800;
+  margin: 0;
+  background-color: var(--bg);
+  opacity: 1;
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.24);
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.custom-select__panel .custom-select__option:hover,
+.custom-select__panel .custom-select__option:focus-visible {
+  outline: none;
+  background-color: color-mix(in srgb, var(--accent) 14%, var(--bg));
+}
+
+.custom-select__panel .custom-select__option.is-selected {
+  background-color: color-mix(in srgb, var(--accent) 22%, var(--bg));
+  font-weight: 600;
 }
 
 .api-card .custom-select.is-open {
@@ -2648,11 +2689,11 @@ select.field__input:-webkit-autofill:focus {
 .custom-select__option:hover,
 .custom-select__option:focus-visible {
   outline: none;
-  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  background-color: color-mix(in srgb, var(--accent) 14%, var(--bg));
 }
 
 .custom-select__option.is-selected {
-  background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+  background-color: color-mix(in srgb, var(--accent) 22%, var(--bg));
   font-weight: 600;
 }
 
@@ -3562,6 +3603,11 @@ select.field__input:-webkit-autofill:focus {
 
 .add-api-block[hidden] {
   display: none !important;
+}
+
+.settings-api-model-list-hint {
+  margin-top: 0;
+  margin-bottom: 14px;
 }
 
 .story-placeholder {
@@ -5722,6 +5768,52 @@ html[data-theme="dark"] .story-choice-action-btn {
   color: var(--muted);
   margin: 10px 0 12px;
   line-height: 1.45;
+}
+
+.font-scale-control {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.font-scale-control__label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.font-scale-control__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.font-scale-control__row input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+  touch-action: pan-y;
+}
+
+.font-scale-control__value {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  min-width: 2.75rem;
+  text-align: right;
+}
+
+.font-scale-control .field__hint {
+  margin-top: 8px !important;
+  margin-bottom: 0 !important;
 }
 
 .settings-divider {
