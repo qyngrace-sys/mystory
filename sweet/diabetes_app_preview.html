@@ -1,0 +1,2871 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#FDF8F3">
+    <title>糖糖管家 - 妈妈的健康助手</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'warm-bg': '#FDF8F3',
+                        'warm-orange': '#E67E22',
+                        'soft-green': '#7CB342',
+                        'warn-red': '#E57373',
+                        'card-white': '#FFFFFF',
+                        'text-main': '#243242',
+                        'text-light': '#5C6B7A',
+                        'light-green': '#E8F5E9',
+                        'light-orange': '#FFF3E0',
+                        'light-red': '#FFEBEE',
+                    },
+                    fontFamily: {
+                        sans: ['Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        * { -webkit-tap-highlight-color: transparent; }
+        html {
+            height: 100%;
+            --font-scale: 1;
+            font-size: calc(16px * var(--font-scale));
+        }
+        body { margin: 0; font-family: 'Noto Sans SC', sans-serif; overscroll-behavior-y: none; min-height: 100%; min-height: 100dvh; }
+        /* 桌面端居中「手机画幅」，真机上仍占满屏宽 */
+        #app-shell {
+            padding-top: env(safe-area-inset-top, 0px);
+            box-sizing: border-box;
+        }
+        .nav-phone-bar {
+            padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+        }
+        /* 非当前页隐藏；当前页保留 Tailwind 的 flex 等布局，避免 AI 页 flex 被覆盖错位 */
+        .page { animation: fadeIn 0.3s ease; }
+        .page:not(.active) { display: none !important; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideUpSheet {
+            from { transform: translateX(-50%) translateY(100%); }
+            to { transform: translateX(-50%) translateY(0); }
+        }
+        @keyframes pulse-soft { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+        .med-pill { transition: all 0.3s; }
+        .med-pill.pending {
+            background: linear-gradient(180deg, #FFF9F4 0%, #FFECD9 100%);
+            color: #2C241C;
+            border: 1px solid rgba(230, 126, 34, 0.2);
+            box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+        }
+        .med-pill.taken {
+            background: linear-gradient(180deg, #F3FAEE 0%, #E3F0D8 100%);
+            color: #1E3318;
+            border: 1px solid rgba(124, 179, 66, 0.35);
+            box-shadow: 0 1px 0 rgba(255, 255, 255, 0.75) inset;
+        }
+        .med-slot .med-field {
+            width: 100%; box-sizing: border-box;
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid rgba(44, 62, 80, 0.12);
+            border-radius: 8px;
+            padding: 5px 4px;
+            font-size: 0.8125rem;
+            font-weight: 600;
+            line-height: 1.25;
+            color: #243242;
+            text-align: center;
+            outline: none;
+            -webkit-text-fill-color: #243242;
+        }
+        .med-slot .med-field:focus {
+            background: #fff;
+            border-color: rgba(230, 126, 34, 0.45);
+            box-shadow: 0 0 0 2px rgba(230, 126, 34, 0.2);
+        }
+        .med-pill.taken .med-field:focus {
+            border-color: rgba(104, 159, 56, 0.5);
+            box-shadow: 0 0 0 2px rgba(124, 179, 66, 0.22);
+        }
+        .med-slot .med-field::placeholder { color: #8A9BA8; }
+        .med-check-btn { cursor: pointer; font-family: inherit; }
+        .med-pill.pending .med-check-btn {
+            background: rgba(230, 126, 34, 0.12);
+            color: #B85A14;
+            border-top: 1px solid rgba(230, 126, 34, 0.2);
+            font-weight: 600;
+        }
+        .med-pill.taken .med-check-btn {
+            background: rgba(124, 179, 66, 0.16);
+            color: #3D6624;
+            border-top: 1px solid rgba(124, 179, 66, 0.28);
+            font-weight: 600;
+        }
+        .food-card { transition: all 0.2s; }
+        .food-card:active { transform: scale(0.98); }
+        .chat-bubble { max-width: 80%; word-wrap: break-word; }
+        /* 与 left-1/2 配合居中；translateY 自下而上，避免覆盖 translateX 造成「从侧面飘入」 */
+        .bottom-sheet {
+            animation: slideUpSheet 0.32s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+        }
+        .nav-item { transition: all 0.2s; }
+        .nav-item.active { color: #E67E22; }
+        .nav-item.active svg { fill: #E67E22; }
+        .gi-badge { font-size: 0.6875rem; padding: 2px 8px; border-radius: 12px; font-weight: 600; }
+        .gi-low { background: #E8F5E9; color: #2E7D32; }
+        .gi-mid { background: #FFF3E0; color: #E65100; }
+        .gi-high { background: #FFEBEE; color: #C62828; }
+        .timeline-dot { width: 12px; height: 12px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 0 2px #E67E22; }
+        .sos-btn { animation: pulse-soft 2s infinite; }
+        /* 首页血糖柱状图：横向滑动查看更早日期 */
+        .home-glucose-chart-scroll {
+            overflow-x: auto;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: thin;
+            touch-action: pan-x;
+        }
+        /* 字体设置弹窗：固定物理宽度 + 抵消根字号缩放，白框不随全局变大 */
+        #font-size-modal .font-size-modal-panel {
+            width: min(384px, calc(100vw - 2rem));
+            max-width: 100%;
+            box-sizing: border-box;
+            zoom: calc(1 / var(--font-scale, 1));
+        }
+        /* SOS 急救弹窗：同样不随全局字号胀大 */
+        #sos-modal .sos-modal-panel {
+            width: min(384px, calc(100vw - 2rem));
+            max-width: 100%;
+            box-sizing: border-box;
+            zoom: calc(1 / var(--font-scale, 1));
+        }
+        /* 全局字号滑动：避免 iOS 输入框聚焦时异常缩小，同时随界面略放大 */
+        input, textarea, select { font-size: max(16px, 1rem) !important; }
+        .calendar-day { aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 12px; font-size: 0.8125rem; }
+        .calendar-day.active { background: #E8F5E9; color: #2E7D32; }
+        .calendar-day.today { border: 2px solid #E67E22; }
+        .star { color: #FFD700; font-size: 0.875rem; }
+        /* 记一笔 · 记录日历 */
+        .record-cal-cell {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            font-size: 0.8125rem;
+            cursor: pointer;
+            position: relative;
+            transition: transform 0.12s ease, background 0.15s ease;
+            border: none;
+            font-family: inherit;
+        }
+        .record-cal-cell:active { transform: scale(0.94); }
+        .record-cal-cell.empty { visibility: hidden; pointer-events: none; }
+        .record-cal-cell.today { border: 2px solid #E67E22; box-sizing: border-box; }
+        .record-cal-cell.selected { background: #E67E22 !important; color: #fff !important; font-weight: 700; }
+        .record-cal-cell.selected.today { border-color: rgba(255,255,255,0.85); }
+        .record-cal-cell.has-dot::after {
+            content: '';
+            position: absolute;
+            bottom: 5px;
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: #7CB342;
+        }
+        .record-cal-cell.selected.has-dot::after { background: #fff; }
+        .record-cal-daynum {
+            position: relative;
+            z-index: 0;
+        }
+        .record-cal-mood {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            font-size: 0.75rem;
+            line-height: 1;
+            z-index: 1;
+            pointer-events: none;
+            filter: drop-shadow(0 0 1px rgba(255,255,255,0.9));
+        }
+        .record-cal-cell.selected .record-cal-mood {
+            filter: drop-shadow(0 0 1px rgba(0,0,0,0.15));
+        }
+        /* 记录弹窗 · 选项芯片可点、指针落在浮层之上 */
+        #bottom-sheet { pointer-events: auto; touch-action: manipulation; }
+        #sheet-content { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px)); }
+        .sheet-chip { font-family: inherit; cursor: pointer; }
+    </style>
+</head>
+<body class="min-h-dvh bg-neutral-300 antialiased">
+
+<div id="app-shell" class="relative mx-auto w-full max-w-[430px] min-h-dvh bg-warm-bg text-text-main pb-20 overflow-x-hidden shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_12px_48px_rgba(0,0,0,0.1)]">
+
+<!-- ==================== 首页 ==================== -->
+<div id="page-home" class="page active px-4 pt-4">
+    <!-- 顶部问候 -->
+    <div class="flex justify-between items-start mb-5">
+        <div>
+            <p class="text-text-light text-sm mb-1">5月5日 星期一</p>
+            <h1 class="text-2xl font-bold text-text-main">早上好，妈妈 ☀️</h1>
+            <p class="text-warm-orange text-sm mt-1">今天也要照顾好自己哦~</p>
+        </div>
+        <div class="flex flex-col items-end gap-2 flex-shrink-0">
+            <button type="button" onclick="showSOS()" class="sos-btn bg-warn-red text-white px-4 py-2 rounded-2xl text-sm font-bold shadow-lg">
+                🆘 不舒服
+            </button>
+            <button type="button" onclick="openFontSizeModal()" class="px-4 py-2 rounded-2xl text-sm font-bold border-2 border-warm-orange text-warm-orange bg-card-white shadow-md hover:bg-light-orange active:opacity-95" title="调节界面字体大小">
+                Aa 字体
+            </button>
+        </div>
+    </div>
+
+    <!-- 用药卡片 -->
+    <div class="bg-card-white rounded-3xl p-4 shadow-sm mb-4">
+        <div class="flex justify-between items-center mb-3">
+            <h2 class="font-bold text-lg">💊 今日用药</h2>
+            <span id="med-progress-text" class="text-xs text-text-light">已服 0/3</span>
+        </div>
+        <div class="grid grid-cols-3 gap-2">
+            <div class="med-slot med-pill pending flex flex-col rounded-2xl shadow-sm min-w-0 overflow-hidden">
+                <div class="flex flex-col items-stretch px-1.5 pt-2.5 pb-1 gap-1 flex-1 text-center">
+                    <span class="text-base leading-none">💊</span>
+                    <span class="font-bold text-xs leading-snug tracking-tight">早餐前</span>
+                    <label class="sr-only">早餐服药时间</label>
+                    <input type="time" value="07:30" class="med-field" aria-label="早餐服药时间" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+                    <label class="sr-only">药品名称</label>
+                    <input type="text" value="二甲双胍" maxlength="14" class="med-field" placeholder="药名" aria-label="药品名称" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+                    <span class="text-[11px] font-semibold text-text-main/85 leading-none">1片</span>
+                </div>
+                <button type="button" class="med-check-btn mt-auto w-full py-2.5 text-xs border-0" onclick="toggleMed(this)">点击打卡</button>
+            </div>
+            <div class="med-slot med-pill pending flex flex-col rounded-2xl shadow-sm min-w-0 overflow-hidden">
+                <div class="flex flex-col items-stretch px-1.5 pt-2.5 pb-1 gap-1 flex-1 text-center">
+                    <span class="text-base leading-none">💊</span>
+                    <span class="font-bold text-xs leading-snug tracking-tight">午餐前</span>
+                    <label class="sr-only">午餐服药时间</label>
+                    <input type="time" value="11:30" class="med-field" aria-label="午餐服药时间" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+                    <label class="sr-only">药品名称</label>
+                    <input type="text" value="二甲双胍" maxlength="14" class="med-field" placeholder="药名" aria-label="药品名称" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+                    <span class="text-[11px] font-semibold text-text-main/85 leading-none">1片</span>
+                </div>
+                <button type="button" class="med-check-btn mt-auto w-full py-2.5 text-xs border-0" onclick="toggleMed(this)">点击打卡</button>
+            </div>
+            <div class="med-slot med-pill pending flex flex-col rounded-2xl shadow-sm min-w-0 overflow-hidden">
+                <div class="flex flex-col items-stretch px-1.5 pt-2.5 pb-1 gap-1 flex-1 text-center">
+                    <span class="text-base leading-none">💊</span>
+                    <span class="font-bold text-xs leading-snug tracking-tight">晚餐前</span>
+                    <label class="sr-only">晚餐服药时间</label>
+                    <input type="time" value="18:00" class="med-field" aria-label="晚餐服药时间" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+                    <label class="sr-only">药品名称</label>
+                    <input type="text" value="二甲双胍" maxlength="14" class="med-field" placeholder="药名" aria-label="药品名称" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+                    <span class="text-[11px] font-semibold text-text-main/85 leading-none">1片</span>
+                </div>
+                <button type="button" class="med-check-btn mt-auto w-full py-2.5 text-xs border-0" onclick="toggleMed(this)">点击打卡</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 血糖卡片 -->
+    <div class="bg-card-white rounded-3xl p-4 shadow-sm mb-4">
+        <div class="flex justify-between items-center mb-3">
+            <h2 class="font-bold text-lg">📊 今日血糖</h2>
+            <button onclick="showRecordSheet('sugar')" class="text-warm-orange text-sm font-medium">+ 记录</button>
+        </div>
+        <div id="home-glucose-slots" class="grid grid-cols-3 gap-3 mb-3"></div>
+        <!-- 每日最高血糖柱状图：仅显示已有血糖记录的日期，可横向滑动 -->
+        <div id="home-glucose-chart-scroll" class="home-glucose-chart-scroll -mx-1 mt-1" aria-label="每日最高血糖趋势">
+            <div id="home-glucose-chart-inner" class="flex flex-col w-max px-1">
+                <div id="home-glucose-chart" class="flex items-end gap-1 h-32"></div>
+                <div id="home-glucose-chart-labels" class="flex gap-1 text-xs text-text-light pt-1 leading-tight"></div>
+            </div>
+            <p id="home-glucose-chart-empty" class="hidden text-sm text-text-light text-center py-5 px-2 leading-relaxed">暂无历史柱图，记录血糖后会显示对应日期</p>
+        </div>
+    </div>
+
+    <!-- 饮食记录 -->
+    <div class="bg-card-white rounded-3xl p-4 shadow-sm mb-4">
+        <div class="flex justify-between items-center mb-3">
+            <h2 class="font-bold text-lg">🍚 今天吃了什么</h2>
+            <button onclick="showRecordSheet('food')" class="text-warm-orange text-sm font-medium">+ 添加</button>
+        </div>
+        <div id="home-food-list" class="space-y-3"></div>
+    </div>
+
+    <!-- 运动卡片 -->
+    <div class="bg-card-white rounded-3xl p-4 shadow-sm mb-4">
+        <div class="flex justify-between items-center mb-3">
+            <h2 class="font-bold text-lg">🧘 今日运动</h2>
+            <button onclick="showRecordSheet('sport')" class="text-warm-orange text-sm font-medium">+ 记录</button>
+        </div>
+        <div id="home-sport-list" class="space-y-0"></div>
+    </div>
+
+    <!-- 快捷入口 -->
+    <div class="grid grid-cols-4 gap-3 mb-6">
+        <button onclick="showPage('ai')" class="flex flex-col items-center gap-1 p-3 bg-card-white rounded-2xl shadow-sm">
+            <div class="w-12 h-12 bg-light-orange rounded-full flex items-center justify-center text-2xl">💬</div>
+            <span class="text-xs font-medium">AI问问</span>
+        </button>
+        <button onclick="showPage('record')" class="flex flex-col items-center gap-1 p-3 bg-card-white rounded-2xl shadow-sm">
+            <div class="w-12 h-12 bg-light-green rounded-full flex items-center justify-center text-2xl">📝</div>
+            <span class="text-xs font-medium">记一笔</span>
+        </button>
+        <button onclick="showPage('doctor')" class="flex flex-col items-center gap-1 p-3 bg-card-white rounded-2xl shadow-sm">
+            <div class="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center text-2xl">🏥</div>
+            <span class="text-xs font-medium">就医</span>
+        </button>
+        <button onclick="showPage('yoga')" class="flex flex-col items-center gap-1 p-3 bg-card-white rounded-2xl shadow-sm">
+            <div class="w-12 h-12 bg-purple-50 rounded-full flex items-center justify-center text-2xl">🧘</div>
+            <span class="text-xs font-medium">瑜伽</span>
+        </button>
+    </div>
+</div>
+
+<!-- ==================== AI 问问页面 ==================== -->
+<div id="page-ai" class="page px-4 pt-4 h-[calc(100dvh-5rem)] flex flex-col min-h-0">
+    <div class="flex items-center justify-between gap-2 mb-4 flex-shrink-0 w-full">
+        <div class="flex items-center gap-3 min-w-0 flex-1">
+            <button type="button" onclick="showPage('home')" class="text-2xl flex-shrink-0">←</button>
+            <div class="flex items-center gap-2 min-w-0">
+                <div class="w-10 h-10 bg-warm-orange rounded-full flex items-center justify-center text-xl flex-shrink-0">🌿</div>
+                <div class="min-w-0">
+                    <h1 class="font-bold text-lg truncate">小棉助手</h1>
+                    <div class="flex items-center gap-1">
+                        <div class="w-2 h-2 bg-soft-green rounded-full flex-shrink-0"></div>
+                        <span class="text-xs text-text-light">在线</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <button type="button" onclick="openAISettings()" class="flex-shrink-0 w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-lg hover:bg-gray-200 transition" title="查看 API 配置（已内置）" aria-label="API 与模型配置">
+    </div>
+
+    <!-- 聊天区域 -->
+    <div id="chat-area" class="flex-1 min-h-0 overflow-y-auto space-y-4 pb-4">
+        <div class="flex gap-3">
+            <div class="w-8 h-8 bg-warm-orange rounded-full flex items-center justify-center text-sm flex-shrink-0">🌿</div>
+            <div class="chat-bubble bg-card-white rounded-2xl rounded-tl-sm p-3 shadow-sm text-sm leading-relaxed">
+                您好呀！我是小棉，您的健康小助手~ 😊<br><br>
+                您可以问我：<br>
+                • 某种食物的GI值和能不能吃<br>
+                • 用药时间和注意事项<br>
+                • 血糖异常时的处理建议<br>
+                • 适合糖尿病患者的食谱
+            </div>
+        </div>
+    </div>
+
+    <!-- 输入区域 -->
+    <div class="flex-shrink-0 bg-card-white rounded-2xl p-3 shadow-lg mb-2">
+        <div class="flex items-center gap-2">
+            <input type="text" id="ai-input" placeholder="输入问题，如：苹果能吃吗？" 
+                   class="flex-1 bg-gray-100 rounded-full px-4 py-2.5 text-sm outline-none"
+                   onkeypress="if(event.key==='Enter')sendAI()">
+            <button onclick="sendAI()" class="w-10 h-10 bg-warm-orange rounded-full flex items-center justify-center text-white text-lg">➤</button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 记一笔页面 ==================== -->
+<div id="page-record" class="page px-4 pt-4">
+    <div class="flex items-center gap-3 mb-6">
+        <button onclick="showPage('home')" class="text-2xl">←</button>
+        <h1 class="text-xl font-bold">记一笔</h1>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4 mb-6">
+        <button onclick="showRecordSheet('food')" class="food-card bg-card-white rounded-3xl p-6 shadow-sm text-center">
+            <div class="text-4xl mb-3">🍚</div>
+            <div class="font-bold text-lg">饮食记录</div>
+            <div class="text-sm text-text-light mt-1">记录吃了什么</div>
+        </button>
+        <button onclick="showRecordSheet('med')" class="food-card bg-card-white rounded-3xl p-6 shadow-sm text-center">
+            <div class="text-4xl mb-3">💊</div>
+            <div class="font-bold text-lg">用药记录</div>
+            <div class="text-sm text-text-light mt-1">打卡服药时间</div>
+        </button>
+        <button onclick="showRecordSheet('sugar')" class="food-card bg-card-white rounded-3xl p-6 shadow-sm text-center">
+            <div class="text-4xl mb-3">🩸</div>
+            <div class="font-bold text-lg">血糖记录</div>
+            <div class="text-sm text-text-light mt-1">测量数值</div>
+        </button>
+        <button onclick="showRecordSheet('sport')" class="food-card bg-card-white rounded-3xl p-6 shadow-sm text-center">
+            <div class="text-4xl mb-3">🧘</div>
+            <div class="font-bold text-lg">运动记录</div>
+            <div class="text-sm text-text-light mt-1">瑜伽/散步</div>
+        </button>
+        <button onclick="showRecordSheet('doctor')" class="food-card bg-card-white rounded-3xl p-6 shadow-sm text-center">
+            <div class="text-4xl mb-3">🏥</div>
+            <div class="font-bold text-lg">就医记录</div>
+            <div class="text-sm text-text-light mt-1">看病/检查</div>
+        </button>
+        <button onclick="showRecordSheet('mood')" class="food-card bg-card-white rounded-3xl p-6 shadow-sm text-center">
+            <div class="text-4xl mb-3">😊</div>
+            <div class="font-bold text-lg">心情记录</div>
+            <div class="text-sm text-text-light mt-1">今天感觉如何</div>
+        </button>
+    </div>
+
+    <!-- 按日查看记录 -->
+    <div class="bg-card-white rounded-3xl p-4 shadow-sm mb-4">
+        <div class="flex justify-between items-center mb-3">
+            <button type="button" onclick="shiftRecordMonth(-1)" class="w-10 h-10 rounded-full bg-gray-100 text-lg leading-none hover:bg-gray-200" aria-label="上月">‹</button>
+            <h2 id="record-calendar-title" class="font-bold text-base">2026年5月</h2>
+            <button type="button" onclick="shiftRecordMonth(1)" class="w-10 h-10 rounded-full bg-gray-100 text-lg leading-none hover:bg-gray-200" aria-label="下月">›</button>
+        </div>
+        <div class="grid grid-cols-7 gap-2 text-center text-xs text-text-light mb-2">
+            <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
+        </div>
+        <div id="record-calendar-grid" class="grid grid-cols-7 gap-2"></div>
+    </div>
+
+    <h2 id="record-selected-date-label" class="font-bold text-lg mb-3">2026年5月5日（星期一）</h2>
+    <div id="record-day-list" class="space-y-3 mb-4"></div>
+</div>
+
+<!-- ==================== 瑜伽/运动页面 ==================== -->
+<div id="page-yoga" class="page px-4 pt-4">
+    <div class="flex items-center gap-3 mb-6">
+        <button onclick="showPage('home')" class="text-2xl">←</button>
+        <h1 class="text-xl font-bold">🧘 运动打卡</h1>
+    </div>
+
+    <!-- 本月打卡日历（完整月历，可切换月份；与记一笔/首页同源） -->
+    <div class="bg-card-white rounded-3xl p-4 shadow-sm mb-4">
+        <div class="flex justify-between items-center gap-2 mb-2">
+            <button type="button" onclick="shiftYogaMonth(-1)" class="w-10 h-10 rounded-full bg-gray-100 text-lg leading-none hover:bg-gray-200 flex-shrink-0" aria-label="上月">‹</button>
+            <h2 id="yoga-calendar-title" class="font-bold text-base text-center flex-1 min-w-0">2026年5月</h2>
+            <button type="button" onclick="shiftYogaMonth(1)" class="w-10 h-10 rounded-full bg-gray-100 text-lg leading-none hover:bg-gray-200 flex-shrink-0" aria-label="下月">›</button>
+        </div>
+        <div class="flex justify-between items-center mb-3">
+            <span class="text-sm text-text-light">本月有运动的天数</span>
+            <span id="yoga-month-stat" class="text-sm text-warm-orange font-medium">已运动 0 天</span>
+        </div>
+        <div class="grid grid-cols-7 gap-2 text-center text-xs text-text-light mb-2">
+            <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
+        </div>
+        <div id="yoga-calendar-grid" class="grid grid-cols-7 gap-2"></div>
+        <div id="yoga-streak-text" class="mt-3 text-center text-sm text-text-light"></div>
+    </div>
+
+    <!-- 运动历史（全部记录，与首页同源） -->
+    <h2 class="font-bold text-lg mb-3">最近运动</h2>
+    <div id="yoga-recent-list" class="space-y-3 mb-3"></div>
+    <button type="button" onclick="showRecordSheet('sport')" class="w-full flex items-center gap-3 p-4 rounded-2xl border-2 border-dashed border-gray-200 bg-card-white text-text-light hover:border-warm-orange hover:text-warm-orange transition-colors text-left shadow-sm mb-6">
+        <span class="text-2xl flex-shrink-0">➕</span>
+        <div class="flex-1 min-w-0">
+            <div class="font-medium text-text-main">添加运动记录</div>
+            <div class="text-xs mt-0.5 opacity-90">点击填写运动类型、时间与时长</div>
+        </div>
+    </button>
+</div>
+
+<!-- ==================== 就医档案页面 ==================== -->
+<div id="page-doctor" class="page px-4 pt-4">
+    <div class="flex items-center gap-3 mb-6">
+        <button onclick="showPage('home')" class="text-2xl">←</button>
+        <h1 class="text-xl font-bold">🏥 就医档案</h1>
+    </div>
+
+    <!-- 下次复诊提醒 -->
+    <div class="bg-light-orange rounded-3xl p-4 mb-4 border-2 border-warm-orange border-dashed">
+        <div class="flex items-center gap-2 mb-2">
+            <span class="text-xl">📅</span>
+            <span class="font-bold">下次复诊提醒</span>
+        </div>
+        <div id="followup-card-line1" class="text-lg font-bold text-warm-orange mb-1">5月20日 上午 9:00</div>
+        <div id="followup-card-line2" class="text-sm text-text-light">内分泌科 · 李医生 · 带齐化验单</div>
+        <button type="button" onclick="openFollowupReminderModal()" class="mt-3 w-full py-2 bg-warm-orange text-white rounded-xl text-sm font-medium shadow-sm active:opacity-95">记录复诊需求</button>
+    </div>
+
+    <!-- 时间轴 -->
+    <h2 class="font-bold text-lg mb-3">就医记录</h2>
+    <div class="relative pl-6">
+        <!-- 时间轴线 -->
+        <div class="absolute left-2 top-2 bottom-0 w-0.5 bg-gray-200"></div>
+
+        <div id="doctor-timeline-list" class="space-y-6">
+        <div class="relative">
+            <div class="absolute -left-4 top-1 timeline-dot bg-white"></div>
+            <div class="bg-card-white rounded-2xl p-4 shadow-sm">
+                <div class="flex justify-between items-start mb-2">
+                    <div>
+                        <div class="font-bold">内分泌科复查</div>
+                        <div class="text-sm text-text-light">李医生 · 主任医师</div>
+                    </div>
+                    <span class="text-xs text-text-light">4月20日</span>
+                </div>
+                <div class="text-sm mb-2">诊断：2型糖尿病，控制良好</div>
+                <div class="flex gap-2">
+                    <button class="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-xs">查看处方</button>
+                    <button class="px-3 py-1 bg-green-50 text-green-600 rounded-full text-xs">查看报告</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="relative">
+            <div class="absolute -left-4 top-1 timeline-dot bg-white"></div>
+            <div class="bg-card-white rounded-2xl p-4 shadow-sm">
+                <div class="flex justify-between items-start mb-2">
+                    <div>
+                        <div class="font-bold">眼科检查</div>
+                        <div class="text-sm text-text-light">王医生 · 副主任医师</div>
+                    </div>
+                    <span class="text-xs text-text-light">3月15日</span>
+                </div>
+                <div class="text-sm mb-2">眼底检查：正常，无病变</div>
+                <div class="flex gap-2">
+                    <button class="px-3 py-1 bg-green-50 text-green-600 rounded-full text-xs">结果正常</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="relative">
+            <div class="absolute -left-4 top-1 timeline-dot bg-white"></div>
+            <div class="bg-card-white rounded-2xl p-4 shadow-sm">
+                <div class="flex justify-between items-start mb-2">
+                    <div>
+                        <div class="font-bold">糖化血红蛋白检测</div>
+                        <div class="text-sm text-text-light">检验科</div>
+                    </div>
+                    <span class="text-xs text-text-light">3月15日</span>
+                </div>
+                <div class="text-sm">HbA1c: 6.8% <span class="gi-badge gi-low">控制良好</span></div>
+            </div>
+        </div>
+        </div>
+    </div>
+
+    <button type="button" onclick="showRecordSheet('doctor')" class="w-full mt-6 py-4 bg-warm-orange text-white rounded-2xl font-bold shadow-lg mb-6">
+        + 添加新的就医记录
+    </button>
+</div>
+
+<!-- ==================== 底部导航 ==================== -->
+<nav class="nav-phone-bar fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-card-white border-t border-gray-100 px-6 pt-2 flex justify-around items-center z-50 shadow-[0_-4px_24px_rgba(0,0,0,0.06)]">
+    <button onclick="showPage('home')" class="nav-item active flex flex-col items-center gap-0.5 p-2" data-page="home">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+        <span class="text-xs">首页</span>
+    </button>
+    <button onclick="showPage('record')" class="nav-item flex flex-col items-center gap-0.5 p-2 text-text-light" data-page="record">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+        <span class="text-xs">记一笔</span>
+    </button>
+    <button onclick="showPage('ai')" class="nav-item flex flex-col items-center gap-0.5 p-2 text-text-light" data-page="ai">
+        <div class="w-12 h-12 -mt-6 bg-warm-orange rounded-full flex items-center justify-center shadow-lg">
+            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+        </div>
+        <span class="text-xs">AI问问</span>
+    </button>
+    <button onclick="showPage('yoga')" class="nav-item flex flex-col items-center gap-0.5 p-2 text-text-light" data-page="yoga">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
+        <span class="text-xs">运动</span>
+    </button>
+    <button onclick="showPage('doctor')" class="nav-item flex flex-col items-center gap-0.5 p-2 text-text-light" data-page="doctor">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        <span class="text-xs">就诊记录</span>
+    </button>
+</nav>
+
+</div><!-- #app-shell -->
+
+<!-- ==================== 底部弹出表单 ==================== -->
+<div id="bottom-sheet-overlay" class="fixed inset-0 bg-black/50 z-[55] hidden" onclick="closeSheet()"></div>
+<div id="bottom-sheet" class="fixed bottom-0 left-1/2 w-full max-w-[430px] bg-card-white rounded-t-3xl z-[65] hidden bottom-sheet max-h-[85vh] overflow-y-auto shadow-2xl pb-[env(safe-area-inset-bottom,0px)]">
+    <div class="sticky top-0 bg-card-white pt-4 pb-2 px-4 rounded-t-3xl">
+        <div class="w-12 h-1 bg-gray-300 rounded-full mx-auto mb-4"></div>
+        <div class="flex justify-between items-center">
+            <h2 id="sheet-title" class="text-xl font-bold">记录</h2>
+            <button onclick="closeSheet()" class="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">✕</button>
+        </div>
+    </div>
+    <div id="sheet-content" class="p-4 pb-8">
+        <!-- 动态内容 -->
+    </div>
+</div>
+
+<!-- ==================== SOS 弹窗 ==================== -->
+<div id="sos-modal" class="fixed inset-0 bg-black/60 z-[70] hidden flex items-center justify-center p-6" onclick="closeSOS()">
+    <div class="sos-modal-panel bg-card-white rounded-3xl p-6 shadow-xl" onclick="event.stopPropagation()">
+        <div class="text-center mb-5">
+            <div class="text-5xl mb-3" aria-hidden="true">🆘</div>
+            <h2 class="text-xl font-bold text-warn-red">紧急情况</h2>
+            <p class="text-sm text-text-light mt-2">如需急救，请直接拨打 120（将打开手机拨号界面）</p>
+        </div>
+        <a href="tel:120" class="block w-full py-4 bg-warn-red text-white rounded-2xl font-bold shadow-lg text-center no-underline active:opacity-95" onclick="scheduleCloseSOSAfterDial()">📞 拨打120</a>
+    </div>
+</div>
+
+<!-- ==================== 复诊需求弹窗 ==================== -->
+<div id="followup-reminder-modal" class="fixed inset-0 bg-black/60 z-[76] hidden flex items-center justify-center p-4" onclick="closeFollowupReminderModal()">
+    <div class="bg-card-white rounded-3xl p-5 w-full max-w-sm max-h-[90vh] overflow-y-auto shadow-xl" onclick="event.stopPropagation()">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-bold">记录复诊需求</h2>
+            <button type="button" onclick="closeFollowupReminderModal()" class="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center text-text-light hover:bg-gray-200" aria-label="关闭">✕</button>
+        </div>
+        <p class="text-xs text-text-light mb-4 leading-relaxed">信息保存在本机浏览器，可随时修改。具体诊疗请以医院安排为准。</p>
+        <div class="space-y-3 mb-4">
+            <div>
+                <label class="block text-sm font-medium mb-1">复诊日期</label>
+                <input type="date" id="followup-modal-date" class="w-full bg-gray-100 rounded-xl px-4 py-3 outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">具体时间</label>
+                <input type="time" id="followup-modal-time" class="w-full bg-gray-100 rounded-xl px-4 py-3 outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">科室</label>
+                <input type="text" id="followup-modal-dept" placeholder="如：内分泌科" class="w-full bg-gray-100 rounded-xl px-4 py-3 outline-none" maxlength="40">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">医生</label>
+                <input type="text" id="followup-modal-doctor" placeholder="如：李医生" class="w-full bg-gray-100 rounded-xl px-4 py-3 outline-none" maxlength="30">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">备注 / 要准备物品</label>
+                <textarea id="followup-modal-note" placeholder="如：带齐化验单、空腹等" class="w-full bg-gray-100 rounded-xl px-4 py-3 outline-none h-24 resize-none"></textarea>
+            </div>
+        </div>
+        <div class="flex gap-3">
+            <button type="button" onclick="closeFollowupReminderModal()" class="flex-1 py-3 border-2 border-gray-200 rounded-2xl font-medium text-text-main">取消</button>
+            <button type="button" onclick="submitFollowupReminder()" class="flex-1 py-3 bg-warm-orange text-white rounded-2xl font-bold shadow-lg">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== AI 接口设置 ==================== -->
+<div id="ai-settings-modal" class="fixed inset-0 bg-black/60 z-[75] hidden flex items-center justify-center p-4" onclick="closeAISettings()">
+    <div class="bg-card-white rounded-3xl p-5 w-full max-w-sm max-h-[90vh] overflow-y-auto shadow-xl" onclick="event.stopPropagation()">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-bold">模型配置（只读）</h2>
+            <button type="button" onclick="closeAISettings()" class="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center text-text-light">✕</button>
+        </div>
+        <p class="text-xs text-text-light mb-4 leading-relaxed">以下为<b>内置固定</b>的火山方舟 OpenAI 兼容配置（<code class="text-[11px]">ep-</code> 推理接入点）。密钥与地址已锁定不可编辑；若浏览器直连报跨域，请使用项目内本地代理并改代理上游地址。</p>
+        <div class="space-y-3 mb-4">
+            <div>
+                <label class="block text-sm font-medium mb-1">API 密钥（已锁定）</label>
+                <input type="password" id="ai-settings-api-key" readonly tabindex="-1" autocomplete="off" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm outline-none text-text-main cursor-not-allowed opacity-90">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">API 根地址（已锁定）</label>
+                <input type="text" id="ai-settings-base" readonly tabindex="-1" autocomplete="off" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-[12px] text-text-main cursor-not-allowed opacity-90">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-1">推理接入点（模型 ID，已锁定）</label>
+                <input type="text" id="ai-settings-model" readonly tabindex="-1" autocomplete="off" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-[12px] text-text-main cursor-not-allowed opacity-90">
+            </div>
+        </div>
+        <p class="text-[11px] text-text-light mb-4 leading-relaxed">实际请求：<span class="font-mono text-[10px]">POST …/api/v1/chat/completions</span></p>
+        <div class="flex flex-col gap-2">
+            <button type="button" onclick="closeAISettings()" class="w-full py-3 bg-warm-orange text-white rounded-2xl font-bold shadow-lg">关闭</button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 全局字体大小 ==================== -->
+<div id="font-size-modal" class="fixed inset-0 bg-black/60 z-[78] hidden flex items-center justify-center p-4" onclick="closeFontSizeModal()">
+    <div class="font-size-modal-panel bg-card-white rounded-3xl p-5 shadow-xl" onclick="event.stopPropagation()">
+        <div class="flex justify-between items-center mb-3">
+            <h2 class="text-lg font-bold">字体大小</h2>
+            <button type="button" onclick="closeFontSizeModal()" class="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center text-text-light hover:bg-gray-200" aria-label="关闭">✕</button>
+        </div>
+        <p class="text-xs text-text-light mb-4 leading-relaxed">左右滑动调节全页文字显示。最左侧为默认大小，向右逐渐放大。</p>
+        <div class="mb-2">
+            <input type="range" id="font-size-slider" min="0" max="100" value="0" step="5" class="w-full h-2 rounded-full appearance-none bg-gray-200 accent-warm-orange cursor-pointer"
+                   oninput="onFontSizeSliderInput(this.value)">
+        </div>
+        <div class="flex justify-between text-xs text-text-light mb-5">
+            <span>默认</span>
+            <span id="font-size-scale-label">100%</span>
+            <span>更大</span>
+        </div>
+        <button type="button" onclick="closeFontSizeModal()" class="w-full py-3 bg-warm-orange text-white rounded-2xl font-bold shadow-lg">完成</button>
+    </div>
+</div>
+
+<!-- ==================== 添加运动类型（自定义弹窗，适配窄屏） ==================== -->
+<div id="sport-add-modal" class="fixed inset-0 z-[76] hidden bg-black/60 flex items-center justify-center p-3 overflow-y-auto overscroll-contain" onclick="closeSportAddModal()">
+    <div class="w-full max-w-[min(380px,calc(100vw-24px))] min-w-0 box-border my-auto bg-card-white rounded-3xl p-4 shadow-xl max-h-[min(88vh,560px)] overflow-y-auto overscroll-contain" onclick="event.stopPropagation()">
+        <div class="flex justify-between items-center gap-2 mb-3">
+            <h3 class="font-bold text-base truncate">添加运动类型</h3>
+            <button type="button" onclick="closeSportAddModal()" class="flex-shrink-0 w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-text-light hover:bg-gray-200" aria-label="关闭">✕</button>
+        </div>
+        <label class="block text-sm font-medium mb-1">运动名称</label>
+        <input type="text" id="sport-add-name" maxlength="12" inputmode="text" autocomplete="off" placeholder="不超过12个字" class="w-full min-w-0 max-w-full box-border bg-gray-100 rounded-xl px-3 py-2.5 text-sm outline-none">
+        <label class="block text-sm font-medium mb-2 mt-4">选择图标</label>
+        <div id="sport-add-icon-grid" class="grid grid-cols-5 gap-2 min-w-0"></div>
+        <div class="flex gap-2 mt-5">
+            <button type="button" onclick="closeSportAddModal()" class="flex-1 py-3 border-2 border-gray-200 rounded-2xl font-medium text-text-main">取消</button>
+            <button type="button" onclick="confirmSportAddFromModal()" class="flex-1 py-3 bg-warm-orange text-white rounded-2xl font-bold shadow-lg">确定</button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 就医上传 · 大图预览 ==================== -->
+<div id="doctor-image-preview-modal" class="fixed inset-0 z-[82] hidden">
+    <div class="absolute inset-0 bg-black/90" onclick="closeDoctorImagePreview()" aria-hidden="true"></div>
+    <div class="relative z-10 flex flex-col h-full min-h-0 pointer-events-none">
+        <div class="pointer-events-auto flex justify-end p-3 flex-shrink-0">
+            <button type="button" onclick="closeDoctorImagePreview()" class="w-10 h-10 rounded-full bg-white/15 text-white text-lg flex items-center justify-center hover:bg-white/25" aria-label="关闭预览">✕</button>
+        </div>
+        <div class="flex-1 flex items-center justify-center p-4 min-h-0 overflow-auto pointer-events-auto">
+            <img id="doctor-image-preview-img" src="" alt="处方/化验单预览" class="max-w-full max-h-[min(85vh,560px)] w-auto object-contain rounded-xl shadow-2xl bg-black/20">
+        </div>
+        <p class="pointer-events-none text-center text-white/70 text-xs pb-4 px-4">点击下方深色区域也可关闭</p>
+    </div>
+</div>
+
+<script>
+// ==================== 页面切换 ====================
+function showPage(pageId) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById('page-' + pageId).classList.add('active');
+    document.querySelectorAll('.nav-item').forEach(n => {
+        n.classList.remove('active');
+        n.classList.add('text-text-light');
+    });
+    const activeNav = document.querySelector('.nav-item[data-page="' + pageId + '"]');
+    if (activeNav) {
+        activeNav.classList.add('active');
+        activeNav.classList.remove('text-text-light');
+    }
+    window.scrollTo(0, 0);
+    if (pageId === 'record') ensureRecordCalendar();
+    if (pageId === 'home') refreshHomeFromRecords();
+    if (pageId === 'yoga') {
+        ensureYogaPage();
+        renderYogaCalendar();
+        renderYogaRecentList();
+    }
+}
+
+// ==================== 记一笔 · 日历按日查看 ====================
+const RECORD_TODAY_ISO = '2026-05-05';
+
+const RECORD_LOG_BY_DATE = {
+    '2026-05-05': [
+        {
+            icon: '🥣',
+            iconBg: 'bg-light-green',
+            title: '早餐：燕麦粥 + 鸡蛋',
+            sub: '7:30',
+            rightHtml: '<span class="gi-badge gi-low">GI 55</span>'
+        },
+        {
+            icon: '💊',
+            iconBg: 'bg-light-orange',
+            title: '服用二甲双胍 1片',
+            sub: '7:00 · 早餐前',
+            rightHtml: '<span class="text-soft-green text-sm font-medium">✓ 已服</span>'
+        },
+        {
+            icon: '🩸',
+            iconBg: 'bg-blue-50',
+            title: '空腹血糖 6.2 mmol/L',
+            sub: '6:50',
+            rightHtml: '<span class="gi-badge gi-low">正常</span>'
+        },
+        {
+            kind: 'mood',
+            moodIcon: '😊',
+            icon: '😊',
+            iconBg: 'bg-purple-50',
+            title: '心情记录：开心',
+            sub: '21:00',
+            rightHtml: ''
+        },
+    ],
+    '2026-05-04': [
+        {
+            icon: '🧘',
+            iconBg: 'bg-light-orange',
+            title: '瑜伽 30 分钟',
+            sub: '19:00 · 有氧',
+            rightHtml: '<span class="text-xs text-text-light shrink-0">运动</span>'
+        },
+        {
+            icon: '🩸',
+            iconBg: 'bg-blue-50',
+            title: '早餐后血糖 7.8 mmol/L',
+            sub: '10:05',
+            rightHtml: '<span class="gi-badge gi-low">正常</span>'
+        },
+        {
+            kind: 'mood',
+            moodIcon: '😐',
+            icon: '😐',
+            iconBg: 'bg-purple-50',
+            title: '心情记录：平淡',
+            sub: '睡前',
+            rightHtml: ''
+        },
+    ],
+    '2026-05-03': [
+        {
+            icon: '🍚',
+            iconBg: 'bg-light-green',
+            title: '午餐：杂粮饭 + 青菜',
+            sub: '12:15',
+            rightHtml: '<span class="gi-badge gi-low">GI 52</span>'
+        },
+        {
+            kind: 'mood',
+            moodIcon: '😌',
+            icon: '😌',
+            iconBg: 'bg-purple-50',
+            title: '心情记录：放松',
+            sub: '午后',
+            rightHtml: ''
+        },
+    ],
+};
+
+/** 健康记录日历与首页共用；持久化到浏览器本地，刷新不丢失 */
+const RECORD_LOG_STORAGE_KEY = 'sweet_record_log_by_date_v1';
+
+function hydrateRecordLogFromStorage() {
+    try {
+        var raw = localStorage.getItem(RECORD_LOG_STORAGE_KEY);
+        if (!raw) return;
+        var saved = JSON.parse(raw);
+        if (!saved || typeof saved !== 'object') return;
+        for (var iso in saved) {
+            if (!Object.prototype.hasOwnProperty.call(saved, iso)) continue;
+            if (!Array.isArray(saved[iso])) continue;
+            RECORD_LOG_BY_DATE[iso] = saved[iso];
+        }
+    } catch (e) {
+        /* 存储损坏时忽略，仍用内置示例 */
+    }
+}
+
+function persistRecordLogToStorage() {
+    try {
+        localStorage.setItem(RECORD_LOG_STORAGE_KEY, JSON.stringify(RECORD_LOG_BY_DATE));
+    } catch (e) {
+        if (typeof showToast === 'function') showToast('本地保存失败，可能被浏览器限额或禁止存储');
+    }
+}
+
+hydrateRecordLogFromStorage();
+
+/** 当日若有 kind 为 mood 的记录，返回右上角展示用 emoji（可多条约定为第一条心情） */
+function getRecordDayMoodEmoji(iso) {
+    var items = RECORD_LOG_BY_DATE[iso];
+    if (!items || !items.length) return '';
+    for (var i = 0; i < items.length; i++) {
+        if (items[i].kind === 'mood') {
+            return items[i].moodIcon || items[i].icon || '😊';
+        }
+    }
+    return '';
+}
+
+/** 首页板块：与 RECORD_LOG_BY_DATE[RECORD_TODAY_ISO] 同步 */
+function parseSugarFromRecordTitle(title) {
+    if (!title) return null;
+    var m = String(title).match(/^(.+?)血糖\s*([\d.]+)\s*mmol\/L$/i);
+    if (!m) return null;
+    return { whenRaw: m[1].trim(), value: parseFloat(m[2]) };
+}
+
+/** 展示排序：已知时段优先，其余按拼音排在最后 */
+var HOME_GLUCOSE_WHEN_ORDER = ['空腹', '早餐后2h', '早餐后', '午餐后2h', '午餐后', '晚餐后2h', '晚餐后', '睡前', '随机', '夜间'];
+
+function collectTodaySugarSlots(items) {
+    var seen = {};
+    var list = [];
+    for (var i = 0; i < items.length; i++) {
+        var p = parseSugarFromRecordTitle(items[i].title);
+        if (!p || isNaN(p.value)) continue;
+        if (seen[p.whenRaw]) continue;
+        seen[p.whenRaw] = true;
+        list.push(p);
+    }
+    return list.sort(function (a, b) {
+        var ia = HOME_GLUCOSE_WHEN_ORDER.indexOf(a.whenRaw);
+        var ib = HOME_GLUCOSE_WHEN_ORDER.indexOf(b.whenRaw);
+        if (ia === -1 && ib === -1) return String(a.whenRaw).localeCompare(String(b.whenRaw), 'zh-CN');
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+    });
+}
+
+function glucoseSlotStyle(whenRaw, v) {
+    var ok;
+    if (whenRaw.indexOf('空腹') >= 0) ok = v >= 3.9 && v <= 6.1;
+    else ok = v <= 7.8;
+    if (ok) {
+        return {
+            cardBg: 'bg-light-green',
+            valCls: 'text-2xl font-bold text-soft-green',
+            stCls: 'text-xs text-soft-green',
+            label: '✓ 正常'
+        };
+    }
+    return {
+        cardBg: 'bg-light-orange',
+        valCls: 'text-2xl font-bold text-warm-orange',
+        stCls: 'text-xs text-warm-orange',
+        label: '⚠ 留意'
+    };
+}
+
+function renderHomeGlucoseSlots() {
+    var grid = document.getElementById('home-glucose-slots');
+    if (!grid) return;
+    var items = RECORD_LOG_BY_DATE[RECORD_TODAY_ISO] || [];
+    var slots = collectTodaySugarSlots(items);
+    if (!slots.length) {
+        grid.innerHTML =
+            '<div class="col-span-3 rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50/80 p-4 text-center text-sm text-text-light">' +
+            '今日暂无血糖记录，点击右上角「+ 记录」添加' +
+            '</div>';
+        return;
+    }
+    grid.innerHTML = '';
+    for (var i = 0; i < slots.length; i++) {
+        var data = slots[i];
+        var st = glucoseSlotStyle(data.whenRaw, data.value);
+        var card = document.createElement('div');
+        card.className = 'rounded-2xl p-3 text-center min-w-0 ' + st.cardBg;
+        card.innerHTML =
+            '<div class="text-xs text-text-light mb-1 leading-snug">' +
+            escapeHtml(data.whenRaw) +
+            '</div>' +
+            '<div class="' +
+            st.valCls +
+            '">' +
+            data.value +
+            '</div>' +
+            '<div class="' +
+            st.stCls +
+            '">' +
+            st.label +
+            '</div>';
+        grid.appendChild(card);
+    }
+}
+
+function isHomeFoodEntry(e) {
+    if (!e || e.kind === 'mood') return false;
+    if (e.icon === '🩸' || e.icon === '💊') return false;
+    if (e.title && /血糖\s*[\d.]+\s*mmol\/L/i.test(e.title)) return false;
+    if (e.title && /^(早餐|午餐|晚餐|加餐)/.test(String(e.title).trim())) return true;
+    if (e.icon === '🍚' || e.icon === '🥣') return true;
+    return false;
+}
+
+/** 饮食记录：仅当有可展示的数字 GI（如 GI 55）时才显示右侧标签 */
+function foodRecordGiBadgeHtml(rightHtml) {
+    var h = rightHtml || '';
+    if (/GI\s*\d/.test(h)) return h;
+    return '';
+}
+
+function recordEntryRightHtmlForList(rec) {
+    if (isHomeFoodEntry(rec)) return foodRecordGiBadgeHtml(rec.rightHtml);
+    return rec.rightHtml || '';
+}
+
+function renderHomeFoodList() {
+    var list = document.getElementById('home-food-list');
+    if (!list) return;
+    var items = RECORD_LOG_BY_DATE[RECORD_TODAY_ISO] || [];
+    var foods = [];
+    for (var i = 0; i < items.length; i++) {
+        if (isHomeFoodEntry(items[i])) foods.push(items[i]);
+    }
+    var html = '';
+    for (var j = 0; j < foods.length; j++) {
+        var rec = foods[j];
+        html +=
+            '<div class="flex items-center gap-3 p-3 bg-light-green rounded-2xl">' +
+            '<div class="text-2xl flex-shrink-0">' +
+            rec.icon +
+            '</div>' +
+            '<div class="flex-1 min-w-0">' +
+            '<div class="font-medium">' +
+            escapeHtml(rec.title) +
+            '</div>' +
+            '<div class="text-xs text-text-light">' +
+            escapeHtml(rec.sub || '') +
+            '</div></div>' +
+            foodRecordGiBadgeHtml(rec.rightHtml) +
+            '</div>';
+    }
+    html +=
+        '<div class="flex items-center gap-3 p-3 border-2 border-dashed border-gray-200 rounded-2xl text-text-light cursor-pointer active:opacity-80" onclick="showRecordSheet(\'food\')">' +
+        '<div class="text-xl">+</div>' +
+        '<div class="text-sm">' +
+        (foods.length ? '继续添加饮食记录…' : '记录今天饮食…') +
+        '</div></div>';
+    list.innerHTML = html;
+}
+
+function isHomeSportEntry(e) {
+    if (!e || !e.title) return false;
+    return e.rightHtml && e.rightHtml.indexOf('运动') >= 0;
+}
+
+function renderHomeSportList() {
+    var list = document.getElementById('home-sport-list');
+    if (!list) return;
+    var items = RECORD_LOG_BY_DATE[RECORD_TODAY_ISO] || [];
+    var sports = [];
+    for (var i = 0; i < items.length; i++) {
+        if (isHomeSportEntry(items[i])) sports.push(items[i]);
+    }
+    var html = '';
+    for (var j = 0; j < sports.length; j++) {
+        var rec = sports[j];
+        var m = String(rec.title).match(/(\d+)\s*分钟/);
+        var mins = m ? parseInt(m[1], 10) : 0;
+        var name = String(rec.title).replace(/\s+\d+\s*分钟\s*$/, '').trim() || '运动';
+        var emoji = rec.icon || '🧘';
+        html +=
+            '<div class="flex items-center gap-4 py-3 border-b border-gray-100 last:border-b-0">' +
+            '<div class="w-14 h-14 rounded-full bg-light-orange flex items-center justify-center text-2xl flex-shrink-0">' +
+            emoji +
+            '</div>' +
+            '<div class="flex-1 min-w-0">' +
+            '<div class="font-medium">' +
+            escapeHtml(name) +
+            '</div>' +
+            '<div class="text-sm text-text-light">' +
+            escapeHtml(rec.sub || '') +
+            '</div>' +
+            '</div>' +
+            '<div class="text-right flex-shrink-0">' +
+            '<div class="text-2xl font-bold text-warm-orange">' +
+            mins +
+            '</div>' +
+            '<div class="text-xs text-warm-orange">' +
+            '分钟' +
+            '</div>' +
+            '</div>' +
+            '</div>';
+    }
+    if (!sports.length) {
+        html =
+            '<div class="flex items-center gap-4 py-1">' +
+            '<div class="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center text-3xl flex-shrink-0">🧘</div>' +
+            '<div class="flex-1 min-w-0">' +
+            '<div class="font-medium text-text-light">还没有运动哦</div>' +
+            '<div class="text-sm text-text-light">今天可以先散步或做做瑜伽~</div>' +
+            '</div>' +
+            '<div class="text-right flex-shrink-0">' +
+            '<div class="text-2xl font-bold text-text-light">0</div>' +
+            '<div class="text-xs text-text-light">分钟</div>' +
+            '</div></div>';
+    }
+    html +=
+        '<div class="flex items-center gap-3 mt-3 pt-1 border-t border-dashed border-gray-200 cursor-pointer active:opacity-80" onclick="showRecordSheet(\'sport\')">' +
+        '<div class="w-10 h-10 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center text-text-light flex-shrink-0">+</div>' +
+        '<div class="text-sm text-text-light">' +
+        (sports.length ? '添加另一条运动记录…' : '记录运动…') +
+        '</div></div>';
+    list.innerHTML = html;
+}
+
+function refreshHomeFromRecords() {
+    renderHomeGlucoseSlots();
+    renderHomeGlucoseChart();
+    renderHomeFoodList();
+    renderHomeSportList();
+}
+
+let recordCalYear = 2026;
+let recordCalMonth = 5;
+let recordSelectedIso = RECORD_TODAY_ISO;
+let recordCalInitialized = false;
+
+function padRecord2(n) {
+    return (n < 10 ? '0' : '') + n;
+}
+
+function isoRecordDate(y, m, d) {
+    return y + '-' + padRecord2(m) + '-' + padRecord2(d);
+}
+
+function recordDaysInMonth(y, month1to12) {
+    return new Date(y, month1to12, 0).getDate();
+}
+
+// ==================== 运动打卡页 · 完整月历 + 全部运动（与 RECORD_LOG_BY_DATE 同源）====================
+let yogaCalYear = 2026;
+let yogaCalMonth = 5;
+let yogaCalInitialized = false;
+
+function ensureYogaPage() {
+    if (!yogaCalInitialized) {
+        var tp = RECORD_TODAY_ISO.split('-').map(Number);
+        yogaCalYear = tp[0];
+        yogaCalMonth = tp[1];
+        yogaCalInitialized = true;
+    }
+}
+
+function shiftYogaMonth(delta) {
+    yogaCalMonth += delta;
+    if (yogaCalMonth > 12) {
+        yogaCalMonth = 1;
+        yogaCalYear++;
+    }
+    if (yogaCalMonth < 1) {
+        yogaCalMonth = 12;
+        yogaCalYear--;
+    }
+    renderYogaCalendar();
+}
+
+function yogaDayHasSport(iso) {
+    var items = RECORD_LOG_BY_DATE[iso];
+    if (!items || !items.length) return false;
+    for (var i = 0; i < items.length; i++) {
+        if (isHomeSportEntry(items[i])) return true;
+    }
+    return false;
+}
+
+function formatYogaShortDateLabel(iso) {
+    var p = iso.split('-').map(Number);
+    if (p.length !== 3) return iso;
+    return parseInt(p[1], 10) + '月' + parseInt(p[2], 10) + '日';
+}
+
+function collectAllSportEntriesNewestFirst() {
+    var isos = Object.keys(RECORD_LOG_BY_DATE).filter(function (x) {
+        return /^\d{4}-\d{2}-\d{2}$/.test(x);
+    });
+    isos.sort().reverse();
+    var out = [];
+    for (var i = 0; i < isos.length; i++) {
+        var items = RECORD_LOG_BY_DATE[isos[i]] || [];
+        for (var j = 0; j < items.length; j++) {
+            if (isHomeSportEntry(items[j])) out.push({ iso: isos[i], rec: items[j] });
+        }
+    }
+    return out;
+}
+
+function computeYogaStreakMessage() {
+    var p = RECORD_TODAY_ISO.split('-').map(Number);
+    var d = new Date(p[0], p[1] - 1, p[2]);
+    var streak = 0;
+    for (var i = 0; i < 400; i++) {
+        var iso = isoRecordDate(d.getFullYear(), d.getMonth() + 1, d.getDate());
+        if (!yogaDayHasSport(iso)) break;
+        streak++;
+        d.setDate(d.getDate() - 1);
+    }
+    if (streak <= 0) return '今天还没有运动，动起来吧！💪';
+    return '连续打卡 ' + streak + ' 天，继续加油！💪';
+}
+
+function renderYogaCalendar() {
+    var grid = document.getElementById('yoga-calendar-grid');
+    var title = document.getElementById('yoga-calendar-title');
+    var stat = document.getElementById('yoga-month-stat');
+    var streakEl = document.getElementById('yoga-streak-text');
+    if (!grid || !title) return;
+    var y = yogaCalYear;
+    var m = yogaCalMonth;
+    title.textContent = y + '年' + m + '月';
+
+    var sportDays = 0;
+    var dim = recordDaysInMonth(y, m);
+    for (var dd = 1; dd <= dim; dd++) {
+        if (yogaDayHasSport(isoRecordDate(y, m, dd))) sportDays++;
+    }
+    if (stat) stat.textContent = '已运动 ' + sportDays + ' 天';
+    if (streakEl) streakEl.textContent = computeYogaStreakMessage();
+
+    var firstDow = new Date(y, m - 1, 1).getDay();
+    var prevM = m - 1;
+    var prevY = y;
+    if (prevM < 1) {
+        prevM = 12;
+        prevY--;
+    }
+    var prevDim = recordDaysInMonth(prevY, prevM);
+
+    var cells = [];
+    var i;
+    for (i = 0; i < firstDow; i++) {
+        var pd = prevDim - firstDow + i + 1;
+        cells.push({ y: prevY, mo: prevM, d: pd, inMonth: false });
+    }
+    for (var d = 1; d <= dim; d++) {
+        cells.push({ y: y, mo: m, d: d, inMonth: true });
+    }
+    var nextM = m + 1;
+    var nextY = y;
+    if (nextM > 12) {
+        nextM = 1;
+        nextY++;
+    }
+    var nd = 1;
+    while (cells.length % 7 !== 0) {
+        cells.push({ y: nextY, mo: nextM, d: nd++, inMonth: false });
+    }
+
+    grid.innerHTML = '';
+    for (i = 0; i < cells.length; i++) {
+        var c = cells[i];
+        var iso = isoRecordDate(c.y, c.mo, c.d);
+        var el = document.createElement('div');
+        el.className = 'calendar-day';
+        if (!c.inMonth) el.classList.add('text-gray-300');
+        var hasSport = yogaDayHasSport(iso);
+        if (hasSport && c.inMonth) el.classList.add('active');
+        if (iso === RECORD_TODAY_ISO) el.classList.add('today');
+        if (hasSport) {
+            el.innerHTML = '<span class="star" aria-hidden="true">⭐</span>' + c.d;
+        } else {
+            el.textContent = String(c.d);
+        }
+        grid.appendChild(el);
+    }
+}
+
+function renderYogaRecentList() {
+    var wrap = document.getElementById('yoga-recent-list');
+    if (!wrap) return;
+    var entries = collectAllSportEntriesNewestFirst();
+    if (!entries.length) {
+        wrap.innerHTML =
+            '<div class="text-center text-sm text-text-light py-6 rounded-2xl bg-card-white border border-dashed border-gray-200">暂无运动记录，点击下方添加</div>';
+        return;
+    }
+    var html = '';
+    for (var i = 0; i < entries.length; i++) {
+        var rec = entries[i].rec;
+        var iso = entries[i].iso;
+        var m = String(rec.title).match(/(\d+)\s*分钟/);
+        var mins = m ? parseInt(m[1], 10) : 0;
+        var name = String(rec.title).replace(/\s+\d+\s*分钟\s*$/, '').trim() || '运动';
+        var emoji = rec.icon || '🧘';
+        var useGreen =
+            rec.iconBg &&
+            (rec.iconBg.indexOf('light-green') >= 0 || rec.iconBg.indexOf('green') >= 0);
+        var bgCls = useGreen ? 'bg-light-green' : 'bg-light-orange';
+        var numCls = useGreen ? 'text-soft-green' : 'text-warm-orange';
+        var subLine = (rec.sub || '').trim();
+        var whenText = formatYogaShortDateLabel(iso) + (subLine ? ' ' + subLine : '');
+        html +=
+            '<div class="bg-card-white rounded-2xl p-4 shadow-sm flex items-center gap-3">' +
+            '<div class="w-12 h-12 ' +
+            bgCls +
+            ' rounded-full flex items-center justify-center text-2xl flex-shrink-0">' +
+            emoji +
+            '</div>' +
+            '<div class="flex-1 min-w-0">' +
+            '<div class="font-medium">' +
+            escapeHtml(name) +
+            '</div>' +
+            '<div class="text-xs text-text-light">' +
+            escapeHtml(whenText) +
+            '</div>' +
+            '</div>' +
+            '<div class="text-right flex-shrink-0">' +
+            '<div class="font-bold ' +
+            numCls +
+            '">' +
+            mins +
+            '</div>' +
+            '<div class="text-xs text-text-light">分钟</div>' +
+            '</div></div>';
+    }
+    wrap.innerHTML = html;
+}
+
+function refreshYogaPageIfVisible() {
+    var pg = document.getElementById('page-yoga');
+    if (pg && pg.classList.contains('active')) {
+        renderYogaCalendar();
+        renderYogaRecentList();
+    }
+}
+
+function formatRecordDateLabel(iso) {
+    const p = iso.split('-').map(Number);
+    if (p.length !== 3) return iso;
+    const dt = new Date(p[0], p[1] - 1, p[2]);
+    const w = ['日', '一', '二', '三', '四', '五', '六'][dt.getDay()];
+    return p[0] + '年' + p[1] + '月' + p[2] + '日（星期' + w + '）';
+}
+
+function selectRecordDate(iso) {
+    recordSelectedIso = iso;
+    const parts = iso.split('-').map(Number);
+    recordCalYear = parts[0];
+    recordCalMonth = parts[1];
+    renderRecordCalendar();
+    renderRecordDayList(iso);
+}
+
+function shiftRecordMonth(delta) {
+    recordCalMonth += delta;
+    if (recordCalMonth > 12) {
+        recordCalMonth = 1;
+        recordCalYear++;
+    }
+    if (recordCalMonth < 1) {
+        recordCalMonth = 12;
+        recordCalYear--;
+    }
+    const tp = RECORD_TODAY_ISO.split('-').map(Number);
+    var pick;
+    if (tp[0] === recordCalYear && tp[1] === recordCalMonth) {
+        pick = RECORD_TODAY_ISO;
+    } else {
+        var sel = recordSelectedIso.split('-').map(Number);
+        if (sel[0] === recordCalYear && sel[1] === recordCalMonth) {
+            pick = recordSelectedIso;
+        } else {
+            pick = isoRecordDate(recordCalYear, recordCalMonth, 1);
+        }
+    }
+    selectRecordDate(pick);
+}
+
+function renderRecordCalendar() {
+    const grid = document.getElementById('record-calendar-grid');
+    const title = document.getElementById('record-calendar-title');
+    if (!grid || !title) return;
+    title.textContent = recordCalYear + '年' + recordCalMonth + '月';
+    var firstDow = new Date(recordCalYear, recordCalMonth - 1, 1).getDay();
+    var dim = recordDaysInMonth(recordCalYear, recordCalMonth);
+    grid.innerHTML = '';
+
+    var i;
+    for (i = 0; i < firstDow; i++) {
+        var pad = document.createElement('div');
+        pad.className = 'record-cal-cell empty';
+        grid.appendChild(pad);
+    }
+    for (var day = 1; day <= dim; day++) {
+        var iso = isoRecordDate(recordCalYear, recordCalMonth, day);
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'record-cal-cell bg-gray-50 text-text-main';
+        var daySpan = document.createElement('span');
+        daySpan.className = 'record-cal-daynum';
+        daySpan.textContent = String(day);
+        btn.appendChild(daySpan);
+        var moodEmoji = getRecordDayMoodEmoji(iso);
+        if (moodEmoji) {
+            var moodEl = document.createElement('span');
+            moodEl.className = 'record-cal-mood';
+            moodEl.textContent = moodEmoji;
+            moodEl.setAttribute('aria-hidden', 'true');
+            btn.appendChild(moodEl);
+        }
+        if (iso === RECORD_TODAY_ISO) btn.classList.add('today');
+        if (iso === recordSelectedIso) btn.classList.add('selected');
+        if (RECORD_LOG_BY_DATE[iso] && RECORD_LOG_BY_DATE[iso].length) btn.classList.add('has-dot');
+        btn.addEventListener(
+            'click',
+            (function (clickIso) {
+                return function () {
+                    selectRecordDate(clickIso);
+                };
+            })(iso)
+        );
+        grid.appendChild(btn);
+    }
+}
+
+/** 从 sub 文案解析「当天内」排序用分钟数，越大表示当天越晚；无则 null（排在后面） */
+function parseRecordSubSortMinutes(sub) {
+    if (!sub) return null;
+    var s = String(sub).trim();
+    var m = s.match(/^(\d{1,2}):(\d{2})/);
+    if (m) return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+    if (s.indexOf('睡前') >= 0) return 23 * 60 + 45;
+    if (s.indexOf('午后') >= 0) return 15 * 60;
+    return null;
+}
+
+/** 按记录发生时间倒序（当晚、午在上，早晨在下）；无时间则保持原始相对顺序 */
+function sortDayRecordsNewestFirst(items) {
+    var decorated = items.map(function (rec, idx) {
+        return { rec: rec, idx: idx, t: parseRecordSubSortMinutes(rec.sub) };
+    });
+    decorated.sort(function (a, b) {
+        var ta = a.t;
+        var tb = b.t;
+        if (ta != null && tb != null && ta !== tb) return tb - ta;
+        if (ta != null && tb == null) return -1;
+        if (ta == null && tb != null) return 1;
+        return a.idx - b.idx;
+    });
+    return decorated.map(function (x) {
+        return x.rec;
+    });
+}
+
+function renderRecordDayList(iso) {
+    const label = document.getElementById('record-selected-date-label');
+    const list = document.getElementById('record-day-list');
+    if (!label || !list) return;
+    label.textContent = formatRecordDateLabel(iso);
+    const items = RECORD_LOG_BY_DATE[iso] || [];
+    if (!items.length) {
+        list.innerHTML =
+            '<div class="text-center text-text-light text-sm py-8 rounded-2xl bg-card-white border border-dashed border-gray-200">当日暂无记录</div>';
+        return;
+    }
+    const sorted = sortDayRecordsNewestFirst(items);
+    list.innerHTML = sorted
+        .map(function (rec) {
+            var rh = recordEntryRightHtmlForList(rec);
+            var rightWrap = rh ? '<div class="flex items-center gap-2 flex-shrink-0">' + rh + '</div>' : '';
+            return (
+                '<div class="bg-card-white rounded-2xl p-4 shadow-sm flex items-center gap-3">' +
+                '<div class="w-10 h-10 ' +
+                rec.iconBg +
+                ' rounded-full flex items-center justify-center text-xl flex-shrink-0">' +
+                rec.icon +
+                '</div>' +
+                '<div class="flex-1 min-w-0">' +
+                '<div class="font-medium break-words">' +
+                escapeHtml(rec.title) +
+                '</div>' +
+                '<div class="text-xs text-text-light break-words">' +
+                escapeHtml(rec.sub || '') +
+                '</div></div>' +
+                rightWrap +
+                '</div>'
+            );
+        })
+        .join('');
+}
+
+function ensureRecordCalendar() {
+    if (!recordCalInitialized) {
+        var tp = RECORD_TODAY_ISO.split('-').map(Number);
+        recordCalYear = tp[0];
+        recordCalMonth = tp[1];
+        recordSelectedIso = RECORD_TODAY_ISO;
+        recordCalInitialized = true;
+    }
+    renderRecordCalendar();
+    renderRecordDayList(recordSelectedIso);
+}
+
+function updateMedProgress() {
+    const slots = document.querySelectorAll('.med-slot');
+    let taken = 0;
+    slots.forEach(function (s) {
+        if (s.classList.contains('taken')) taken++;
+    });
+    const el = document.getElementById('med-progress-text');
+    if (el) el.textContent = '已服 ' + taken + '/' + slots.length;
+}
+
+// ==================== 用药打卡 ====================
+function toggleMed(btn) {
+    const card = btn.closest('.med-slot');
+    if (!card) return;
+    if (card.classList.contains('pending')) {
+        card.classList.remove('pending');
+        card.classList.add('taken');
+        btn.textContent = '✓ 已服用';
+        if (navigator.vibrate) navigator.vibrate(50);
+    } else {
+        card.classList.remove('taken');
+        card.classList.add('pending');
+        btn.textContent = '点击打卡';
+    }
+    updateMedProgress();
+}
+
+// ==================== AI 对话（火山方舟 · 内置固定，不写 localStorage）====================
+const AI_SYSTEM_PROMPT = '你是「小棉」，用户的糖尿病与日常健康助手。回答简洁、友善、实用；涉及用药调整与诊疗结论时必须提醒用户遵医嘱并咨询主治医生。';
+
+/** 方舟北京 OpenAI 兼容根路径；实际 POST …/api/v1/chat/completions */
+const AI_FIXED_API_BASE = 'https://ark.cn-beijing.volces.com/api/v1';
+const AI_FIXED_API_KEY = 'ark-c57baae3-ab80-4c0b-90e9-9e2b463df676-bab0c';
+const AI_FIXED_MODEL = 'ep-20260505151948-6zwm2';
+
+let aiRemoteHistory = [];
+
+function loadAISettings() {
+    return {
+        apiKey: AI_FIXED_API_KEY,
+        apiBaseUrl: AI_FIXED_API_BASE,
+        model: AI_FIXED_MODEL
+    };
+}
+
+function isLocalProxyBase(baseRaw) {
+    var u = String(baseRaw || '').toLowerCase();
+    return u.indexOf('127.0.0.1') >= 0 || u.indexOf('localhost') >= 0;
+}
+
+/** 是否走远程 Chat Completions（直连或本地代理） */
+function chatApiEnabled(settings) {
+    if (!settings) return false;
+    if (isLocalProxyBase(settings.apiBaseUrl)) return true;
+    return !!(settings.apiKey && String(settings.apiKey).trim());
+}
+
+function buildChatFetchHeaders(settings) {
+    var h = { 'Content-Type': 'application/json' };
+    if (settings && settings.apiKey && String(settings.apiKey).trim()) {
+        h['Authorization'] = 'Bearer ' + String(settings.apiKey).trim();
+    }
+    return h;
+}
+
+function isDeepSeekApiBase(baseRaw) {
+    return String(baseRaw || '')
+        .toLowerCase()
+        .indexOf('deepseek') >= 0;
+}
+
+/** DeepSeek：附带 thinking / reasoning_effort；其它基址不发这些字段，避免报错 */
+function buildChatCompletionsBody(settings, messages) {
+    var model = (settings && settings.model) || AI_FIXED_MODEL;
+    var body = {
+        model: model,
+        messages: messages,
+        stream: false
+    };
+    if (settings && isDeepSeekApiBase(settings.apiBaseUrl)) {
+        body.thinking = { type: 'enabled' };
+        body.reasoning_effort = 'high';
+    }
+    return body;
+}
+
+function openAISettings() {
+    const s = loadAISettings();
+    document.getElementById('ai-settings-api-key').value = s.apiKey || '';
+    document.getElementById('ai-settings-base').value = s.apiBaseUrl || AI_FIXED_API_BASE;
+    document.getElementById('ai-settings-model').value = s.model || AI_FIXED_MODEL;
+    document.getElementById('ai-settings-modal').classList.remove('hidden');
+}
+
+function closeAISettings() {
+    document.getElementById('ai-settings-modal').classList.add('hidden');
+}
+
+function buildChatCompletionsUrl(baseRaw) {
+    const b = (baseRaw || '').trim().replace(/\/+$/, '');
+    if (!b) return AI_FIXED_API_BASE + '/chat/completions';
+    if (/\/chat\/completions$/i.test(b)) return b;
+    return b + '/chat/completions';
+}
+
+function formatAiReplyHtml(plain) {
+    return escapeHtml(plain).replace(/\n/g, '<br>');
+}
+
+/** 方舟返回「模型不存在」等时附加可操作建议（内容已转义后拼接安全 HTML） */
+function formatChatApiFailureMessage(rawMsg) {
+    var m = String(rawMsg || '');
+    var out = '调用失败：' + escapeHtml(m);
+    if (/does not exist|do not have access|InvalidEndpointOrModel|ModelNotOpen|The model or endpoint/i.test(m)) {
+        out +=
+            '<br><br><span class="text-xs text-text-light leading-relaxed">说明：内置接入点 ID（<code class="text-[11px]">AI_FIXED_MODEL</code>）与方舟控制台不一致或未开通时会出现此错误。请在火山方舟核对后，修改页面脚本中的 <code class="text-[11px]">AI_FIXED_MODEL</code> / <code class="text-[11px]">AI_FIXED_API_BASE</code> 常量并刷新。</span>';
+    }
+    return out;
+}
+
+function showAITyping() {
+    const chatArea = document.getElementById('chat-area');
+    if (!chatArea || document.getElementById('ai-typing-row')) return;
+    const div = document.createElement('div');
+    div.id = 'ai-typing-row';
+    div.className = 'flex gap-3';
+    div.innerHTML = '<div class="w-8 h-8 bg-warm-orange rounded-full flex items-center justify-center text-sm flex-shrink-0">🌿</div><div class="chat-bubble bg-card-white rounded-2xl rounded-tl-sm p-3 shadow-sm text-sm text-text-light">正在回复…</div>';
+    chatArea.appendChild(div);
+    chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function hideAITyping() {
+    const el = document.getElementById('ai-typing-row');
+    if (el) el.remove();
+}
+
+const foodDatabase = {
+    '苹果': { gi: 36, advice: 'GI值36，属于低升糖食物，可做加餐，注意总量。' },
+    '西瓜': { gi: 72, advice: 'GI值72，升糖较快；血糖稳时可少量，并减少当餐主食。' },
+    '米饭': { gi: 83, advice: 'GI值83，建议搭配蔬菜蛋白，或改杂粮饭降低升糖负荷。' },
+    '面条': { gi: 82, advice: 'GI值82，宜选全麦并多配蔬菜，控制份量。' },
+    '燕麦': { gi: 55, advice: 'GI值55，较友好；选纯燕麦少添加糖。' },
+    '香蕉': { gi: 51, advice: 'GI值51，注意含糖量，每次少量、偏青更好。' },
+};
+
+const FOOD_GI_JSON_SYSTEM =
+    '你是糖尿病与食物升糖指数助手。用户给出食物名与食用量，请你估算参考 GI（0-100 整数）并给出简短中文饮食建议。' +
+    '只输出一个 JSON 对象，键为 gi（数字）与 advice（字符串，不超过 80 字），不要 markdown、代码围栏或其它说明文字。';
+
+function giTierFromGi(gi) {
+    var n = Math.round(Number(gi));
+    if (isNaN(n)) n = 55;
+    n = Math.max(0, Math.min(100, n));
+    if (n <= 55) return { n: n, cls: 'gi-low', label: '低', valCls: 'text-soft-green' };
+    if (n <= 69) return { n: n, cls: 'gi-mid', label: '中', valCls: 'text-warm-orange' };
+    return { n: n, cls: 'gi-high', label: '高', valCls: 'text-warn-red' };
+}
+
+function setFoodGiPreview(gi, advice) {
+    var tier = giTierFromGi(gi);
+    var vEl = document.getElementById('food-gi-value');
+    var bEl = document.getElementById('food-gi-badge');
+    var aEl = document.getElementById('food-gi-advice');
+    if (vEl) {
+        vEl.textContent = String(tier.n);
+        vEl.className = 'text-3xl font-bold ' + tier.valCls;
+    }
+    if (bEl) {
+        bEl.textContent = tier.label;
+        bEl.className = 'gi-badge ' + tier.cls;
+    }
+    if (aEl) {
+        aEl.textContent = advice && String(advice).trim() ? String(advice).trim() : '建议适量食用并搭配蔬菜。';
+    }
+    foodGiEstimateReady = true;
+}
+
+function findFoodGiLocal(name) {
+    if (!name || !String(name).trim()) return null;
+    var n = String(name).trim();
+    for (var key in foodDatabase) {
+        if (!Object.prototype.hasOwnProperty.call(foodDatabase, key)) continue;
+        if (n.indexOf(key) >= 0 || key.indexOf(n) >= 0) return { gi: foodDatabase[key].gi, advice: foodDatabase[key].advice };
+    }
+    return null;
+}
+
+function shortenFoodAdviceForCard(text) {
+    if (!text) return '';
+    var t = String(text).replace(/\s+/g, ' ').trim();
+    if (t.length > 80) return t.slice(0, 80) + '…';
+    return t;
+}
+
+function parseGiJsonFromModelText(text) {
+    var s = String(text || '').trim();
+    var m = s.match(/\{[\s\S]*\}/);
+    if (m) s = m[0];
+    try {
+        var o = JSON.parse(s);
+        var gi = parseInt(o.gi, 10);
+        if (isNaN(gi)) return null;
+        var advice = String(o.advice != null ? o.advice : '').trim();
+        return { gi: gi, advice: advice };
+    } catch (e) {
+        return null;
+    }
+}
+
+/** 供表单与列表复用：返回 GI 与短建议；无 API 且无本地命中时返回 null */
+async function fetchFoodGiEstimate(name, amount) {
+    name = String(name || '').trim();
+    amount = String(amount || '1份').trim();
+    if (!name) return null;
+    var settings = loadAISettings();
+    if (chatApiEnabled(settings)) {
+        var url = buildChatCompletionsUrl(settings.apiBaseUrl);
+        var userMsg = '食物名称：' + name + '\n食用量：' + amount + '\n请给出参考 GI 与实用建议。';
+        var res = await fetch(url, {
+            method: 'POST',
+            headers: buildChatFetchHeaders(settings),
+            body: JSON.stringify(
+                buildChatCompletionsBody(settings, [
+                    { role: 'system', content: FOOD_GI_JSON_SYSTEM },
+                    { role: 'user', content: userMsg }
+                ])
+            )
+        });
+        var raw = await res.text();
+        var data = {};
+        try {
+            data = raw ? JSON.parse(raw) : {};
+        } catch (e) {
+            throw new Error('接口返回非 JSON');
+        }
+        if (!res.ok) {
+            var msg = (data.error && (data.error.message || data.error.msg)) || data.message || raw.slice(0, 120);
+            throw new Error(String(msg));
+        }
+        var replyText =
+            (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || '').trim();
+        var parsed = parseGiJsonFromModelText(replyText);
+        if (!parsed) throw new Error('模型未返回可解析的 GI JSON');
+        return {
+            gi: parsed.gi,
+            advice: shortenFoodAdviceForCard(parsed.advice)
+        };
+    }
+    var local = findFoodGiLocal(name);
+    if (local) {
+        return {
+            gi: local.gi,
+            advice: shortenFoodAdviceForCard(local.advice)
+        };
+    }
+    return null;
+}
+
+var foodGiAiBusy = false;
+/** 当前饮食表单是否已通过 ✦ 生成过有效预估 GI（未估算则保存时不写 GI 标签） */
+var foodGiEstimateReady = false;
+
+async function generateFoodGiWithAI() {
+    if (foodGiAiBusy) return;
+    var root = document.getElementById('sheet-content');
+    if (!root || !root.querySelector('#food-form-name')) return;
+
+    var nameEl = document.getElementById('food-form-name');
+    var name = nameEl ? nameEl.value.trim() : '';
+    if (!name) {
+        showToast('请先填写食物名称');
+        return;
+    }
+    var amtBtn = document.querySelector('#sheet-content [data-chip-group="food-amt"].bg-light-green');
+    var amount = amtBtn ? amtBtn.textContent.trim() : '1碗';
+
+    var btn = document.getElementById('food-gi-ai-btn');
+    foodGiAiBusy = true;
+    if (btn) {
+        btn.disabled = true;
+        btn.classList.add('opacity-50');
+    }
+
+    var settings = loadAISettings();
+
+    try {
+        var est = await fetchFoodGiEstimate(name, amount);
+        if (!est) {
+            showToast('调用失败：请检查网络、跨域或方舟用量；AI 配置已在应用中固定为北京 api/v1。');
+            return;
+        }
+        setFoodGiPreview(est.gi, est.advice);
+        showToast('已根据模型更新 GI');
+    } catch (e) {
+        showToast('生成失败：' + (e && e.message ? e.message : '未知错误'));
+    } finally {
+        foodGiAiBusy = false;
+        if (btn) {
+            btn.disabled = false;
+            btn.classList.remove('opacity-50');
+        }
+    }
+}
+
+function askAI(question) {
+    document.getElementById('ai-input').value = question;
+    sendAI();
+}
+
+async function sendAI() {
+    const input = document.getElementById('ai-input');
+    const text = input.value.trim();
+    if (!text) return;
+
+    addChatMessage(escapeHtml(text), 'user');
+    input.value = '';
+
+    const settings = loadAISettings();
+
+    if (chatApiEnabled(settings)) {
+        showAITyping();
+        aiRemoteHistory.push({ role: 'user', content: text });
+        try {
+            const url = buildChatCompletionsUrl(settings.apiBaseUrl);
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: buildChatFetchHeaders(settings),
+                body: JSON.stringify(
+                    buildChatCompletionsBody(settings, [{ role: 'system', content: AI_SYSTEM_PROMPT }].concat(aiRemoteHistory))
+                )
+            });
+            const raw = await res.text();
+            let data = {};
+            try {
+                data = raw ? JSON.parse(raw) : {};
+            } catch (e) {
+                throw new Error('接口返回非 JSON：' + raw.slice(0, 80));
+            }
+            hideAITyping();
+            if (!res.ok) {
+                aiRemoteHistory.pop();
+                const msg = (data.error && (data.error.message || data.error.msg)) || data.message || raw.slice(0, 200);
+                addChatMessage(formatChatApiFailureMessage(String(msg)), 'ai');
+                return;
+            }
+            const replyText = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || '').trim() || '（模型未返回内容）';
+            aiRemoteHistory.push({ role: 'assistant', content: replyText });
+            if (aiRemoteHistory.length > 40) aiRemoteHistory = aiRemoteHistory.slice(-40);
+            addChatMessage(formatAiReplyHtml(replyText), 'ai');
+        } catch (e) {
+            hideAITyping();
+            if (aiRemoteHistory.length && aiRemoteHistory[aiRemoteHistory.length - 1].role === 'user') {
+                aiRemoteHistory.pop();
+            }
+            addChatMessage(
+                '请求异常：' +
+                    escapeHtml(e.message) +
+                    '<br><br><span class="text-xs text-text-light">若为跨域或网络失败，可用项目内 <code class="text-[11px]">proxy-server.mjs</code> 在本地转发，或通过允许 CORS 的网关访问方舟。</span>',
+                'ai'
+            );
+        }
+        return;
+    }
+
+    setTimeout(() => {
+        let reply = '';
+        let found = false;
+
+        for (const [food, data] of Object.entries(foodDatabase)) {
+            if (text.includes(food)) {
+                reply = `<b>${food}的GI值是${data.gi}</b><br><br>${data.advice}`;
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            if (text.includes('低血糖')) {
+                reply = '<b>低血糖急救方法：</b><br><br>1️⃣ 立即吃15克快速升糖食物（如半杯果汁、3-4颗糖果）<br>2️⃣ 15分钟后复测血糖<br>3️⃣ 如果仍低于3.9，再吃15克<br>4️⃣ 症状缓解后吃些主食<br><br>⚠️ 如果意识不清，不要喂食物，立即侧卧并拨打120！';
+            } else if (text.includes('运动') || text.includes('瑜伽')) {
+                reply = '<b>适合糖尿病患者的运动：</b><br><br>🥇 <b>最佳：</b>快走、游泳、瑜伽、太极<br>⏰ <b>时间：</b>饭后1小时开始，每次30-45分钟<br>📊 <b>强度：</b>微微出汗，能说话但不能唱歌<br>⚠️ <b>注意：</b>血糖低于5.6或高于16.7时不要运动！';
+            } else {
+                reply = '这个问题我需要查询更多资料呢~ 💡<br><br>建议您：<br>• 咨询您的主治医生李医生<br>• 或者换个方式问我，比如"苹果能吃吗？"<br><br>可在右上角 ⚙️ 填写 API 密钥后使用大模型回复。';
+            }
+        }
+
+        addChatMessage(reply, 'ai');
+    }, 800);
+}
+
+function addChatMessage(text, sender) {
+    const chatArea = document.getElementById('chat-area');
+    const div = document.createElement('div');
+    div.className = 'flex gap-3' + (sender === 'user' ? ' justify-end' : '');
+
+    if (sender === 'user') {
+        div.innerHTML =
+            '<div class="chat-bubble bg-warm-orange text-white rounded-2xl rounded-tr-sm p-3 shadow-sm text-sm leading-relaxed">' +
+            text +
+            '</div>' +
+            '<div class="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center text-sm flex-shrink-0">👩</div>';
+    } else {
+        div.innerHTML =
+            '<div class="w-8 h-8 bg-warm-orange rounded-full flex items-center justify-center text-sm flex-shrink-0">🌿</div>' +
+            '<div class="chat-bubble bg-card-white rounded-2xl rounded-tl-sm p-3 shadow-sm text-sm leading-relaxed">' +
+            text +
+            '</div>';
+    }
+
+    chatArea.appendChild(div);
+    chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+// ==================== 底部表单 · 写入「记一笔」日历 ====================
+function appendRecordLog(iso, entry) {
+    if (!iso || !entry) return;
+    if (!RECORD_LOG_BY_DATE[iso]) RECORD_LOG_BY_DATE[iso] = [];
+    RECORD_LOG_BY_DATE[iso].unshift(entry);
+    var rp = document.getElementById('page-record');
+    if (rp && rp.classList.contains('active')) {
+        renderRecordCalendar();
+        renderRecordDayList(recordSelectedIso);
+    }
+    if (iso === RECORD_TODAY_ISO) refreshHomeFromRecords();
+    refreshYogaPageIfVisible();
+    persistRecordLogToStorage();
+}
+
+function sheetSelectChip(btn) {
+    var group = btn.getAttribute('data-chip-group');
+    var theme = btn.getAttribute('data-chip-theme') || 'green';
+    var root = document.getElementById('sheet-content');
+    if (!group || !root) return;
+    var sel = root.querySelectorAll('[data-chip-group="' + group + '"]');
+    for (var i = 0; i < sel.length; i++) {
+        var b = sel[i];
+        b.classList.remove('font-medium', 'bg-light-green', 'bg-light-orange');
+        b.classList.add('bg-gray-100');
+    }
+    btn.classList.remove('bg-gray-100');
+    btn.classList.add('font-medium');
+    if (theme === 'orange') {
+        btn.classList.add('bg-light-orange');
+    } else {
+        btn.classList.add('bg-light-green');
+    }
+}
+
+function sheetSelectMood(btn) {
+    var root = document.getElementById('sheet-content');
+    if (!root) return;
+    var all = root.querySelectorAll('.mood-emoji-btn');
+    for (var i = 0; i < all.length; i++) {
+        var b = all[i];
+        b.classList.remove('opacity-100', 'scale-110');
+        b.classList.add('opacity-50');
+    }
+    btn.classList.remove('opacity-50');
+    btn.classList.add('opacity-100', 'scale-110');
+}
+
+function submitFoodRecord() {
+    var iso = recordSelectedIso || RECORD_TODAY_ISO;
+    var nameEl = document.getElementById('food-form-name');
+    var name = nameEl ? nameEl.value.trim() : '';
+    if (!name) {
+        showToast('请填写食物名称');
+        return;
+    }
+    var amtBtn = document.querySelector('#sheet-content [data-chip-group="food-amt"].bg-light-green');
+    var amount = amtBtn ? amtBtn.textContent.trim() : '1碗';
+    var meal = document.getElementById('food-form-meal');
+    var mealLabel = meal && meal.options[meal.selectedIndex] ? meal.options[meal.selectedIndex].text : '加餐';
+    var now = new Date();
+    var sub = padRecord2(now.getHours()) + ':' + padRecord2(now.getMinutes()) + ' · ' + mealLabel;
+    var gv = document.getElementById('food-gi-value');
+    var gb = document.getElementById('food-gi-badge');
+    var rightHtml = '';
+    if (foodGiEstimateReady && gv) {
+        var giVal = gv.textContent.trim();
+        if (giVal && /^[0-9]+(\.[0-9]+)?$/.test(giVal)) {
+            var giBadgeCls = 'gi-low';
+            if (gb) {
+                if (gb.classList.contains('gi-mid')) giBadgeCls = 'gi-mid';
+                else if (gb.classList.contains('gi-high')) giBadgeCls = 'gi-high';
+            }
+            rightHtml =
+                '<span class="gi-badge ' +
+                giBadgeCls +
+                '">' +
+                escapeHtml('GI ' + giVal) +
+                '</span>';
+        }
+    }
+    appendRecordLog(iso, {
+        icon: '🍚',
+        iconBg: 'bg-light-green',
+        title: mealLabel + '：' + name + ' · ' + amount,
+        sub: sub,
+        rightHtml: rightHtml
+    });
+    closeSheet();
+    showToast('记录成功！');
+}
+
+function submitMedRecord() {
+    var iso = recordSelectedIso || RECORD_TODAY_ISO;
+    var drugEl = document.getElementById('med-form-name');
+    var drug = drugEl ? drugEl.value.trim() : '';
+    if (!drug) drug = '二甲双胍';
+    var doseBtn = document.querySelector('#sheet-content [data-chip-group="med-dose"].bg-light-green');
+    var dose = doseBtn ? doseBtn.textContent.trim() : '1片';
+    var whenBtn = document.querySelector('#sheet-content [data-chip-group="med-when"].bg-light-orange');
+    var when = whenBtn ? whenBtn.textContent.trim() : '早餐前';
+    var noteEl = document.getElementById('med-form-note');
+    var note = noteEl ? noteEl.value.trim() : '';
+    var now = new Date();
+    var sub = padRecord2(now.getHours()) + ':' + padRecord2(now.getMinutes()) + ' · ' + when + (note ? ' · ' + note : '');
+    appendRecordLog(iso, {
+        icon: '💊',
+        iconBg: 'bg-light-orange',
+        title: '服用' + drug + ' ' + dose,
+        sub: sub,
+        rightHtml: '<span class="text-soft-green text-sm font-medium">✓ 已服</span>'
+    });
+    closeSheet();
+    showToast('用药打卡成功！');
+}
+
+function submitSugarRecord() {
+    var iso = recordSelectedIso || RECORD_TODAY_ISO;
+    var inp = document.getElementById('sugar-form-value');
+    var raw = inp && inp.value ? String(inp.value).trim() : '';
+    var v = parseFloat(raw);
+    if (!raw || isNaN(v)) {
+        showToast('请输入有效血糖值');
+        return;
+    }
+    var whenBtn = document.querySelector('#sheet-content [data-chip-group="sugar-when"].bg-light-orange');
+    var when = whenBtn ? whenBtn.textContent.trim() : '空腹';
+    var now = new Date();
+    var sub = padRecord2(now.getHours()) + ':' + padRecord2(now.getMinutes());
+    var badge = '<span class="gi-badge gi-low">正常</span>';
+    if (when.indexOf('空腹') >= 0) {
+        if (v < 3.9 || v > 6.1) badge = '<span class="gi-badge gi-mid">留意</span>';
+    } else if (v > 7.8) {
+        badge = '<span class="gi-badge gi-mid">留意</span>';
+    }
+    appendRecordLog(iso, {
+        icon: '🩸',
+        iconBg: 'bg-blue-50',
+        title: when + '血糖 ' + v + ' mmol/L',
+        sub: sub,
+        rightHtml: badge
+    });
+    renderHomeGlucoseChart();
+    closeSheet();
+    showToast('血糖记录成功！');
+}
+
+function submitSportRecord() {
+    var iso = recordSelectedIso || RECORD_TODAY_ISO;
+    var sel = document.querySelector('#sport-type-grid .sport-type-choice.bg-light-orange.border-warm-orange');
+    if (!sel) {
+        showToast('请选择运动类型');
+        return;
+    }
+    var emoji = sel.getAttribute('data-emoji') || '🧘';
+    var label = sel.getAttribute('data-label') || '运动';
+    var range = document.getElementById('sport-form-duration');
+    var mins = range ? range.value : '30';
+    var timeInp = document.getElementById('sport-form-time');
+    var t = timeInp && timeInp.value ? timeInp.value : '';
+    var sub = (t ? t + ' · ' : '') + '有氧';
+    appendRecordLog(iso, {
+        icon: emoji,
+        iconBg: 'bg-light-orange',
+        title: label + ' ' + mins + ' 分钟',
+        sub: sub,
+        rightHtml: '<span class="text-xs text-text-light shrink-0">运动</span>'
+    });
+    closeSheet();
+    showToast('运动记录成功！');
+}
+
+function submitMoodRecord() {
+    var iso = recordSelectedIso || RECORD_TODAY_ISO;
+    var sel = document.querySelector('#sheet-content .mood-emoji-btn.opacity-100');
+    var emoji = '😐';
+    var moodLabel = '平淡';
+    if (sel) {
+        var em = sel.getAttribute('data-emoji');
+        var ml = sel.getAttribute('data-mood-label');
+        if (em) emoji = em;
+        if (ml) moodLabel = ml;
+    }
+    var noteEl = document.getElementById('mood-form-note');
+    var note = noteEl ? noteEl.value.trim() : '';
+    var now = new Date();
+    var sub = padRecord2(now.getHours()) + ':' + padRecord2(now.getMinutes());
+    appendRecordLog(iso, {
+        kind: 'mood',
+        moodIcon: emoji,
+        icon: emoji,
+        iconBg: 'bg-purple-50',
+        title: '心情记录：' + moodLabel + (note ? ' · ' + note : ''),
+        sub: sub,
+        rightHtml: ''
+    });
+    closeSheet();
+    showToast('心情已记录，要开心哦~');
+}
+
+// ==================== 底部表单 ====================
+const sheetTemplates = {
+    food: `
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium mb-2">食物名称</label>
+                <input type="text" id="food-form-name" placeholder="如：米饭、苹果、燕麦粥" class="w-full bg-gray-100 rounded-xl px-4 py-3 outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2">食用量</label>
+                <div class="flex gap-2 flex-wrap">
+                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="food-amt" data-chip-theme="green" class="sheet-chip px-4 py-2 bg-light-green rounded-full text-sm font-medium">1碗</button>
+                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="food-amt" data-chip-theme="green" class="sheet-chip px-4 py-2 bg-gray-100 rounded-full text-sm">半碗</button>
+                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="food-amt" data-chip-theme="green" class="sheet-chip px-4 py-2 bg-gray-100 rounded-full text-sm">1个</button>
+                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="food-amt" data-chip-theme="green" class="sheet-chip px-4 py-2 bg-gray-100 rounded-full text-sm">2个</button>
+                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="food-amt" data-chip-theme="green" class="sheet-chip px-4 py-2 bg-gray-100 rounded-full text-sm">1盘</button>
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2">用餐时间</label>
+                <select id="food-form-meal" class="w-full bg-gray-100 rounded-xl px-4 py-3 outline-none">
+                    <option>早餐</option>
+                    <option>午餐</option>
+                    <option>晚餐</option>
+                    <option>加餐</option>
+                </select>
+            </div>
+            <div class="bg-light-green rounded-2xl p-4">
+                <div class="flex gap-3 items-start">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 mb-1 flex-wrap">
+                            <span class="font-bold">预估GI值</span>
+                            <span id="food-gi-badge" class="text-xs font-medium text-text-light px-2 py-0.5 rounded-full bg-white/70 border border-gray-200/80">未估算</span>
+                        </div>
+                        <div id="food-gi-value" class="text-3xl font-bold text-text-light">—</div>
+                        <div id="food-gi-advice" class="text-sm text-text-light mt-1 leading-snug">点击右侧 ✦ 可估算 GI（可不估算，直接保存也不会显示 GI 标签）</div>
+                    </div>
+                    <button type="button" id="food-gi-ai-btn" onclick="generateFoodGiWithAI()" class="flex-shrink-0 w-11 h-11 rounded-full bg-white/90 border border-soft-green/40 text-warm-orange shadow-sm text-xl leading-none flex items-center justify-center hover:bg-white active:scale-95 transition disabled:opacity-50" title="AI 生成 GI 与建议" aria-label="AI 生成 GI 与建议">✦</button>
+                </div>
+            </div>
+            <button type="button" onclick="submitFoodRecord()" class="w-full py-4 bg-warm-orange text-white rounded-2xl font-bold text-lg shadow-lg">确认记录</button>
+        </div>
+    `,
+    med: `
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium mb-2">药品名称</label>
+                <input type="text" id="med-form-name" value="二甲双胍" class="w-full bg-gray-100 rounded-xl px-4 py-3 outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2">服用剂量</label>
+                <div class="flex gap-2">
+                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="med-dose" data-chip-theme="green" class="sheet-chip flex-1 py-3 bg-light-green rounded-xl font-medium">1片</button>
+                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="med-dose" data-chip-theme="green" class="sheet-chip flex-1 py-3 bg-gray-100 rounded-xl">2片</button>
+                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="med-dose" data-chip-theme="green" class="sheet-chip flex-1 py-3 bg-gray-100 rounded-xl">0.5片</button>
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2">服用时间</label>
+                <div class="flex gap-2 flex-wrap">
+                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="med-when" data-chip-theme="orange" class="sheet-chip px-4 py-2 bg-light-orange rounded-full text-sm font-medium">早餐前</button>
+                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="med-when" data-chip-theme="orange" class="sheet-chip px-4 py-2 bg-gray-100 rounded-full text-sm">早餐后</button>
+                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="med-when" data-chip-theme="orange" class="sheet-chip px-4 py-2 bg-gray-100 rounded-full text-sm">午餐前</button>
+                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="med-when" data-chip-theme="orange" class="sheet-chip px-4 py-2 bg-gray-100 rounded-full text-sm">晚餐前</button>
+                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="med-when" data-chip-theme="orange" class="sheet-chip px-4 py-2 bg-gray-100 rounded-full text-sm">睡前</button>
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2">备注</label>
+                <textarea id="med-form-note" placeholder="如有不适可记录" class="w-full bg-gray-100 rounded-xl px-4 py-3 outline-none h-20 resize-none"></textarea>
+            </div>
+            <button type="button" onclick="submitMedRecord()" class="w-full py-4 bg-soft-green text-white rounded-2xl font-bold text-lg shadow-lg">确认服用</button>
+        </div>
+    `,
+    sugar: `
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium mb-2">血糖值 (mmol/L)</label>
+                <input type="number" step="0.1" id="sugar-form-value" placeholder="如：6.5" class="w-full bg-gray-100 rounded-xl px-4 py-3 outline-none text-2xl font-bold text-center">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2">测量时间</label>
+                <div class="flex gap-2 flex-wrap">
+                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="sugar-when" data-chip-theme="orange" class="sheet-chip px-4 py-2 bg-light-orange rounded-full text-sm font-medium">空腹</button>
+                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="sugar-when" data-chip-theme="orange" class="sheet-chip px-4 py-2 bg-gray-100 rounded-full text-sm">早餐后2h</button>
+                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="sugar-when" data-chip-theme="orange" class="sheet-chip px-4 py-2 bg-gray-100 rounded-full text-sm">午餐后2h</button>
+                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="sugar-when" data-chip-theme="orange" class="sheet-chip px-4 py-2 bg-gray-100 rounded-full text-sm">晚餐后2h</button>
+                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="sugar-when" data-chip-theme="orange" class="sheet-chip px-4 py-2 bg-gray-100 rounded-full text-sm">睡前</button>
+                </div>
+            </div>
+            <div class="bg-light-green rounded-2xl p-4">
+                <div class="font-bold mb-1">参考范围</div>
+                <div class="text-sm text-text-light">空腹：3.9-6.1 mmol/L</div>
+                <div class="text-sm text-text-light">餐后2h：4.4-7.8 mmol/L</div>
+            </div>
+            <button type="button" onclick="submitSugarRecord()" class="w-full py-4 bg-warm-orange text-white rounded-2xl font-bold text-lg shadow-lg">确认记录</button>
+        </div>
+    `,
+    sport: `
+        <div class="space-y-4">
+            <div>
+                <div class="flex justify-between items-center mb-2 gap-2">
+                    <label class="block text-sm font-medium">运动类型</label>
+                    <button type="button" onclick="openSportAddModal()" class="flex-shrink-0 w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-xl leading-none font-semibold text-warm-orange hover:bg-gray-200 transition active:scale-95" title="添加运动类型" aria-label="添加运动类型">+</button>
+                </div>
+                <div id="sport-type-grid" class="grid grid-cols-3 gap-3">
+                    <button type="button" class="sport-type-choice py-3 bg-light-orange rounded-xl text-center border-2 border-warm-orange" data-emoji="🧘" data-label="瑜伽" onclick="selectSportTypeChoice(this)">🧘<br><span class="text-xs">瑜伽</span></button>
+                    <button type="button" class="sport-type-choice py-3 bg-gray-100 rounded-xl text-center border-2 border-transparent" data-emoji="🚶" data-label="散步" onclick="selectSportTypeChoice(this)">🚶<br><span class="text-xs">散步</span></button>
+                    <button type="button" class="sport-type-choice py-3 bg-gray-100 rounded-xl text-center border-2 border-transparent" data-emoji="🏋️" data-label="哑铃" onclick="selectSportTypeChoice(this)">🏋️<br><span class="text-xs">哑铃</span></button>
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2">运动时长</label>
+                <input type="range" id="sport-form-duration" min="5" max="120" value="30" class="w-full" oninput="this.nextElementSibling.textContent = this.value + ' 分钟'">
+                <div class="text-center font-bold text-warm-orange mt-2">30 分钟</div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2">运动时间</label>
+                <input type="time" id="sport-form-time" value="19:00" class="w-full bg-gray-100 rounded-xl px-4 py-3 outline-none">
+            </div>
+            <button type="button" onclick="submitSportRecord()" class="w-full py-4 bg-warm-orange text-white rounded-2xl font-bold text-lg shadow-lg">确认记录</button>
+        </div>
+    `,
+    doctor: `
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium mb-2">就诊科室</label>
+                <input id="doctor-form-dept" type="text" placeholder="如：内分泌科" class="w-full bg-gray-100 rounded-xl px-4 py-3 outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2">医生姓名</label>
+                <input id="doctor-form-name" type="text" placeholder="如：李医生" class="w-full bg-gray-100 rounded-xl px-4 py-3 outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2">就诊日期</label>
+                <input id="doctor-form-date" type="date" class="w-full bg-gray-100 rounded-xl px-4 py-3 outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2">诊断结果</label>
+                <textarea id="doctor-form-diagnosis" placeholder="记录医生的诊断和建议" class="w-full bg-gray-100 rounded-xl px-4 py-3 outline-none h-20 resize-none"></textarea>
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2">上传资料</label>
+                <input type="file" id="doctor-upload-input" accept="image/*" class="hidden" onchange="handleDoctorUploadChange(event)">
+                <button type="button" id="doctor-upload-trigger" onclick="document.getElementById('doctor-upload-input').click()" class="w-full py-8 border-2 border-dashed border-gray-300 rounded-xl text-text-light hover:border-warm-orange hover:bg-orange-50/40 transition-colors active:scale-[0.99]">
+                    <div class="text-3xl mb-1">📎</div>
+                    <div class="text-sm">点击从相册上传处方/化验单照片</div>
+                </button>
+                <div id="doctor-upload-result" class="hidden mt-2 bg-card-white border border-gray-100 rounded-xl p-3 flex items-center gap-3 shadow-sm">
+                    <button type="button" onclick="openDoctorUploadPreview()" class="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-gray-100 border border-gray-200 p-0 block" title="点击查看大图" aria-label="缩略图">
+                        <img id="doctor-upload-thumb" src="" alt="" class="w-full h-full object-cover">
+                    </button>
+                    <div class="flex-1 min-w-0 text-left">
+                        <div class="text-xs text-text-light mb-2">已上传照片</div>
+                        <button type="button" onclick="openDoctorUploadPreview()" class="px-4 py-2 bg-blue-50 text-blue-600 rounded-full text-sm font-medium hover:bg-blue-100 transition-colors">查看处方</button>
+                    </div>
+                    <button type="button" onclick="clearDoctorUpload()" class="flex-shrink-0 text-xs text-warm-orange font-medium px-2 py-1 rounded-lg hover:bg-light-orange/50">更换</button>
+                </div>
+            </div>
+            <button type="button" onclick="submitDoctorRecord()" class="w-full py-4 bg-warm-orange text-white rounded-2xl font-bold text-lg shadow-lg">保存记录</button>
+        </div>
+    `,
+    mood: `
+        <div class="text-center mb-4">
+            <div class="text-lg font-medium mb-4">今天感觉怎么样？</div>
+            <div class="flex justify-center gap-2 sm:gap-4 mb-6 flex-wrap">
+                <button type="button" onclick="sheetSelectMood(this)" data-emoji="😄" data-mood-label="开心" class="mood-emoji-btn text-4xl opacity-50 hover:opacity-100 transition transform">😄</button>
+                <button type="button" onclick="sheetSelectMood(this)" data-emoji="🙂" data-mood-label="不错" class="mood-emoji-btn text-4xl opacity-50 hover:opacity-100 transition transform">🙂</button>
+                <button type="button" onclick="sheetSelectMood(this)" data-emoji="😐" data-mood-label="平淡" class="mood-emoji-btn text-4xl opacity-100 scale-110 transition transform">😐</button>
+                <button type="button" onclick="sheetSelectMood(this)" data-emoji="😔" data-mood-label="低落" class="mood-emoji-btn text-4xl opacity-50 hover:opacity-100 transition transform">😔</button>
+                <button type="button" onclick="sheetSelectMood(this)" data-emoji="😣" data-mood-label="难受" class="mood-emoji-btn text-4xl opacity-50 hover:opacity-100 transition transform">😣</button>
+            </div>
+            <textarea id="mood-form-note" placeholder="写下今天的心情...（可选）" class="w-full bg-gray-100 rounded-xl px-4 py-3 outline-none h-24 resize-none mb-4"></textarea>
+            <button type="button" onclick="submitMoodRecord()" class="w-full py-4 bg-warm-orange text-white rounded-2xl font-bold text-lg shadow-lg">记录心情</button>
+        </div>
+    `
+};
+
+const CUSTOM_SPORT_STORAGE_KEY = 'sweet_custom_sport_types';
+
+/** 添加运动弹窗 · 可选图标 */
+const SPORT_PICKER_EMOJIS = [
+    '🏃',
+    '🚶',
+    '🧘',
+    '🏋️',
+    '🚴',
+    '🏊',
+    '⚽',
+    '🏀',
+    '🎾',
+    '🏓',
+    '🥏',
+    '🤸',
+    '💪',
+    '🤾',
+    '🏌️',
+    '🏄',
+    '🚵',
+    '🥊',
+    '🎯',
+    '🛼',
+];
+
+let sportAddSelectedEmoji = '🏃';
+
+function renderSportAddIconPicker() {
+    const wrap = document.getElementById('sport-add-icon-grid');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    SPORT_PICKER_EMOJIS.forEach(function (emo) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className =
+            'sport-add-icon-btn aspect-square min-w-0 flex items-center justify-center text-xl sm:text-2xl rounded-xl border-2 transition ' +
+            (emo === sportAddSelectedEmoji ? 'bg-light-orange border-warm-orange' : 'bg-gray-100 border-transparent hover:bg-gray-200');
+        b.textContent = emo;
+        b.setAttribute('aria-label', '图标 ' + emo);
+        b.addEventListener('click', function () {
+            sportAddSelectedEmoji = emo;
+            wrap.querySelectorAll('.sport-add-icon-btn').forEach(function (x) {
+                x.classList.remove('bg-light-orange', 'border-warm-orange');
+                x.classList.add('bg-gray-100', 'border-transparent');
+            });
+            b.classList.remove('bg-gray-100', 'border-transparent');
+            b.classList.add('bg-light-orange', 'border-warm-orange');
+        });
+        wrap.appendChild(b);
+    });
+}
+
+function openSportAddModal() {
+    const modal = document.getElementById('sport-add-modal');
+    const nameEl = document.getElementById('sport-add-name');
+    if (!modal || !nameEl) return;
+    nameEl.value = '';
+    sportAddSelectedEmoji = '🏃';
+    renderSportAddIconPicker();
+    modal.classList.remove('hidden');
+    setTimeout(function () {
+        nameEl.focus();
+    }, 100);
+}
+
+function closeSportAddModal() {
+    const modal = document.getElementById('sport-add-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function confirmSportAddFromModal() {
+    const grid = document.getElementById('sport-type-grid');
+    const nameEl = document.getElementById('sport-add-name');
+    if (!grid || !nameEl) return;
+    const label = nameEl.value.trim().slice(0, 12);
+    if (!label) {
+        showToast('请输入运动名称');
+        nameEl.focus();
+        return;
+    }
+    const emoji = (sportAddSelectedEmoji || '🏃').trim().slice(0, 8);
+    const list = loadCustomSportTypes();
+    if (list.some(function (x) { return (x.label || '').trim() === label; })) {
+        showToast('已有同名运动类型');
+        return;
+    }
+    list.push({ emoji: emoji, label: label });
+    saveCustomSportTypes(list);
+    const btn = createSportTypeButton(emoji, label, false);
+    grid.appendChild(btn);
+    selectSportTypeChoice(btn);
+    closeSportAddModal();
+    showToast('已添加：' + label);
+}
+
+function loadCustomSportTypes() {
+    try {
+        const raw = localStorage.getItem(CUSTOM_SPORT_STORAGE_KEY);
+        if (!raw) return [];
+        const arr = JSON.parse(raw);
+        return Array.isArray(arr) ? arr : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveCustomSportTypes(list) {
+    try {
+        localStorage.setItem(CUSTOM_SPORT_STORAGE_KEY, JSON.stringify(list));
+    } catch (e) {}
+}
+
+function selectSportTypeChoice(btn) {
+    const grid = document.getElementById('sport-type-grid');
+    if (!grid) return;
+    grid.querySelectorAll('.sport-type-choice').forEach(function (b) {
+        b.classList.remove('bg-light-orange', 'border-warm-orange');
+        b.classList.add('bg-gray-100', 'border-transparent');
+    });
+    btn.classList.remove('bg-gray-100', 'border-transparent');
+    btn.classList.add('bg-light-orange', 'border-warm-orange');
+}
+
+function createSportTypeButton(emoji, label, selected) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className =
+        'sport-type-choice py-3 rounded-xl text-center border-2 ' +
+        (selected ? 'bg-light-orange border-warm-orange' : 'bg-gray-100 border-transparent');
+    btn.dataset.emoji = emoji;
+    btn.dataset.label = label;
+    btn.innerHTML = emoji + '<br><span class="text-xs">' + escapeHtml(label) + '</span>';
+    btn.addEventListener('click', function () {
+        selectSportTypeChoice(btn);
+    });
+    return btn;
+}
+
+function mountCustomSportTypes() {
+    const grid = document.getElementById('sport-type-grid');
+    if (!grid) return;
+    loadCustomSportTypes().forEach(function (item) {
+        const label = (item.label || '').trim().slice(0, 12);
+        const emoji = (item.emoji || '🏃').trim().slice(0, 8);
+        if (!label) return;
+        grid.appendChild(createSportTypeButton(emoji, label, false));
+    });
+}
+
+function initSportTypeSheet() {
+    mountCustomSportTypes();
+}
+
+function showRecordSheet(type) {
+    const sheet = document.getElementById('bottom-sheet');
+    const overlay = document.getElementById('bottom-sheet-overlay');
+    const content = document.getElementById('sheet-content');
+    const title = document.getElementById('sheet-title');
+
+    const titles = {
+        food: '🍚 记录饮食',
+        med: '💊 记录用药',
+        sugar: '🩸 记录血糖',
+        sport: '🧘 记录运动',
+        doctor: '🏥 记录就医',
+        mood: '😊 记录心情'
+    };
+
+    title.textContent = titles[type] || '记录';
+    content.innerHTML = sheetTemplates[type] || '';
+    closeDoctorImagePreview();
+    if (type === 'food') foodGiEstimateReady = false;
+    if (type === 'sport') initSportTypeSheet();
+    if (type === 'doctor') resetDoctorUploadUI();
+
+    sheet.classList.remove('hidden');
+    overlay.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeSheet() {
+    closeDoctorImagePreview();
+    document.getElementById('bottom-sheet').classList.add('hidden');
+    document.getElementById('bottom-sheet-overlay').classList.add('hidden');
+    document.body.style.overflow = '';
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+/** 就医记录 · 处方/化验单照片（相册） */
+let doctorUploadDataUrl = '';
+
+function resetDoctorUploadUI() {
+    doctorUploadDataUrl = '';
+    var input = document.getElementById('doctor-upload-input');
+    var trig = document.getElementById('doctor-upload-trigger');
+    var res = document.getElementById('doctor-upload-result');
+    var thumb = document.getElementById('doctor-upload-thumb');
+    if (input) input.value = '';
+    if (trig) trig.classList.remove('hidden');
+    if (res) res.classList.add('hidden');
+    if (thumb) thumb.removeAttribute('src');
+}
+
+function handleDoctorUploadChange(ev) {
+    var input = ev.target;
+    var file = input.files && input.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+        showToast('请选择图片文件');
+        input.value = '';
+        return;
+    }
+    if (file.size > 12 * 1024 * 1024) {
+        showToast('图片请小于 12MB');
+        input.value = '';
+        return;
+    }
+    var reader = new FileReader();
+    reader.onload = function () {
+        doctorUploadDataUrl = reader.result;
+        var thumb = document.getElementById('doctor-upload-thumb');
+        var trig = document.getElementById('doctor-upload-trigger');
+        var result = document.getElementById('doctor-upload-result');
+        if (thumb) thumb.src = doctorUploadDataUrl;
+        if (trig) trig.classList.add('hidden');
+        if (result) result.classList.remove('hidden');
+    };
+    reader.onerror = function () {
+        showToast('读取图片失败');
+        input.value = '';
+    };
+    reader.readAsDataURL(file);
+}
+
+function clearDoctorUpload() {
+    doctorUploadDataUrl = '';
+    var input = document.getElementById('doctor-upload-input');
+    if (input) input.value = '';
+    var trig = document.getElementById('doctor-upload-trigger');
+    var res = document.getElementById('doctor-upload-result');
+    var thumb = document.getElementById('doctor-upload-thumb');
+    if (trig) trig.classList.remove('hidden');
+    if (res) res.classList.add('hidden');
+    if (thumb) thumb.removeAttribute('src');
+}
+
+function openDoctorUploadPreview() {
+    if (!doctorUploadDataUrl) {
+        showToast('请先上传照片');
+        return;
+    }
+    var img = document.getElementById('doctor-image-preview-img');
+    var modal = document.getElementById('doctor-image-preview-modal');
+    if (!img || !modal) return;
+    img.src = doctorUploadDataUrl;
+    modal.classList.remove('hidden');
+}
+
+function closeDoctorImagePreview() {
+    var modal = document.getElementById('doctor-image-preview-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function formatDoctorDateCn(iso) {
+    if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '';
+    const parts = iso.split('-');
+    return parseInt(parts[1], 10) + '月' + parseInt(parts[2], 10) + '日';
+}
+
+function submitDoctorRecord() {
+    const dept = (document.getElementById('doctor-form-dept') && document.getElementById('doctor-form-dept').value || '').trim();
+    const docName = (document.getElementById('doctor-form-name') && document.getElementById('doctor-form-name').value || '').trim();
+    const dateStr = document.getElementById('doctor-form-date') && document.getElementById('doctor-form-date').value || '';
+    const diag = (document.getElementById('doctor-form-diagnosis') && document.getElementById('doctor-form-diagnosis').value || '').trim();
+
+    if (!dept && !docName && !dateStr && !diag) {
+        showToast('请填写科室、医生、日期或诊断中至少一项');
+        return;
+    }
+
+    const list = document.getElementById('doctor-timeline-list');
+    const dateDisplay = formatDoctorDateCn(dateStr) || '日期待填';
+    const titleLine = escapeHtml(dept || '就医记录');
+    const doctorLine = escapeHtml(docName || '—');
+    const bodyLine = escapeHtml(diag || '（暂无诊断说明）');
+
+    const row = document.createElement('div');
+    row.className = 'relative';
+    row.innerHTML =
+        '<div class="absolute -left-4 top-1 timeline-dot bg-white"></div>' +
+        '<div class="bg-card-white rounded-2xl p-4 shadow-sm">' +
+        '<div class="flex justify-between items-start mb-2">' +
+        '<div><div class="font-bold">' + titleLine + '</div>' +
+        '<div class="text-sm text-text-light">' + doctorLine + '</div></div>' +
+        '<span class="text-xs text-text-light">' + escapeHtml(dateDisplay) + '</span></div>' +
+        '<div class="text-sm">' + bodyLine + '</div></div>';
+
+    if (list) {
+        list.insertBefore(row, list.firstChild);
+    }
+
+    var logIso = dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : (recordSelectedIso || RECORD_TODAY_ISO);
+    appendRecordLog(logIso, {
+        icon: '🏥',
+        iconBg: 'bg-blue-50',
+        title: dept || '就医记录',
+        sub: (formatDoctorDateCn(dateStr) || '日期待填') + ' · ' + (docName || '医生'),
+        rightHtml: ''
+    });
+
+    closeSheet();
+    showToast('就医记录已保存！');
+}
+
+// ==================== 全局字体缩放（localStorage）====================
+var FONT_SCALE_SLIDER_STORAGE_KEY = 'sweet_font_slider_v1';
+
+function loadFontScaleSliderValue() {
+    try {
+        var v = parseInt(localStorage.getItem(FONT_SCALE_SLIDER_STORAGE_KEY), 10);
+        if (!isNaN(v)) return Math.max(0, Math.min(100, v));
+    } catch (e) {}
+    return 0;
+}
+
+/** 滑块 0–100：左侧为默认 1.0，右侧最大约 1.35 */
+function applyFontScaleFromSlider(step) {
+    var s = Math.max(0, Math.min(100, parseInt(step, 10) || 0));
+    var scale = 1 + (s / 100) * 0.35;
+    document.documentElement.style.setProperty('--font-scale', String(scale));
+    var lab = document.getElementById('font-size-scale-label');
+    if (lab) lab.textContent = Math.round(scale * 100) + '%';
+}
+
+function persistFontScaleSlider(step) {
+    try {
+        localStorage.setItem(FONT_SCALE_SLIDER_STORAGE_KEY, String(Math.max(0, Math.min(100, parseInt(step, 10) || 0))));
+    } catch (e) {}
+}
+
+function onFontSizeSliderInput(val) {
+    applyFontScaleFromSlider(val);
+    persistFontScaleSlider(val);
+}
+
+function openFontSizeModal() {
+    var v = loadFontScaleSliderValue();
+    var slider = document.getElementById('font-size-slider');
+    if (slider) slider.value = String(v);
+    applyFontScaleFromSlider(v);
+    var modal = document.getElementById('font-size-modal');
+    if (modal) {
+        modal.classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+    }
+}
+
+function closeFontSizeModal() {
+    var modal = document.getElementById('font-size-modal');
+    if (modal) modal.classList.add('hidden');
+    document.body.style.overflow = '';
+}
+
+// ==================== SOS ====================
+function showSOS() {
+    document.getElementById('sos-modal').classList.remove('hidden');
+}
+
+function closeSOS() {
+    document.getElementById('sos-modal').classList.add('hidden');
+}
+
+function scheduleCloseSOSAfterDial() {
+    setTimeout(closeSOS, 400);
+}
+
+// ==================== 就诊档案 · 复诊需求（本地存储）====================
+var FOLLOWUP_REMINDER_STORAGE_KEY = 'sweet_followup_reminder_v1';
+
+function getDefaultFollowupReminder() {
+    return {
+        date: '2026-05-20',
+        time: '09:00',
+        dept: '内分泌科',
+        doctor: '李医生',
+        note: '带齐化验单'
+    };
+}
+
+function loadFollowupReminder() {
+    try {
+        var raw = localStorage.getItem(FOLLOWUP_REMINDER_STORAGE_KEY);
+        if (raw) {
+            var o = JSON.parse(raw);
+            if (o && o.date) return Object.assign(getDefaultFollowupReminder(), o);
+        }
+    } catch (e) {}
+    return getDefaultFollowupReminder();
+}
+
+function saveFollowupReminderObj(o) {
+    localStorage.setItem(FOLLOWUP_REMINDER_STORAGE_KEY, JSON.stringify(o));
+}
+
+function padFollowup2(n) {
+    return (n < 10 ? '0' : '') + n;
+}
+
+function formatFollowupTimeCn(timeStr) {
+    var p = (timeStr || '09:00').split(':');
+    var h = parseInt(p[0], 10);
+    if (isNaN(h)) h = 9;
+    var m = parseInt(p[1], 10);
+    if (isNaN(m)) m = 0;
+    var mm = padFollowup2(m);
+    if (h < 12) {
+        var hh = h === 0 ? 12 : h;
+        return '上午 ' + hh + ':' + mm;
+    }
+    if (h === 12) return '中午 12:' + mm;
+    return '下午 ' + (h - 12) + ':' + mm;
+}
+
+function formatFollowupCardLine1(isoDate, timeStr) {
+    var pt = String(isoDate || '').split('-').map(Number);
+    if (pt.length !== 3) return '';
+    return parseInt(pt[1], 10) + '月' + parseInt(pt[2], 10) + '日 ' + formatFollowupTimeCn(timeStr);
+}
+
+function applyFollowupReminderCard() {
+    var o = loadFollowupReminder();
+    var l1 = document.getElementById('followup-card-line1');
+    var l2 = document.getElementById('followup-card-line2');
+    if (l1) l1.textContent = formatFollowupCardLine1(o.date, o.time);
+    var parts = [o.dept, o.doctor, o.note].filter(function (x) {
+        return x && String(x).trim();
+    });
+    if (l2) l2.textContent = parts.length ? parts.join(' · ') : '—';
+}
+
+function openFollowupReminderModal() {
+    var o = loadFollowupReminder();
+    var dEl = document.getElementById('followup-modal-date');
+    var tEl = document.getElementById('followup-modal-time');
+    var deptEl = document.getElementById('followup-modal-dept');
+    var docEl = document.getElementById('followup-modal-doctor');
+    var noteEl = document.getElementById('followup-modal-note');
+    if (dEl) dEl.value = o.date || '';
+    if (tEl) tEl.value = o.time || '09:00';
+    if (deptEl) deptEl.value = o.dept || '';
+    if (docEl) docEl.value = o.doctor || '';
+    if (noteEl) noteEl.value = o.note || '';
+    var modal = document.getElementById('followup-reminder-modal');
+    if (modal) {
+        modal.classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+    }
+}
+
+function closeFollowupReminderModal() {
+    var modal = document.getElementById('followup-reminder-modal');
+    if (modal) modal.classList.add('hidden');
+    document.body.style.overflow = '';
+}
+
+function submitFollowupReminder() {
+    var dateEl = document.getElementById('followup-modal-date');
+    var timeEl = document.getElementById('followup-modal-time');
+    var date = dateEl ? dateEl.value : '';
+    var time = (timeEl && timeEl.value) || '09:00';
+    var dept = (document.getElementById('followup-modal-dept') && document.getElementById('followup-modal-dept').value) || '';
+    var doctor = (document.getElementById('followup-modal-doctor') && document.getElementById('followup-modal-doctor').value) || '';
+    var note = (document.getElementById('followup-modal-note') && document.getElementById('followup-modal-note').value) || '';
+    dept = String(dept).trim();
+    doctor = String(doctor).trim();
+    note = String(note).trim();
+    if (!date) {
+        showToast('请选择复诊日期');
+        return;
+    }
+    saveFollowupReminderObj({ date: date, time: time, dept: dept, doctor: doctor, note: note });
+    applyFollowupReminderCard();
+    closeFollowupReminderModal();
+    showToast('复诊需求已保存');
+}
+
+// ==================== 首页 · 每日最高血糖柱状图（可横向滑动） ====================
+function maxGlucoseMmolForIso(iso) {
+    var items = RECORD_LOG_BY_DATE[iso];
+    if (!items || !items.length) return null;
+    var max = null;
+    for (var i = 0; i < items.length; i++) {
+        var p = parseSugarFromRecordTitle(items[i].title);
+        if (!p || isNaN(p.value)) continue;
+        max = max == null ? p.value : Math.max(max, p.value);
+    }
+    return max;
+}
+
+/** 仅包含有血糖 mmol/L 记录的日期（与本地 RECORD_LOG 同步），按时间升序 */
+function buildHomeGlucoseChartDayIsos() {
+    var out = [];
+    for (var iso in RECORD_LOG_BY_DATE) {
+        if (!Object.prototype.hasOwnProperty.call(RECORD_LOG_BY_DATE, iso)) continue;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
+        if (iso > RECORD_TODAY_ISO) continue;
+        if (maxGlucoseMmolForIso(iso) == null) continue;
+        out.push(iso);
+    }
+    out.sort();
+    return out;
+}
+
+function formatHomeGlucoseChartAxisLabel(iso) {
+    if (iso === RECORD_TODAY_ISO) return '今天';
+    var pt = String(iso).split('-').map(Number);
+    if (pt.length !== 3) return '';
+    return parseInt(pt[1], 10) + '/' + parseInt(pt[2], 10);
+}
+
+function homeGlucoseScrollToEnd() {
+    var el = document.getElementById('home-glucose-chart-scroll');
+    if (!el) return;
+    requestAnimationFrame(function () {
+        el.scrollLeft = Math.max(0, el.scrollWidth - el.clientWidth);
+    });
+}
+
+function homeGlucoseBarBg(maxVal) {
+    if (maxVal == null || isNaN(maxVal)) return 'bg-gray-200';
+    if (maxVal <= 7.8) return 'bg-soft-green';
+    if (maxVal <= 10.5) return 'bg-warm-orange';
+    return 'bg-warn-red';
+}
+
+function homeGlucoseBarHeightPct(maxVal) {
+    if (maxVal == null || isNaN(maxVal)) return 14;
+    var vmin = 4;
+    var vmax = 11;
+    var p = ((maxVal - vmin) / (vmax - vmin)) * 100;
+    return Math.round(Math.max(26, Math.min(100, p)));
+}
+
+function renderHomeGlucoseChart() {
+    var wrap = document.getElementById('home-glucose-chart');
+    var labelsWrap = document.getElementById('home-glucose-chart-labels');
+    var inner = document.getElementById('home-glucose-chart-inner');
+    var emptyEl = document.getElementById('home-glucose-chart-empty');
+    if (!wrap || !labelsWrap) return;
+    var days = buildHomeGlucoseChartDayIsos();
+    if (!days.length) {
+        wrap.innerHTML = '';
+        labelsWrap.innerHTML = '';
+        if (inner) inner.classList.add('hidden');
+        if (emptyEl) emptyEl.classList.remove('hidden');
+        return;
+    }
+    if (inner) inner.classList.remove('hidden');
+    if (emptyEl) emptyEl.classList.add('hidden');
+    wrap.innerHTML = '';
+    labelsWrap.innerHTML = '';
+    var colCls = 'flex-none w-9 min-w-[2.25rem] h-full flex flex-col justify-end shrink-0';
+    var lblCls = 'flex-none w-9 min-w-[2.25rem] text-center shrink-0 tabular-nums';
+    days.forEach(function (iso) {
+        var maxVal = maxGlucoseMmolForIso(iso);
+        var col = document.createElement('div');
+        col.className = colCls;
+        var bar = document.createElement('div');
+        bar.style.height = homeGlucoseBarHeightPct(maxVal) + '%';
+        bar.className =
+            'w-full rounded-t flex flex-col items-center justify-start pt-1 px-0.5 box-border min-h-0 ' +
+            homeGlucoseBarBg(maxVal);
+        var span = document.createElement('span');
+        span.className =
+            'text-[10px] font-bold leading-tight text-center px-px ' +
+            (maxVal != null && !isNaN(maxVal) ? 'text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.35)]' : 'text-text-light');
+        span.textContent = maxVal != null && !isNaN(maxVal) ? String(maxVal) : '—';
+        bar.appendChild(span);
+        col.appendChild(bar);
+        wrap.appendChild(col);
+        var lbl = document.createElement('div');
+        lbl.className = lblCls;
+        lbl.textContent = formatHomeGlucoseChartAxisLabel(iso);
+        labelsWrap.appendChild(lbl);
+    });
+    homeGlucoseScrollToEnd();
+}
+
+// ==================== Toast 提示 ====================
+function showToast(msg) {
+    const toast = document.createElement('div');
+    toast.className = 'fixed top-20 left-1/2 -translate-x-1/2 bg-gray-800 text-white px-6 py-3 rounded-full text-sm z-[80] shadow-lg max-w-[min(100vw-2rem,430px)] text-center';
+    toast.textContent = msg;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2500);
+}
+
+// ==================== 初始化 ====================
+document.addEventListener('DOMContentLoaded', () => {
+    applyFontScaleFromSlider(loadFontScaleSliderValue());
+    showPage('home');
+    updateMedProgress();
+    applyFollowupReminderCard();
+});
+</script>
+
+</body>
+</html>
