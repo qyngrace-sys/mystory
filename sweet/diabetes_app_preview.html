@@ -36,8 +36,12 @@
             height: 100%;
             --font-scale: 1;
             font-size: calc(16px * var(--font-scale));
+            /* 忽略系统「更大字体」等对网页的正文缩放；字号仅由 --font-scale（设定里的滑块）控制 */
+            -webkit-text-size-adjust: none;
+            text-size-adjust: none;
+            -moz-text-size-adjust: none;
         }
-        body { margin: 0; font-family: 'Noto Sans SC', sans-serif; overscroll-behavior-y: none; min-height: 100%; min-height: 100dvh; }
+        body { margin: 0; font-family: 'Noto Sans SC', sans-serif; overscroll-behavior-y: none; min-height: 100%; min-height: 100dvh; -webkit-text-size-adjust: none; text-size-adjust: none; }
         /* 桌面端居中「手机画幅」，真机上仍占满屏宽 */
         #app-shell {
             padding-top: env(safe-area-inset-top, 0px);
@@ -238,38 +242,38 @@
             <span id="med-progress-text" class="text-xs text-text-light">已服 0/3</span>
         </div>
         <div class="grid grid-cols-3 gap-2">
-            <div class="med-slot med-pill pending flex flex-col rounded-2xl shadow-sm min-w-0 overflow-hidden">
+            <div class="med-slot med-pill pending flex flex-col rounded-2xl shadow-sm min-w-0 overflow-hidden" data-med-slot-index="0">
                 <div class="flex flex-col items-stretch px-1.5 pt-2.5 pb-1 gap-1 flex-1 text-center">
                     <span class="text-base leading-none">💊</span>
                     <span class="font-bold text-xs leading-snug tracking-tight">早餐前</span>
                     <label class="sr-only">早餐服药时间</label>
-                    <input type="time" value="" class="med-field" aria-label="早餐服药时间" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+                    <input type="time" value="" class="med-field" aria-label="早餐服药时间" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()" onchange="persistHomeMedProfileFromDom()">
                     <label class="sr-only">药品名称</label>
-                    <input type="text" value="" maxlength="14" class="med-field" placeholder="药名" aria-label="药品名称" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+                    <input type="text" value="" maxlength="14" class="med-field" placeholder="药名" aria-label="药品名称" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()" onchange="persistHomeMedProfileFromDom()">
                     <span class="text-[11px] font-semibold text-text-main/85 leading-none">剂量</span>
                 </div>
                 <button type="button" class="med-check-btn mt-auto w-full py-2.5 text-xs border-0" onclick="toggleMed(this)">点击打卡</button>
             </div>
-            <div class="med-slot med-pill pending flex flex-col rounded-2xl shadow-sm min-w-0 overflow-hidden">
+            <div class="med-slot med-pill pending flex flex-col rounded-2xl shadow-sm min-w-0 overflow-hidden" data-med-slot-index="1">
                 <div class="flex flex-col items-stretch px-1.5 pt-2.5 pb-1 gap-1 flex-1 text-center">
                     <span class="text-base leading-none">💊</span>
                     <span class="font-bold text-xs leading-snug tracking-tight">午餐前</span>
                     <label class="sr-only">午餐服药时间</label>
-                    <input type="time" value="" class="med-field" aria-label="午餐服药时间" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+                    <input type="time" value="" class="med-field" aria-label="午餐服药时间" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()" onchange="persistHomeMedProfileFromDom()">
                     <label class="sr-only">药品名称</label>
-                    <input type="text" value="" maxlength="14" class="med-field" placeholder="药名" aria-label="药品名称" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+                    <input type="text" value="" maxlength="14" class="med-field" placeholder="药名" aria-label="药品名称" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()" onchange="persistHomeMedProfileFromDom()">
                     <span class="text-[11px] font-semibold text-text-main/85 leading-none">剂量</span>
                 </div>
                 <button type="button" class="med-check-btn mt-auto w-full py-2.5 text-xs border-0" onclick="toggleMed(this)">点击打卡</button>
             </div>
-            <div class="med-slot med-pill pending flex flex-col rounded-2xl shadow-sm min-w-0 overflow-hidden">
+            <div class="med-slot med-pill pending flex flex-col rounded-2xl shadow-sm min-w-0 overflow-hidden" data-med-slot-index="2">
                 <div class="flex flex-col items-stretch px-1.5 pt-2.5 pb-1 gap-1 flex-1 text-center">
                     <span class="text-base leading-none">💊</span>
                     <span class="font-bold text-xs leading-snug tracking-tight">晚餐前</span>
                     <label class="sr-only">晚餐服药时间</label>
-                    <input type="time" value="" class="med-field" aria-label="晚餐服药时间" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+                    <input type="time" value="" class="med-field" aria-label="晚餐服药时间" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()" onchange="persistHomeMedProfileFromDom()">
                     <label class="sr-only">药品名称</label>
-                    <input type="text" value="" maxlength="14" class="med-field" placeholder="药名" aria-label="药品名称" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+                    <input type="text" value="" maxlength="14" class="med-field" placeholder="药名" aria-label="药品名称" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()" onchange="persistHomeMedProfileFromDom()">
                     <span class="text-[11px] font-semibold text-text-main/85 leading-none">剂量</span>
                 </div>
                 <button type="button" class="med-check-btn mt-auto w-full py-2.5 text-xs border-0" onclick="toggleMed(this)">点击打卡</button>
@@ -357,11 +361,11 @@
 
     <!-- 输入区域 -->
     <div class="flex-shrink-0 bg-card-white rounded-2xl p-3 shadow-lg mb-2">
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 min-w-0">
             <input type="text" id="ai-input" placeholder="输入问题，如：苹果能吃吗？" 
-                   class="flex-1 bg-gray-100 rounded-full px-4 py-2.5 text-sm outline-none"
+                   class="flex-1 min-w-0 bg-gray-100 rounded-full px-4 py-2.5 text-sm outline-none"
                    onkeypress="if(event.key==='Enter')sendAI()">
-            <button onclick="sendAI()" class="w-10 h-10 bg-warm-orange rounded-full flex items-center justify-center text-white text-lg">➤</button>
+            <button type="button" onclick="sendAI()" class="flex-shrink-0 w-10 h-10 bg-warm-orange rounded-full flex items-center justify-center text-white text-lg" aria-label="发送">➤</button>
         </div>
     </div>
 </div>
@@ -417,6 +421,11 @@
             <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
         </div>
         <div id="record-calendar-grid" class="grid grid-cols-7 gap-2"></div>
+        <div class="flex justify-center items-center gap-2 mt-3 flex-wrap">
+            <button type="button" onclick="shiftRecordSelectedDay(-1)" class="px-3 py-2 rounded-xl bg-gray-100 text-sm font-medium text-text-main hover:bg-gray-200 active:opacity-90">◀ 前一日</button>
+            <button type="button" onclick="goRecordCalendarToday()" class="px-3 py-2 rounded-xl bg-light-orange text-sm font-medium text-warm-orange active:opacity-90">今天</button>
+            <button type="button" onclick="shiftRecordSelectedDay(1)" class="px-3 py-2 rounded-xl bg-gray-100 text-sm font-medium text-text-main hover:bg-gray-200 active:opacity-90">后一日 ▶</button>
+        </div>
     </div>
 
     <h2 id="record-selected-date-label" class="font-bold text-lg mb-3"></h2>
@@ -448,8 +457,8 @@
         <div id="yoga-streak-text" class="mt-3 text-center text-sm text-text-light"></div>
     </div>
 
-    <!-- 运动历史（全部记录，与首页同源） -->
-    <h2 class="font-bold text-lg mb-3">最近运动</h2>
+    <!-- 运动历史（当日；往日请在记一笔中选日期） -->
+    <h2 class="font-bold text-lg mb-3">今日运动</h2>
     <div id="yoga-recent-list" class="space-y-3 mb-3"></div>
     <button type="button" onclick="showRecordSheet('sport')" class="w-full flex items-center gap-3 p-4 rounded-2xl border-2 border-dashed border-gray-200 bg-card-white text-text-light hover:border-warm-orange hover:text-warm-orange transition-colors text-left shadow-sm mb-6">
         <span class="text-2xl flex-shrink-0">➕</span>
@@ -478,8 +487,9 @@
         <button type="button" onclick="openFollowupReminderModal()" class="mt-3 w-full py-2 bg-warm-orange text-white rounded-xl text-sm font-medium shadow-sm active:opacity-95">记录复诊需求</button>
     </div>
 
-    <!-- 时间轴 -->
-    <h2 class="font-bold text-lg mb-3">就医记录</h2>
+    <!-- 时间轴（仅当天；完整历史请在记一笔按日期查看） -->
+    <h2 class="font-bold text-lg mb-1">今日就医</h2>
+    <p class="text-xs text-text-light mb-3">往日记录在「记一笔」中选日期后可浏览当日条目</p>
     <div class="relative pl-6">
         <!-- 时间轴线 -->
         <div class="absolute left-2 top-2 bottom-0 w-0.5 bg-gray-200"></div>
@@ -712,10 +722,67 @@ function syncRecordTodayIso() {
 
 syncRecordTodayIso();
 
+/** 打开底部记录表时锁定写入日期：除「记一笔」页外一律为当天；记一笔页为当前选中日期 */
+var sheetCommitLogIso = '';
+function refreshSheetCommitLogIsoForOpen(explicitIso) {
+    syncRecordTodayIso();
+    if (explicitIso && /^\d{4}-\d{2}-\d{2}$/.test(explicitIso)) {
+        sheetCommitLogIso = explicitIso;
+        return;
+    }
+    var rp = document.getElementById('page-record');
+    sheetCommitLogIso = rp && rp.classList.contains('active') ? recordSelectedIso : RECORD_TODAY_ISO;
+}
+function getSheetCommitLogIso() {
+    syncRecordTodayIso();
+    if (sheetCommitLogIso && /^\d{4}-\d{2}-\d{2}$/.test(sheetCommitLogIso)) return sheetCommitLogIso;
+    return RECORD_TODAY_ISO;
+}
+
 /** 健康记录：各页共用同一数据源，持久化到本机 */
 var RECORD_LOG_BY_DATE = {};
 
 var RECORD_LOG_STORAGE_KEY = 'sweet_record_log_by_date_v2';
+
+/** 首页「今日用药」三槽：药名与时间模板（持久化本机） */
+var HOME_MED_PROFILE_STORAGE_KEY = 'sweet_home_med_profile_v1';
+var HOME_MED_SLOT_LABELS = ['早餐前', '午餐前', '晚餐前'];
+
+function hydrateHomeMedProfileFromStorage() {
+    try {
+        var raw = localStorage.getItem(HOME_MED_PROFILE_STORAGE_KEY);
+        if (!raw) return;
+        var o = JSON.parse(raw);
+        if (!o || !Array.isArray(o.slots)) return;
+        var cards = document.querySelectorAll('.med-slot');
+        for (var i = 0; i < cards.length && i < o.slots.length; i++) {
+            var inputs = cards[i].querySelectorAll('.med-field');
+            var seg = o.slots[i];
+            if (!seg || typeof seg !== 'object') continue;
+            if (inputs[0] && typeof seg.time === 'string') inputs[0].value = seg.time;
+            if (inputs[1] && typeof seg.name === 'string') inputs[1].value = seg.name;
+        }
+    } catch (e) {}
+}
+
+function collectHomeMedProfileSlots() {
+    var slots = [];
+    document.querySelectorAll('.med-slot').forEach(function (card) {
+        var inputs = card.querySelectorAll('.med-field');
+        var timeVal = inputs[0] && inputs[0].value != null ? String(inputs[0].value).trim() : '';
+        var nameVal = inputs[1] && inputs[1].value != null ? String(inputs[1].value).trim() : '';
+        slots.push({ time: timeVal, name: nameVal });
+    });
+    return { slots: slots };
+}
+
+function persistHomeMedProfileFromDom() {
+    try {
+        localStorage.setItem(HOME_MED_PROFILE_STORAGE_KEY, JSON.stringify(collectHomeMedProfileSlots()));
+    } catch (e) {
+        if (typeof showToast === 'function') showToast('用药信息保存失败');
+    }
+}
 
 function hydrateRecordLogFromStorage() {
     try {
@@ -812,14 +879,15 @@ function deletableRecordShell(innerHtml, iso, rid) {
 function bindLongPressDeleteRows(scope) {
     var root = scope || document;
     var rows = root.querySelectorAll('[data-longpress-delete]');
-    for (var r = 0; r < rows.length; r++) {
-        var row = rows[r];
+    /* let：每行独立闭包。若用 var，同一函数内共享 row/holdTimer，长按结束时会误删最后一行 */
+    for (let r = 0; r < rows.length; r++) {
+        let row = rows[r];
         if (row._longPressDelInit) continue;
         row._longPressDelInit = true;
 
-        var holdTimer = null;
-        var startX = 0;
-        var startY = 0;
+        let holdTimer = null;
+        let startX = 0;
+        let startY = 0;
 
         function cancelHold() {
             if (holdTimer) {
@@ -917,7 +985,21 @@ function parseSugarFromRecordTitle(title) {
 }
 
 /** 展示排序：已知时段优先，其余按拼音排在最后 */
-var HOME_GLUCOSE_WHEN_ORDER = ['空腹', '早餐后2h', '早餐后', '午餐后2h', '午餐后', '晚餐后2h', '晚餐后', '睡前', '随机', '夜间'];
+var HOME_GLUCOSE_WHEN_ORDER = [
+    '空腹',
+    '早餐前',
+    '早餐后2h',
+    '早餐后',
+    '午餐前',
+    '午餐后2h',
+    '午餐后',
+    '晚餐前',
+    '晚餐后2h',
+    '晚餐后',
+    '睡前',
+    '随机',
+    '夜间'
+];
 
 function collectTodaySugarSlots(items) {
     var seen = {};
@@ -941,7 +1023,8 @@ function collectTodaySugarSlots(items) {
 
 function glucoseSlotStyle(whenRaw, v) {
     var ok;
-    if (whenRaw.indexOf('空腹') >= 0) ok = v >= 3.9 && v <= 6.1;
+    var fastingLike = whenRaw.indexOf('空腹') >= 0 || whenRaw.indexOf('餐前') >= 0;
+    if (fastingLike) ok = v >= 3.9 && v <= 6.1;
     else ok = v <= 7.8;
     if (ok) {
         return {
@@ -1131,6 +1214,7 @@ function refreshHomeFromRecords() {
     renderHomeGlucoseChart();
     renderHomeFoodList();
     renderHomeSportList();
+    syncHomeMedCardsFromLogs();
 }
 
 var WEEKDAYS_CN_FULL = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
@@ -1153,7 +1237,6 @@ function updateHomeHeaderDate() {
 let recordCalYear = new Date().getFullYear();
 let recordCalMonth = new Date().getMonth() + 1;
 let recordSelectedIso = RECORD_TODAY_ISO;
-let recordCalInitialized = false;
 
 function padRecord2(n) {
     return (n < 10 ? '0' : '') + n;
@@ -1210,17 +1293,14 @@ function formatYogaShortDateLabel(iso) {
     return parseInt(p[1], 10) + '月' + parseInt(p[2], 10) + '日';
 }
 
-function collectAllSportEntriesNewestFirst() {
-    var isos = Object.keys(RECORD_LOG_BY_DATE).filter(function (x) {
-        return /^\d{4}-\d{2}-\d{2}$/.test(x);
-    });
-    isos.sort().reverse();
+/** 运动页列表：仅当天（与首页「今日」一致） */
+function collectTodaySportEntriesNewestFirst() {
+    syncRecordTodayIso();
+    var iso = RECORD_TODAY_ISO;
+    var items = RECORD_LOG_BY_DATE[iso] || [];
     var out = [];
-    for (var i = 0; i < isos.length; i++) {
-        var items = RECORD_LOG_BY_DATE[isos[i]] || [];
-        for (var j = 0; j < items.length; j++) {
-            if (isHomeSportEntry(items[j])) out.push({ iso: isos[i], rec: items[j] });
-        }
+    for (var j = 0; j < items.length; j++) {
+        if (isHomeSportEntry(items[j])) out.push({ iso: iso, rec: items[j] });
     }
     return out;
 }
@@ -1308,10 +1388,10 @@ function renderYogaCalendar() {
 function renderYogaRecentList() {
     var wrap = document.getElementById('yoga-recent-list');
     if (!wrap) return;
-    var entries = collectAllSportEntriesNewestFirst();
+    var entries = collectTodaySportEntriesNewestFirst();
     if (!entries.length) {
         wrap.innerHTML =
-            '<div class="text-center text-sm text-text-light py-6 rounded-2xl bg-card-white border border-dashed border-gray-200">暂无运动记录，点击下方添加</div>';
+            '<div class="text-center text-sm text-text-light py-6 rounded-2xl bg-card-white border border-dashed border-gray-200">今日暂无运动记录，点击下方添加</div>';
         return;
     }
     var html = '';
@@ -1328,7 +1408,7 @@ function renderYogaRecentList() {
         var bgCls = useGreen ? 'bg-light-green' : 'bg-light-orange';
         var numCls = useGreen ? 'text-soft-green' : 'text-warm-orange';
         var subLine = (rec.sub || '').trim();
-        var whenText = formatYogaShortDateLabel(iso) + (subLine ? ' ' + subLine : '');
+        var whenText = subLine ? '今日 · ' + subLine : '今日';
         html +=
             deletableRecordShell(
                 '<div class="bg-card-white rounded-2xl p-4 shadow-sm flex items-center gap-3">' +
@@ -1378,6 +1458,12 @@ function formatRecordDateLabel(iso) {
 }
 
 function selectRecordDate(iso) {
+    syncRecordTodayIso();
+    if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+    if (iso > RECORD_TODAY_ISO) {
+        showToast('不能选择今天之后的日期');
+        return;
+    }
     recordSelectedIso = iso;
     const parts = iso.split('-').map(Number);
     recordCalYear = parts[0];
@@ -1386,7 +1472,29 @@ function selectRecordDate(iso) {
     renderRecordDayList(iso);
 }
 
+function shiftRecordSelectedDay(delta) {
+    syncRecordTodayIso();
+    var p = String(recordSelectedIso || RECORD_TODAY_ISO)
+        .split('-')
+        .map(Number);
+    if (p.length !== 3 || isNaN(p[0]) || isNaN(p[1]) || isNaN(p[2])) return;
+    var d = new Date(p[0], p[1] - 1, p[2]);
+    d.setDate(d.getDate() + delta);
+    var iso = isoRecordDate(d.getFullYear(), d.getMonth() + 1, d.getDate());
+    if (iso > RECORD_TODAY_ISO) {
+        showToast('已是最新一天');
+        return;
+    }
+    selectRecordDate(iso);
+}
+
+function goRecordCalendarToday() {
+    syncRecordTodayIso();
+    selectRecordDate(RECORD_TODAY_ISO);
+}
+
 function shiftRecordMonth(delta) {
+    syncRecordTodayIso();
     recordCalMonth += delta;
     if (recordCalMonth > 12) {
         recordCalMonth = 1;
@@ -1408,6 +1516,10 @@ function shiftRecordMonth(delta) {
             pick = isoRecordDate(recordCalYear, recordCalMonth, 1);
         }
     }
+    if (pick > RECORD_TODAY_ISO) pick = RECORD_TODAY_ISO;
+    var pp = pick.split('-').map(Number);
+    recordCalYear = pp[0];
+    recordCalMonth = pp[1];
     selectRecordDate(pick);
 }
 
@@ -1527,13 +1639,10 @@ function renderRecordDayList(iso) {
 
 function ensureRecordCalendar() {
     syncRecordTodayIso();
-    if (!recordCalInitialized) {
-        var tp = RECORD_TODAY_ISO.split('-').map(Number);
-        recordCalYear = tp[0];
-        recordCalMonth = tp[1];
-        recordSelectedIso = RECORD_TODAY_ISO;
-        recordCalInitialized = true;
-    }
+    recordSelectedIso = RECORD_TODAY_ISO;
+    var tp = RECORD_TODAY_ISO.split('-').map(Number);
+    recordCalYear = tp[0];
+    recordCalMonth = tp[1];
     renderRecordCalendar();
     renderRecordDayList(recordSelectedIso);
 }
@@ -1548,21 +1657,105 @@ function updateMedProgress() {
     if (el) el.textContent = '已服 ' + taken + '/' + slots.length;
 }
 
+/** 从记一笔数据中同步首页用药卡片的已服/待服状态（kind: home_med） */
+function syncHomeMedCardsFromLogs() {
+    syncRecordTodayIso();
+    var iso = RECORD_TODAY_ISO;
+    var items = RECORD_LOG_BY_DATE[iso] || [];
+    var takenSlots = {};
+    for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        if (it && it.kind === 'home_med' && typeof it.homeMedSlot === 'number') {
+            takenSlots[it.homeMedSlot] = true;
+        }
+    }
+    document.querySelectorAll('.med-slot').forEach(function (card) {
+        var idx = parseInt(card.getAttribute('data-med-slot-index'), 10);
+        if (isNaN(idx)) return;
+        var btn = card.querySelector('.med-check-btn');
+        if (takenSlots[idx]) {
+            card.classList.remove('pending');
+            card.classList.add('taken');
+            if (btn) btn.textContent = '✓ 已服用';
+        } else {
+            card.classList.remove('taken');
+            card.classList.add('pending');
+            if (btn) btn.textContent = '点击打卡';
+        }
+    });
+    updateMedProgress();
+}
+
+/**
+ * 移除某日某槽位的首页用药打卡记录（不写 Toast）
+ * @param skipHomeRefresh 为 true 时不调 refreshHomeFromRecords（用于紧接着 append 前去重）
+ */
+function removeHomeMedLogForSlot(iso, slotIndex, skipHomeRefresh) {
+    var arr = RECORD_LOG_BY_DATE[iso];
+    if (!arr || !arr.length) return;
+    var nar = [];
+    var removed = false;
+    for (var i = 0; i < arr.length; i++) {
+        var e = arr[i];
+        if (e && e.kind === 'home_med' && e.homeMedSlot === slotIndex) {
+            removed = true;
+            continue;
+        }
+        nar.push(arr[i]);
+    }
+    if (!removed) return;
+    if (nar.length) RECORD_LOG_BY_DATE[iso] = nar;
+    else delete RECORD_LOG_BY_DATE[iso];
+    try {
+        localStorage.setItem(RECORD_LOG_STORAGE_KEY, JSON.stringify(RECORD_LOG_BY_DATE));
+    } catch (e) {
+        if (typeof showToast === 'function') showToast('本地保存失败，可能被浏览器限额或禁止存储');
+    }
+    var rp = document.getElementById('page-record');
+    if (rp && rp.classList.contains('active')) {
+        renderRecordCalendar();
+        renderRecordDayList(recordSelectedIso);
+    }
+    refreshYogaPageIfVisible();
+    var pd = document.getElementById('page-doctor');
+    if (pd && pd.classList.contains('active')) renderDoctorTimelineFromLogs();
+    if (!skipHomeRefresh && iso === RECORD_TODAY_ISO) refreshHomeFromRecords();
+}
+
 // ==================== 用药打卡 ====================
 function toggleMed(btn) {
     const card = btn.closest('.med-slot');
     if (!card) return;
+    syncRecordTodayIso();
+    var iso = RECORD_TODAY_ISO;
+    var slotIndex = parseInt(card.getAttribute('data-med-slot-index'), 10);
+    if (isNaN(slotIndex)) slotIndex = 0;
+    var inputs = card.querySelectorAll('.med-field');
+    var timeVal = inputs[0] && inputs[0].value ? String(inputs[0].value).trim() : '';
+    var nameVal = inputs[1] && inputs[1].value ? String(inputs[1].value).trim() : '';
+    var label = HOME_MED_SLOT_LABELS[slotIndex] || '用药';
+
     if (card.classList.contains('pending')) {
-        card.classList.remove('pending');
-        card.classList.add('taken');
-        btn.textContent = '✓ 已服用';
+        removeHomeMedLogForSlot(iso, slotIndex, true);
+        var now = new Date();
+        var sub = padRecord2(now.getHours()) + ':' + padRecord2(now.getMinutes());
+        if (timeVal) sub += ' · 计划 ' + timeVal;
+        sub += ' · 首页打卡';
+        var title = nameVal ? '服用 ' + nameVal + ' · ' + label : '用药打卡 · ' + label;
+        appendRecordLog(iso, {
+            kind: 'home_med',
+            homeMedSlot: slotIndex,
+            icon: '💊',
+            iconBg: 'bg-light-orange',
+            title: title,
+            sub: sub,
+            rightHtml: '<span class="text-soft-green text-sm font-medium">✓ 已服</span>'
+        });
         if (navigator.vibrate) navigator.vibrate(50);
     } else {
-        card.classList.remove('taken');
-        card.classList.add('pending');
-        btn.textContent = '点击打卡';
+        removeHomeMedLogForSlot(iso, slotIndex, false);
     }
-    updateMedProgress();
+    persistHomeMedProfileFromDom();
 }
 
 // ==================== AI 对话（配置保存在 localStorage）====================
@@ -2147,7 +2340,7 @@ function sheetSelectMood(btn) {
 }
 
 function submitFoodRecord() {
-    var iso = recordSelectedIso || RECORD_TODAY_ISO;
+    var iso = getSheetCommitLogIso();
     var nameEl = document.getElementById('food-form-name');
     var name = nameEl ? nameEl.value.trim() : '';
     if (!name) {
@@ -2191,7 +2384,7 @@ function submitFoodRecord() {
 }
 
 function submitMedRecord() {
-    var iso = recordSelectedIso || RECORD_TODAY_ISO;
+    var iso = getSheetCommitLogIso();
     var drugEl = document.getElementById('med-form-name');
     var drug = drugEl ? drugEl.value.trim() : '';
     if (!drug) {
@@ -2218,7 +2411,7 @@ function submitMedRecord() {
 }
 
 function submitSugarRecord() {
-    var iso = recordSelectedIso || RECORD_TODAY_ISO;
+    var iso = getSheetCommitLogIso();
     var inp = document.getElementById('sugar-form-value');
     var raw = inp && inp.value ? String(inp.value).trim() : '';
     var v = parseFloat(raw);
@@ -2231,7 +2424,9 @@ function submitSugarRecord() {
     var now = new Date();
     var sub = padRecord2(now.getHours()) + ':' + padRecord2(now.getMinutes());
     var badge = '<span class="gi-badge gi-low">正常</span>';
-    if (when.indexOf('空腹') >= 0) {
+    var fastLike =
+        when.indexOf('空腹') >= 0 || when.indexOf('餐前') >= 0;
+    if (fastLike) {
         if (v < 3.9 || v > 6.1) badge = '<span class="gi-badge gi-mid">留意</span>';
     } else if (v > 7.8) {
         badge = '<span class="gi-badge gi-mid">留意</span>';
@@ -2249,7 +2444,7 @@ function submitSugarRecord() {
 }
 
 function submitSportRecord() {
-    var iso = recordSelectedIso || RECORD_TODAY_ISO;
+    var iso = getSheetCommitLogIso();
     var sel = document.querySelector('#sport-type-grid .sport-type-choice.bg-light-orange.border-warm-orange');
     if (!sel) {
         showToast('请选择运动类型');
@@ -2274,7 +2469,7 @@ function submitSportRecord() {
 }
 
 function submitMoodRecord() {
-    var iso = recordSelectedIso || RECORD_TODAY_ISO;
+    var iso = getSheetCommitLogIso();
     var sel = document.querySelector('#sheet-content .mood-emoji-btn.opacity-100');
     var emoji = '😐';
     var moodLabel = '平淡';
@@ -2382,14 +2577,11 @@ const sheetTemplates = {
                 <input type="number" step="0.1" id="sugar-form-value" placeholder="如：6.5" class="w-full bg-gray-100 rounded-xl px-4 py-3 outline-none text-2xl font-bold text-center">
             </div>
             <div>
-                <label class="block text-sm font-medium mb-2">测量时间</label>
-                <div class="flex gap-2 flex-wrap">
-                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="sugar-when" data-chip-theme="orange" class="sheet-chip px-4 py-2 bg-light-orange rounded-full text-sm font-medium">空腹</button>
-                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="sugar-when" data-chip-theme="orange" class="sheet-chip px-4 py-2 bg-gray-100 rounded-full text-sm">早餐后2h</button>
-                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="sugar-when" data-chip-theme="orange" class="sheet-chip px-4 py-2 bg-gray-100 rounded-full text-sm">午餐后2h</button>
-                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="sugar-when" data-chip-theme="orange" class="sheet-chip px-4 py-2 bg-gray-100 rounded-full text-sm">晚餐后2h</button>
-                    <button type="button" onclick="sheetSelectChip(this)" data-chip-group="sugar-when" data-chip-theme="orange" class="sheet-chip px-4 py-2 bg-gray-100 rounded-full text-sm">睡前</button>
+                <div class="flex justify-between items-center gap-2 mb-2">
+                    <label class="block text-sm font-medium mb-0">测量时间</label>
+                    <button type="button" onclick="promptAddSugarWhenCustom()" class="flex-shrink-0 w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-xl leading-none font-semibold text-warm-orange hover:bg-gray-200 transition active:scale-95" title="自定义测量时间" aria-label="添加自定义测量时间">+</button>
                 </div>
+                <div id="sugar-when-chips" class="flex gap-2 flex-wrap"></div>
             </div>
             <div class="bg-light-green rounded-2xl p-4">
                 <div class="font-bold mb-1">参考范围</div>
@@ -2633,7 +2825,99 @@ function initSportTypeSheet() {
     mountCustomSportTypes();
 }
 
-function showRecordSheet(type) {
+var SUGAR_WHEN_CUSTOM_STORAGE_KEY = 'sweet_sugar_when_custom_v1';
+var SUGAR_WHEN_PRESETS = ['空腹', '早餐前', '早餐后', '午餐前', '午餐后', '晚餐前', '晚餐后', '睡前'];
+
+function loadCustomSugarWhenLabels() {
+    try {
+        var raw = localStorage.getItem(SUGAR_WHEN_CUSTOM_STORAGE_KEY);
+        if (!raw) return [];
+        var a = JSON.parse(raw);
+        if (!Array.isArray(a)) return [];
+        return a
+            .map(function (x) {
+                return String(x || '')
+                    .trim()
+                    .slice(0, 12);
+            })
+            .filter(function (x) {
+                return x;
+            });
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveCustomSugarWhenLabels(arr) {
+    try {
+        localStorage.setItem(SUGAR_WHEN_CUSTOM_STORAGE_KEY, JSON.stringify(arr));
+    } catch (e) {
+        if (typeof showToast === 'function') showToast('自定义标签保存失败');
+    }
+}
+
+function renderSugarWhenChips() {
+    var wrap = document.getElementById('sugar-when-chips');
+    if (!wrap) return;
+    var custom = loadCustomSugarWhenLabels();
+    var parts = [];
+    var i;
+    for (i = 0; i < SUGAR_WHEN_PRESETS.length; i++) {
+        var label = SUGAR_WHEN_PRESETS[i];
+        var isFirst = i === 0;
+        var cls = isFirst ? 'bg-light-orange font-medium' : 'bg-gray-100';
+        parts.push(
+            '<button type="button" onclick="sheetSelectChip(this)" data-chip-group="sugar-when" data-chip-theme="orange" class="sheet-chip px-4 py-2 ' +
+                cls +
+                ' rounded-full text-sm">' +
+                escapeHtml(label) +
+                '</button>'
+        );
+    }
+    for (i = 0; i < custom.length; i++) {
+        parts.push(
+            '<button type="button" onclick="sheetSelectChip(this)" data-chip-group="sugar-when" data-chip-theme="orange" class="sheet-chip px-4 py-2 bg-gray-100 rounded-full text-sm">' +
+                escapeHtml(custom[i]) +
+                '</button>'
+        );
+    }
+    wrap.innerHTML = parts.join('');
+}
+
+function promptAddSugarWhenCustom() {
+    var raw = window.prompt('请输入自定义测量时间（不超过12个字）', '');
+    if (raw == null) return;
+    var label = String(raw).trim().slice(0, 12);
+    if (!label) {
+        showToast('未输入内容');
+        return;
+    }
+    if (SUGAR_WHEN_PRESETS.indexOf(label) >= 0) {
+        showToast('与预设选项重复');
+        return;
+    }
+    var list = loadCustomSugarWhenLabels();
+    if (list.indexOf(label) >= 0) {
+        showToast('该标签已存在');
+        return;
+    }
+    list.push(label);
+    saveCustomSugarWhenLabels(list);
+    renderSugarWhenChips();
+    var wrap = document.getElementById('sugar-when-chips');
+    if (!wrap) return;
+    var btns = wrap.querySelectorAll('[data-chip-group="sugar-when"]');
+    for (var j = 0; j < btns.length; j++) {
+        if (btns[j].textContent.trim() === label) {
+            sheetSelectChip(btns[j]);
+            break;
+        }
+    }
+    showToast('已添加「' + label + '」');
+}
+
+function showRecordSheet(type, explicitIso) {
+    refreshSheetCommitLogIsoForOpen(explicitIso);
     const sheet = document.getElementById('bottom-sheet');
     const overlay = document.getElementById('bottom-sheet-overlay');
     const content = document.getElementById('sheet-content');
@@ -2654,6 +2938,7 @@ function showRecordSheet(type) {
     if (type === 'food') foodGiEstimateReady = false;
     if (type === 'sport') initSportTypeSheet();
     if (type === 'doctor') resetDoctorUploadUI();
+    if (type === 'sugar') renderSugarWhenChips();
 
     sheet.classList.remove('hidden');
     overlay.classList.remove('hidden');
@@ -2764,6 +3049,7 @@ function isDoctorTimelineEntry(rec) {
 function renderDoctorTimelineFromLogs() {
     var list = document.getElementById('doctor-timeline-list');
     if (!list) return;
+    syncRecordTodayIso();
     var rows = [];
     var isos = Object.keys(RECORD_LOG_BY_DATE).filter(function (x) {
         return /^\d{4}-\d{2}-\d{2}$/.test(x);
@@ -2773,12 +3059,17 @@ function renderDoctorTimelineFromLogs() {
         var iso = isos[ii];
         var items = RECORD_LOG_BY_DATE[iso] || [];
         for (var j = 0; j < items.length; j++) {
-            if (isDoctorTimelineEntry(items[j])) rows.push({ iso: iso, rec: items[j] });
+            if (!isDoctorTimelineEntry(items[j])) continue;
+            var rec = items[j];
+            var dateIso =
+                rec.doctorDateIso && /^\d{4}-\d{2}-\d{2}$/.test(rec.doctorDateIso) ? rec.doctorDateIso : iso;
+            if (dateIso !== RECORD_TODAY_ISO) continue;
+            rows.push({ iso: iso, rec: rec });
         }
     }
     if (!rows.length) {
         list.innerHTML =
-            '<div class="text-center text-text-light text-sm py-8">暂无就医记录，点击下方添加</div>';
+            '<div class="text-center text-text-light text-sm py-8">今日暂无就医记录，点击下方添加</div>';
         return;
     }
     list.innerHTML = '';
@@ -2838,7 +3129,7 @@ function submitDoctorRecord() {
         return;
     }
 
-    var logIso = dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : (recordSelectedIso || RECORD_TODAY_ISO);
+    var logIso = dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : getSheetCommitLogIso();
     appendRecordLog(logIso, {
         icon: '🏥',
         iconBg: 'bg-blue-50',
@@ -3152,11 +3443,11 @@ function showToast(msg) {
 document.addEventListener('DOMContentLoaded', () => {
     applyFontScaleFromSlider(loadFontScaleSliderValue());
     syncRecordTodayIso();
+    hydrateHomeMedProfileFromStorage();
     updateHomeHeaderDate();
     renderDoctorTimelineFromLogs();
     renderAIChatFromHistory();
     showPage('home');
-    updateMedProgress();
     applyFollowupReminderCard();
 });
 </script>
