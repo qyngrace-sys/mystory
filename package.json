@@ -1,0 +1,9 @@
+{
+  "name": "sweet-ark-proxy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node proxy-server.mjs",
+    "proxy": "node proxy-server.mjs"
+  }
+}
