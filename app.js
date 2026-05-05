@@ -12265,6 +12265,67 @@
     );
   }
 
+  /**
+   * 从 afterIdx 所指行之后开始，收集随其后的连续「非角色气泡」行（旁白/环境等），
+   * 遇下一条角色气泡、正在编辑或有摘抄/想法标记即停止。用于并入上一条角色卡显示。
+   */
+  function gatherTrailingAmbiencePack(turnLines, afterIdx, plot, turnIndex) {
+    const indices = [];
+    let k = afterIdx + 1;
+    while (k < turnLines.length) {
+      const L = turnLines[k];
+      if (storyTurnLineShowsParticipantBubble(plot, L)) break;
+      if (storyTurnLineEditing(plot, turnIndex, k)) break;
+      if (storyLineHasHighlightOrThought(plot, L)) break;
+      const nt = stripNarratorDisplayText(String(L.text || "")).trim();
+      if (nt) indices.push(k);
+      k++;
+    }
+    return { indices: indices, resumeAt: k };
+  }
+
+  /**
+   * 从 startIdx 起连续多条「非角色气泡」（旁白/环境等）合并为一块显示；规则与 gatherTrailingAmbiencePack 一致。
+   */
+  function gatherConsecutiveNarrOnlyPack(turnLines, startIdx, plot, turnIndex) {
+    const indices = [];
+    let k = startIdx;
+    while (k < turnLines.length) {
+      const L = turnLines[k];
+      if (storyTurnLineShowsParticipantBubble(plot, L)) break;
+      if (storyTurnLineEditing(plot, turnIndex, k)) break;
+      if (storyLineHasHighlightOrThought(plot, L)) break;
+      const nt = stripNarratorDisplayText(String(L.text || "")).trim();
+      if (nt) indices.push(k);
+      k++;
+    }
+    return { indices: indices, resumeAt: k };
+  }
+
+  function appendAmbienceTailToStoryMsg(msgRow, plot, turnLines, ambienceIndices, turnIndex) {
+    if (!ambienceIndices.length) return;
+    const texts = ambienceIndices.map(function (idx) {
+      return stripNarratorDisplayText(String(turnLines[idx].text || ""));
+    }).filter(function (t) {
+      return String(t || "").trim();
+    });
+    if (!texts.length) return;
+    const combined = texts.join("\n\n");
+    const firstIdx = ambienceIndices[0];
+    const firstLine = turnLines[firstIdx];
+    const tail = document.createElement("div");
+    tail.className = "story-msg__ambience story-feed-narr story-feed-narr--rp";
+    tail.setAttribute("data-story-line-id", String(firstLine.id || ""));
+    tail.innerHTML = renderStoryInlineMarkup(combined);
+    applyStoryLineDecorations(tail, plot, String(firstLine.id || ""));
+    msgRow.appendChild(tail);
+    if (!plot.playSealed) {
+      bindStoryLineLongPress(tail, function () {
+        openStoryLineActionSheet(plot, turnIndex, firstIdx);
+      });
+    }
+  }
+
   function renderStoryPlay(p) {
     const introEl = document.getElementById("story-play-intro");
     if (!introEl) return;
@@ -12398,20 +12459,33 @@
               lineIndex++;
               continue;
             }
+            var narrRun = gatherConsecutiveNarrOnlyPack(turnLines, lineIndex, p, turnIndex);
+            if (!narrRun.indices.length) {
+              lineIndex = narrRun.resumeAt;
+              continue;
+            }
+            const narrParts = narrRun.indices.map(function (idx) {
+              return stripNarratorDisplayText(String(turnLines[idx].text || ""));
+            }).filter(function (t) {
+              return String(t || "").trim();
+            });
+            const narrMerged = narrParts.join("\n\n");
+            const narrFirstIdx = narrRun.indices[0];
+            const narrFirstLine = turnLines[narrFirstIdx];
             const narr = document.createElement("div");
             narr.className =
               "story-feed-narr story-feed-narr--rp" +
               (p.playSealed ? " story-feed-narr--readonly" : " story-line-clickable");
-            narr.setAttribute("data-story-line-id", String(line.id || ""));
-            narr.innerHTML = renderStoryInlineMarkup(narrText);
-            applyStoryLineDecorations(narr, p, String(line.id || ""));
+            narr.setAttribute("data-story-line-id", String(narrFirstLine.id || ""));
+            narr.innerHTML = renderStoryInlineMarkup(narrMerged);
+            applyStoryLineDecorations(narr, p, String(narrFirstLine.id || ""));
             if (!p.playSealed) {
               bindStoryLineLongPress(narr, function () {
-                openStoryLineActionSheet(p, turnIndex, lineIndex);
+                openStoryLineActionSheet(p, turnIndex, narrFirstIdx);
               });
             }
             turnGroup.appendChild(narr);
-            lineIndex++;
+            lineIndex = narrRun.resumeAt;
             continue;
           }
           const ch = getCharById(line.characterId);
@@ -12513,8 +12587,12 @@
                   openStoryLineActionSheet(p, turnIndex, lineIndex);
                 });
               }
+              var ambMerge = gatherTrailingAmbiencePack(turnLines, mergeEndIdx, p, turnIndex);
+              if (ambMerge.indices.length) {
+                appendAmbienceTailToStoryMsg(mergeRow, p, turnLines, ambMerge.indices, turnIndex);
+              }
               turnGroup.appendChild(mergeRow);
-              lineIndex = mergeEndIdx + 1;
+              lineIndex = ambMerge.resumeAt;
               continue;
               }
             }
@@ -12545,8 +12623,13 @@
               openStoryLineActionSheet(p, turnIndex, lineIndex);
             });
           }
+          var ambSingle = gatherTrailingAmbiencePack(turnLines, lineIndex, p, turnIndex);
+          if (ambSingle.indices.length) {
+            appendAmbienceTailToStoryMsg(row, p, turnLines, ambSingle.indices, turnIndex);
+          }
           turnGroup.appendChild(row);
-          lineIndex++;
+          lineIndex = ambSingle.resumeAt;
+          continue;
         }
         if (turnGroup.children.length) {
           feed.appendChild(turnGroup);
