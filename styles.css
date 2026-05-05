@@ -4485,6 +4485,21 @@ html[data-theme="dark"] .story-scroll-nav__btn {
   align-items: flex-start;
 }
 
+/* 同一条存储行在阅览态拆成的后续气泡：隐藏重复头像与名字，仅留正文区 */
+.story-msg--split-continuation .story-msg__top {
+  display: none;
+}
+.story-msg--split-continuation {
+  margin-top: 4px;
+}
+.story-msg--me.story-msg--split-continuation {
+  margin-top: 4px;
+}
+
+.story-feed-narr--split-continuation {
+  margin-top: 0.4em;
+}
+
 .story-msg--me {
   align-self: stretch;
   align-items: flex-end;
@@ -4893,18 +4908,31 @@ html[data-theme="dark"] .story-scroll-nav__btn {
   font-style: normal;
 }
 
+/* 阅览态对白与描写分列 <p>，但同一条气泡内不分「条」——仅段落间距，无横线分隔感 */
 .story-msg__text--rp .story-para,
 .story-feed-narr--rp .story-para {
-  margin: 0 0 0.62em;
+  margin: 0 0 0.5em;
   text-indent: 2em;
 }
 
 .story-msg__text--rp .story-dialogue,
 .story-feed-narr--rp .story-dialogue {
-  margin: 0.4em 0;
+  margin: 0 0 0.5em;
   text-indent: 2em;
   text-align: justify;
   text-justify: inter-ideograph;
+}
+
+.story-msg__text--rp > .story-dialogue + .story-para,
+.story-msg__text--rp > .story-para + .story-dialogue,
+.story-feed-narr--rp > .story-dialogue + .story-para,
+.story-feed-narr--rp > .story-para + .story-dialogue {
+  margin-top: 0.18em;
+}
+
+.story-msg__text--rp > :last-child,
+.story-feed-narr--rp > :last-child {
+  margin-bottom: 0;
 }
 
 .story-msg__text--rp .story-narr,
@@ -4941,6 +4969,33 @@ html[data-theme="dark"] .story-scroll-nav__btn {
   font-size: 0.9rem;
   letter-spacing: 0.02em;
   animation: storyPulse 1s ease-in-out infinite;
+}
+
+/** 回合内：仍有后续段落生成时的闪烁提示（紧跟已落库的剧情块之下） */
+.story-stream-pending {
+  margin-top: 8px;
+  padding: 12px 14px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed color-mix(in srgb, var(--muted) 35%, var(--border));
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  text-align: center;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.story-stream-pending__label {
+  display: inline-block;
+  animation: storyStreamGenPulse 1.05s ease-in-out infinite;
+}
+
+@keyframes storyStreamGenPulse {
+  0%,
+  100% {
+    opacity: 0.38;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .story-play-error {
@@ -5771,6 +5826,53 @@ html[data-theme="dark"] .story-choice-action-btn {
   color: var(--muted);
   margin: 10px 0 12px;
   line-height: 1.45;
+}
+
+/* 设置页：替代「打开开发者工具看 IndexedDB」，直接展示是否已存字体与体积 */
+.font-storage-diagnostics {
+  margin: 0 0 14px;
+  padding: 11px 13px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--text) 4%, var(--surface));
+  font-size: 0.76rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.font-storage-diagnostics code {
+  font-size: 0.9em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text) 7%, var(--bg));
+  color: var(--text);
+  word-break: break-all;
+}
+
+.font-storage-diagnostics__line {
+  margin: 0 0 7px;
+}
+
+.font-storage-diagnostics__line:last-child {
+  margin-bottom: 0;
+}
+
+.font-storage-diagnostics__loading {
+  opacity: 0.85;
+}
+
+.font-storage-diagnostics__ok {
+  display: block;
+  margin-top: 2px;
+  color: color-mix(in srgb, var(--accent) 35%, var(--text));
+  font-weight: 600;
+}
+
+.font-storage-diagnostics__warn {
+  display: block;
+  margin-top: 2px;
+  color: color-mix(in srgb, var(--text) 88%, var(--muted));
+  font-weight: 600;
 }
 
 .font-scale-control {

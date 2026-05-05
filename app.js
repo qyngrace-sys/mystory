@@ -553,6 +553,93 @@
     );
   }
 
+  function formatApproxStoredBytes(bytes) {
+    const n = typeof bytes === "number" ? bytes : parseInt(bytes, 10);
+    if (!Number.isFinite(n) || n < 0) return "未知体积";
+    if (n === 0) return "0 B";
+    if (n < 1024) return n + " B";
+    if (n < 1024 * 1024) return (n / 1024).toFixed(n < 10 * 1024 ? 1 : 0) + " KB";
+    return (n / (1024 * 1024)).toFixed(n < 10 * 1024 * 1024 ? 2 : 1) + " MB";
+  }
+
+  /**
+   * 设置页展示用：不等用户打开 DevTools，直接从 IndexedDB 探测自定义字体条目。
+   * @returns {Promise<{ buf: ArrayBuffer | null }>}
+   */
+  async function probeIndexedDbCustomFontBlob() {
+    try {
+      const buf = await idbGetFont();
+      return {
+        buf: buf && typeof buf.byteLength === "number" ? buf : null,
+      };
+    } catch (_e) {
+      return { buf: null };
+    }
+  }
+
+  /**
+   * 在「设定 → 字体」里显示 IndexedDB 是否存有文件及体积（库名 hj_narrative_ui / userFont）。
+   */
+  async function refreshSettingsFontDiagnostics(settingsRoot) {
+    const el =
+      settingsRoot && settingsRoot.querySelector ? settingsRoot.querySelector("#font-storage-diagnostics") : null;
+    if (!el) return;
+    el.innerHTML =
+      '<span class="font-storage-diagnostics__loading">' + escapeHtml("正在读取本机字体存储…") + "</span>";
+    const { buf } = await probeIndexedDbCustomFontBlob();
+    const metaName =
+      customFontMeta && typeof customFontMeta.name === "string" && customFontMeta.name.trim()
+        ? customFontMeta.name.trim()
+        : "";
+    const lines = [];
+
+    lines.push('<strong>' + escapeHtml("本机字体文件（IndexedDB）") + "</strong>");
+
+    if (buf) {
+      lines.push(
+        "已保存：键名 <code>userFont</code> · 体积约 <strong>" +
+          escapeHtml(formatApproxStoredBytes(buf.byteLength)) +
+          "</strong>"
+      );
+      lines.push(
+        "所在库：<code>" +
+          escapeHtml(IDB_NAME) +
+          "</code> · 仓库：<code>" +
+          escapeHtml(IDB_STORE) +
+          "</code>"
+      );
+      if (loadedFontFace)
+        lines.push('<span class="font-storage-diagnostics__ok">' + escapeHtml("当前页面已成功载入该字体。") + "</span>");
+      else
+        lines.push(
+          '<span class="font-storage-diagnostics__warn">' +
+            escapeHtml("检测到文件，但当前页未能载入字体（可能与格式或无痕模式限制有关）。") +
+            "</span>"
+        );
+      if (!metaName)
+        lines.push(
+          '<span class="font-storage-diagnostics__warn">' +
+            escapeHtml("缺少本地记录的文件名（不影响使用）；导出备份仍可带上字体。") +
+            "</span>"
+        );
+    } else {
+      lines.push(escapeHtml("当前未检测到已保存的字体文件（尚未上传或已清除）。"));
+      if (metaName)
+        lines.push(
+          '<span class="font-storage-diagnostics__warn">' +
+            escapeHtml(
+              "记录里显示使用过「" + metaName + "」，但库里没有对应文件——请重新上传字体，或点「清除自定义字体」重置。"
+            ) +
+            "</span>"
+        );
+    }
+
+    el.innerHTML =
+      '<p class="font-storage-diagnostics__line">' +
+      lines.join('</p><p class="font-storage-diagnostics__line">') +
+      "</p>";
+  }
+
   function getBackupLib() {
     if (typeof window.JSZip === "function") return window.JSZip;
     return null;
@@ -5625,7 +5712,7 @@
     if (!wbs || !wbs.length) return "";
     var head =
       headingShort ||
-      "【必读｜最高优先级·世界书（与人物设定同级：文风、世界观、禁令与叙事规则须在全文贯彻）】";
+      "【世界书（文风、世界观、设定与禁令；与角色信息冲突时的采信顺序见系统【采信层级】）】";
     return (
       head +
       "\n" +
@@ -5687,7 +5774,18 @@
   function storyPlayMaxTokens(plot) {
     const w =
       plot && typeof plot.wordLimit === "number" && Number.isFinite(plot.wordLimit) ? plot.wordLimit : DEFAULT_STORY_WORD_LIMIT;
-    return Math.min(8192, Math.max(5200, Math.round(w * 3.2)));
+    let mul = 3.25;
+    let cfg = null;
+    if (typeof activeApiId === "string" && apiConfigs && apiConfigs.length) {
+      cfg =
+        apiConfigs.find(function (a) {
+          return a.id === activeApiId;
+        }) || null;
+    }
+    if (cfg && String(cfg.model || "").toLowerCase().indexOf("gemini") !== -1) {
+      mul = 3.55;
+    }
+    return Math.min(8192, Math.max(5200, Math.round(w * mul)));
   }
 
   /** 开场概要、剧情续写、剧情标题等默认通过当前「设置 → API」中选中的配置发起请求（activeApiId），也可按需指定配置。 */
@@ -5792,14 +5890,15 @@
   var STORY_BRIEF_IDENTITY_EACH_HINT_CHARS = 100;
 
   /**
-   * 剧情生成时如何采信人设（与题材方向冲突时的优先级），用于开场概要与回合续写。
-   * 优先外貌气质与性格；明确题材时职业/经历让位于题材；无题材时更可采信档案背景。
+   * 剧情生成采信层级，用于开场概要与回合续写：外貌/性格/气质 > 世界书禁令与硬规则 >
+   * 题材与玩家行动及记忆/总结；档案背景作补充参考。
    */
   var STORY_PERSONA_PRIORITY_GUIDE =
-    "【人设参照原则】从人设采信信息时，优先外貌与整体气质、性格与处事方式（使人「像 TA」），不要机械照搬档案里的职业、学籍或过往经历来锁死故事。" +
-    "若「题材方向」已明确写出本故事的世界或身份设定（如娱乐圈、某种职场等），与人设中的背景、职业或经历相冲突时，必须以题材方向为准：可在故事中调整各角色的社会身份与经历，但须保持性格内核与外在气质一致。" +
-    "仅当题材方向未填写、或等价于「无特定题材」、叙事方向不清晰时，才可更多采信人设里的背景、职业与过往经历来搭建情节。" +
-    "若与世界书条目中的硬设定或禁令冲突，以世界书为准。";
+    "【采信层级】数字小者优先；同层内多项并存时一并兼顾，跨层冲突时以前层为准。\n" +
+    "① 人设·外貌、整体气质、性格与处事方式：最高优先，须使人始终「像该角色」。\n" +
+    "② 世界书·禁令及条目明示的硬性规则、不可违反的叙事边界：次优先；若与①冲突，以①为准。\n" +
+    "③ 题材方向、故事开端、玩家本轮及近期行动、阶段总结、关键词记忆：再次，用于接戏与连贯；若与①或②冲突，以前两层为准。\n" +
+    "④ 角色档案中的职业、学籍、过往经历等可调整背景：仅作情节参考，勿用语义锁死①中的外貌与性格气质。";
 
   /**
    * 剧情正文与开场概要共用：抑制修辞堆砌与冗长重复，保持直接、具体的行文（不改变字数与格式硬约束）。
@@ -5812,7 +5911,20 @@
     "比喻等修辞仅允许在极个别确有必要时偶尔使用，切勿泛滥；须优先选择直接、清晰、具体的语言推进剧情与对话。" +
     "保持叙述流畅自然，避免语言过于华丽或浮夸。" +
     "避免同义反复与同一信息的重复交代；动作、心理与场景描写点到即止，勿用连环动作或与当前人际张力无关的空镜凑篇幅。" +
-    "【中文标点】若用冒号「：」引出下文的弯引号对白或尚未写完的成分，冒号后不得紧跟句号（禁止「：。」）；该收束时用句号，该引出时冒号后直接接对白或续写，勿用句号提前截断。";
+    "【中文标点】若用冒号「：」引出下文的弯引号对白或尚未写完的成分，冒号后不得紧跟句号（禁止「：。」）；该收束时用句号，该引出时冒号后直接接对白或续写，勿用句号提前截断。" +
+    "【生活化·反脸谱】语感贴近日常相处与真实对话，少用舞台化、霸总言情小说腔与严肃抽象大词唬人。" +
+    "禁止为用「有张力」而滥写：压迫感、气场碾压、居高临下、不容置疑、冷冽入骨、骨子里的、与生俱来的威压；少用套路身体词当情绪（如眼眸深不见底、眯起危险的眸光、修长的手指漫不经心敲击、喉结滚动、咬牙切齿、邪魅一笑等），除非与具体职业或情节强相关且非装饰句。" +
+    "情绪须克制内敛：通过小动作、具体物件、环境里的细微声音、一两句口语化对白侧面呈现；避免直接写激烈心理判词或网红总结句（如心潮澎湃、瞬间破防、该死的甜美、铺天盖地等）。" +
+    "禁止读者腔感叹、跳出来评价或说教收尾；避免套路起收（如「在这一刻……」「那是一种……的感觉」「仿佛……」连用）。";
+
+  /**
+   * 剧情回合续写专用：短版文风说明（省 token，降低与 Gemini 等模型「协议条」争抢注意力）。
+   * 长篇细则仍以 STORY_PROSE_STYLE_GUIDE 用于开场概要等。
+   */
+  var STORY_PLAY_PROSE_BRIEF =
+    "文风口语、生活化，少堆砌修辞；用动作、环境声和短对白推进情绪，少用抽象大词。" +
+    "避免霸总模版词与小作文式心理判词；" +
+    "冒号引出对白后不要写成「：。」。";
 
   function storyBriefCharCount(s) {
     return Array.from(String(s || "")).length;
@@ -6858,6 +6970,29 @@
       if (line) lines.push("参与角色：" + line);
     });
     return lines.join("\n");
+  }
+
+  /** 角色库仅重复 style 摘要且已出现在「我的形象/其他角色」合并文本中时，省略以省 token */
+  function isPlayRoleLibraryRedundantWithIdentities(roleLibraryBlock, identitySelfBlock, identityOthersBlock) {
+    const lib = String(roleLibraryBlock || "").trim();
+    if (!lib) return false;
+    const merged = String(identitySelfBlock || "").trim() + "\n" + String(identityOthersBlock || "").trim();
+    const combined = merged.replace(/\s+/g, "");
+    if (!combined) return false;
+    const lines = lib.split("\n");
+    let anyPersona = false;
+    const marker = "｜外貌及性格：";
+    for (let i = 0; i < lines.length; i++) {
+      const idx = lines[i].indexOf(marker);
+      if (idx < 0) continue;
+      const persona = String(lines[i].slice(idx + marker.length) || "")
+        .trim()
+        .replace(/\s+/g, "");
+      if (!persona) continue;
+      anyPersona = true;
+      if (combined.indexOf(persona) < 0) return false;
+    }
+    return anyPersona;
   }
 
   function buildPlotSummariesPromptBlock(plot) {
@@ -10949,7 +11084,7 @@
       "- 概要标签行：恰好三个短语，勿加序号\n" +
       "- 【文风与修辞（六个小节全文贯彻）】" +
       STORY_PROSE_STYLE_GUIDE +
-      "\n\n【最高优先级】若用户消息开头提供了「世界书」条目：你必须在全篇六个小节中贯彻其文风、世界观与禁令，并与下方人物信息一致，不得忽略或自相矛盾。" +
+      "\n\n若用户消息开头提供了「世界书」条目：须在六个小节中贯彻其中的禁令、硬性规则及文风世界观，并与下方人物信息对齐；若有冲突，按下方【采信层级】裁决。" +
       "\n\n" +
       STORY_PERSONA_PRIORITY_GUIDE;
 
@@ -10991,24 +11126,11 @@
       (wbBlockOpen ? wbBlockOpen + "\n" : "") +
       "题材方向：" +
       (plot.theme || "无特定题材") +
-      "\n叙事视角：" +
-      povLine +
-      "\n人称硬约束：" + povConstraintOpen +
       "\n\n【角色名单（仅供你把握人物；写入「我的形象 / 其他角色」小节时不要写「主角」「参与角色」等词，每段用「姓名，」起笔）】\n" +
       "主视角：" + rosterMain +
       "\n主要角色：" + rosterOthersMain +
       "\n配角与NPC（按需调用，可不展开）：" + rosterOthersExtra +
-      "\n\n请严格按以下顺序输出（每行一个小节标题；剧情标题务必放在最后一行）：\n" +
-      "时代与场景：……（可写充分，允许空行分段）\n" +
-      "我的形象：……（仅主视角角色一段，「姓名，」开头；**整段 ≤ " +
-      STORY_BRIEF_IDENTITY_EACH_HINT_CHARS +
-      " 字符**，须为完整一句并以「。」结尾）\n" +
-      "其他角色：……（先覆盖「主要角色」名单中每位角色，各自独段，「姓名，」开头；**每人整段 ≤ " +
-      STORY_BRIEF_IDENTITY_EACH_HINT_CHARS +
-      " 字符**，须为完整一句并以「。」结尾；配角与NPC仅在必要时简写，可不逐一覆盖）\n" +
-      "故事开端：……（可写充分，允许空行分段）\n" +
-      "概要标签：标签一、标签二、标签三\n" +
-      "剧情标题：……（单行小说书名，与上文互照）";
+      "\n\n输出：严格按 system 规定的六个小节标题依次成文（时代与场景→我的形象→其他角色→故事开端→概要标签→剧情标题）；最后一行仅限「剧情标题：…」，小节内的字数与格式要求以 system 为准。";
 
     const messages = [
       { role: "system", content: systemPrompt },
@@ -11234,11 +11356,164 @@
     return cleanStoryLine(out);
   }
 
-  function parseTurnByCharacterBlocks(raw, protagonist, supporting) {
-    const src = String(raw || "")
-      .replace(/^```[\w+-]*\s*\n?/i, "")
-      .replace(/\n?```\s*$/i, "")
+  /** 规整模型常见问题：围栏、前缀寒暄、Markdown 星号包住【】标题等（利于 Gemini / 多端点）。 */
+  function preprocessStoryPlayModelRaw(raw) {
+    let s = String(raw || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
       .trim();
+    s = s.replace(/^```[\w+-]*\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+    s = s.replace(/^\s*(?:好的[，,]|我明白了[！!。]?|当然可以[：:]?|没问题[：:]?|以下为|以下是|接下来是|续写如下|根据要求(?:如下)?)[：:]?\s*\n*/gi, "");
+    s = s.replace(/^\s*\*{0,2}【/gm, "【");
+    s = s.replace(/【\s*([^】]{1,48})\s*】/g, function (_whole, inner) {
+      return "【" + String(inner || "").replace(/\*+/g, "").trim() + "】";
+    });
+    return s.trim();
+  }
+
+  /** 截取用于选项识别的正文（去掉末尾选项区常见标题行，避免误判）。 */
+  function sliceStoryRawBeforeChoicesHeader(src) {
+    const s = String(src || "");
+    const m = s.match(/\n\s*#{0,6}\s*(?:※\s*)?(?:【\s*)?(?:选项|选择支|玩家选项)/i);
+    if (m && typeof m.index === "number") return s.slice(0, m.index).trim();
+    const m2 = s.match(/\n\s*【\s*(?:选项|选择支)\s*】/i);
+    if (m2 && typeof m2.index === "number") return s.slice(0, m2.index).trim();
+    const m3 = s.match(/\n-{3,}\s*\n/);
+    if (m3 && typeof m3.index === "number") return s.slice(0, m3.index).trim();
+    return s.trim();
+  }
+
+  function finalizeStoryBlocks(blocks, resolveCharacterId) {
+    const out = [];
+    (blocks || []).forEach(function (blk) {
+      const text = String((blk.chunks || []).join("\n") || "").trim();
+      if (!text) return;
+      const paras = text
+        .split(/\n\s*\n+/)
+        .map(function (seg) {
+          return ensureEndingPunctuation(cleanStoryLine(seg));
+        })
+        .filter(Boolean);
+      if (!paras.length) return;
+      out.push({
+        characterId: resolveCharacterId(blk.titleHint),
+        text: fixColonPeriodBeforeCurlyQuote(paras.join("\n\n")),
+      });
+    });
+    return out;
+  }
+
+  function parseTurnByCharacterBlocksStrict(lines, resolveCharacterId) {
+    const blocks = [];
+    let current = null;
+    lines.forEach(function (ln) {
+      const line = String(ln || "");
+      const trim = line.trim();
+      let m = trim.match(/^【\s*([^】]{1,40})\s*】$/);
+      let tail = "";
+      if (!m) {
+        const m2 = trim.match(/^【\s*([^】]{1,40})\s*】\s*(.*)$/);
+        if (m2) {
+          m = m2;
+          tail = String(m2[2] || "").trim();
+        }
+      }
+      if (m) {
+        const title = String(m[1] || "").trim();
+        if (/^(?:选项|选择支)$/i.test(title)) {
+          current = null;
+          return;
+        }
+        current = { titleHint: title, chunks: [] };
+        blocks.push(current);
+        if (tail) current.chunks.push(tail);
+        return;
+      }
+      if (!current) return;
+      current.chunks.push(line);
+    });
+    return finalizeStoryBlocks(blocks, resolveCharacterId);
+  }
+
+  /** 适配「张明：台词」单行起块（名册中的全名）。 */
+  function parseTurnByCharacterBlocksNameColon(lines, cast, protagonist, resolveCharacterId) {
+    const nameList = (cast || [])
+      .filter(function (c) {
+        return c && String(c.name || "").trim();
+      })
+      .map(function (c) {
+        return String(c.name).trim();
+      });
+    nameList.sort(function (a, b) {
+      return (b.length || 0) - (a.length || 0);
+    });
+    function tryMatchNameColon(trim) {
+      if (/^(?:旁白|narrator)\s*[：:]/i.test(trim)) {
+        return {
+          nm: "\u65c1\u767d",
+          rest: trim.replace(/^(?:旁白|narrator)\s*[：:]/i, "").trim(),
+        };
+      }
+      for (let i = 0; i < nameList.length; i++) {
+        const nm = nameList[i];
+        if (!nm) continue;
+        if (!(trim.startsWith(nm + "\uff1a") || trim.startsWith(nm + ":"))) continue;
+        const rest = trim.slice(nm.length).replace(/^[：:]\s*/, "").trim();
+        if (!rest) continue;
+        return { nm: nm, rest: rest };
+      }
+      return null;
+    }
+    const blocks = [];
+    let current = null;
+    const pendingPrelude = [];
+    function flushPreludeIfAny() {
+      const t = pendingPrelude.join("\n").trim();
+      pendingPrelude.length = 0;
+      if (!t || /【\s*(?:选项|选择支)/.test(t)) return;
+      blocks.push({ titleHint: "\u65c1\u767d", chunks: [t] });
+    }
+    lines.forEach(function (ln) {
+      const trim = cleanStoryLine(String(ln || ""));
+      if (/^【/.test(trim)) {
+        pendingPrelude.push(String(ln || ""));
+        return;
+      }
+      const mc = tryMatchNameColon(trim);
+      if (mc && mc.rest) {
+        flushPreludeIfAny();
+        current = { titleHint: mc.nm === "\u65c1\u767d" ? "\u65c1\u767d" : mc.nm, chunks: [] };
+        blocks.push(current);
+        current.chunks.push(mc.rest);
+        return;
+      }
+      if (!trim) return;
+      if (current) {
+        current.chunks.push(String(ln || ""));
+        return;
+      }
+      pendingPrelude.push(String(ln || ""));
+    });
+    flushPreludeIfAny();
+    return finalizeStoryBlocks(blocks, resolveCharacterId);
+  }
+
+  function parseTurnByFallbackNarrator(src) {
+    let body = sliceStoryRawBeforeChoicesHeader(src);
+    body = body.replace(/\n\s*【\s*(?:选项|选择支)\s*】[\s\S]*$/i, "").trim();
+    if (body.length < 24) return [];
+    return [
+      {
+        characterId: "narrator",
+        text: fixColonPeriodBeforeCurlyQuote(
+          ensureEndingPunctuation(cleanStoryLine(body)).replace(/\n{3,}/g, "\n\n")
+        ),
+      },
+    ];
+  }
+
+  function parseTurnByCharacterBlocks(raw, protagonist, supporting) {
+    const src = preprocessStoryPlayModelRaw(raw);
     if (!src) return [];
     const cast = []
       .concat(protagonist ? [protagonist] : [])
@@ -11256,42 +11531,12 @@
       }
       return "narrator";
     }
-    const lines = src.split(/\r?\n/);
-    const blocks = [];
-    let current = null;
-    lines.forEach(function (ln) {
-      const line = String(ln || "");
-      const m = line.trim().match(/^【\s*([^】]{1,40})\s*】$/);
-      if (m) {
-        const title = String(m[1] || "").trim();
-        if (/^(?:选项|选择支)$/i.test(title)) {
-          current = null;
-          return;
-        }
-        current = { characterId: resolveCharacterId(title), chunks: [] };
-        blocks.push(current);
-        return;
-      }
-      if (!current) return;
-      current.chunks.push(line);
-    });
-    const out = [];
-    blocks.forEach(function (blk) {
-      const text = String((blk.chunks || []).join("\n") || "").trim();
-      if (!text) return;
-      const paras = text
-        .split(/\n\s*\n+/)
-        .map(function (seg) {
-          return ensureEndingPunctuation(cleanStoryLine(seg));
-        })
-        .filter(Boolean);
-      if (!paras.length) return;
-      out.push({
-        characterId: blk.characterId || "narrator",
-        text: fixColonPeriodBeforeCurlyQuote(paras.join("\n\n")),
-      });
-    });
-    return out;
+    const lines = src.split(/\n/);
+    let out = parseTurnByCharacterBlocksStrict(lines, resolveCharacterId);
+    if (out.length) return out;
+    out = parseTurnByCharacterBlocksNameColon(lines, cast, protagonist, resolveCharacterId);
+    if (out.length) return out;
+    return parseTurnByFallbackNarrator(src);
   }
 
   /** 模型未写「行动：」时，常见为 1. / 一、 / - 开头的多行选项 */
@@ -11549,16 +11794,73 @@
     return out;
   }
 
+  function extractTrailingNumberedOrBulletList(src) {
+    const lines = String(src || "").replace(/\r/g, "").split("\n");
+    const picked = [];
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const L = cleanStoryLine(lines[i]);
+      if (!L) {
+        if (picked.length) break;
+        continue;
+      }
+      if (/^[-*_]{3,}$/.test(L)) {
+        if (picked.length) break;
+        continue;
+      }
+      const looksNum =
+        /^(?:\(?\d{1,2}\)?[\.．、:：)\]]|[一二三四五六七八九十][\.．、:：])\s+.+/u.test(L) ||
+        /^[①②③④⑤⑥⑦⑧⑨⑩]\s*.+/u.test(L);
+      const looksBullet =
+        /^[-•·]\s+.+/u.test(L) ||
+        (/^\*\s+.+/u.test(L) &&
+          !/^(\*\*|__)\s*[^*]+(?:\*\*|__)\s*(?:\*|_|$)?/u.test(L));
+      if (!looksNum && !looksBullet) {
+        if (picked.length) break;
+        continue;
+      }
+      picked.unshift(lines[i]);
+      if (picked.length > 18) break;
+    }
+    return picked.length >= 2 ? picked.join("\n").trim() : "";
+  }
+
+  function pushUniqueStoryChoiceSection(list, s) {
+    const t = String(s || "").trim();
+    if (!t) return;
+    if (list.indexOf(t) >= 0) return;
+    list.push(t);
+  }
+
+  /** 多种常见「选项」区标题样式（Gemini / Markdown / 分割线）。依次尝试直至解析出 ≥2 条。 */
+  function collectStoryChoiceSectionCandidates(src) {
+    const out = [];
+    const s = String(src || "");
+    const patterns = [
+      /(?:^|\n)\s*【\s*(?:选项|选择支)\s*】\s*(?:\n|$)/i,
+      /\n#{1,6}\s*\*{0,3}\s*(?:※\s*)?(?:选项|玩家选项|PLAYER\s*CHOICES?|玩家抉择|分支选项)\*{0,3}\s*[：:]?\s*\n/i,
+      /\n\*{1,3}\s*(?:选项|玩家选项)\s*\*{0,3}\s*[：:]?\s*\n/i,
+      /\n(?:-{3,}|\*{3,}|_{3,})\s*\n/,
+      /\n(?:可选行动|玩家(?:可选)?行动|你选择|玩家请选择)\s*[：:]?\s*\n/i,
+    ];
+    for (let p = 0; p < patterns.length; p++) {
+      const m = s.match(patterns[p]);
+      if (m && typeof m.index === "number") {
+        pushUniqueStoryChoiceSection(out, s.slice(m.index + m[0].length));
+      }
+    }
+    pushUniqueStoryChoiceSection(out, extractTrailingNumberedOrBulletList(s));
+    return out;
+  }
+
   function parseChoicesBlock(raw) {
-    const src = String(raw || "")
-      .replace(/^```[\w+-]*\s*\n?/i, "")
-      .replace(/\n?```\s*$/i, "")
-      .trim();
+    const src = preprocessStoryPlayModelRaw(String(raw || ""));
     if (!src) return [];
-    const marker = src.match(/(?:^|\n)\s*【\s*(?:选项|选择支)\s*】\s*(?:\n|$)/i);
-    if (!marker || typeof marker.index !== "number") return [];
-    const section = src.slice(marker.index + marker[0].length).trim();
-    return sanitizeStoryChoices(parseStoryChoices(section, src));
+    const candidates = collectStoryChoiceSectionCandidates(src);
+    for (let ci = 0; ci < candidates.length; ci++) {
+      const parsed = sanitizeStoryChoices(parseStoryChoices(candidates[ci], src));
+      if (parsed.length >= 2) return parsed;
+    }
+    return sanitizeStoryChoices(parseStoryChoices("", src));
   }
 
   function isPlotStoryParticipant(plot, characterId) {
@@ -11585,25 +11887,43 @@
       .replace(/'/g, "&#39;");
   }
 
-  /**
-   * 内部硬性规整：删掉「仅存句末点号、无其它正文」的整行（中英文句号）。
-   * 常见于模型在引号对白或段末多甩一个句号并单换行，pre-wrap 下会看起来像单独成行只有「。」）。
-   */
-  function stripStandalonePeriodOnlyLines(text) {
+  /** 一整行里没有汉字、字母或数字且全是标点（或空白）则为「标点孤立行」（需并进邻行或在段级合并）。 */
+  function storyLineLooksLikeOnlyPunctuationMarks(trimmedLine) {
+    const t = String(trimmedLine || "").trim();
+    if (!t) return false;
+    if (/[0-9A-Za-z\u4e00-\u9fff]/.test(t)) return false;
+    return /^[\s\p{P}]+$/u.test(t);
+  }
+
+  /** 把「独占一行的零散标点」贴回上一行行末（避免单列一个「。」）；无上一行则丢弃该行。 */
+  function mergeStandaloneMarkLinesIntoAdjacent(text) {
     const raw = String(text || "").replace(/\r\n/g, "\n");
-    if (!raw.includes("\n") && raw.trim()) {
+    if (!raw.includes("\n")) {
       const lone = raw.trim();
-      if (/^[.\u3002\uFF0E]+$/u.test(lone)) return "";
+      if (!lone.length) return raw;
+      if (storyLineLooksLikeOnlyPunctuationMarks(lone)) return "";
       return raw;
     }
-    return raw
-      .split("\n")
-      .filter(function (ln) {
-        const t = String(ln || "").trim();
-        if (!t) return true;
-        return !/^[.\u3002\uFF0E]+$/u.test(t);
-      })
-      .join("\n");
+    const lines = raw.split("\n");
+    const out = [];
+    for (let li = 0; li < lines.length; li++) {
+      const line = lines[li];
+      const trimmed = String(line || "").trim();
+      if (storyLineLooksLikeOnlyPunctuationMarks(trimmed)) {
+        if (!out.length) continue;
+        const prev = String(out[out.length - 1] || "");
+        if (/^[。．]+$/.test(trimmed) && lineEndsWithDialogueClosing(prev)) continue;
+        out[out.length - 1] = prev.replace(/\s+$/u, "") + trimmed;
+        continue;
+      }
+      out.push(line);
+    }
+    return out.join("\n");
+  }
+
+  /** stripStandalonePeriodOnlyLines 现改为合并零散标点行，名称保留以兼容旧调用。 */
+  function stripStandalonePeriodOnlyLines(text) {
+    return mergeStandaloneMarkLinesIntoAdjacent(text);
   }
 
   /** 引号内已以「。」结尾时，去掉紧挨在闭引号后的重复句号（模型常见输出；避免单独 rendered 成多一行「。」） */
@@ -11642,14 +11962,17 @@
     return out.join("\n");
   }
 
+  /** 整块「段落」里没有正文只有标点时并入上一段；或由多个孤立标点构成的极短伪段也并入。 */
   function mergeOrphanPunctuationOnlyParagraphs(paras) {
     const out = [];
     for (let i = 0; i < paras.length; i++) {
       const p = String(paras[i] || "").trim();
       if (!p) continue;
-      if (/^[。．，,！？!?；：…、]+$/u.test(p) && out.length) {
+      const onlyMarks =
+        !/[0-9A-Za-z\u4e00-\u9fff]/u.test(p) && /^[\s\p{P}]{1,12}$/u.test(p.trim());
+      if ((/^[。．，,！？!?；：…、]+$/.test(p) || onlyMarks) && out.length) {
         const prev = String(out[out.length - 1] || "");
-        if (/^[。．]+$/u.test(p) && lineEndsWithDialogueClosing(prev)) {
+        if (/^[。．]+$/.test(p) && lineEndsWithDialogueClosing(prev)) {
           continue;
         }
         out[out.length - 1] = out[out.length - 1] + p;
@@ -11658,6 +11981,90 @@
       out.push(p);
     }
     return out;
+  }
+
+  /**
+   * 从字符串末尾向前吞掉「句末类标点」连续串，若长度≥2 则压成单一收束标点。
+   */
+  function squashTrailingRepeatedSentenceEndingMarksLoop(innerNoCloseQuote) {
+    let result = String(innerNoCloseQuote || "");
+    let guard = 0;
+    while (guard++ < 32) {
+      let i = result.length - 1;
+      while (i >= 0 && /\s/.test(result.charAt(i))) i--;
+      let j = i;
+      while (j >= 0 && /[。.．!?！?\u3001,，…⋯、；;：:]/.test(result.charAt(j))) j--;
+      const runPlain = result
+        .slice(j + 1, i + 1)
+        .replace(/\s+/g, "");
+      const arr = Array.from(runPlain);
+      if (arr.length <= 1) break;
+      let keep = arr[arr.length - 1];
+      if (
+        arr.every(function (c) {
+          return c === arr[0];
+        })
+      ) {
+        keep = arr[0];
+      } else {
+        keep =
+          arr.find(function (c) {
+            return /[!！]/.test(c);
+          }) ||
+          arr.find(function (c) {
+            return /[?？]/.test(c);
+          }) ||
+          arr.find(function (c) {
+            return /[。.．]/.test(c);
+          }) ||
+          arr.find(function (c) {
+            return /[…⋯]/.test(c);
+          }) ||
+          arr.find(function (c) {
+            return /[,，、]/.test(c);
+          }) ||
+          arr[arr.length - 1];
+      }
+      const headSlice = result.slice(0, j + 1);
+      const nextTry = collapseDuplicatePeriodAfterClosingQuote(headSlice + keep);
+      if (nextTry === result) break;
+      result = nextTry;
+    }
+    return result;
+  }
+
+  /**
+   * 去掉行尾连续的句末类标点，只留一个；末尾可跟闭引号「」” 等（先剥闭引再压缩，再贴回）。
+   */
+  function collapseTrailingDuplicateSentenceMarksOnLine(lineSegment) {
+    const origLine = String(lineSegment || "").replace(/\r/g, "");
+    const padMatch = origLine.match(/\s*$/);
+    const rightPad = padMatch ? padMatch[0] : "";
+    const span = origLine.length - rightPad.length;
+    let body = origLine.slice(0, span).replace(/\s+$/u, "");
+    if (!body.length) return origLine;
+
+    let closeTail = "";
+    const closerRe = /^[」』）)\]\u301d\u201d"']$/;
+    for (;;) {
+      const parts = Array.from(body);
+      const last = parts.length ? parts[parts.length - 1] : "";
+      if (!last || !closerRe.test(last)) break;
+      closeTail = last + closeTail;
+      body = parts.slice(0, -1).join("").replace(/\s+$/u, "");
+    }
+
+    let core = squashTrailingRepeatedSentenceEndingMarksLoop(body);
+    core = collapseDuplicatePeriodAfterClosingQuote(core);
+    return core + closeTail + rightPad;
+  }
+
+  function applySentenceMarkCollapseAcrossLinesInParagraph(blob) {
+    return String(blob || "")
+      .replace(/\r/g, "\n")
+      .split("\n")
+      .map(collapseTrailingDuplicateSentenceMarksOnLine)
+      .join("\n");
   }
 
   function isOpeningQuoteCharForParagraphStart(ch) {
@@ -11686,11 +12093,39 @@
   }
 
   /**
+   * 软换行（单 \\n）下的行首若以句读/符号起笔且非开引号，显示时剥掉；整行只剩标点的行直接丢弃。
+   * 解决 pre-wrap 下「。」单独占行或「。他」折行等错版；仅影响渲染管线，不改库存原文。
+   */
+  function sanitizeStorySoftNewlineLineStartsForDisplay(text) {
+    const raw = String(text || "").replace(/\r/g, "\n");
+    const lines = raw.split("\n");
+    const out = [];
+    for (let li = 0; li < lines.length; li++) {
+      const line = lines[li];
+      const trimmedOrig = String(line || "").trim();
+      if (!trimmedOrig) {
+        out.push(line);
+        continue;
+      }
+      const m = line.match(/^([\t \u3000]*)([\s\S]*)$/);
+      const indent = m ? m[1] : "";
+      let body = m ? m[2] : line;
+      body = stripLeadingPunctuationExceptOpeningQuotes(body);
+      const merged = indent + body;
+      if (!merged.trim()) continue;
+      out.push(merged);
+    }
+    return out.join("\n");
+  }
+
+  /**
    * 段落首不得以逗号、句号等句读起笔（允许的段首标点仅为引号：「“‘ 与半角 "'）；
    * 合并「单独成行仅含句读」的段落，避免模型把句号甩成新行。
    */
   function normalizeStoryParagraphLeadingPunctuation(text) {
     let raw = String(text || "").replace(/\r\n/g, "\n").trim();
+    if (!raw) return "";
+    raw = sanitizeStorySoftNewlineLineStartsForDisplay(raw).trim();
     if (!raw) return "";
     raw = stripStandalonePeriodOnlyLines(raw).trim();
     if (!raw) return "";
@@ -11703,6 +12138,7 @@
       .filter(Boolean);
     return mergeOrphanPunctuationOnlyParagraphs(paras)
       .map(stripLeadingPunctuationExceptOpeningQuotes)
+      .map(applySentenceMarkCollapseAcrossLinesInParagraph)
       .filter(Boolean)
       .join("\n\n");
   }
@@ -11802,6 +12238,32 @@
     return rendered.join("");
   }
 
+  function storyLineHasHighlightOrThought(plot, lineObj) {
+    if (!plot || !lineObj || lineObj.id == null || String(lineObj.id) === "") return false;
+    const lid = String(lineObj.id || "");
+    return (
+      (plot.storyHighlights || []).some(function (h) {
+        return h && String(h.lineId || "") === lid;
+      }) ||
+      (plot.storyThoughts || []).some(function (t) {
+        return t && String(t.lineId || "") === lid;
+      })
+    );
+  }
+
+  function storyTurnLineShowsParticipantBubble(plot, lineObj) {
+    const isNarratorLine = !lineObj.characterId || lineObj.characterId === "narrator";
+    return !isNarratorLine && isPlotStoryParticipant(plot, lineObj.characterId);
+  }
+
+  function storyTurnLineEditing(plot, turnIndex, lineIndex) {
+    return (
+      storyLineEditState &&
+      storyLineEditState.plotId === plot.id &&
+      storyLineEditState.turnIndex === turnIndex &&
+      storyLineEditState.lineIndex === lineIndex
+    );
+  }
 
   function renderStoryPlay(p) {
     const introEl = document.getElementById("story-play-intro");
@@ -11884,9 +12346,12 @@
           actionHint.textContent = "<" + turnActionText + ">";
           turnGroup.appendChild(actionHint);
         }
-        (turn.lines || []).forEach((line, lineIndex) => {
+        const turnLines = turn.lines || [];
+        let lineIndex = 0;
+        while (lineIndex < turnLines.length) {
+          const line = turnLines[lineIndex];
           const isNarratorLine = !line.characterId || line.characterId === "narrator";
-          const showBubble = !isNarratorLine && isPlotStoryParticipant(p, line.characterId);
+          const showBubble = storyTurnLineShowsParticipantBubble(p, line);
           const rawText = line.text || "";
           const isEditing =
             storyLineEditState &&
@@ -11895,7 +12360,10 @@
             storyLineEditState.lineIndex === lineIndex;
           if (!showBubble) {
             const narrText = stripNarratorDisplayText(rawText);
-            if (!isEditing && !narrText) return;
+            if (!isEditing && !narrText) {
+              lineIndex++;
+              continue;
+            }
             if (isEditing) {
               const wrap = document.createElement("div");
               wrap.className = "story-line-edit-inline-wrap";
@@ -11927,7 +12395,8 @@
               requestAnimationFrame(function () {
                 focusEditableToEnd(editable);
               });
-              return;
+              lineIndex++;
+              continue;
             }
             const narr = document.createElement("div");
             narr.className =
@@ -11942,7 +12411,8 @@
               });
             }
             turnGroup.appendChild(narr);
-            return;
+            lineIndex++;
+            continue;
           }
           const ch = getCharById(line.characterId);
           const displayChar = getPlotCharacterView(p, line.characterId);
@@ -11992,7 +12462,62 @@
             requestAnimationFrame(function () {
               focusEditableToEnd(editable);
             });
-            return;
+            lineIndex++;
+            continue;
+          }
+          if (
+            !storyTurnLineEditing(p, turnIndex, lineIndex) &&
+            !storyLineHasHighlightOrThought(p, line)
+          ) {
+            var mergeEndIdx = lineIndex;
+            while (mergeEndIdx + 1 < turnLines.length) {
+              var candLine = turnLines[mergeEndIdx + 1];
+              if (
+                !storyTurnLineShowsParticipantBubble(p, candLine) ||
+                candLine.characterId !== line.characterId
+              )
+                break;
+              if (storyTurnLineEditing(p, turnIndex, mergeEndIdx + 1)) break;
+              if (storyLineHasHighlightOrThought(p, candLine)) break;
+              mergeEndIdx++;
+            }
+            if (mergeEndIdx > lineIndex) {
+              var mergedParts = [];
+              for (var mx = lineIndex; mx <= mergeEndIdx; mx++)
+                mergedParts.push(String(turnLines[mx].text || "").trim());
+              var mergedParticipantText = mergedParts.filter(Boolean).join("\n\n");
+              if (String(mergedParticipantText || "").trim()) {
+              var mergeRow = document.createElement("div");
+              mergeRow.className =
+                "story-msg story-msg--" + (isMe ? "me" : "npc") +
+                (p.playSealed ? " story-msg--readonly" : " story-line-clickable");
+              mergeRow.setAttribute("data-story-line-id", String(line.id || ""));
+              var mergeTop = document.createElement("div");
+              mergeTop.className = "story-msg__top";
+              var mergeAv = document.createElement("div");
+              mergeAv.className = "avatar";
+              fillAvatarElement(mergeAv, displayChar);
+              var mergeName = document.createElement("div");
+              mergeName.className = "story-msg__name";
+              mergeName.textContent = displayChar ? displayChar.name : ch ? ch.name : "未知";
+              mergeTop.appendChild(mergeAv);
+              mergeTop.appendChild(mergeName);
+              var mergeTxt = document.createElement("div");
+              mergeTxt.className = "story-msg__text story-msg__text--rp";
+              mergeTxt.innerHTML = renderStoryInlineMarkup(mergedParticipantText);
+              applyStoryLineDecorations(mergeTxt, p, String(line.id || ""));
+              mergeRow.appendChild(mergeTop);
+              mergeRow.appendChild(mergeTxt);
+              if (!p.playSealed) {
+                bindStoryLineLongPress(mergeTxt, function () {
+                  openStoryLineActionSheet(p, turnIndex, lineIndex);
+                });
+              }
+              turnGroup.appendChild(mergeRow);
+              lineIndex = mergeEndIdx + 1;
+              continue;
+              }
+            }
           }
           const row = document.createElement("div");
           row.className =
@@ -12006,7 +12531,7 @@
           fillAvatarElement(av, displayChar);
           const name = document.createElement("div");
           name.className = "story-msg__name";
-          name.textContent = displayChar ? displayChar.name : (ch ? ch.name : "未知");
+          name.textContent = displayChar ? displayChar.name : ch ? ch.name : "未知";
           top.appendChild(av);
           top.appendChild(name);
           const txt = document.createElement("div");
@@ -12021,7 +12546,8 @@
             });
           }
           turnGroup.appendChild(row);
-        });
+          lineIndex++;
+        }
         if (turnGroup.children.length) {
           feed.appendChild(turnGroup);
         }
@@ -12194,6 +12720,36 @@
     updateStoryScrollNav();
   }
 
+  /** AI 新回合落地后：将本回合首条剧情滚至剧情滚动区顶部附近，便于立刻看到新生成内容 */
+  function scrollStoryPlayNewTurnToTop(plot, firstLineId) {
+    const scrollEl = document.getElementById("story-play-scroll");
+    const playPanel = document.getElementById("story-panel-play");
+    if (!scrollEl || !playPanel || playPanel.hidden) return;
+    if (!plot || String(lastStoryPlotId || "") !== String(plot.id || "")) return;
+    let target = null;
+    const lid = String(firstLineId || "").trim();
+    if (lid) {
+      try {
+        target = scrollEl.querySelector(
+          '[data-story-line-id="' + lid.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]'
+        );
+      } catch (_) {
+        target = null;
+      }
+    }
+    if (!target) {
+      const turns = plot.playTurns || [];
+      const ti = turns.length - 1;
+      if (ti >= 0) target = document.getElementById("story-play-turn-" + String(ti));
+    }
+    if (!target) return;
+    const pad = 8;
+    const rel =
+      target.getBoundingClientRect().top - scrollEl.getBoundingClientRect().top + scrollEl.scrollTop;
+    scrollEl.scrollTop = Math.max(0, rel - pad);
+    updateStoryScrollNav();
+  }
+
   /** 由回合气泡拼成可供模型参照的剧情节选（选项重生时用） */
   function buildSceneTextFromTurnLines(lines) {
     return (lines || [])
@@ -12299,15 +12855,35 @@
     }
   }
 
+  /** 续写失败时把本条「自由输入」原样写回剧情底部输入框（选项点击不产生草稿）。 */
+  function restoreStoryComposerInputAfterPlayFailureFromPendingSnap(snap) {
+    if (!snap || String(snap.type || "") !== "text") return;
+    const draft =
+      typeof snap.composerRestoreDraft === "string"
+        ? snap.composerRestoreDraft
+        : String(snap.line || "");
+    const el = document.getElementById("story-composer-input");
+    if (!el) return;
+    el.value = draft;
+    try {
+      el.focus();
+      const n = draft.length;
+      if (typeof el.setSelectionRange === "function") el.setSelectionRange(n, n);
+    } catch (_) {}
+  }
+
   async function requestNextStoryTurn(plot) {
     if (!plot || plot.playTurnInFlight || plot.playChoicesRegenerateInFlight) return;
     ensurePlotExtendedState(plot);
     if (plot.playSealed) return;
-    const pendingPlayerTurnAction = plot.pendingPlayerTurnAction
+    const ppt0 = plot.pendingPlayerTurnAction;
+    const pendingPlayerTurnAction = ppt0
       ? {
-          type: String(plot.pendingPlayerTurnAction.type || "text"),
-          line: cleanStoryLine(plot.pendingPlayerTurnAction.line || ""),
-          hint: cleanStoryLine(plot.pendingPlayerTurnAction.hint || ""),
+          type: String(ppt0.type || "text"),
+          line: cleanStoryLine(ppt0.line || ""),
+          hint: cleanStoryLine(ppt0.hint || ""),
+          composerRestoreDraft:
+            typeof ppt0.composerRestoreDraft === "string" ? ppt0.composerRestoreDraft : String(ppt0.line || ""),
         }
       : null;
     plot.playTurnInFlight = true;
@@ -12373,33 +12949,62 @@
       })
       .filter(Boolean)
       .join("，");
-    const systemPrompt =
-      "你是中文互动叙事模型。严格按以下协议输出，不要写解释：\n\n" +
-      "1) 正文使用角色块：每块标题单独一行，格式必须是【角色名】或【旁白】。\n" +
-      "2) 本轮正文总共输出 4~5 个角色块（可含【我】块）。\n" +
-      "3) 每个角色块正文 2~3 段，段落之间空一行，每段表达一个中心意思。\n" +
-      "4) 角色块标题应是该段内容主要发起人/占比最高者，只能使用提供的花名册角色名；旁白用【旁白】。\n" +
-      "5) 对白一律只用中文弯引号“”（U+201C/U+201D）成对包裹台词，例如：“……”。禁止使用直角引号「」或半角直引号 \"' 作为对白标记；引号内出现收尾标点即视作对白。不要输出 Markdown 标记、编号或额外章节标题。\n" +
-      "6) 正文最后一个角色块必须是非主角（其他角色或旁白），并引出玩家可选择的局面。\n" +
-      "7) 正文后必须输出【选项】块，块下每行恰好一个独立选项，至少 2 条；每条一行、<=20 字、无序号。【一行一项·硬约束】每行只能表达玩家的一次抉择：要么一句对白，要么一句动作/态度，禁止把多句对白、或「对白+对白」、或「对白+旁述动作」写在同一行里。若需要两句台词或先说话再做动作，必须拆成两行（每行一条）。禁止在同一行内出现两段成对弯引号对白（禁止 “……”“……” 粘在一行）；禁止用半角引号把多段台词串成一行。若违反本条，视为协议错误。\n" +
-      "7b)【选项】只写主视角的可执行动作或对白，不要写主视角姓名；人称随第 9）条——第一人称用「我」，第二人称用「你」，第三人称不用主姓名、用「他/她」或省略主语的短句。勿以配角作主语起句。【选项】里若出现台词，也必须用第 5）条规定的弯引号“”，不要用「」。\n" +
-      "8) 若给了“玩家本次行动”，请先扩写为主角对应块的 1~3 段，不要原样复述；第一人称可用【我】块，第二/第三人称请用主角姓名块。\n" +
-      "9) " + povConstraintPlay + "\n" +
-      "10) 主导角色（开局与全程优先分配篇幅）：" + (dominantRoster || "无") + "。\n" +
-      "11) 配角与NPC：" + (extraRoster || "无") + "。仅在玩家行动明确点名相关姓名，或当前剧情推进确有必要时才出场；即便出场，也应明显少于主导角色篇幅，避免喧宾夺主。\n" +
-      "12) 【互动优先·少铺景】禁止大段纯环境、空镜与景物散文式铺陈。「时代与场景」已在设定中给出时，正文里环境只用极少量「功能性」细节（道具、距离、声息、触感、气温等），且必须嵌在人物动作、对峙或对白里带出，不写与当下人际张力无关的静景。\n" +
-      "13) 【人物与节奏】优先工笔：微表情、肢体语言、人际距离、声线冷暖、方寸之间的拉扯或逼近；以具体动作与对白呈现场景，少用抽象标签句直接概括情绪（少用「他很…」「她感到…」式断定）。对白与动作/反应描写宜各占相当比重，句子求准求劲。\n" +
-      "14) 【每轮须推进】本轮结束时应让人际关系或当前矛盾明显往前挪一步（新信息、新压力、新表态、新僵局或新局面皆可），避免在同一情绪里原地盘旋；为达到目标篇幅应多写互动与情节推进，勿用冗长环境描写灌水凑字。\n" +
-      "15) 目标篇幅约 " + wlim2 + " 字。\n" +
-      "16) 优先级：优先遵从题材方向、当前剧情设定（时代/身份/故事开端）、世界书约束、玩家本次行动与阶段总结；角色库信息仅用于保持人物像本人，不可覆盖前述硬约束。\n" +
-      "17) 【文风·修辞与信息密度】" +
-      STORY_PROSE_STYLE_GUIDE +
+    let playApiCfg = null;
+    if (typeof activeApiId === "string" && apiConfigs && apiConfigs.length) {
+      playApiCfg =
+        apiConfigs.find(function (a) {
+          return a.id === activeApiId;
+        }) || null;
+    }
+    const playModelLc = String(playApiCfg && playApiCfg.model ? playApiCfg.model : "").toLowerCase();
+    const isGeminiPlay = playModelLc.indexOf("gemini") !== -1;
+    const storyPlayChoicePovHint =
+      povLine2 === "第二人称"
+        ? "【选项】每条用「你」或省略主语的短指令；不要写主角全名。"
+        : povLine2 === "第一人称"
+          ? "【选项】每条用「我」或省略主语的短指令；不要写主角全名。"
+          : "【选项】勿以主角全名起句；用「他/她」或动词开头的短句。";
+
+    const storyPlayTurnBlockBudgetLine =
+      "· 【块数·随本轮目标字数】" +
+      (wlim2 >= 14000
+        ? "本轮在多角色交替推进的前提下，合计大约 14～24 枚「说话块」甚至更多；**块多主要指换人换视点，不是把同一人拆成许多碎块**。"
+        : wlim2 >= 9000
+          ? "本轮合计大约 11～18 枚说话块；优先靠多角色轮换来切块，避免同一角色连续多个【同名】标题。"
+          : wlim2 >= 5500
+            ? "本轮合计大约 9～15 枚说话块；同一角色同一场戏尽量只用一条【名】块写完。"
+            : "本轮大约 6～12 枚说话块即可；同一角色莫为「短块」而机械拆条。") +
       "\n" +
-      "18) 【分段与篇幅】仍须满足上文角色块数量、每块 2～3 段及目标字数；在此前提下每段宜短而集中、一段一中心，避免单段过长与同段内同义反复。若本轮需较多情节推进，宁可多分段或多用一个角色块展开，也不要把大量内容挤成少数超长、冗杂段落。\n" +
-      "19) 【段落起笔·硬规则】每个角色块内每一段的首字符不得为逗号、顿号、句号、问号、叹号、分号、冒号、省略号等句读标点；同一段内因换行产生的「下一行首」同样不得出现上述句读及闭引号、闭括号等应留在上行行末的标点。若以对白起段，该段第一个字符必须是弯引号“（U+201C）。禁止段首出现孤立句读；禁止单独一行仅含「。」「，」等标点，此类标点必须紧接在上一段末尾。违反本条视为格式错误，须在定稿前自行改正。\n" +
-      "20) 【标点·冒号与句号】用「是：」「写道：」「发出去的是：」等引出下文的弯引号对白时，冒号后禁止写句号（禁止「：。」）；要么同段紧接“……”，要么冒号后换行再接对白；勿用句号把尚未交代完的成分提前结束。\n" +
-      "21) 【角色块衔接·禁复读】多个【角色名】/【旁白】块按时间先后一线串起：每一块只写该视角下新发生的对白、动作或反应。上一块已写明的台词、动作、神态或心理，下一块不得换说法再演一遍、不得概括复述「刚才谁说了什么」；默认读者刚读完上一块，后一块应从上一块落笔处直接续写下一拍，像镜头自然切到下一说话者或下一反应即可。\n\n" +
-      STORY_PERSONA_PRIORITY_GUIDE;
+      "· 【单块形态·忌模板化】每个【角色】块内应像小说一段：对白、动作、神态可混写，用中文引号标对白即可；**禁止**几乎每轮都写成「先单独抬一句对白、再单独接一大段描写」的固定套路。要有意变化：纯对白连播、纯动作无对白、对白嵌在叙事里、短氛围段等都要出现，勿雷同。\n" +
+      "· 【换人节奏】叙述上尽量轮番【角色甲】-【角色乙】-【旁白】交替；**同一角色若仍处同一场戏、同一口气，请写进同一个【名】块**，不要在相邻行重复【同名】切碎。只有换人、时间跳切或段落明显收束时再新开块。\n";
+
+    const systemPrompt =
+      "你是中文互动剧情续写助手。只输出剧情块与文末选项；不要开场寒暄；不要用代码围栏（三面反引号）包住全文。\n\n" +
+      "【输出形态·程序依此解析】\n" +
+      storyPlayTurnBlockBudgetLine +
+      "· 「说话块」按**说话者/视点**切换：换人或换【旁白】时用单独一行的【角色名】/【旁白】/【我】（仅第一人称主角）起头；姓名只能来自用户花名册；也可【名】后同一行接正文。**同一说话者同一场戏不要为每一句对白再起新的【名】行。**\n" +
+      "· 【标点】段落开头不要直接使用逗号、句号、冒号等句读——若该段第一句是对白，则用开引号（「““）打头即可。不要将单个标点单独占成一行；段末不要使用两个连续句号/问号/叹号等（如。。、？？），也不要写成「：。」。\n" +
+      "· 结尾留下玩家可介入的局面；最后一格尽量用配角或【旁白】收束。\n" +
+      "· 文末单独一行「【选项】」或「【选择支】」，或用 Markdown 「## 选项」等小标题接引；后跟至少两行可选行动。\n" +
+      "可加 1. / - 前缀；一行一条，勿把两段对白挤在同一行。\n\n" +
+      storyPlayChoicePovHint +
+      "\n\n" +
+      "【篇幅】约 " +
+      wlim2 +
+      " 汉字；多用对话与小动作推进，少用纯景物长描与重复上一轮信息。\n\n" +
+      "【戏份】" +
+      "侧重：" +
+      (dominantRoster || "无") +
+      "；配角/NPC：" +
+      (extraRoster || "无") +
+      "（少写；点名或必要时再出场）。\n\n" +
+      "【人称】" +
+      povConstraintPlay +
+      "\n\n【文风】" +
+      STORY_PLAY_PROSE_BRIEF +
+      "\n" +
+      STORY_PERSONA_PRIORITY_GUIDE +
+      "\n\n（若在 Gemini 等平台输出：仍可混用简短 Markdown，但须保留清晰的【】块分界与文末选项区。）";
     const identityBlocks = getEffectiveIdentityBlocks(plot);
     const eraBlock = identityBlocks.eraBlock || "未设定";
     const identitySelfBlock = identityBlocks.identitySelfBlock || "未设定";
@@ -12428,6 +13033,8 @@
       .filter(Boolean)
       .join("，");
     const wbBlockPlay = formatWorldBooksPromptBlock(wbs);
+    const includeRoleLibrary =
+      roleLibraryBlock && !isPlayRoleLibraryRedundantWithIdentities(roleLibraryBlock, identitySelfBlock, identityOthersBlock);
     const userPrompt =
       (wbBlockPlay ? wbBlockPlay + "\n" : "") +
       "题材方向：" +
@@ -12437,12 +13044,10 @@
       "\n\n我的形象：\n" + identitySelfBlock +
       "\n\n其他角色：\n" + identityOthersBlock +
       "\n\n故事开端：\n" + openingBlock +
-      "\n\n叙事视角：" + povLine2 +
-      "\n人称硬约束：" + povConstraintPlay +
       "\n\n花名册（仅可使用这些名字作为角色块标题）：" + (rosterNames || "无") +
-      (roleLibraryBlock ? "\n\n【角色库·外貌与性格（仅作扮演参考）】\n" + roleLibraryBlock : "") +
+      (includeRoleLibrary ? "\n\n【角色库·外貌与性格（仅作扮演参考）】\n" + roleLibraryBlock : "") +
       (pendingPlayerTurnAction && pendingPlayerTurnAction.line
-        ? "\n\n玩家本次行动（无论来自预设选项还是自由输入，都同等处理；请先扩写成【我】块，不要原样复述）：\n" +
+        ? "\n\n玩家本次行动（结合叙事视角写成主角口吻或动作片段，勿原句复制）：\n" +
           pendingPlayerTurnAction.line +
           (pendingPlayerTurnAction.hint ? "\n提示：" + pendingPlayerTurnAction.hint : "")
         : "") +
@@ -12450,36 +13055,84 @@
       (roleOverrideBlock ? "\n\n当前角色形象覆盖：\n" + roleOverrideBlock : "") +
       (summaryBlock ? "\n\n阶段总结（最新 " + PLAY_SUMMARY_REF_LIMIT + " 条，供连续性参考）：\n" + summaryBlock : "") +
       (memoryBlock ? "\n\n命中关键词的记忆（最多 " + PLOT_MEMORY_PROMPT_MAX + " 条）：\n" + memoryBlock : "") +
-      "\n\n最近剧情：\n" + (history || "故事刚开始。") +
-      "\n\n【选项】勿写主视角姓名；每行仅一条独立选择，禁止多句对白或多段内容挤在同一行。" +
-      "\n\n本轮正文目标约 " +
-        wlim2 +
-        " 字；篇幅优先落在人物互动、对话与矛盾推进上，避免冗长环境铺陈与修辞堆砌、信息重复；多角色块之间勿复读前一块已出现的内容，顺接写下一段即可。" +
-        "只按协议输出角色块与【选项】块；若人称不符合上述硬约束，视为输出无效并重写。";
+      "\n\n最近剧情：\n" + (history || "故事刚开始。");
 
+    if (
+      pendingPlayerTurnAction &&
+      String(pendingPlayerTurnAction.type || "text") === "text"
+    ) {
+      const compIn = document.getElementById("story-composer-input");
+      if (compIn) compIn.value = "";
+    }
+
+    let scrollToNewTurnFirstLineId = "";
     try {
       showToast("AI 正在续写剧情…", "info");
-      const raw = await callChatCompletion(
+      const playTemperature = isGeminiPlay ? 0.56 : 0.72;
+      const rawResp = await callChatCompletion(
         [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        0.72,
+        playTemperature,
         storyPlayMaxTokens(plot)
       );
-      const lines = parseTurnByCharacterBlocks(raw, protagonist, supporting);
-      const choices = parseChoicesBlock(raw);
+      let lines = parseTurnByCharacterBlocks(rawResp, protagonist, supporting);
+      let choices = parseChoicesBlock(rawResp);
 
       if (!plot.playTurns) plot.playTurns = [];
-      const linesWithIds = (lines || []).map(function (line) {
+      let linesWithIds = (lines || []).map(function (line) {
         return {
           id: line && line.id ? line.id : uid("ln"),
           characterId: line ? line.characterId : "",
           text: normalizeStoryParagraphLeadingPunctuation(String(line && line.text ? line.text : "")),
         };
       });
+      if (linesWithIds.length && (!Array.isArray(choices) || choices.length < 2)) {
+        const bodyOnly = preprocessStoryPlayModelRaw(String(rawResp || ""))
+          .replace(/\n#{1,6}\s*[^\n]*?(?:选项|选择支)[\s\S]*$/im, "")
+          .replace(/\n\s*【\s*(?:选项|选择支)\s*】[\s\S]*$/im, "")
+          .trim()
+          .slice(-2800);
+        if (bodyOnly.length > 96) {
+          try {
+            const rescueRaw = await callChatCompletion(
+              [
+                {
+                  role: "system",
+                  content:
+                    "根据剧情节写玩家可选的行动。每条一行、短即可，可加序号或前缀。不要复述剧情。"
+                    +
+                    povConstraintPlay +
+                    " " +
+                    storyPlayChoicePovHint +
+                    " 不要标题或小标题；不要解释；≥2 行。",
+                },
+                {
+                  role: "user",
+                  content:
+                    "叙事视角：" +
+                    povLine2 +
+                    "\n\n剧情节选（结尾附近）：\n" +
+                    bodyOnly +
+                    "\n\n输出选项（每行一条）：",
+                },
+              ],
+              isGeminiPlay ? 0.45 : 0.62,
+              640
+            );
+            const rescued = sanitizeStoryChoices(
+              parseStoryChoices(String(rescueRaw || "").trim(), String(rescueRaw || ""))
+            );
+            if (rescued.length >= 2) choices = rescued;
+          } catch (_) {
+            /* 保持原选项解析结果 */
+          }
+        }
+      }
+
       if (!linesWithIds.length) throw new Error("剧情生成失败，请点重生成或换模型重试。");
-      if (!Array.isArray(choices) || choices.length < 2) throw new Error("生成失败，请点重生成或换模型重试。");
+      if (!Array.isArray(choices) || choices.length < 2) throw new Error("生成失败（缺少有效选项），请点重生成或换模型重试。");
       const triggerSnap =
         pendingPlayerTurnAction && String(pendingPlayerTurnAction.line || "").trim()
           ? {
@@ -12494,18 +13147,25 @@
         triggerPlayerAction: triggerSnap,
       });
       plot.lastGeneratedAt = Date.now();
+      scrollToNewTurnFirstLineId =
+        linesWithIds[0] && linesWithIds[0].id ? String(linesWithIds[0].id) : "";
       showToast("剧情续写完成", "success");
       flushPersistNarrative();
-      void maybeAutoSummarizePlot(plot);
+      setTimeout(function () {
+        void maybeAutoSummarizePlot(plot);
+      }, 320);
     } catch (err) {
       console.error("剧情续写失败:", err);
       showToast("续写失败：" + (err && err.message ? err.message : "请重试或换用其他模型"), "error", 4000);
+      restoreStoryComposerInputAfterPlayFailureFromPendingSnap(pendingPlayerTurnAction);
     } finally {
       plot.pendingPlayerTurnAction = null;
       plot.playTurnInFlight = false;
       renderStoryPlay(plot);
       flushPersistNarrative();
+      const lineIdForScrollTop = scrollToNewTurnFirstLineId;
       requestAnimationFrame(function () {
+        if (lineIdForScrollTop) scrollStoryPlayNewTurnToTop(plot, lineIdForScrollTop);
         updateStoryScrollNav();
       });
     }
@@ -12517,8 +13177,18 @@
     if (plot.playSealed) return;
     let pending = null;
     if (payload.type === "text") {
-      const textInput = String(payload.text || "").trim();
-      if (textInput) pending = { type: "text", line: textInput, hint: "" };
+      const raw =
+        typeof payload.rawComposerText === "string"
+          ? payload.rawComposerText
+          : String(payload.text || "");
+      const textInput = raw.trim();
+      if (textInput)
+        pending = {
+          type: "text",
+          line: textInput,
+          hint: "",
+          composerRestoreDraft: raw,
+        };
     } else if (payload.type === "choice") {
       const turns = plot.playTurns || [];
       const last = turns.length ? turns[turns.length - 1] : null;
@@ -12531,8 +13201,6 @@
     plot.pendingPlayerTurnAction = pending;
     if (!plot.playTurns) plot.playTurns = [];
     void requestNextStoryTurn(plot);
-    const input = document.getElementById("story-composer-input");
-    if (input) input.value = "";
     scrollStoryPlayToLatest(false);
     flushPersistNarrative();
   }
@@ -12545,7 +13213,8 @@
       return;
     }
     const input = document.getElementById("story-composer-input");
-    const text = String((input && input.value) || "").trim();
+    const rawInput = String((input && input.value) || "");
+    const text = rawInput.trim();
     if (!text) {
       showToast("请先输入要执行的行动或台词", "info", 2200);
       return;
@@ -12575,7 +13244,7 @@
     }
     lastStoryPlotId = p.id;
     avatarActionPlotId = p.id;
-    submitPlayerTurn(p, { type: "text", text: text });
+    submitPlayerTurn(p, { type: "text", rawComposerText: rawInput });
   }
 
   function openStoryLayer(plot, modeOpt, opts) {
@@ -12992,7 +13661,8 @@
       '<div class="settings-panel__body">' +
       '<p class="font-status">' +
       fontLine +
-      "</p>" +
+      '</p>' +
+      '<div class="font-storage-diagnostics field__hint" id="font-storage-diagnostics" aria-live="polite"></div>' +
       '<label class="field font-file-label"><span class="field__label">上传字体文件</span>' +
       '<input class="field__input" type="file" id="font-file-input" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,application/font-woff" /></label>' +
       '<p class="field__hint">支持 TTF、OTF、WOFF / WOFF2；单文件最大约 ' +
@@ -13019,6 +13689,7 @@
     el.innerHTML = html;
     bindApiSettingsHandlers(el);
     enhanceCustomSelectsIn(el);
+    void refreshSettingsFontDiagnostics(el);
   }
 
   function renderApiCard(a, isActive) {
