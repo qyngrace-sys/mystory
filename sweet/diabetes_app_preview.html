@@ -195,6 +195,13 @@
         .record-cal-cell.selected .record-cal-mood {
             filter: drop-shadow(0 0 1px rgba(0,0,0,0.15));
         }
+        /* 长按删除：按住约 0.56s 触发；略微移动则取消（避免与滚动冲突） */
+        .longpress-del-wrap { touch-action: pan-y; -webkit-user-select: none; user-select: none; }
+        .longpress-del-wrap.longpress-del-holding {
+            opacity: 0.88;
+            transform: scale(0.985);
+            transition: opacity 0.15s ease, transform 0.15s ease;
+        }
         /* 记录弹窗 · 选项芯片可点、指针落在浮层之上 */
         #bottom-sheet { pointer-events: auto; touch-action: manipulation; }
         #sheet-content { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px)); }
@@ -210,8 +217,8 @@
     <!-- 顶部问候 -->
     <div class="flex justify-between items-start mb-5">
         <div>
-            <p class="text-text-light text-sm mb-1">5月5日 星期一</p>
-            <h1 class="text-2xl font-bold text-text-main">早上好，妈妈 ☀️</h1>
+            <p id="home-header-date" class="text-text-light text-sm mb-1"></p>
+            <h1 id="home-header-greeting" class="text-2xl font-bold text-text-main">早上好，妈妈 ☀️</h1>
             <p class="text-warm-orange text-sm mt-1">今天也要照顾好自己哦~</p>
         </div>
         <div class="flex flex-col items-end gap-2 flex-shrink-0">
@@ -236,10 +243,10 @@
                     <span class="text-base leading-none">💊</span>
                     <span class="font-bold text-xs leading-snug tracking-tight">早餐前</span>
                     <label class="sr-only">早餐服药时间</label>
-                    <input type="time" value="07:30" class="med-field" aria-label="早餐服药时间" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+                    <input type="time" value="" class="med-field" aria-label="早餐服药时间" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
                     <label class="sr-only">药品名称</label>
-                    <input type="text" value="二甲双胍" maxlength="14" class="med-field" placeholder="药名" aria-label="药品名称" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
-                    <span class="text-[11px] font-semibold text-text-main/85 leading-none">1片</span>
+                    <input type="text" value="" maxlength="14" class="med-field" placeholder="药名" aria-label="药品名称" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+                    <span class="text-[11px] font-semibold text-text-main/85 leading-none">剂量</span>
                 </div>
                 <button type="button" class="med-check-btn mt-auto w-full py-2.5 text-xs border-0" onclick="toggleMed(this)">点击打卡</button>
             </div>
@@ -248,10 +255,10 @@
                     <span class="text-base leading-none">💊</span>
                     <span class="font-bold text-xs leading-snug tracking-tight">午餐前</span>
                     <label class="sr-only">午餐服药时间</label>
-                    <input type="time" value="11:30" class="med-field" aria-label="午餐服药时间" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+                    <input type="time" value="" class="med-field" aria-label="午餐服药时间" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
                     <label class="sr-only">药品名称</label>
-                    <input type="text" value="二甲双胍" maxlength="14" class="med-field" placeholder="药名" aria-label="药品名称" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
-                    <span class="text-[11px] font-semibold text-text-main/85 leading-none">1片</span>
+                    <input type="text" value="" maxlength="14" class="med-field" placeholder="药名" aria-label="药品名称" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+                    <span class="text-[11px] font-semibold text-text-main/85 leading-none">剂量</span>
                 </div>
                 <button type="button" class="med-check-btn mt-auto w-full py-2.5 text-xs border-0" onclick="toggleMed(this)">点击打卡</button>
             </div>
@@ -260,10 +267,10 @@
                     <span class="text-base leading-none">💊</span>
                     <span class="font-bold text-xs leading-snug tracking-tight">晚餐前</span>
                     <label class="sr-only">晚餐服药时间</label>
-                    <input type="time" value="18:00" class="med-field" aria-label="晚餐服药时间" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+                    <input type="time" value="" class="med-field" aria-label="晚餐服药时间" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
                     <label class="sr-only">药品名称</label>
-                    <input type="text" value="二甲双胍" maxlength="14" class="med-field" placeholder="药名" aria-label="药品名称" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
-                    <span class="text-[11px] font-semibold text-text-main/85 leading-none">1片</span>
+                    <input type="text" value="" maxlength="14" class="med-field" placeholder="药名" aria-label="药品名称" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
+                    <span class="text-[11px] font-semibold text-text-main/85 leading-none">剂量</span>
                 </div>
                 <button type="button" class="med-check-btn mt-auto w-full py-2.5 text-xs border-0" onclick="toggleMed(this)">点击打卡</button>
             </div>
@@ -342,23 +349,11 @@
                 </div>
             </div>
         </div>
-        <button type="button" onclick="openAISettings()" class="flex-shrink-0 w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-lg hover:bg-gray-200 transition" title="查看 API 配置（已内置）" aria-label="API 与模型配置">
+        <button type="button" onclick="openAISettings()" class="flex-shrink-0 w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-lg hover:bg-gray-200 transition" title="API 与模型配置（保存在本机）" aria-label="API 与模型配置">⚙</button>
     </div>
 
-    <!-- 聊天区域 -->
-    <div id="chat-area" class="flex-1 min-h-0 overflow-y-auto space-y-4 pb-4">
-        <div class="flex gap-3">
-            <div class="w-8 h-8 bg-warm-orange rounded-full flex items-center justify-center text-sm flex-shrink-0">🌿</div>
-            <div class="chat-bubble bg-card-white rounded-2xl rounded-tl-sm p-3 shadow-sm text-sm leading-relaxed">
-                您好呀！我是小棉，您的健康小助手~ 😊<br><br>
-                您可以问我：<br>
-                • 某种食物的GI值和能不能吃<br>
-                • 用药时间和注意事项<br>
-                • 血糖异常时的处理建议<br>
-                • 适合糖尿病患者的食谱
-            </div>
-        </div>
-    </div>
+    <!-- 聊天区域（内容由 renderAIChatFromHistory 恢复/欢迎语） -->
+    <div id="chat-area" class="flex-1 min-h-0 overflow-y-auto space-y-4 pb-4"></div>
 
     <!-- 输入区域 -->
     <div class="flex-shrink-0 bg-card-white rounded-2xl p-3 shadow-lg mb-2">
@@ -424,7 +419,7 @@
         <div id="record-calendar-grid" class="grid grid-cols-7 gap-2"></div>
     </div>
 
-    <h2 id="record-selected-date-label" class="font-bold text-lg mb-3">2026年5月5日（星期一）</h2>
+    <h2 id="record-selected-date-label" class="font-bold text-lg mb-3"></h2>
     <div id="record-day-list" class="space-y-3 mb-4"></div>
 </div>
 
@@ -478,8 +473,8 @@
             <span class="text-xl">📅</span>
             <span class="font-bold">下次复诊提醒</span>
         </div>
-        <div id="followup-card-line1" class="text-lg font-bold text-warm-orange mb-1">5月20日 上午 9:00</div>
-        <div id="followup-card-line2" class="text-sm text-text-light">内分泌科 · 李医生 · 带齐化验单</div>
+        <div id="followup-card-line1" class="text-lg font-bold text-warm-orange mb-1">尚未设置复诊时间</div>
+        <div id="followup-card-line2" class="text-sm text-text-light">点击「记录复诊需求」填写科室、医生与备注</div>
         <button type="button" onclick="openFollowupReminderModal()" class="mt-3 w-full py-2 bg-warm-orange text-white rounded-xl text-sm font-medium shadow-sm active:opacity-95">记录复诊需求</button>
     </div>
 
@@ -489,56 +484,7 @@
         <!-- 时间轴线 -->
         <div class="absolute left-2 top-2 bottom-0 w-0.5 bg-gray-200"></div>
 
-        <div id="doctor-timeline-list" class="space-y-6">
-        <div class="relative">
-            <div class="absolute -left-4 top-1 timeline-dot bg-white"></div>
-            <div class="bg-card-white rounded-2xl p-4 shadow-sm">
-                <div class="flex justify-between items-start mb-2">
-                    <div>
-                        <div class="font-bold">内分泌科复查</div>
-                        <div class="text-sm text-text-light">李医生 · 主任医师</div>
-                    </div>
-                    <span class="text-xs text-text-light">4月20日</span>
-                </div>
-                <div class="text-sm mb-2">诊断：2型糖尿病，控制良好</div>
-                <div class="flex gap-2">
-                    <button class="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-xs">查看处方</button>
-                    <button class="px-3 py-1 bg-green-50 text-green-600 rounded-full text-xs">查看报告</button>
-                </div>
-            </div>
-        </div>
-
-        <div class="relative">
-            <div class="absolute -left-4 top-1 timeline-dot bg-white"></div>
-            <div class="bg-card-white rounded-2xl p-4 shadow-sm">
-                <div class="flex justify-between items-start mb-2">
-                    <div>
-                        <div class="font-bold">眼科检查</div>
-                        <div class="text-sm text-text-light">王医生 · 副主任医师</div>
-                    </div>
-                    <span class="text-xs text-text-light">3月15日</span>
-                </div>
-                <div class="text-sm mb-2">眼底检查：正常，无病变</div>
-                <div class="flex gap-2">
-                    <button class="px-3 py-1 bg-green-50 text-green-600 rounded-full text-xs">结果正常</button>
-                </div>
-            </div>
-        </div>
-
-        <div class="relative">
-            <div class="absolute -left-4 top-1 timeline-dot bg-white"></div>
-            <div class="bg-card-white rounded-2xl p-4 shadow-sm">
-                <div class="flex justify-between items-start mb-2">
-                    <div>
-                        <div class="font-bold">糖化血红蛋白检测</div>
-                        <div class="text-sm text-text-light">检验科</div>
-                    </div>
-                    <span class="text-xs text-text-light">3月15日</span>
-                </div>
-                <div class="text-sm">HbA1c: 6.8% <span class="gi-badge gi-low">控制良好</span></div>
-            </div>
-        </div>
-        </div>
+        <div id="doctor-timeline-list" class="space-y-6"></div>
     </div>
 
     <button type="button" onclick="showRecordSheet('doctor')" class="w-full mt-6 py-4 bg-warm-orange text-white rounded-2xl font-bold shadow-lg mb-6">
@@ -642,27 +588,29 @@
 <div id="ai-settings-modal" class="fixed inset-0 bg-black/60 z-[75] hidden flex items-center justify-center p-4" onclick="closeAISettings()">
     <div class="bg-card-white rounded-3xl p-5 w-full max-w-sm max-h-[90vh] overflow-y-auto shadow-xl" onclick="event.stopPropagation()">
         <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg font-bold">模型配置（只读）</h2>
+            <h2 class="text-lg font-bold">模型配置</h2>
             <button type="button" onclick="closeAISettings()" class="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center text-text-light">✕</button>
         </div>
-        <p class="text-xs text-text-light mb-4 leading-relaxed">以下为<b>内置固定</b>的火山方舟 OpenAI 兼容配置（<code class="text-[11px]">ep-</code> 推理接入点）。密钥与地址已锁定不可编辑；若浏览器直连报跨域，请使用项目内本地代理并改代理上游地址。</p>
+        <p class="text-xs text-text-light mb-4 leading-relaxed">填写 OpenAI 兼容接口（如智谱、DeepSeek、方舟等）的<b>根地址</b>、<b>API Key</b> 与 <b>模型名/接入点 ID</b>。内容仅保存在本机浏览器；若直连报跨域，可使用本地代理（如 <code class="text-[11px]">127.0.0.1</code>）。</p>
         <div class="space-y-3 mb-4">
             <div>
-                <label class="block text-sm font-medium mb-1">API 密钥（已锁定）</label>
-                <input type="password" id="ai-settings-api-key" readonly tabindex="-1" autocomplete="off" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm outline-none text-text-main cursor-not-allowed opacity-90">
+                <label class="block text-sm font-medium mb-1">API 密钥</label>
+                <input type="password" id="ai-settings-api-key" autocomplete="off" placeholder="Bearer Token" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm outline-none text-text-main">
             </div>
             <div>
-                <label class="block text-sm font-medium mb-1">API 根地址（已锁定）</label>
-                <input type="text" id="ai-settings-base" readonly tabindex="-1" autocomplete="off" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-[12px] text-text-main cursor-not-allowed opacity-90">
+                <label class="block text-sm font-medium mb-1">API 根地址</label>
+                <input type="text" id="ai-settings-base" autocomplete="off" placeholder="https://…/v1" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-[12px] text-text-main">
             </div>
             <div>
-                <label class="block text-sm font-medium mb-1">推理接入点（模型 ID，已锁定）</label>
-                <input type="text" id="ai-settings-model" readonly tabindex="-1" autocomplete="off" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-[12px] text-text-main cursor-not-allowed opacity-90">
+                <label class="block text-sm font-medium mb-1">模型 ID</label>
+                <input type="text" id="ai-settings-model" autocomplete="off" placeholder="接入点或模型名称" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-[12px] text-text-main">
             </div>
         </div>
-        <p class="text-[11px] text-text-light mb-4 leading-relaxed">实际请求：<span class="font-mono text-[10px]">POST …/api/v1/chat/completions</span></p>
+        <p class="text-[11px] text-text-light mb-4 leading-relaxed">实际请求：<span class="font-mono text-[10px]">POST …/v1/chat/completions</span>（或由网关改写）。</p>
         <div class="flex flex-col gap-2">
-            <button type="button" onclick="closeAISettings()" class="w-full py-3 bg-warm-orange text-white rounded-2xl font-bold shadow-lg">关闭</button>
+            <button type="button" onclick="saveAISettings()" class="w-full py-3 bg-warm-orange text-white rounded-2xl font-bold shadow-lg">保存到本机</button>
+            <button type="button" onclick="clearAISettings()" class="w-full py-3 border-2 border-gray-200 rounded-2xl font-medium text-text-main">清空配置</button>
+            <button type="button" onclick="closeAISettings()" class="w-full py-3 border-2 border-gray-200 rounded-2xl font-medium text-text-main">关闭</button>
         </div>
     </div>
 </div>
@@ -723,6 +671,7 @@
 <script>
 // ==================== 页面切换 ====================
 function showPage(pageId) {
+    syncRecordTodayIso();
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.getElementById('page-' + pageId).classList.add('active');
     document.querySelectorAll('.nav-item').forEach(n => {
@@ -742,91 +691,31 @@ function showPage(pageId) {
         renderYogaCalendar();
         renderYogaRecentList();
     }
+    if (pageId === 'doctor') {
+        renderDoctorTimelineFromLogs();
+        applyFollowupReminderCard();
+    }
 }
 
 // ==================== 记一笔 · 日历按日查看 ====================
-const RECORD_TODAY_ISO = '2026-05-05';
+function padRecordTodayPart(n) {
+    return (n < 10 ? '0' : '') + n;
+}
 
-const RECORD_LOG_BY_DATE = {
-    '2026-05-05': [
-        {
-            icon: '🥣',
-            iconBg: 'bg-light-green',
-            title: '早餐：燕麦粥 + 鸡蛋',
-            sub: '7:30',
-            rightHtml: '<span class="gi-badge gi-low">GI 55</span>'
-        },
-        {
-            icon: '💊',
-            iconBg: 'bg-light-orange',
-            title: '服用二甲双胍 1片',
-            sub: '7:00 · 早餐前',
-            rightHtml: '<span class="text-soft-green text-sm font-medium">✓ 已服</span>'
-        },
-        {
-            icon: '🩸',
-            iconBg: 'bg-blue-50',
-            title: '空腹血糖 6.2 mmol/L',
-            sub: '6:50',
-            rightHtml: '<span class="gi-badge gi-low">正常</span>'
-        },
-        {
-            kind: 'mood',
-            moodIcon: '😊',
-            icon: '😊',
-            iconBg: 'bg-purple-50',
-            title: '心情记录：开心',
-            sub: '21:00',
-            rightHtml: ''
-        },
-    ],
-    '2026-05-04': [
-        {
-            icon: '🧘',
-            iconBg: 'bg-light-orange',
-            title: '瑜伽 30 分钟',
-            sub: '19:00 · 有氧',
-            rightHtml: '<span class="text-xs text-text-light shrink-0">运动</span>'
-        },
-        {
-            icon: '🩸',
-            iconBg: 'bg-blue-50',
-            title: '早餐后血糖 7.8 mmol/L',
-            sub: '10:05',
-            rightHtml: '<span class="gi-badge gi-low">正常</span>'
-        },
-        {
-            kind: 'mood',
-            moodIcon: '😐',
-            icon: '😐',
-            iconBg: 'bg-purple-50',
-            title: '心情记录：平淡',
-            sub: '睡前',
-            rightHtml: ''
-        },
-    ],
-    '2026-05-03': [
-        {
-            icon: '🍚',
-            iconBg: 'bg-light-green',
-            title: '午餐：杂粮饭 + 青菜',
-            sub: '12:15',
-            rightHtml: '<span class="gi-badge gi-low">GI 52</span>'
-        },
-        {
-            kind: 'mood',
-            moodIcon: '😌',
-            icon: '😌',
-            iconBg: 'bg-purple-50',
-            title: '心情记录：放松',
-            sub: '午后',
-            rightHtml: ''
-        },
-    ],
-};
+var RECORD_TODAY_ISO = '';
 
-/** 健康记录日历与首页共用；持久化到浏览器本地，刷新不丢失 */
-const RECORD_LOG_STORAGE_KEY = 'sweet_record_log_by_date_v1';
+function syncRecordTodayIso() {
+    var d = new Date();
+    RECORD_TODAY_ISO =
+        d.getFullYear() + '-' + padRecordTodayPart(d.getMonth() + 1) + '-' + padRecordTodayPart(d.getDate());
+}
+
+syncRecordTodayIso();
+
+/** 健康记录：各页共用同一数据源，持久化到本机 */
+var RECORD_LOG_BY_DATE = {};
+
+var RECORD_LOG_STORAGE_KEY = 'sweet_record_log_by_date_v2';
 
 function hydrateRecordLogFromStorage() {
     try {
@@ -840,7 +729,7 @@ function hydrateRecordLogFromStorage() {
             RECORD_LOG_BY_DATE[iso] = saved[iso];
         }
     } catch (e) {
-        /* 存储损坏时忽略，仍用内置示例 */
+        /* 存储损坏时忽略，使用空白初始 */
     }
 }
 
@@ -853,6 +742,159 @@ function persistRecordLogToStorage() {
 }
 
 hydrateRecordLogFromStorage();
+
+function genRecordEntryId() {
+    return 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+}
+
+function ensureRecordLogRidsDeep() {
+    var changed = false;
+    for (var iso in RECORD_LOG_BY_DATE) {
+        if (!Object.prototype.hasOwnProperty.call(RECORD_LOG_BY_DATE, iso)) continue;
+        var arr = RECORD_LOG_BY_DATE[iso];
+        if (!Array.isArray(arr)) continue;
+        for (var i = 0; i < arr.length; i++) {
+            if (arr[i] && typeof arr[i] === 'object' && !arr[i]._rid) {
+                arr[i]._rid = genRecordEntryId();
+                changed = true;
+            }
+        }
+    }
+    return changed;
+}
+
+if (ensureRecordLogRidsDeep()) persistRecordLogToStorage();
+
+function removeRecordLogEntry(iso, rid) {
+    if (!iso || !rid) return;
+    var arr = RECORD_LOG_BY_DATE[iso];
+    if (!arr || !arr.length) return;
+    var idx = -1;
+    for (var i = 0; i < arr.length; i++) {
+        if (arr[i] && arr[i]._rid === rid) {
+            idx = i;
+            break;
+        }
+    }
+    if (idx < 0) return;
+    arr.splice(idx, 1);
+    if (!arr.length) delete RECORD_LOG_BY_DATE[iso];
+    persistRecordLogToStorage();
+    var rp = document.getElementById('page-record');
+    if (rp && rp.classList.contains('active')) {
+        renderRecordCalendar();
+        renderRecordDayList(recordSelectedIso);
+    }
+    syncRecordTodayIso();
+    if (iso === RECORD_TODAY_ISO) refreshHomeFromRecords();
+    renderHomeGlucoseChart();
+    refreshYogaPageIfVisible();
+    var pd = document.getElementById('page-doctor');
+    if (pd && pd.classList.contains('active')) renderDoctorTimelineFromLogs();
+    if (typeof showToast === 'function') showToast('已删除');
+}
+
+var LONGPRESS_DELETE_MS = 560;
+var LONGPRESS_MOVE_CANCEL_PX = 16;
+
+function deletableRecordShell(innerHtml, iso, rid) {
+    return (
+        '<div class="longpress-del-wrap relative rounded-2xl min-w-0 cursor-default" title="长按删除" data-longpress-delete="" data-log-iso="' +
+        escapeHtml(iso) +
+        '" data-entry-rid="' +
+        escapeHtml(rid) +
+        '">' +
+        innerHtml +
+        '</div>'
+    );
+}
+
+function bindLongPressDeleteRows(scope) {
+    var root = scope || document;
+    var rows = root.querySelectorAll('[data-longpress-delete]');
+    for (var r = 0; r < rows.length; r++) {
+        var row = rows[r];
+        if (row._longPressDelInit) continue;
+        row._longPressDelInit = true;
+
+        var holdTimer = null;
+        var startX = 0;
+        var startY = 0;
+
+        function cancelHold() {
+            if (holdTimer) {
+                clearTimeout(holdTimer);
+                holdTimer = null;
+            }
+            row.classList.remove('longpress-del-holding');
+        }
+
+        function performDelete() {
+            var iso = row.getAttribute('data-log-iso');
+            var rid = row.getAttribute('data-entry-rid');
+            var chatRid = row.getAttribute('data-chat-rid');
+            if (chatRid) {
+                removeAiChatMessageByRid(chatRid);
+                return;
+            }
+            if (iso && rid) removeRecordLogEntry(iso, rid);
+        }
+
+        function startHold(clientX, clientY) {
+            cancelHold();
+            startX = clientX;
+            startY = clientY;
+            row.classList.add('longpress-del-holding');
+            holdTimer = setTimeout(function () {
+                holdTimer = null;
+                row.classList.remove('longpress-del-holding');
+                if (navigator.vibrate) navigator.vibrate(30);
+                performDelete();
+            }, LONGPRESS_DELETE_MS);
+        }
+
+        row.addEventListener(
+            'touchstart',
+            function (ev) {
+                if (ev.touches.length !== 1) return;
+                startHold(ev.touches[0].clientX, ev.touches[0].clientY);
+            },
+            { passive: true }
+        );
+
+        row.addEventListener(
+            'touchmove',
+            function (ev) {
+                if (!holdTimer) return;
+                if (ev.touches.length !== 1) {
+                    cancelHold();
+                    return;
+                }
+                var x = ev.touches[0].clientX;
+                var y = ev.touches[0].clientY;
+                if (Math.abs(x - startX) > LONGPRESS_MOVE_CANCEL_PX || Math.abs(y - startY) > LONGPRESS_MOVE_CANCEL_PX) {
+                    cancelHold();
+                }
+            },
+            { passive: true }
+        );
+
+        row.addEventListener('touchend', cancelHold, { passive: true });
+        row.addEventListener('touchcancel', cancelHold, { passive: true });
+
+        row.addEventListener('mousedown', function (ev) {
+            if (ev.button !== 0) return;
+            startHold(ev.clientX, ev.clientY);
+        });
+
+        row.addEventListener('mouseup', cancelHold);
+        row.addEventListener('mouseleave', cancelHold);
+
+        row.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+        });
+    }
+}
 
 /** 当日若有 kind 为 mood 的记录，返回右上角展示用 emoji（可多条约定为第一条心情） */
 function getRecordDayMoodEmoji(iso) {
@@ -885,7 +927,7 @@ function collectTodaySugarSlots(items) {
         if (!p || isNaN(p.value)) continue;
         if (seen[p.whenRaw]) continue;
         seen[p.whenRaw] = true;
-        list.push(p);
+        list.push({ whenRaw: p.whenRaw, value: p.value, _rid: items[i]._rid });
     }
     return list.sort(function (a, b) {
         var ia = HOME_GLUCOSE_WHEN_ORDER.indexOf(a.whenRaw);
@@ -933,9 +975,11 @@ function renderHomeGlucoseSlots() {
     for (var i = 0; i < slots.length; i++) {
         var data = slots[i];
         var st = glucoseSlotStyle(data.whenRaw, data.value);
-        var card = document.createElement('div');
-        card.className = 'rounded-2xl p-3 text-center min-w-0 ' + st.cardBg;
-        card.innerHTML =
+        var rid = data._rid || '';
+        var inner =
+            '<div class="rounded-2xl p-3 text-center min-w-0 ' +
+            st.cardBg +
+            '">' +
             '<div class="text-xs text-text-light mb-1 leading-snug">' +
             escapeHtml(data.whenRaw) +
             '</div>' +
@@ -948,9 +992,12 @@ function renderHomeGlucoseSlots() {
             st.stCls +
             '">' +
             st.label +
-            '</div>';
-        grid.appendChild(card);
+            '</div></div>';
+        var shell = document.createElement('div');
+        shell.innerHTML = deletableRecordShell(inner, RECORD_TODAY_ISO, rid);
+        grid.appendChild(shell.firstElementChild);
     }
+    bindLongPressDeleteRows(grid);
 }
 
 function isHomeFoodEntry(e) {
@@ -985,7 +1032,7 @@ function renderHomeFoodList() {
     var html = '';
     for (var j = 0; j < foods.length; j++) {
         var rec = foods[j];
-        html +=
+        var innerFood =
             '<div class="flex items-center gap-3 p-3 bg-light-green rounded-2xl">' +
             '<div class="text-2xl flex-shrink-0">' +
             rec.icon +
@@ -999,6 +1046,7 @@ function renderHomeFoodList() {
             '</div></div>' +
             foodRecordGiBadgeHtml(rec.rightHtml) +
             '</div>';
+        html += deletableRecordShell(innerFood, RECORD_TODAY_ISO, rec._rid || '');
     }
     html +=
         '<div class="flex items-center gap-3 p-3 border-2 border-dashed border-gray-200 rounded-2xl text-text-light cursor-pointer active:opacity-80" onclick="showRecordSheet(\'food\')">' +
@@ -1007,6 +1055,7 @@ function renderHomeFoodList() {
         (foods.length ? '继续添加饮食记录…' : '记录今天饮食…') +
         '</div></div>';
     list.innerHTML = html;
+    bindLongPressDeleteRows(list);
 }
 
 function isHomeSportEntry(e) {
@@ -1029,7 +1078,7 @@ function renderHomeSportList() {
         var mins = m ? parseInt(m[1], 10) : 0;
         var name = String(rec.title).replace(/\s+\d+\s*分钟\s*$/, '').trim() || '运动';
         var emoji = rec.icon || '🧘';
-        html +=
+        var innerSp =
             '<div class="flex items-center gap-4 py-3 border-b border-gray-100 last:border-b-0">' +
             '<div class="w-14 h-14 rounded-full bg-light-orange flex items-center justify-center text-2xl flex-shrink-0">' +
             emoji +
@@ -1051,6 +1100,7 @@ function renderHomeSportList() {
             '</div>' +
             '</div>' +
             '</div>';
+        html += deletableRecordShell(innerSp, RECORD_TODAY_ISO, rec._rid || '');
     }
     if (!sports.length) {
         html =
@@ -1072,17 +1122,36 @@ function renderHomeSportList() {
         (sports.length ? '添加另一条运动记录…' : '记录运动…') +
         '</div></div>';
     list.innerHTML = html;
+    bindLongPressDeleteRows(list);
 }
 
 function refreshHomeFromRecords() {
+    updateHomeHeaderDate();
     renderHomeGlucoseSlots();
     renderHomeGlucoseChart();
     renderHomeFoodList();
     renderHomeSportList();
 }
 
-let recordCalYear = 2026;
-let recordCalMonth = 5;
+var WEEKDAYS_CN_FULL = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+
+function updateHomeHeaderDate() {
+    syncRecordTodayIso();
+    var d = new Date();
+    var dateEl = document.getElementById('home-header-date');
+    if (dateEl) {
+        dateEl.textContent = d.getMonth() + 1 + '月' + d.getDate() + '日 ' + WEEKDAYS_CN_FULL[d.getDay()];
+    }
+    var greet = document.getElementById('home-header-greeting');
+    if (greet) {
+        var h = d.getHours();
+        var prefix = h < 12 ? '早上好' : h < 18 ? '下午好' : '晚上好';
+        greet.textContent = prefix + '，妈妈 ☀️';
+    }
+}
+
+let recordCalYear = new Date().getFullYear();
+let recordCalMonth = new Date().getMonth() + 1;
 let recordSelectedIso = RECORD_TODAY_ISO;
 let recordCalInitialized = false;
 
@@ -1099,11 +1168,12 @@ function recordDaysInMonth(y, month1to12) {
 }
 
 // ==================== 运动打卡页 · 完整月历 + 全部运动（与 RECORD_LOG_BY_DATE 同源）====================
-let yogaCalYear = 2026;
-let yogaCalMonth = 5;
+let yogaCalYear = new Date().getFullYear();
+let yogaCalMonth = new Date().getMonth() + 1;
 let yogaCalInitialized = false;
 
 function ensureYogaPage() {
+    syncRecordTodayIso();
     if (!yogaCalInitialized) {
         var tp = RECORD_TODAY_ISO.split('-').map(Number);
         yogaCalYear = tp[0];
@@ -1260,30 +1330,35 @@ function renderYogaRecentList() {
         var subLine = (rec.sub || '').trim();
         var whenText = formatYogaShortDateLabel(iso) + (subLine ? ' ' + subLine : '');
         html +=
-            '<div class="bg-card-white rounded-2xl p-4 shadow-sm flex items-center gap-3">' +
-            '<div class="w-12 h-12 ' +
-            bgCls +
-            ' rounded-full flex items-center justify-center text-2xl flex-shrink-0">' +
-            emoji +
-            '</div>' +
-            '<div class="flex-1 min-w-0">' +
-            '<div class="font-medium">' +
-            escapeHtml(name) +
-            '</div>' +
-            '<div class="text-xs text-text-light">' +
-            escapeHtml(whenText) +
-            '</div>' +
-            '</div>' +
-            '<div class="text-right flex-shrink-0">' +
-            '<div class="font-bold ' +
-            numCls +
-            '">' +
-            mins +
-            '</div>' +
-            '<div class="text-xs text-text-light">分钟</div>' +
-            '</div></div>';
+            deletableRecordShell(
+                '<div class="bg-card-white rounded-2xl p-4 shadow-sm flex items-center gap-3">' +
+                    '<div class="w-12 h-12 ' +
+                    bgCls +
+                    ' rounded-full flex items-center justify-center text-2xl flex-shrink-0">' +
+                    emoji +
+                    '</div>' +
+                    '<div class="flex-1 min-w-0">' +
+                    '<div class="font-medium">' +
+                    escapeHtml(name) +
+                    '</div>' +
+                    '<div class="text-xs text-text-light">' +
+                    escapeHtml(whenText) +
+                    '</div>' +
+                    '</div>' +
+                    '<div class="text-right flex-shrink-0">' +
+                    '<div class="font-bold ' +
+                    numCls +
+                    '">' +
+                    mins +
+                    '</div>' +
+                    '<div class="text-xs text-text-light">分钟</div>' +
+                    '</div></div>',
+                iso,
+                rec._rid || ''
+            );
     }
     wrap.innerHTML = html;
+    bindLongPressDeleteRows(wrap);
 }
 
 function refreshYogaPageIfVisible() {
@@ -1428,7 +1503,7 @@ function renderRecordDayList(iso) {
         .map(function (rec) {
             var rh = recordEntryRightHtmlForList(rec);
             var rightWrap = rh ? '<div class="flex items-center gap-2 flex-shrink-0">' + rh + '</div>' : '';
-            return (
+            var inner =
                 '<div class="bg-card-white rounded-2xl p-4 shadow-sm flex items-center gap-3">' +
                 '<div class="w-10 h-10 ' +
                 rec.iconBg +
@@ -1443,13 +1518,15 @@ function renderRecordDayList(iso) {
                 escapeHtml(rec.sub || '') +
                 '</div></div>' +
                 rightWrap +
-                '</div>'
-            );
+                '</div>';
+            return deletableRecordShell(inner, iso, rec._rid || '');
         })
         .join('');
+    bindLongPressDeleteRows(list);
 }
 
 function ensureRecordCalendar() {
+    syncRecordTodayIso();
     if (!recordCalInitialized) {
         var tp = RECORD_TODAY_ISO.split('-').map(Number);
         recordCalYear = tp[0];
@@ -1488,22 +1565,150 @@ function toggleMed(btn) {
     updateMedProgress();
 }
 
-// ==================== AI 对话（火山方舟 · 内置固定，不写 localStorage）====================
+// ==================== AI 对话（配置保存在 localStorage）====================
 const AI_SYSTEM_PROMPT = '你是「小棉」，用户的糖尿病与日常健康助手。回答简洁、友善、实用；涉及用药调整与诊疗结论时必须提醒用户遵医嘱并咨询主治医生。';
 
-/** 方舟北京 OpenAI 兼容根路径；实际 POST …/api/v1/chat/completions */
-const AI_FIXED_API_BASE = 'https://ark.cn-beijing.volces.com/api/v1';
-const AI_FIXED_API_KEY = 'ark-c57baae3-ab80-4c0b-90e9-9e2b463df676-bab0c';
-const AI_FIXED_MODEL = 'ep-20260505151948-6zwm2';
+var AI_SETTINGS_STORAGE_KEY = 'sweet_ai_settings_v1';
 
-let aiRemoteHistory = [];
+/** 小棉对话历史（与接口上下文一致，持久化到本机） */
+var AI_CHAT_HISTORY_STORAGE_KEY = 'sweet_ai_chat_history_v1';
+var AI_CHAT_HISTORY_MAX = 40;
+
+function loadAIChatHistoryFromStorage() {
+    try {
+        var raw = localStorage.getItem(AI_CHAT_HISTORY_STORAGE_KEY);
+        if (!raw) return [];
+        var arr = JSON.parse(raw);
+        if (!Array.isArray(arr)) return [];
+        var filtered = arr.filter(function (x) {
+            return x && (x.role === 'user' || x.role === 'assistant') && typeof x.content === 'string';
+        });
+        var migrated = false;
+        for (var j = 0; j < filtered.length; j++) {
+            if (filtered[j] && !filtered[j]._chid) {
+                filtered[j]._chid = genRecordEntryId();
+                migrated = true;
+            }
+        }
+        var out = filtered.slice(-AI_CHAT_HISTORY_MAX);
+        if (migrated) {
+            try {
+                localStorage.setItem(AI_CHAT_HISTORY_STORAGE_KEY, JSON.stringify(out));
+            } catch (e2) {}
+        }
+        return out;
+    } catch (e) {
+        return [];
+    }
+}
+
+function persistAIChatHistory() {
+    try {
+        if (aiRemoteHistory.length > AI_CHAT_HISTORY_MAX) {
+            aiRemoteHistory = aiRemoteHistory.slice(-AI_CHAT_HISTORY_MAX);
+        }
+        localStorage.setItem(AI_CHAT_HISTORY_STORAGE_KEY, JSON.stringify(aiRemoteHistory));
+    } catch (e) {
+        if (typeof showToast === 'function') showToast('对话记录保存失败');
+    }
+}
+
+function removeAiChatMessageByRid(rid) {
+    if (!rid) return;
+    var nar = [];
+    for (var i = 0; i < aiRemoteHistory.length; i++) {
+        if (aiRemoteHistory[i]._chid !== rid) nar.push(aiRemoteHistory[i]);
+    }
+    if (nar.length === aiRemoteHistory.length) return;
+    aiRemoteHistory = nar;
+    persistAIChatHistory();
+    renderAIChatFromHistory();
+    if (typeof showToast === 'function') showToast('已删除');
+}
+
+function getAIChatWelcomeHtml() {
+    return (
+        '<div class="flex gap-3">' +
+        '<div class="w-8 h-8 bg-warm-orange rounded-full flex items-center justify-center text-sm flex-shrink-0">🌿</div>' +
+        '<div class="chat-bubble bg-card-white rounded-2xl rounded-tl-sm p-3 shadow-sm text-sm leading-relaxed">' +
+        '您好呀！我是小棉，您的健康小助手~ 😊<br><br>' +
+        '您可以问我：<br>' +
+        '• 某种食物的GI值和能不能吃<br>' +
+        '• 用药时间和注意事项<br>' +
+        '• 血糖异常时的处理建议<br>' +
+        '• 适合糖尿病患者的食谱' +
+        '</div></div>'
+    );
+}
+
+/** 根据 aiRemoteHistory 重绘聊天区（含空历史时的欢迎语） */
+function renderAIChatFromHistory() {
+    var chatArea = document.getElementById('chat-area');
+    if (!chatArea) return;
+    chatArea.innerHTML = '';
+    if (!aiRemoteHistory.length) {
+        chatArea.innerHTML = getAIChatWelcomeHtml();
+        return;
+    }
+    for (var i = 0; i < aiRemoteHistory.length; i++) {
+        var m = aiRemoteHistory[i];
+        if (m.role === 'user') {
+            addChatMessage(escapeHtml(m.content), 'user', m._chid);
+        } else if (m.role === 'assistant') {
+            addChatMessage(formatAiReplyHtml(m.content), 'ai', m._chid);
+        }
+    }
+    chatArea.scrollTop = chatArea.scrollHeight;
+    bindLongPressDeleteRows(chatArea);
+}
+
+var aiRemoteHistory = loadAIChatHistoryFromStorage();
+
+function getDefaultAISettings() {
+    return { apiKey: '', apiBaseUrl: '', model: '' };
+}
 
 function loadAISettings() {
-    return {
-        apiKey: AI_FIXED_API_KEY,
-        apiBaseUrl: AI_FIXED_API_BASE,
-        model: AI_FIXED_MODEL
+    try {
+        var raw = localStorage.getItem(AI_SETTINGS_STORAGE_KEY);
+        if (raw) {
+            var o = JSON.parse(raw);
+            if (o && typeof o === 'object') return Object.assign(getDefaultAISettings(), o);
+        }
+    } catch (e) {}
+    return getDefaultAISettings();
+}
+
+function saveAISettings() {
+    var k = document.getElementById('ai-settings-api-key');
+    var b = document.getElementById('ai-settings-base');
+    var m = document.getElementById('ai-settings-model');
+    var o = {
+        apiKey: k ? String(k.value || '').trim() : '',
+        apiBaseUrl: b ? String(b.value || '').trim() : '',
+        model: m ? String(m.value || '').trim() : ''
     };
+    try {
+        localStorage.setItem(AI_SETTINGS_STORAGE_KEY, JSON.stringify(o));
+        showToast('已保存到本机');
+        closeAISettings();
+    } catch (e) {
+        showToast('保存失败');
+    }
+}
+
+function clearAISettings() {
+    try {
+        localStorage.removeItem(AI_SETTINGS_STORAGE_KEY);
+    } catch (e) {}
+    var k = document.getElementById('ai-settings-api-key');
+    var b = document.getElementById('ai-settings-base');
+    var m = document.getElementById('ai-settings-model');
+    if (k) k.value = '';
+    if (b) b.value = '';
+    if (m) m.value = '';
+    showToast('已清空');
+    closeAISettings();
 }
 
 function isLocalProxyBase(baseRaw) {
@@ -1515,7 +1720,10 @@ function isLocalProxyBase(baseRaw) {
 function chatApiEnabled(settings) {
     if (!settings) return false;
     if (isLocalProxyBase(settings.apiBaseUrl)) return true;
-    return !!(settings.apiKey && String(settings.apiKey).trim());
+    var key = String(settings.apiKey || '').trim();
+    var base = String(settings.apiBaseUrl || '').trim();
+    var model = String(settings.model || '').trim();
+    return !!(key && base && model);
 }
 
 function buildChatFetchHeaders(settings) {
@@ -1534,7 +1742,7 @@ function isDeepSeekApiBase(baseRaw) {
 
 /** DeepSeek：附带 thinking / reasoning_effort；其它基址不发这些字段，避免报错 */
 function buildChatCompletionsBody(settings, messages) {
-    var model = (settings && settings.model) || AI_FIXED_MODEL;
+    var model = (settings && String(settings.model || '').trim()) || 'gpt-3.5-turbo';
     var body = {
         model: model,
         messages: messages,
@@ -1550,8 +1758,8 @@ function buildChatCompletionsBody(settings, messages) {
 function openAISettings() {
     const s = loadAISettings();
     document.getElementById('ai-settings-api-key').value = s.apiKey || '';
-    document.getElementById('ai-settings-base').value = s.apiBaseUrl || AI_FIXED_API_BASE;
-    document.getElementById('ai-settings-model').value = s.model || AI_FIXED_MODEL;
+    document.getElementById('ai-settings-base').value = s.apiBaseUrl || '';
+    document.getElementById('ai-settings-model').value = s.model || '';
     document.getElementById('ai-settings-modal').classList.remove('hidden');
 }
 
@@ -1561,7 +1769,7 @@ function closeAISettings() {
 
 function buildChatCompletionsUrl(baseRaw) {
     const b = (baseRaw || '').trim().replace(/\/+$/, '');
-    if (!b) return AI_FIXED_API_BASE + '/chat/completions';
+    if (!b) return '';
     if (/\/chat\/completions$/i.test(b)) return b;
     return b + '/chat/completions';
 }
@@ -1570,15 +1778,10 @@ function formatAiReplyHtml(plain) {
     return escapeHtml(plain).replace(/\n/g, '<br>');
 }
 
-/** 方舟返回「模型不存在」等时附加可操作建议（内容已转义后拼接安全 HTML） */
+/** 接口失败时的可读说明 */
 function formatChatApiFailureMessage(rawMsg) {
     var m = String(rawMsg || '');
-    var out = '调用失败：' + escapeHtml(m);
-    if (/does not exist|do not have access|InvalidEndpointOrModel|ModelNotOpen|The model or endpoint/i.test(m)) {
-        out +=
-            '<br><br><span class="text-xs text-text-light leading-relaxed">说明：内置接入点 ID（<code class="text-[11px]">AI_FIXED_MODEL</code>）与方舟控制台不一致或未开通时会出现此错误。请在火山方舟核对后，修改页面脚本中的 <code class="text-[11px]">AI_FIXED_MODEL</code> / <code class="text-[11px]">AI_FIXED_API_BASE</code> 常量并刷新。</span>';
-    }
-    return out;
+    return '调用失败：' + escapeHtml(m);
 }
 
 function showAITyping() {
@@ -1597,14 +1800,7 @@ function hideAITyping() {
     if (el) el.remove();
 }
 
-const foodDatabase = {
-    '苹果': { gi: 36, advice: 'GI值36，属于低升糖食物，可做加餐，注意总量。' },
-    '西瓜': { gi: 72, advice: 'GI值72，升糖较快；血糖稳时可少量，并减少当餐主食。' },
-    '米饭': { gi: 83, advice: 'GI值83，建议搭配蔬菜蛋白，或改杂粮饭降低升糖负荷。' },
-    '面条': { gi: 82, advice: 'GI值82，宜选全麦并多配蔬菜，控制份量。' },
-    '燕麦': { gi: 55, advice: 'GI值55，较友好；选纯燕麦少添加糖。' },
-    '香蕉': { gi: 51, advice: 'GI值51，注意含糖量，每次少量、偏青更好。' },
-};
+const foodDatabase = {};
 
 const FOOD_GI_JSON_SYSTEM =
     '你是糖尿病与食物升糖指数助手。用户给出食物名与食用量，请你估算参考 GI（0-100 整数）并给出简短中文饮食建议。' +
@@ -1678,36 +1874,38 @@ async function fetchFoodGiEstimate(name, amount) {
     var settings = loadAISettings();
     if (chatApiEnabled(settings)) {
         var url = buildChatCompletionsUrl(settings.apiBaseUrl);
-        var userMsg = '食物名称：' + name + '\n食用量：' + amount + '\n请给出参考 GI 与实用建议。';
-        var res = await fetch(url, {
-            method: 'POST',
-            headers: buildChatFetchHeaders(settings),
-            body: JSON.stringify(
-                buildChatCompletionsBody(settings, [
-                    { role: 'system', content: FOOD_GI_JSON_SYSTEM },
-                    { role: 'user', content: userMsg }
-                ])
-            )
-        });
-        var raw = await res.text();
-        var data = {};
-        try {
-            data = raw ? JSON.parse(raw) : {};
-        } catch (e) {
-            throw new Error('接口返回非 JSON');
+        if (url) {
+            var userMsg = '食物名称：' + name + '\n食用量：' + amount + '\n请给出参考 GI 与实用建议。';
+            var res = await fetch(url, {
+                method: 'POST',
+                headers: buildChatFetchHeaders(settings),
+                body: JSON.stringify(
+                    buildChatCompletionsBody(settings, [
+                        { role: 'system', content: FOOD_GI_JSON_SYSTEM },
+                        { role: 'user', content: userMsg }
+                    ])
+                )
+            });
+            var raw = await res.text();
+            var data = {};
+            try {
+                data = raw ? JSON.parse(raw) : {};
+            } catch (e) {
+                throw new Error('接口返回非 JSON');
+            }
+            if (!res.ok) {
+                var msg = (data.error && (data.error.message || data.error.msg)) || data.message || raw.slice(0, 120);
+                throw new Error(String(msg));
+            }
+            var replyText =
+                (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || '').trim();
+            var parsed = parseGiJsonFromModelText(replyText);
+            if (!parsed) throw new Error('模型未返回可解析的 GI JSON');
+            return {
+                gi: parsed.gi,
+                advice: shortenFoodAdviceForCard(parsed.advice)
+            };
         }
-        if (!res.ok) {
-            var msg = (data.error && (data.error.message || data.error.msg)) || data.message || raw.slice(0, 120);
-            throw new Error(String(msg));
-        }
-        var replyText =
-            (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || '').trim();
-        var parsed = parseGiJsonFromModelText(replyText);
-        if (!parsed) throw new Error('模型未返回可解析的 GI JSON');
-        return {
-            gi: parsed.gi,
-            advice: shortenFoodAdviceForCard(parsed.advice)
-        };
     }
     var local = findFoodGiLocal(name);
     if (local) {
@@ -1749,7 +1947,7 @@ async function generateFoodGiWithAI() {
     try {
         var est = await fetchFoodGiEstimate(name, amount);
         if (!est) {
-            showToast('调用失败：请检查网络、跨域或方舟用量；AI 配置已在应用中固定为北京 api/v1。');
+            showToast('无法估算 GI：请先在右上角配置 API，或填写食物名称后重试');
             return;
         }
         setFoodGiPreview(est.gi, est.advice);
@@ -1775,22 +1973,28 @@ async function sendAI() {
     const text = input.value.trim();
     if (!text) return;
 
-    addChatMessage(escapeHtml(text), 'user');
+    var uch = genRecordEntryId();
+    aiRemoteHistory.push({ role: 'user', content: text, _chid: uch });
+    addChatMessage(escapeHtml(text), 'user', uch);
     input.value = '';
+    persistAIChatHistory();
 
     const settings = loadAISettings();
+    var url = buildChatCompletionsUrl(settings.apiBaseUrl);
 
-    if (chatApiEnabled(settings)) {
+    var msgsForApi = [{ role: 'system', content: AI_SYSTEM_PROMPT }].concat(
+        aiRemoteHistory.map(function (m) {
+            return { role: m.role, content: m.content };
+        })
+    );
+
+    if (chatApiEnabled(settings) && url) {
         showAITyping();
-        aiRemoteHistory.push({ role: 'user', content: text });
         try {
-            const url = buildChatCompletionsUrl(settings.apiBaseUrl);
             const res = await fetch(url, {
                 method: 'POST',
                 headers: buildChatFetchHeaders(settings),
-                body: JSON.stringify(
-                    buildChatCompletionsBody(settings, [{ role: 'system', content: AI_SYSTEM_PROMPT }].concat(aiRemoteHistory))
-                )
+                body: JSON.stringify(buildChatCompletionsBody(settings, msgsForApi))
             });
             const raw = await res.text();
             let data = {};
@@ -1801,82 +2005,98 @@ async function sendAI() {
             }
             hideAITyping();
             if (!res.ok) {
-                aiRemoteHistory.pop();
                 const msg = (data.error && (data.error.message || data.error.msg)) || data.message || raw.slice(0, 200);
-                addChatMessage(formatChatApiFailureMessage(String(msg)), 'ai');
+                var plainErr = '调用失败：' + String(msg);
+                var ech = genRecordEntryId();
+                aiRemoteHistory.push({ role: 'assistant', content: plainErr, _chid: ech });
+                if (aiRemoteHistory.length > AI_CHAT_HISTORY_MAX) aiRemoteHistory = aiRemoteHistory.slice(-AI_CHAT_HISTORY_MAX);
+                persistAIChatHistory();
+                addChatMessage(formatChatApiFailureMessage(String(msg)), 'ai', ech);
                 return;
             }
             const replyText = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || '').trim() || '（模型未返回内容）';
-            aiRemoteHistory.push({ role: 'assistant', content: replyText });
-            if (aiRemoteHistory.length > 40) aiRemoteHistory = aiRemoteHistory.slice(-40);
-            addChatMessage(formatAiReplyHtml(replyText), 'ai');
+            var ach = genRecordEntryId();
+            aiRemoteHistory.push({ role: 'assistant', content: replyText, _chid: ach });
+            if (aiRemoteHistory.length > AI_CHAT_HISTORY_MAX) aiRemoteHistory = aiRemoteHistory.slice(-AI_CHAT_HISTORY_MAX);
+            persistAIChatHistory();
+            addChatMessage(formatAiReplyHtml(replyText), 'ai', ach);
         } catch (e) {
             hideAITyping();
-            if (aiRemoteHistory.length && aiRemoteHistory[aiRemoteHistory.length - 1].role === 'user') {
-                aiRemoteHistory.pop();
-            }
+            var plainEx =
+                '请求异常：' +
+                (e && e.message ? e.message : '未知错误') +
+                '\n\n若为跨域或网络失败，可用项目内 proxy-server.mjs 在本地转发，或通过允许 CORS 的网关访问。';
+            var exCh = genRecordEntryId();
+            aiRemoteHistory.push({ role: 'assistant', content: plainEx, _chid: exCh });
+            if (aiRemoteHistory.length > AI_CHAT_HISTORY_MAX) aiRemoteHistory = aiRemoteHistory.slice(-AI_CHAT_HISTORY_MAX);
+            persistAIChatHistory();
             addChatMessage(
                 '请求异常：' +
                     escapeHtml(e.message) +
                     '<br><br><span class="text-xs text-text-light">若为跨域或网络失败，可用项目内 <code class="text-[11px]">proxy-server.mjs</code> 在本地转发，或通过允许 CORS 的网关访问方舟。</span>',
-                'ai'
+                'ai',
+                exCh
             );
         }
         return;
     }
 
-    setTimeout(() => {
-        let reply = '';
-        let found = false;
-
-        for (const [food, data] of Object.entries(foodDatabase)) {
-            if (text.includes(food)) {
-                reply = `<b>${food}的GI值是${data.gi}</b><br><br>${data.advice}`;
-                found = true;
-                break;
-            }
-        }
-
-        if (!found) {
-            if (text.includes('低血糖')) {
-                reply = '<b>低血糖急救方法：</b><br><br>1️⃣ 立即吃15克快速升糖食物（如半杯果汁、3-4颗糖果）<br>2️⃣ 15分钟后复测血糖<br>3️⃣ 如果仍低于3.9，再吃15克<br>4️⃣ 症状缓解后吃些主食<br><br>⚠️ 如果意识不清，不要喂食物，立即侧卧并拨打120！';
-            } else if (text.includes('运动') || text.includes('瑜伽')) {
-                reply = '<b>适合糖尿病患者的运动：</b><br><br>🥇 <b>最佳：</b>快走、游泳、瑜伽、太极<br>⏰ <b>时间：</b>饭后1小时开始，每次30-45分钟<br>📊 <b>强度：</b>微微出汗，能说话但不能唱歌<br>⚠️ <b>注意：</b>血糖低于5.6或高于16.7时不要运动！';
-            } else {
-                reply = '这个问题我需要查询更多资料呢~ 💡<br><br>建议您：<br>• 咨询您的主治医生李医生<br>• 或者换个方式问我，比如"苹果能吃吗？"<br><br>可在右上角 ⚙️ 填写 API 密钥后使用大模型回复。';
-            }
-        }
-
-        addChatMessage(reply, 'ai');
-    }, 800);
+    setTimeout(function () {
+        var plainReply =
+            '当前未配置可用的对话接口（或根地址无效）。请点击右上角 ⚙️ 填写 API 根地址、密钥与模型并保存到本机；未能连接时请咨询主治医生或拨打急救电话。';
+        var ach = genRecordEntryId();
+        aiRemoteHistory.push({ role: 'assistant', content: plainReply, _chid: ach });
+        if (aiRemoteHistory.length > AI_CHAT_HISTORY_MAX) aiRemoteHistory = aiRemoteHistory.slice(-AI_CHAT_HISTORY_MAX);
+        persistAIChatHistory();
+        addChatMessage(formatAiReplyHtml(plainReply), 'ai', ach);
+    }, 400);
 }
 
-function addChatMessage(text, sender) {
+function addChatMessage(text, sender, chatRid) {
     const chatArea = document.getElementById('chat-area');
-    const div = document.createElement('div');
-    div.className = 'flex gap-3' + (sender === 'user' ? ' justify-end' : '');
+    if (!chatArea) return;
 
+    var innerHtml;
     if (sender === 'user') {
-        div.innerHTML =
+        innerHtml =
+            '<div class="flex gap-3 justify-end">' +
             '<div class="chat-bubble bg-warm-orange text-white rounded-2xl rounded-tr-sm p-3 shadow-sm text-sm leading-relaxed">' +
             text +
             '</div>' +
-            '<div class="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center text-sm flex-shrink-0">👩</div>';
+            '<div class="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center text-sm flex-shrink-0">👩</div>' +
+            '</div>';
     } else {
-        div.innerHTML =
+        innerHtml =
+            '<div class="flex gap-3">' +
             '<div class="w-8 h-8 bg-warm-orange rounded-full flex items-center justify-center text-sm flex-shrink-0">🌿</div>' +
             '<div class="chat-bubble bg-card-white rounded-2xl rounded-tl-sm p-3 shadow-sm text-sm leading-relaxed">' +
             text +
+            '</div>' +
             '</div>';
     }
 
-    chatArea.appendChild(div);
+    if (chatRid) {
+        var wrap = document.createElement('div');
+        wrap.className = 'longpress-del-wrap relative rounded-2xl mb-1 cursor-default';
+        wrap.setAttribute('title', '长按删除');
+        wrap.setAttribute('data-longpress-delete', '');
+        wrap.setAttribute('data-chat-rid', chatRid);
+        wrap.innerHTML = innerHtml;
+        chatArea.appendChild(wrap);
+        bindLongPressDeleteRows(wrap);
+    } else {
+        var holder = document.createElement('div');
+        holder.innerHTML = innerHtml;
+        chatArea.appendChild(holder.firstElementChild);
+    }
+
     chatArea.scrollTop = chatArea.scrollHeight;
 }
 
 // ==================== 底部表单 · 写入「记一笔」日历 ====================
 function appendRecordLog(iso, entry) {
     if (!iso || !entry) return;
+    if (!entry._rid) entry._rid = genRecordEntryId();
     if (!RECORD_LOG_BY_DATE[iso]) RECORD_LOG_BY_DATE[iso] = [];
     RECORD_LOG_BY_DATE[iso].unshift(entry);
     var rp = document.getElementById('page-record');
@@ -1887,6 +2107,10 @@ function appendRecordLog(iso, entry) {
     if (iso === RECORD_TODAY_ISO) refreshHomeFromRecords();
     refreshYogaPageIfVisible();
     persistRecordLogToStorage();
+    if (entry && entry.icon === '🏥') {
+        var pd = document.getElementById('page-doctor');
+        if (pd && pd.classList.contains('active')) renderDoctorTimelineFromLogs();
+    }
 }
 
 function sheetSelectChip(btn) {
@@ -1970,7 +2194,10 @@ function submitMedRecord() {
     var iso = recordSelectedIso || RECORD_TODAY_ISO;
     var drugEl = document.getElementById('med-form-name');
     var drug = drugEl ? drugEl.value.trim() : '';
-    if (!drug) drug = '二甲双胍';
+    if (!drug) {
+        showToast('请填写药品名称');
+        return;
+    }
     var doseBtn = document.querySelector('#sheet-content [data-chip-group="med-dose"].bg-light-green');
     var dose = doseBtn ? doseBtn.textContent.trim() : '1片';
     var whenBtn = document.querySelector('#sheet-content [data-chip-group="med-when"].bg-light-orange');
@@ -2121,7 +2348,7 @@ const sheetTemplates = {
         <div class="space-y-4">
             <div>
                 <label class="block text-sm font-medium mb-2">药品名称</label>
-                <input type="text" id="med-form-name" value="二甲双胍" class="w-full bg-gray-100 rounded-xl px-4 py-3 outline-none">
+                <input type="text" id="med-form-name" value="" placeholder="药品名称" class="w-full bg-gray-100 rounded-xl px-4 py-3 outline-none">
             </div>
             <div>
                 <label class="block text-sm font-medium mb-2">服用剂量</label>
@@ -2530,6 +2757,76 @@ function formatDoctorDateCn(iso) {
     return parseInt(parts[1], 10) + '月' + parseInt(parts[2], 10) + '日';
 }
 
+function isDoctorTimelineEntry(rec) {
+    return rec && rec.icon === '🏥';
+}
+
+function renderDoctorTimelineFromLogs() {
+    var list = document.getElementById('doctor-timeline-list');
+    if (!list) return;
+    var rows = [];
+    var isos = Object.keys(RECORD_LOG_BY_DATE).filter(function (x) {
+        return /^\d{4}-\d{2}-\d{2}$/.test(x);
+    });
+    isos.sort().reverse();
+    for (var ii = 0; ii < isos.length; ii++) {
+        var iso = isos[ii];
+        var items = RECORD_LOG_BY_DATE[iso] || [];
+        for (var j = 0; j < items.length; j++) {
+            if (isDoctorTimelineEntry(items[j])) rows.push({ iso: iso, rec: items[j] });
+        }
+    }
+    if (!rows.length) {
+        list.innerHTML =
+            '<div class="text-center text-text-light text-sm py-8">暂无就医记录，点击下方添加</div>';
+        return;
+    }
+    list.innerHTML = '';
+    for (var k = 0; k < rows.length; k++) {
+        var rec = rows[k].rec;
+        var isoD = rows[k].iso;
+        var row = document.createElement('div');
+        row.className = 'relative';
+        var dateIso =
+            rec.doctorDateIso && /^\d{4}-\d{2}-\d{2}$/.test(rec.doctorDateIso) ? rec.doctorDateIso : isoD;
+        var dateDisplay = formatDoctorDateCn(dateIso) || '日期待填';
+        var titleLine = escapeHtml(rec.title || '就医记录');
+        var docLine = escapeHtml(
+            (rec.sub && String(rec.sub).split('·').slice(1).join('·').trim()) || '—'
+        );
+        var bodyRaw =
+            rec.doctorDiag != null && String(rec.doctorDiag).trim()
+                ? String(rec.doctorDiag).trim()
+                : '（暂无诊断说明）';
+        var bodyLine = escapeHtml(bodyRaw);
+        var dot = document.createElement('div');
+        dot.className = 'absolute -left-4 top-1 timeline-dot bg-white';
+        row.appendChild(dot);
+        var shell = document.createElement('div');
+        shell.innerHTML = deletableRecordShell(
+            '<div class="bg-card-white rounded-2xl p-4 shadow-sm">' +
+                '<div class="flex justify-between items-start mb-2">' +
+                '<div><div class="font-bold">' +
+                titleLine +
+                '</div>' +
+                '<div class="text-sm text-text-light">' +
+                docLine +
+                '</div></div>' +
+                '<span class="text-xs text-text-light">' +
+                escapeHtml(dateDisplay) +
+                '</span></div>' +
+                '<div class="text-sm">' +
+                bodyLine +
+                '</div></div>',
+            isoD,
+            rec._rid || ''
+        );
+        if (shell.firstElementChild) row.appendChild(shell.firstElementChild);
+        list.appendChild(row);
+    }
+    bindLongPressDeleteRows(list);
+}
+
 function submitDoctorRecord() {
     const dept = (document.getElementById('doctor-form-dept') && document.getElementById('doctor-form-dept').value || '').trim();
     const docName = (document.getElementById('doctor-form-name') && document.getElementById('doctor-form-name').value || '').trim();
@@ -2541,36 +2838,18 @@ function submitDoctorRecord() {
         return;
     }
 
-    const list = document.getElementById('doctor-timeline-list');
-    const dateDisplay = formatDoctorDateCn(dateStr) || '日期待填';
-    const titleLine = escapeHtml(dept || '就医记录');
-    const doctorLine = escapeHtml(docName || '—');
-    const bodyLine = escapeHtml(diag || '（暂无诊断说明）');
-
-    const row = document.createElement('div');
-    row.className = 'relative';
-    row.innerHTML =
-        '<div class="absolute -left-4 top-1 timeline-dot bg-white"></div>' +
-        '<div class="bg-card-white rounded-2xl p-4 shadow-sm">' +
-        '<div class="flex justify-between items-start mb-2">' +
-        '<div><div class="font-bold">' + titleLine + '</div>' +
-        '<div class="text-sm text-text-light">' + doctorLine + '</div></div>' +
-        '<span class="text-xs text-text-light">' + escapeHtml(dateDisplay) + '</span></div>' +
-        '<div class="text-sm">' + bodyLine + '</div></div>';
-
-    if (list) {
-        list.insertBefore(row, list.firstChild);
-    }
-
     var logIso = dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : (recordSelectedIso || RECORD_TODAY_ISO);
     appendRecordLog(logIso, {
         icon: '🏥',
         iconBg: 'bg-blue-50',
         title: dept || '就医记录',
         sub: (formatDoctorDateCn(dateStr) || '日期待填') + ' · ' + (docName || '医生'),
-        rightHtml: ''
+        rightHtml: '',
+        doctorDiag: diag,
+        doctorDateIso: dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : ''
     });
 
+    renderDoctorTimelineFromLogs();
     closeSheet();
     showToast('就医记录已保存！');
 }
@@ -2638,15 +2917,15 @@ function scheduleCloseSOSAfterDial() {
 }
 
 // ==================== 就诊档案 · 复诊需求（本地存储）====================
-var FOLLOWUP_REMINDER_STORAGE_KEY = 'sweet_followup_reminder_v1';
+var FOLLOWUP_REMINDER_STORAGE_KEY = 'sweet_followup_reminder_v2';
 
 function getDefaultFollowupReminder() {
     return {
-        date: '2026-05-20',
-        time: '09:00',
-        dept: '内分泌科',
-        doctor: '李医生',
-        note: '带齐化验单'
+        date: '',
+        time: '',
+        dept: '',
+        doctor: '',
+        note: ''
     };
 }
 
@@ -2655,7 +2934,7 @@ function loadFollowupReminder() {
         var raw = localStorage.getItem(FOLLOWUP_REMINDER_STORAGE_KEY);
         if (raw) {
             var o = JSON.parse(raw);
-            if (o && o.date) return Object.assign(getDefaultFollowupReminder(), o);
+            if (o && typeof o === 'object') return Object.assign(getDefaultFollowupReminder(), o);
         }
     } catch (e) {}
     return getDefaultFollowupReminder();
@@ -2670,7 +2949,8 @@ function padFollowup2(n) {
 }
 
 function formatFollowupTimeCn(timeStr) {
-    var p = (timeStr || '09:00').split(':');
+    if (!timeStr || !String(timeStr).trim()) return '';
+    var p = String(timeStr).split(':');
     var h = parseInt(p[0], 10);
     if (isNaN(h)) h = 9;
     var m = parseInt(p[1], 10);
@@ -2687,18 +2967,28 @@ function formatFollowupTimeCn(timeStr) {
 function formatFollowupCardLine1(isoDate, timeStr) {
     var pt = String(isoDate || '').split('-').map(Number);
     if (pt.length !== 3) return '';
-    return parseInt(pt[1], 10) + '月' + parseInt(pt[2], 10) + '日 ' + formatFollowupTimeCn(timeStr);
+    var datePart = parseInt(pt[1], 10) + '月' + parseInt(pt[2], 10) + '日';
+    var timePart = formatFollowupTimeCn(timeStr);
+    return timePart ? datePart + ' ' + timePart : datePart;
 }
 
 function applyFollowupReminderCard() {
     var o = loadFollowupReminder();
     var l1 = document.getElementById('followup-card-line1');
     var l2 = document.getElementById('followup-card-line2');
-    if (l1) l1.textContent = formatFollowupCardLine1(o.date, o.time);
-    var parts = [o.dept, o.doctor, o.note].filter(function (x) {
-        return x && String(x).trim();
-    });
-    if (l2) l2.textContent = parts.length ? parts.join(' · ') : '—';
+    if (l1) {
+        if (o.date && String(o.date).trim()) {
+            l1.textContent = formatFollowupCardLine1(o.date, o.time);
+        } else {
+            l1.textContent = '尚未设置复诊时间';
+        }
+    }
+    if (l2) {
+        var parts = [o.dept, o.doctor, o.note].filter(function (x) {
+            return x && String(x).trim();
+        });
+        l2.textContent = parts.length ? parts.join(' · ') : '点击「记录复诊需求」填写科室、医生与备注';
+    }
 }
 
 function openFollowupReminderModal() {
@@ -2709,7 +2999,7 @@ function openFollowupReminderModal() {
     var docEl = document.getElementById('followup-modal-doctor');
     var noteEl = document.getElementById('followup-modal-note');
     if (dEl) dEl.value = o.date || '';
-    if (tEl) tEl.value = o.time || '09:00';
+    if (tEl) tEl.value = o.time || '';
     if (deptEl) deptEl.value = o.dept || '';
     if (docEl) docEl.value = o.doctor || '';
     if (noteEl) noteEl.value = o.note || '';
@@ -2730,7 +3020,7 @@ function submitFollowupReminder() {
     var dateEl = document.getElementById('followup-modal-date');
     var timeEl = document.getElementById('followup-modal-time');
     var date = dateEl ? dateEl.value : '';
-    var time = (timeEl && timeEl.value) || '09:00';
+    var time = (timeEl && timeEl.value) || '';
     var dept = (document.getElementById('followup-modal-dept') && document.getElementById('followup-modal-dept').value) || '';
     var doctor = (document.getElementById('followup-modal-doctor') && document.getElementById('followup-modal-doctor').value) || '';
     var note = (document.getElementById('followup-modal-note') && document.getElementById('followup-modal-note').value) || '';
@@ -2861,6 +3151,10 @@ function showToast(msg) {
 // ==================== 初始化 ====================
 document.addEventListener('DOMContentLoaded', () => {
     applyFontScaleFromSlider(loadFontScaleSliderValue());
+    syncRecordTodayIso();
+    updateHomeHeaderDate();
+    renderDoctorTimelineFromLogs();
+    renderAIChatFromHistory();
     showPage('home');
     updateMedProgress();
     applyFollowupReminderCard();
