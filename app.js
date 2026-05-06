@@ -2000,7 +2000,6 @@
   }
 
   function isStoryPlayAnnotateBubbleAllowed() {
-    if (!storyPlayAnnotateMode) return false;
     const playPanel = document.getElementById("story-panel-play");
     if (!playPanel || playPanel.hidden) return false;
     const plot = getStorySelectionActivePlot();
@@ -2109,19 +2108,49 @@
     return true;
   }
 
-  function bindStoryLineLongPress(target, onShortTrigger) {
-    if (!target) return;
+  function setStoryPlayLinePressMeta(el, plot, turnIndex, lineIndex) {
+    if (!el || !plot || plot.playSealed) return;
+    el.setAttribute("data-story-press-plot-id", String(plot.id));
+    el.setAttribute("data-story-press-turn-index", String(turnIndex));
+    el.setAttribute("data-story-press-line-index", String(lineIndex));
+  }
+
+  function getStoryPlayFeedLinePressMeta(target) {
+    if (!target || !target.closest) return null;
+    const hit = target.closest("[data-story-press-plot-id]");
+    if (!hit) return null;
+    const feed = document.getElementById("story-play-feed");
+    if (!feed || !feed.contains(hit)) return null;
+    const plotId = String(hit.getAttribute("data-story-press-plot-id") || "").trim();
+    const turnIndex = parseInt(hit.getAttribute("data-story-press-turn-index"), 10);
+    const lineIndex = parseInt(hit.getAttribute("data-story-press-line-index"), 10);
+    if (!plotId || !Number.isFinite(turnIndex) || !Number.isFinite(lineIndex)) return null;
+    return { hit: hit, plotId: plotId, turnIndex: turnIndex, lineIndex: lineIndex };
+  }
+
+  /** 剧情正文在可滚动容器内：用 feed 级 Pointer 委托，避免每行单独绑 touch 时在滚动/冒泡下只有局部行能触发 */
+  function installStoryPlayFeedLinePressDelegation() {
+    const feed = document.getElementById("story-play-feed");
+    if (!feed || feed.dataset.storyLinePressDelegation === "1") return;
+    feed.dataset.storyLinePressDelegation = "1";
     const SHORT_HOLD_MS = 420;
     const LONG_HOLD_MS = 5000;
-    const MOVE_TOLERANCE = 12;
-    let suppressMouseUntil = 0;
+    const MOVE_TOLERANCE = 28;
 
-    function beginPress(pointerType, x, y) {
+    function beginPress(e, meta) {
+      const plot = plots.find(function (x) {
+        return x.id === meta.plotId;
+      });
+      if (!plot || plot.playSealed) return;
       clearStorySelectionLongPressTimer();
       storySelectionLongPressState = {
-        pointerType: pointerType,
-        x: Number.isFinite(x) ? x : 0,
-        y: Number.isFinite(y) ? y : 0,
+        pointerId: e.pointerId,
+        lineRootEl: meta.hit,
+        plotId: meta.plotId,
+        turnIndex: meta.turnIndex,
+        lineIndex: meta.lineIndex,
+        x: e.clientX,
+        y: e.clientY,
         startAt: Date.now(),
         longTriggered: false,
         moved: false,
@@ -2133,7 +2162,9 @@
         st.longTriggered = true;
         storySelectionSuppressClickUntil = Date.now() + 520;
         if (!isStoryPlayAnnotateBubbleAllowed()) return;
-        const ok = selectStorySentenceByPoint(target, st.x, st.y);
+        const lineRoot = st.lineRootEl;
+        if (!lineRoot || !document.contains(lineRoot)) return;
+        const ok = selectStorySentenceByPoint(lineRoot, st.x, st.y);
         if (ok) {
           storySelectionIgnoreNextBubble = false;
           showToast("已选中当前短句，可继续拖动扩大范围。", "info", 1800);
@@ -2153,46 +2184,56 @@
       }
     }
 
-    function endPress() {
+    function endPress(e) {
       const st = storySelectionLongPressState;
+      if (!st) return;
+      if (e && e.pointerId != null && st.pointerId != null && e.pointerId !== st.pointerId) return;
       clearStorySelectionLongPressTimer();
+      const snapshot = st;
       storySelectionLongPressState = null;
-      if (!st || st.moved || st.longTriggered || typeof onShortTrigger !== "function") return;
-      const heldMs = Date.now() - (Number.isFinite(st.startAt) ? st.startAt : Date.now());
-      if (heldMs >= SHORT_HOLD_MS && heldMs < LONG_HOLD_MS) {
-        storySelectionSuppressClickUntil = Date.now() + 900;
-        onShortTrigger();
-      }
+      if (!snapshot || snapshot.moved || snapshot.longTriggered) return;
+      const heldMs = Date.now() - (Number.isFinite(snapshot.startAt) ? snapshot.startAt : Date.now());
+      if (heldMs < SHORT_HOLD_MS || heldMs >= LONG_HOLD_MS) return;
+      const plot = plots.find(function (x) {
+        return x.id === snapshot.plotId;
+      });
+      if (!plot || plot.playSealed) return;
+      storySelectionSuppressClickUntil = Date.now() + 900;
+      openStoryLineActionSheet(plot, snapshot.turnIndex, snapshot.lineIndex);
     }
 
-    target.addEventListener("touchstart", function (e) {
-      const t = e.touches && e.touches[0];
-      if (!t) return;
-      suppressMouseUntil = Date.now() + 700;
-      beginPress("touch", t.clientX, t.clientY);
-    }, { passive: true });
-    target.addEventListener("touchmove", function (e) {
-      const t = e.touches && e.touches[0];
-      if (!t) return;
-      maybeCancelByMove(t.clientX, t.clientY);
-    }, { passive: true });
-    target.addEventListener("touchend", endPress, { passive: true });
-    target.addEventListener("touchcancel", endPress, { passive: true });
+    feed.addEventListener(
+      "pointerdown",
+      function (e) {
+        if (e.pointerType === "mouse" && e.button !== 0) return;
+        const meta = getStoryPlayFeedLinePressMeta(e.target);
+        if (!meta) return;
+        beginPress(e, meta);
+      },
+      { passive: true }
+    );
 
-    target.addEventListener("mousedown", function (e) {
-      if (e.button !== 0) return;
-      if (Date.now() < suppressMouseUntil) return;
-      beginPress("mouse", e.clientX, e.clientY);
-    });
-    target.addEventListener("mousemove", function (e) {
-      maybeCancelByMove(e.clientX, e.clientY);
-    });
-    target.addEventListener("mouseup", endPress);
-    target.addEventListener("mouseleave", endPress);
+    document.addEventListener(
+      "pointermove",
+      function (e) {
+        const st = storySelectionLongPressState;
+        if (!st || st.pointerId == null || e.pointerId !== st.pointerId) return;
+        maybeCancelByMove(e.clientX, e.clientY);
+      },
+      { passive: true }
+    );
+    document.addEventListener("pointerup", endPress, { passive: true });
+    document.addEventListener("pointercancel", endPress, { passive: true });
 
-    target.addEventListener("contextmenu", function (e) {
+    feed.addEventListener("contextmenu", function (e) {
+      const meta = getStoryPlayFeedLinePressMeta(e.target);
+      if (!meta) return;
+      const plot = plots.find(function (x) {
+        return x.id === meta.plotId;
+      });
+      if (!plot || plot.playSealed) return;
       e.preventDefault();
-      if (typeof onShortTrigger === "function") onShortTrigger();
+      openStoryLineActionSheet(plot, meta.turnIndex, meta.lineIndex);
     });
   }
 
@@ -12320,9 +12361,7 @@
     applyStoryLineDecorations(tail, plot, String(firstLine.id || ""));
     msgRow.appendChild(tail);
     if (!plot.playSealed) {
-      bindStoryLineLongPress(tail, function () {
-        openStoryLineActionSheet(plot, turnIndex, firstIdx);
-      });
+      setStoryPlayLinePressMeta(tail, plot, turnIndex, firstIdx);
     }
   }
 
@@ -12480,9 +12519,7 @@
             narr.innerHTML = renderStoryInlineMarkup(narrMerged);
             applyStoryLineDecorations(narr, p, String(narrFirstLine.id || ""));
             if (!p.playSealed) {
-              bindStoryLineLongPress(narr, function () {
-                openStoryLineActionSheet(p, turnIndex, narrFirstIdx);
-              });
+              setStoryPlayLinePressMeta(narr, p, turnIndex, narrFirstIdx);
             }
             turnGroup.appendChild(narr);
             lineIndex = narrRun.resumeAt;
@@ -12583,9 +12620,7 @@
               mergeRow.appendChild(mergeTop);
               mergeRow.appendChild(mergeTxt);
               if (!p.playSealed) {
-                bindStoryLineLongPress(mergeTxt, function () {
-                  openStoryLineActionSheet(p, turnIndex, lineIndex);
-                });
+                setStoryPlayLinePressMeta(mergeRow, p, turnIndex, lineIndex);
               }
               var ambMerge = gatherTrailingAmbiencePack(turnLines, mergeEndIdx, p, turnIndex);
               if (ambMerge.indices.length) {
@@ -12619,9 +12654,7 @@
           row.appendChild(top);
           row.appendChild(txt);
           if (!p.playSealed) {
-            bindStoryLineLongPress(txt, function () {
-              openStoryLineActionSheet(p, turnIndex, lineIndex);
-            });
+            setStoryPlayLinePressMeta(row, p, turnIndex, lineIndex);
           }
           var ambSingle = gatherTrailingAmbiencePack(turnLines, lineIndex, p, turnIndex);
           if (ambSingle.indices.length) {
@@ -15243,6 +15276,7 @@
       }
     });
   }
+  installStoryPlayFeedLinePressDelegation();
   const storySelectionBubble = getStorySelectionBubbleEl();
   if (storySelectionBubble) {
     storySelectionBubble.addEventListener("click", function (e) {
