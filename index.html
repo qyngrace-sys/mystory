@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#f5b8c8" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title" content="小狗陪读" />
-  <title>小狗陪读</title>
+  <meta name="apple-mobile-web-app-title" content="嗅嗅剧场" />
+  <title>嗅嗅剧场</title>
   <link rel="icon" type="image/png" sizes="1024x1024" href="icons/app-icon.png?v=2" />
   <link rel="apple-touch-icon" href="icons/app-icon.png?v=2" />
   <link rel="manifest" href="manifest.webmanifest" />
@@ -52,6 +52,9 @@
               <p id="assistant-name" class="assistant-name assistant-name--bar"></p>
             </div>
             <div class="assistant-header__actions">
+              <button type="button" class="icon-btn" id="assistant-chat-batch-select" aria-label="批量选择与删除" title="批量选择与删除">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+              </button>
               <button type="button" class="icon-btn icon-btn--add" id="assistant-switch-open" aria-label="切换助手">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polygon fill="none" points="12 2 15 8.5 22 9.5 17 14.5 18.5 22 12 18.25 5.5 22 7 14.5 2 9.5 9 8.5 12 2"/></svg>
               </button>
@@ -616,6 +619,10 @@
             <svg class="story-line-sheet__item-icon icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
             <span>修改角色形象</span>
           </button>
+          <button type="button" class="story-line-sheet__item" data-avatar-action="play-background">
+            <svg class="story-line-sheet__item-icon icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="2"/><path d="M21 17l-6-6-4 4-3-3-5 5"/></svg>
+            <span>设置当前剧情界面背景</span>
+          </button>
           <button type="button" class="story-line-sheet__item" data-avatar-action="bind-wb">
             <svg class="story-line-sheet__item-icon icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><path d="M8 7h8M8 11h6"/></svg>
             <span>绑定的世界书</span>
@@ -846,6 +853,39 @@
           </label>
         </div>
         <div id="story-search-list" class="story-search-list"></div>
+      </div>
+    </div>
+
+    <div id="modal-story-play-bg" class="overlay overlay--dim" hidden>
+      <div class="modal-sheet modal-sheet--story-play-bg">
+        <div class="sheet-handle"></div>
+        <div class="modal-header">
+          <h2 class="modal-title">剧情界面背景</h2>
+          <button type="button" class="icon-btn" id="story-play-bg-close" aria-label="关闭">
+            <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="story-play-bg-grid">
+          <div class="story-play-bg-cell">
+            <span class="field__label">浅色模式</span>
+            <div id="story-play-bg-light-preview" class="story-play-bg-preview" role="img" aria-label="浅色背景预览"></div>
+            <div class="story-play-bg-actions">
+              <label class="btn btn--primary btn--pill" for="story-play-bg-light-file">选择图片</label>
+              <button type="button" class="btn btn-secondary btn--pill" id="story-play-bg-light-clear">清除</button>
+            </div>
+          </div>
+          <div class="story-play-bg-cell">
+            <span class="field__label">深色模式</span>
+            <div id="story-play-bg-dark-preview" class="story-play-bg-preview" role="img" aria-label="深色背景预览"></div>
+            <div class="story-play-bg-actions">
+              <label class="btn btn--primary btn--pill" for="story-play-bg-dark-file">选择图片</label>
+              <button type="button" class="btn btn-secondary btn--pill" id="story-play-bg-dark-clear">清除</button>
+            </div>
+          </div>
+        </div>
+        <input type="file" id="story-play-bg-light-file" class="sr-only" accept="image/*" />
+        <input type="file" id="story-play-bg-dark-file" class="sr-only" accept="image/*" />
+        <button type="button" class="btn btn-secondary btn--block btn--pill mt" id="story-play-bg-clear-all">清除全部背景图</button>
       </div>
     </div>
 

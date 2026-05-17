@@ -278,7 +278,19 @@
     return { id: x.id, name: x.name, fixed: true };
   });
 
-  let appearanceState = { mode: "light", paletteId: APPEARANCE_PALETTE_DEFAULT_ID };
+  let appearanceState = { modeSetting: "system", paletteId: APPEARANCE_PALETTE_DEFAULT_ID };
+
+  /** 浅色 / 深色：跟随系统时用 prefers-color-scheme，否则用手动选择。 */
+  function resolveEffectiveThemeMode() {
+    if (appearanceState.modeSetting === "system") {
+      try {
+        return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      } catch (e) {
+        return "light";
+      }
+    }
+    return appearanceState.modeSetting === "dark" ? "dark" : "light";
+  }
   let customThemePalette = null;
   let customFontMeta = null;
   let loadedFontFace = null;
@@ -445,13 +457,14 @@
   }
 
   function applyAppearanceToDom() {
-    document.documentElement.dataset.theme = appearanceState.mode;
+    const effectiveMode = resolveEffectiveThemeMode();
+    document.documentElement.dataset.theme = effectiveMode;
     appearanceState.paletteId = resolvePaletteId(appearanceState.paletteId);
     document.documentElement.dataset.palette = appearanceState.paletteId;
     APPEARANCE_DYNAMIC_VARS.forEach(function (name) {
       document.documentElement.style.removeProperty(name);
     });
-    const paletteVars = buildPaletteCssVars(appearanceState.paletteId, appearanceState.mode);
+    const paletteVars = buildPaletteCssVars(appearanceState.paletteId, effectiveMode);
     if (!paletteVars) return;
     Object.keys(paletteVars).forEach(function (key) {
       document.documentElement.style.setProperty(key, paletteVars[key]);
@@ -461,6 +474,17 @@
     const marker = palette && Array.isArray(palette.tones) && palette.tones[0] ? normalizeHex(palette.tones[0]) : "#f5d97f";
     document.documentElement.style.setProperty("--story-selection-marker", marker || "#f5d97f");
     document.documentElement.style.setProperty("--story-selection-marker-soft", toRgba(marker || "#f5d97f", 0.36));
+    refreshStoryPlayBackgroundForCurrentPlot();
+  }
+
+  /** 切换浅色/深色后刷新剧情正文区背景（若当前打开了剧情）。 */
+  function refreshStoryPlayBackgroundForCurrentPlot() {
+    const layer = els.layerStory();
+    if (!layer || layer.hidden) return;
+    const plot = plots.find(function (x) {
+      return x.id === lastStoryPlotId;
+    });
+    if (plot) applyStoryBackground(plot);
   }
 
   function persistAppearance() {
@@ -468,7 +492,7 @@
       localStorage.setItem(
         STORAGE_APPEARANCE,
         JSON.stringify({
-          mode: appearanceState.mode,
+          modeSetting: appearanceState.modeSetting,
           paletteId: appearanceState.paletteId,
           customPaletteTones: customThemePalette && Array.isArray(customThemePalette.tones) ? customThemePalette.tones : null,
         })
@@ -482,11 +506,35 @@
       if (raw) {
         const o = JSON.parse(raw);
         customThemePalette = buildCustomThemePalette(o.customPaletteTones);
-        if (o.mode === "dark" || o.mode === "light") appearanceState.mode = o.mode;
+        let migratedLegacyAppearance = false;
+        let ms = o.modeSetting;
+        if (ms !== "system" && ms !== "light" && ms !== "dark") {
+          migratedLegacyAppearance = true;
+          if (o.mode === "dark" || o.mode === "light") ms = o.mode;
+          else ms = "light";
+        }
+        appearanceState.modeSetting = ms;
         appearanceState.paletteId = resolvePaletteId(o.paletteId);
+        if (migratedLegacyAppearance) persistAppearance();
       }
     } catch (e) {}
     applyAppearanceToDom();
+  }
+
+  let systemThemeMediaBound = false;
+  function initSystemThemeListener() {
+    if (systemThemeMediaBound) return;
+    systemThemeMediaBound = true;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onSchemeChange = function () {
+      if (appearanceState.modeSetting !== "system") return;
+      applyAppearanceToDom();
+      try {
+        renderDynamic();
+      } catch (e) {}
+    };
+    if (mq.addEventListener) mq.addEventListener("change", onSchemeChange);
+    else if (mq.addListener) mq.addListener(onSchemeChange);
   }
 
   function showToast(message, type, duration) {
@@ -755,7 +803,7 @@
         {
           format: BACKUP_FORMAT,
           version: BACKUP_VERSION,
-          appTitle: "小狗陪读",
+          appTitle: "嗅嗅剧场",
           exportedAt: new Date().toISOString(),
         },
         null,
@@ -1081,14 +1129,20 @@
     root.addEventListener("click", (e) => {
       const btn = e.target.closest("button");
       if (!btn || !root.contains(btn)) return;
+      if (btn.id === "set-theme-system") {
+        appearanceState.modeSetting = "system";
+        persistAppearance();
+        applyAppearanceToDom();
+        renderDynamic();
+      }
       if (btn.id === "set-theme-light") {
-        appearanceState.mode = "light";
+        appearanceState.modeSetting = "light";
         persistAppearance();
         applyAppearanceToDom();
         renderDynamic();
       }
       if (btn.id === "set-theme-dark") {
-        appearanceState.mode = "dark";
+        appearanceState.modeSetting = "dark";
         persistAppearance();
         applyAppearanceToDom();
         renderDynamic();
@@ -1480,6 +1534,8 @@
           return !!it.lineId && it.end > it.start && !!it.content;
         });
       if (typeof p.backgroundImage !== "string") p.backgroundImage = "";
+      if (typeof p.playBackgroundLight !== "string") p.playBackgroundLight = "";
+      if (typeof p.playBackgroundDark !== "string") p.playBackgroundDark = "";
       const openingText = String((p.playIntro && p.playIntro.opening) || p.storyStart || "").trim();
       if (p.playTurns.length === 1 && openingText) {
         const onlyTurn = p.playTurns[0] || {};
@@ -1585,6 +1641,7 @@
   /** 剧情内搜索：高亮命中条目的定时清理 */
   let storySearchHighlightTimer = null;
   let avatarActionPlotId = null;
+  let storyPlayBgModalPlotId = null;
   let plotMemoryEditingId = null;
   let plotMemoryEditingDraft = "";
   /** 记忆卡片：阅读模式下点击正文展开全文时的 id 集合 */
@@ -1613,12 +1670,9 @@
   let assistantProfileModalMode = "edit";
   let assistantCreateDraft = { apiMode: "global", dedicatedApiId: "" };
   let assistantReplying = false;
-  /** 助手对话：长按多选删除 */
+  /** 助手对话：顶部「批量选择与删除」进入多选；不再支持长按单条删除 */
   let assistantChatSelectMode = false;
   let assistantChatSelectedIndices = new Set();
-  let assistantChatLongPressTimer = null;
-  let assistantChatLongPressPtr = null;
-  let assistantChatDocPointerCleanup = null;
   let assistantChatSuppressClickUntil = 0;
   /** 剧情列表「分享」：选择助手弹窗期间的 plot.id */
   let plotSharePendingPlotId = null;
@@ -2015,6 +2069,23 @@
     return true;
   }
 
+  /**
+   * 顶部划线/想法等气泡：仅在「本条已进入编辑」且选区在可编辑框内时响应 selectionchange；
+   * 只读正文长按不应弹出（手机端系统选区会触发 selectionchange）。
+   * 已划线片段上调整选区时仍允许（与点击划线逻辑一致）。
+   */
+  function shouldShowStorySelectionBubbleFromSelectionChange() {
+    const sel = window.getSelection ? window.getSelection() : null;
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return false;
+    const range = sel.getRangeAt(0);
+    const root = range.commonAncestorContainer;
+    const el = root.nodeType === Node.ELEMENT_NODE ? root : root.parentElement;
+    if (!el || !el.closest) return false;
+    if (el.closest(".story-selection-highlight")) return true;
+    if (storyPlayAnnotateMode && el.closest(".story-line-editable-inline")) return true;
+    return false;
+  }
+
   function getSelectionTextNodePosition(container, targetOffset) {
     const total = Math.max(0, Math.floor(targetOffset || 0));
     let remain = total;
@@ -2170,6 +2241,7 @@
         st.longTriggered = true;
         storySelectionSuppressClickUntil = Date.now() + 520;
         if (!isStoryPlayAnnotateBubbleAllowed()) return;
+        if (!storyPlayAnnotateMode) return;
         const lineRoot = st.lineRootEl;
         if (!lineRoot || !document.contains(lineRoot)) return;
         const ok = selectStorySentenceByPoint(lineRoot, st.x, st.y);
@@ -3117,6 +3189,7 @@
       const ctx = getLineContext(plot.id, turnIndex, lineIndex);
       if (!ctx) {
         storyLineEditState = null;
+        storyPlayAnnotateMode = false;
         rerenderStoryPlayIfCurrent(plot);
         return;
       }
@@ -3125,6 +3198,7 @@
         if (!(await showConfirm("内容为空将删除这条剧情，确定吗？"))) return;
         removeStoryLineAndBelow(ctx);
         storyLineEditState = null;
+        storyPlayAnnotateMode = false;
         flushPersistNarrative();
         renderDynamic();
         rerenderStoryPlayIfCurrent(ctx.plot);
@@ -3133,6 +3207,7 @@
       }
       ctx.line.text = normalizeStoryPlainTextForLayout(v);
       storyLineEditState = null;
+      storyPlayAnnotateMode = false;
       flushPersistNarrative();
       rerenderStoryPlayIfCurrent(plot);
       showToast("已保存修改", "success");
@@ -3360,6 +3435,8 @@
           })
         : [],
       backgroundImage: String(plot.backgroundImage || ""),
+      playBackgroundLight: String(plot.playBackgroundLight || ""),
+      playBackgroundDark: String(plot.playBackgroundDark || ""),
     };
   }
 
@@ -5113,6 +5190,10 @@
     }
     if (action === "edit-role") {
       openPlotRoleOverrideModal(plot);
+      return;
+    }
+    if (action === "play-background") {
+      openStoryPlayBackgroundModal(plot);
       return;
     }
     if (action === "bind-wb") {
@@ -6937,6 +7018,8 @@
     if (!Array.isArray(plot.storyHighlights)) plot.storyHighlights = [];
     if (!Array.isArray(plot.storyThoughts)) plot.storyThoughts = [];
     if (typeof plot.backgroundImage !== "string") plot.backgroundImage = "";
+    if (typeof plot.playBackgroundLight !== "string") plot.playBackgroundLight = "";
+    if (typeof plot.playBackgroundDark !== "string") plot.playBackgroundDark = "";
     if (!plot.pendingPlayerTurnAction || typeof plot.pendingPlayerTurnAction !== "object") plot.pendingPlayerTurnAction = null;
     if (typeof plot.playChoicesRegenerateInFlight !== "boolean") plot.playChoicesRegenerateInFlight = false;
     if (typeof plot.playSealed !== "boolean") plot.playSealed = false;
@@ -7706,16 +7789,166 @@
     });
   }
 
+  function getStoryPlayBackgroundUrlForTheme(plot) {
+    if (!plot) return "";
+    ensurePlotExtendedState(plot);
+    const isDark = document.documentElement.dataset.theme === "dark";
+    const light = String(plot.playBackgroundLight || "").trim();
+    const dark = String(plot.playBackgroundDark || "").trim();
+    const legacy = String(plot.backgroundImage || "").trim();
+    if (isDark) return dark || legacy || "";
+    return light || legacy || "";
+  }
+
   function applyStoryBackground(plot) {
     const panel = document.getElementById("story-panel-play");
     if (!panel) return;
-    const bg = plot && plot.backgroundImage ? String(plot.backgroundImage).trim() : "";
+    const bg = getStoryPlayBackgroundUrlForTheme(plot);
     if (bg) {
       panel.classList.add("story-panel--with-bg");
-      panel.style.backgroundImage = "linear-gradient(rgba(0,0,0,0.1), rgba(0,0,0,0.1)), url('" + bg.replace(/'/g, "\\'") + "')";
+      panel.style.backgroundImage = "url('" + bg.replace(/'/g, "\\'") + "')";
     } else {
       panel.classList.remove("story-panel--with-bg");
       panel.style.backgroundImage = "";
+    }
+  }
+
+  function fillStoryPlayBgPreview(el, url) {
+    if (!el) return;
+    const u = String(url || "").trim();
+    if (!u) {
+      el.style.backgroundImage = "";
+      el.classList.remove("story-play-bg-preview--has");
+      el.textContent = "暂无图片";
+      return;
+    }
+    el.textContent = "";
+    el.classList.add("story-play-bg-preview--has");
+    el.style.backgroundImage = "url('" + u.replace(/'/g, "\\'") + "')";
+  }
+
+  function getStoryPlayBgModalPlot() {
+    return plots.find(function (x) {
+      return x.id === storyPlayBgModalPlotId;
+    }) || null;
+  }
+
+  function syncStoryPlayBgModalPreviews() {
+    const plot = getStoryPlayBgModalPlot();
+    const lightEl = document.getElementById("story-play-bg-light-preview");
+    const darkEl = document.getElementById("story-play-bg-dark-preview");
+    if (!plot) {
+      fillStoryPlayBgPreview(lightEl, "");
+      fillStoryPlayBgPreview(darkEl, "");
+      return;
+    }
+    ensurePlotExtendedState(plot);
+    fillStoryPlayBgPreview(lightEl, plot.playBackgroundLight);
+    fillStoryPlayBgPreview(darkEl, plot.playBackgroundDark);
+  }
+
+  function openStoryPlayBackgroundModal(plot) {
+    if (!plot || plot.playSealed) return;
+    const modal = document.getElementById("modal-story-play-bg");
+    if (!modal) return;
+    ensurePlotExtendedState(plot);
+    storyPlayBgModalPlotId = plot.id;
+    syncStoryPlayBgModalPreviews();
+    modal.hidden = false;
+  }
+
+  function closeStoryPlayBackgroundModal() {
+    const modal = document.getElementById("modal-story-play-bg");
+    if (modal) modal.hidden = true;
+    storyPlayBgModalPlotId = null;
+  }
+
+  function bindStoryPlayBackgroundModal() {
+    const modal = document.getElementById("modal-story-play-bg");
+    const closeBtn = document.getElementById("story-play-bg-close");
+    if (modal) {
+      modal.addEventListener("click", function (e) {
+        if (e.target.id === "modal-story-play-bg") closeStoryPlayBackgroundModal();
+      });
+    }
+    if (closeBtn) closeBtn.addEventListener("click", closeStoryPlayBackgroundModal);
+
+    function persistAndRefresh(plot) {
+      if (!plot) return;
+      schedulePersistNarrative();
+      if (plot.id === lastStoryPlotId) applyStoryBackground(plot);
+    }
+
+    const lightFile = document.getElementById("story-play-bg-light-file");
+    const darkFile = document.getElementById("story-play-bg-dark-file");
+    if (lightFile) {
+      lightFile.addEventListener("change", async function (e) {
+        const f = e.target.files && e.target.files[0];
+        const plot = getStoryPlayBgModalPlot();
+        if (!f || !plot) return;
+        try {
+          const url = await readImageAsCompressedDataURL(f, 1440, 900000);
+          plot.playBackgroundLight = url;
+          syncStoryPlayBgModalPreviews();
+          persistAndRefresh(plot);
+          showToast("已保存浅色背景", "success");
+        } catch (_err) {
+          showToast("图片处理失败，请换一张较小的图片重试。", "error");
+        }
+        e.target.value = "";
+      });
+    }
+    if (darkFile) {
+      darkFile.addEventListener("change", async function (e) {
+        const f = e.target.files && e.target.files[0];
+        const plot = getStoryPlayBgModalPlot();
+        if (!f || !plot) return;
+        try {
+          const url = await readImageAsCompressedDataURL(f, 1440, 900000);
+          plot.playBackgroundDark = url;
+          syncStoryPlayBgModalPreviews();
+          persistAndRefresh(plot);
+          showToast("已保存深色背景", "success");
+        } catch (_err) {
+          showToast("图片处理失败，请换一张较小的图片重试。", "error");
+        }
+        e.target.value = "";
+      });
+    }
+
+    const btnLightClear = document.getElementById("story-play-bg-light-clear");
+    const btnDarkClear = document.getElementById("story-play-bg-dark-clear");
+    const btnAllClear = document.getElementById("story-play-bg-clear-all");
+    if (btnLightClear) {
+      btnLightClear.addEventListener("click", function () {
+        const plot = getStoryPlayBgModalPlot();
+        if (!plot) return;
+        plot.playBackgroundLight = "";
+        syncStoryPlayBgModalPreviews();
+        persistAndRefresh(plot);
+      });
+    }
+    if (btnDarkClear) {
+      btnDarkClear.addEventListener("click", function () {
+        const plot = getStoryPlayBgModalPlot();
+        if (!plot) return;
+        plot.playBackgroundDark = "";
+        syncStoryPlayBgModalPreviews();
+        persistAndRefresh(plot);
+      });
+    }
+    if (btnAllClear) {
+      btnAllClear.addEventListener("click", async function () {
+        const plot = getStoryPlayBgModalPlot();
+        if (!plot) return;
+        if (!(await showConfirm("清除本条剧情的浅色/深色界面背景图？（不影响正文内容）"))) return;
+        plot.playBackgroundLight = "";
+        plot.playBackgroundDark = "";
+        plot.backgroundImage = "";
+        syncStoryPlayBgModalPreviews();
+        persistAndRefresh(plot);
+        showToast("已清除背景图", "success");
+      });
     }
   }
 
@@ -7866,19 +8099,6 @@
     });
   }
 
-  function clearAssistantChatLongPressTimer() {
-    if (assistantChatDocPointerCleanup) {
-      const fn = assistantChatDocPointerCleanup;
-      assistantChatDocPointerCleanup = null;
-      fn();
-    }
-    if (assistantChatLongPressTimer !== null) {
-      clearTimeout(assistantChatLongPressTimer);
-      assistantChatLongPressTimer = null;
-    }
-    assistantChatLongPressPtr = null;
-  }
-
   function syncAssistantChatSelectBar() {
     const bar = document.getElementById("assistant-chat-select-bar");
     const countEl = document.getElementById("assistant-chat-select-count");
@@ -7891,13 +8111,33 @@
   function exitAssistantChatSelectMode() {
     assistantChatSelectMode = false;
     assistantChatSelectedIndices = new Set();
-    clearAssistantChatLongPressTimer();
     syncAssistantChatSelectBar();
     const list = els.assistantChatList();
     if (list) {
       list.classList.remove("assistant-chat-list--selecting");
       list.removeAttribute("aria-multiselectable");
     }
+  }
+
+  /** 删除若干条后统一规范化、持久化并刷新列表（会退出多选态）。 */
+  function finalizeAssistantChatAfterRemoveMessages() {
+    assistantState.messages = normalizeAssistantMessages(assistantState.messages);
+    ensureAssistantWelcomeMessages();
+    persistAssistantState();
+    exitAssistantChatSelectMode();
+    renderAssistantChatList();
+  }
+
+  function deleteAssistantChatMessagesAtIndices(indicesIterable) {
+    const sorted = Array.from(indicesIterable).sort(function (a, b) {
+      return b - a;
+    });
+    sorted.forEach(function (i) {
+      if (Number.isFinite(i) && i >= 0 && i < assistantState.messages.length) {
+        assistantState.messages.splice(i, 1);
+      }
+    });
+    finalizeAssistantChatAfterRemoveMessages();
   }
 
   function enterAssistantChatSelectMode(initialIndex) {
@@ -9060,6 +9300,8 @@
       memories: [],
       favorites: [],
       backgroundImage: "",
+      playBackgroundLight: "",
+      playBackgroundDark: "",
     };
     plots.unshift(newPlot);
     flushPersistNarrative();
@@ -10465,6 +10707,33 @@
     }
   }
 
+  /** 剧情列表卡片：标签行右侧展示主角 + 参与配角头像（小图标，不改变卡片外尺寸）。 */
+  function fillPlotCardParticipantAvatars(cardEl, plot) {
+    const mount = cardEl.querySelector(".plot-card__participants");
+    if (!mount || !plot) return;
+    mount.innerHTML = "";
+    const ids = [];
+    const pid = plot.protagonistId ? String(plot.protagonistId).trim() : "";
+    if (pid) ids.push(pid);
+    (Array.isArray(plot.supportingIds) ? plot.supportingIds : []).forEach(function (sid) {
+      const s = String(sid || "").trim();
+      if (!s || ids.indexOf(s) >= 0) return;
+      ids.push(s);
+    });
+    const maxN = 5;
+    ids.slice(0, maxN).forEach(function (cid) {
+      const ch = getCharById(cid);
+      if (!ch) return;
+      const span = document.createElement("span");
+      span.className = "plot-card__participant-avatar";
+      span.title = String(ch.name || "").trim() || "角色";
+      span.setAttribute("role", "img");
+      span.setAttribute("aria-label", span.title);
+      fillAvatarElement(span, ch);
+      mount.appendChild(span);
+    });
+  }
+
   function renderPlotList() {
     const wrap = els.plotListWrap();
     wrap.innerHTML = "";
@@ -10495,13 +10764,17 @@
         menuBtn +
         '<h3 class="plot-card__title">' +
         escapeHtml(p.title) +
-        '</h3><div class="plot-card__tags">' +
+        '</h3><div class="plot-card__tags-row"><div class="plot-card__tags">' +
         summaryTags +
-        (p.playSealed ? "</div>" : '</div><div class="plot-card__foot"><span class="plot-card__time">' +
+        '</div><div class="plot-card__participants" aria-label="参与角色"></div></div>' +
+        (p.playSealed
+          ? ""
+          : '<div class="plot-card__foot"><span class="plot-card__time">' +
             escapeHtml(formatPlotLastGeneratedLabel(p)) +
             '</span><button type="button" class="btn-continue" data-pid="' +
             p.id +
             '"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>继续</button></div>');
+      fillPlotCardParticipantAvatars(card, p);
       if (!p.playSealed) {
         card.querySelector(".btn-continue").addEventListener("click", () => {
           lastStoryPlotId = p.id;
@@ -11970,6 +12243,66 @@
     return sanitizeStoryChoices(parseStoryChoices("", src));
   }
 
+  /** 解析「1. xxx 2. yyy」同级写在一段内的编号列表（用于去掉正文末尾重复的选项预览）。 */
+  function splitInlineNumberedList(tail) {
+    const items = [];
+    const s = String(tail || "").trim();
+    if (!s) return items;
+    const re = /(\d{1,2})\s*[\.．、:：]\s*/g;
+    const positions = [];
+    let m;
+    while ((m = re.exec(s)) !== null) {
+      positions.push({ idx: m.index, len: m[0].length, num: m[1] });
+    }
+    if (!positions.length) return items;
+    for (let i = 0; i < positions.length; i++) {
+      const start = positions[i].idx + positions[i].len;
+      const end = i + 1 < positions.length ? positions[i + 1].idx : s.length;
+      items.push({ num: positions[i].num, text: s.slice(start, end).trim() });
+    }
+    return items;
+  }
+
+  /**
+   * 去掉正文末尾与已解析选项一致的编号列表（同一行内「…。 1. … 2. …」也会删掉）。
+   */
+  function stripTrailingInlineNumberedChoicesFromText(text, choices) {
+    const raw = String(text || "").replace(/\r\n/g, "\n").trim();
+    if (!raw || !choices || choices.length < 2) return text;
+    const wantLines = choices
+      .map(function (c) {
+        return String((c && c.line) || "").trim();
+      })
+      .filter(Boolean);
+    if (wantLines.length < 2) return text;
+    const wantNorms = wantLines.map(normalizeChoiceForCompare);
+
+    const reStart = /(^|[\s\u3000\n])(\d{1,2})\s*[\.．、:：]\s*/g;
+    let bestCut = -1;
+    let mm;
+    while ((mm = reStart.exec(raw)) !== null) {
+      const from = mm.index + mm[1].length;
+      const tail = raw.slice(from).trim();
+      const items = splitInlineNumberedList(tail);
+      if (items.length < wantLines.length) continue;
+      const sliceItems = items.slice(-wantLines.length);
+      let ok = true;
+      for (let i = 0; i < wantLines.length; i++) {
+        const sn = normalizeChoiceForCompare(sliceItems[i].text);
+        const wn = wantNorms[i];
+        if (sn === wn) continue;
+        const shorter = sn.length <= wn.length ? sn : wn;
+        const longer = sn.length > wn.length ? sn : wn;
+        if (shorter.length >= 8 && longer.indexOf(shorter) !== -1) continue;
+        ok = false;
+        break;
+      }
+      if (ok) bestCut = from;
+    }
+    if (bestCut < 0) return text;
+    return raw.slice(0, bestCut).trimEnd();
+  }
+
   /**
    * 模型有时在【选项】区之前又写一遍「选项 1. / 2. …」，与文末按钮重复。
    * 在已解析出文末选项的前提下，从各说话块正文中剔除这些行（仅删与选项表高度重合的编号行，或「选项+序号」行）。
@@ -12021,7 +12354,9 @@
       const keptParas = paras.filter(function (p) {
         return !lineLooksLikeEmbeddedChoiceRow(p);
       });
-      return keptParas.join("\n\n").trim();
+      let joined = keptParas.join("\n\n").trim();
+      joined = stripTrailingInlineNumberedChoicesFromText(joined, choices);
+      return joined;
     }
 
     return lines
@@ -12044,11 +12379,15 @@
     return Array.isArray(sup) && sup.indexOf(characterId) >= 0;
   }
 
-  /** 旁白展示用：去掉模型偶尔输出的章节标题 */
+  /** 旁白展示用：去掉模型偶尔输出的章节标题、「旁白」起首标记（含「旁白：」或「旁白 ␠」） */
   function stripNarratorDisplayText(text) {
     return String(text || "")
       .trim()
       .replace(/^(?:续写内容|剧情续写|剧情内容|正文)\s*[：:]\s*/i, "")
+      .trim()
+      .replace(/^(?:旁白|narrator)\s*[：:]\s*/i, "")
+      .trim()
+      .replace(/^(?:旁白|narrator)\s+/i, "")
       .trim();
   }
 
@@ -12732,7 +13071,11 @@
               editable.setAttribute("aria-label", "编辑剧情正文");
               editable.setAttribute("contenteditable", "true");
               editable.setAttribute("spellcheck", "false");
-              editable.innerHTML = renderStoryInlineMarkup(narrText || rawText);
+              let narrEditSrc = narrText;
+              if (turn.choices && turn.choices.length >= 2) {
+                narrEditSrc = stripTrailingInlineNumberedChoicesFromText(narrEditSrc, turn.choices).trim();
+              }
+              editable.innerHTML = renderStoryInlineMarkup(narrEditSrc || narrText || rawText);
               applyStoryLineDecorations(editable, p, String(line.id || ""));
               const actions = document.createElement("div");
               actions.className = "story-line-edit-actions";
@@ -12766,7 +13109,14 @@
             }).filter(function (t) {
               return String(t || "").trim();
             });
-            const narrMerged = narrParts.join("\n\n");
+            let narrMerged = narrParts.join("\n\n");
+            if (turn.choices && turn.choices.length >= 2) {
+              narrMerged = stripTrailingInlineNumberedChoicesFromText(narrMerged, turn.choices).trim();
+            }
+            if (!String(narrMerged || "").trim()) {
+              lineIndex = narrRun.resumeAt;
+              continue;
+            }
             const narrFirstIdx = narrRun.indices[0];
             const narrFirstLine = turnLines[narrFirstIdx];
             const narr = document.createElement("div");
@@ -12844,6 +13194,12 @@
               for (var mx = lineIndex; mx <= mergeEndIdx; mx++)
                 mergedParts.push(String(turnLines[mx].text || "").trim());
               var mergedParticipantText = mergedParts.filter(Boolean).join("\n\n");
+              if (turn.choices && turn.choices.length >= 2) {
+                mergedParticipantText = stripTrailingInlineNumberedChoicesFromText(
+                  mergedParticipantText,
+                  turn.choices
+                ).trim();
+              }
               if (String(mergedParticipantText || "").trim()) {
               var shellM = buildStoryPlayParticipantShell(
                 isMe,
@@ -12881,7 +13237,11 @@
           row.setAttribute("data-story-line-id", String(line.id || ""));
           const txt = document.createElement("div");
           txt.className = "story-msg__text story-msg__text--rp";
-          txt.innerHTML = renderStoryInlineMarkup(rawText);
+          var bubbleDisplayText = rawText;
+          if (turn.choices && turn.choices.length >= 2) {
+            bubbleDisplayText = stripTrailingInlineNumberedChoicesFromText(bubbleDisplayText, turn.choices).trim();
+          }
+          txt.innerHTML = renderStoryInlineMarkup(bubbleDisplayText || rawText);
           applyStoryLineDecorations(txt, p, String(line.id || ""));
           shellN.body.appendChild(txt);
           if (!p.playSealed) {
@@ -13897,7 +14257,7 @@
 
   function renderSettings() {
     const el = els.settingsBody();
-    const mode = appearanceState.mode;
+    const modeSetting = appearanceState.modeSetting;
     const paletteId = resolvePaletteId(appearanceState.paletteId);
     const palettes = THEME_PALETTES.slice();
     const customPalette = buildCustomThemePalette(
@@ -13948,6 +14308,8 @@
       '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
     const moonSvg =
       '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>';
+    const systemSvg =
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 3.5 2 8.8v.8c0 4.2-2 7.3-7 10"/><path d="M2 21c0-3 2.5-5 6.5-5s6.5 2 6.5 5"/></svg>';
     const paletteSvg =
       '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 011.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>';
     const typeSvg =
@@ -13980,12 +14342,17 @@
       '<div class="settings-panel__body">' +
       '<div class="theme-mode-row">' +
       '<button type="button" class="theme-mode-btn' +
-      (mode === "light" ? " is-active" : "") +
+      (modeSetting === "system" ? " is-active" : "") +
+      '" id="set-theme-system">' +
+      systemSvg +
+      " 跟随</button>" +
+      '<button type="button" class="theme-mode-btn' +
+      (modeSetting === "light" ? " is-active" : "") +
       '" id="set-theme-light">' +
       sunSvg +
       " 浅色</button>" +
       '<button type="button" class="theme-mode-btn' +
-      (mode === "dark" ? " is-active" : "") +
+      (modeSetting === "dark" ? " is-active" : "") +
       '" id="set-theme-dark">' +
       moonSvg +
       " 深色</button></div>" +
@@ -14190,6 +14557,22 @@
   document.getElementById("assistant-switch-open").addEventListener("click", () => {
     openAssistantSwitcherModal();
   });
+  const assistantChatBatchSelectBtn = document.getElementById("assistant-chat-batch-select");
+  if (assistantChatBatchSelectBtn) {
+    assistantChatBatchSelectBtn.addEventListener("click", function () {
+      if (assistantReplying) {
+        showToast("助手正在回复，请稍后再试。", "info");
+        return;
+      }
+      if (!assistantState || !assistantState.messages.length) {
+        showToast("暂无消息可选择。", "info");
+        return;
+      }
+      enterAssistantChatSelectMode(NaN);
+      renderAssistantChatList();
+      showToast("点选要删除的消息，再点底部「删除」", "info", 2600);
+    });
+  }
   document.getElementById("assistant-add").addEventListener("click", () => {
     openAssistantProfileModalForCreate();
   });
@@ -14413,54 +14796,6 @@
       true
     );
 
-    list.addEventListener("pointerdown", function (e) {
-      if (assistantChatSelectMode) return;
-      if (assistantReplying) return;
-      const item = e.target.closest(".assistant-chat-item");
-      if (!item || !list.contains(item)) return;
-      if (e.pointerType === "mouse" && e.button !== 0) return;
-      const idx = parseInt(item.getAttribute("data-assistant-msg-index"), 10);
-      if (Number.isNaN(idx)) return;
-      const startX = e.clientX;
-      const startY = e.clientY;
-      const pointerId = e.pointerId;
-      clearAssistantChatLongPressTimer();
-      const onDocPointerEnd = function () {
-        clearAssistantChatLongPressTimer();
-      };
-      assistantChatDocPointerCleanup = function () {
-        document.removeEventListener("pointerup", onDocPointerEnd);
-        document.removeEventListener("pointercancel", onDocPointerEnd);
-      };
-      document.addEventListener("pointerup", onDocPointerEnd);
-      document.addEventListener("pointercancel", onDocPointerEnd);
-      assistantChatLongPressPtr = { startX: startX, startY: startY, pointerId: pointerId };
-      assistantChatLongPressTimer = window.setTimeout(function () {
-        assistantChatLongPressTimer = null;
-        assistantChatLongPressPtr = null;
-        if (assistantChatDocPointerCleanup) {
-          const rm = assistantChatDocPointerCleanup;
-          assistantChatDocPointerCleanup = null;
-          rm();
-        }
-        if (typeof navigator !== "undefined" && navigator.vibrate) {
-          try {
-            navigator.vibrate(14);
-          } catch (err) {}
-        }
-        enterAssistantChatSelectMode(idx);
-        renderAssistantChatList();
-      }, 480);
-    });
-
-    list.addEventListener("pointermove", function (e) {
-      if (assistantChatLongPressTimer === null || !assistantChatLongPressPtr) return;
-      if (e.pointerId !== assistantChatLongPressPtr.pointerId) return;
-      const dx = e.clientX - assistantChatLongPressPtr.startX;
-      const dy = e.clientY - assistantChatLongPressPtr.startY;
-      if (dx * dx + dy * dy > 64) clearAssistantChatLongPressTimer();
-    });
-
     list.addEventListener(
       "contextmenu",
       function (e) {
@@ -14485,17 +14820,8 @@
       const n = assistantChatSelectedIndices.size;
       const ok = await showConfirm("确定删除选中的 " + n + " 条消息？");
       if (!ok) return;
-      const sorted = Array.from(assistantChatSelectedIndices).sort(function (a, b) {
-        return b - a;
-      });
-      sorted.forEach(function (i) {
-        assistantState.messages.splice(i, 1);
-      });
-      assistantState.messages = normalizeAssistantMessages(assistantState.messages);
-      ensureAssistantWelcomeMessages();
-      persistAssistantState();
-      exitAssistantChatSelectMode();
-      renderAssistantChatList();
+      const toDel = Array.from(assistantChatSelectedIndices);
+      deleteAssistantChatMessagesAtIndices(toDel);
       showToast("已删除选中消息", "success");
     });
   }
@@ -14659,6 +14985,8 @@
       memories: [],
       favorites: [],
       backgroundImage: "",
+      playBackgroundLight: "",
+      playBackgroundDark: "",
     };
     plots.unshift(newPlot);
     closePlotSheet();
@@ -14994,6 +15322,7 @@
       });
     });
   }
+  bindStoryPlayBackgroundModal();
 
   if (els.modalPlotMyOverride()) {
     els.modalPlotMyOverride().addEventListener("click", (e) => {
@@ -15615,6 +15944,10 @@
       hideStorySelectionBubble();
       return;
     }
+    if (!shouldShowStorySelectionBubbleFromSelectionChange()) {
+      hideStorySelectionBubble();
+      return;
+    }
     showStorySelectionBubble();
   });
   document.addEventListener("pointerdown", function (e) {
@@ -15791,6 +16124,7 @@
   const appShell = document.getElementById("app-shell");
 
   loadAppearance();
+  initSystemThemeListener();
   loadUiFontScaleAndApply();
   loadApiConfigs();
   loadAssistantState();
