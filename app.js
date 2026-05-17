@@ -236,9 +236,13 @@
   const FONT_META_KEY = "hj_font_meta_v1";
   /** 与 hj- 前缀一致，参与备份导出/导入与「清除数据」 */
   const STORAGE_UI_FONT_SCALE = "hj-ui-font-scale-v1";
+  const STORAGE_UI_BRIGHTNESS = "hj-ui-brightness-v1";
   const UI_FONT_SCALE_MIN = 1;
   const UI_FONT_SCALE_MAX = 1.45;
   const UI_FONT_SCALE_DEFAULT = 1;
+  const UI_BRIGHTNESS_MIN = 0.65;
+  const UI_BRIGHTNESS_MAX = 1.35;
+  const UI_BRIGHTNESS_DEFAULT = 1;
   const BACKUP_STORAGE_PREFIX = "hj-";
   const BACKUP_FORMAT = "hj-backup";
   /** 当前导出的 manifest 版本号；提高此值时请勿降低「可导入」旧号段，见 isBackupManifestImportable */
@@ -1064,6 +1068,41 @@
     applyUiFontScaleToDom(getPersistedUiFontScale());
   }
 
+  function clampUiBrightness(mult) {
+    const n = typeof mult === "number" ? mult : parseFloat(mult);
+    if (!Number.isFinite(n)) return UI_BRIGHTNESS_DEFAULT;
+    return Math.max(UI_BRIGHTNESS_MIN, Math.min(UI_BRIGHTNESS_MAX, n));
+  }
+
+  function getPersistedUiBrightness() {
+    try {
+      const raw = localStorage.getItem(STORAGE_UI_BRIGHTNESS);
+      if (raw == null || raw === "") return UI_BRIGHTNESS_DEFAULT;
+      return clampUiBrightness(parseFloat(raw));
+    } catch (e) {
+      return UI_BRIGHTNESS_DEFAULT;
+    }
+  }
+
+  function persistUiBrightness(mult) {
+    const b = clampUiBrightness(mult);
+    try {
+      if (Math.abs(b - UI_BRIGHTNESS_DEFAULT) < 0.001) localStorage.removeItem(STORAGE_UI_BRIGHTNESS);
+      else localStorage.setItem(STORAGE_UI_BRIGHTNESS, String(b));
+    } catch (e) {}
+  }
+
+  function applyUiBrightnessToDom(mult) {
+    const b = clampUiBrightness(mult);
+    try {
+      document.documentElement.style.setProperty("--hj-ui-brightness", String(b));
+    } catch (e) {}
+  }
+
+  function loadUiBrightnessAndApply() {
+    applyUiBrightnessToDom(getPersistedUiBrightness());
+  }
+
   function tickStatusClock() {
     const el = document.getElementById("status-time");
     if (!el) return;
@@ -1263,18 +1302,34 @@
 
     root.addEventListener("input", (e) => {
       const input = e.target;
-      if (!input || input.id !== "font-scale-slider") return;
-      const pct = Number(input.value);
-      if (!Number.isFinite(pct)) return;
-      const scale = clampUiFontScale(pct / 100);
-      persistUiFontScale(scale);
-      applyUiFontScaleToDom(scale);
-      try {
-        input.setAttribute("aria-valuenow", String(Math.round(pct)));
-        input.setAttribute("aria-valuetext", Math.round(pct) + "%");
-      } catch (errAttr) {}
-      const lab = root.querySelector("#font-scale-value");
-      if (lab) lab.textContent = Math.round(pct) + "%";
+      if (!input) return;
+      if (input.id === "font-scale-slider") {
+        const pct = Number(input.value);
+        if (!Number.isFinite(pct)) return;
+        const scale = clampUiFontScale(pct / 100);
+        persistUiFontScale(scale);
+        applyUiFontScaleToDom(scale);
+        try {
+          input.setAttribute("aria-valuenow", String(Math.round(pct)));
+          input.setAttribute("aria-valuetext", Math.round(pct) + "%");
+        } catch (errAttr) {}
+        const lab = root.querySelector("#font-scale-value");
+        if (lab) lab.textContent = Math.round(pct) + "%";
+        return;
+      }
+      if (input.id === "ui-brightness-slider") {
+        const pct = Number(input.value);
+        if (!Number.isFinite(pct)) return;
+        const mult = clampUiBrightness(pct / 100);
+        persistUiBrightness(mult);
+        applyUiBrightnessToDom(mult);
+        try {
+          input.setAttribute("aria-valuenow", String(Math.round(pct)));
+          input.setAttribute("aria-valuetext", Math.round(pct) + "%");
+        } catch (errAttr2) {}
+        const labB = root.querySelector("#ui-brightness-value");
+        if (labB) labB.textContent = Math.round(pct) + "%";
+      }
     });
   }
 
@@ -11627,7 +11682,15 @@
 
   function fillStoryComposerAvatar(plot) {
     const el = document.getElementById("story-composer-avatar");
-    fillAvatarElement(el, getPlotCharacterView(plot, plot.protagonistId));
+    const nameEl = document.getElementById("story-composer-name");
+    const view = getPlotCharacterView(plot, plot && plot.protagonistId);
+    fillAvatarElement(el, view);
+    const rawName = view && view.name != null ? String(view.name).trim() : "";
+    if (nameEl) {
+      nameEl.textContent = rawName;
+      nameEl.title = rawName;
+    }
+    if (el) el.title = rawName ? rawName + " · 主视角" : "主视角";
   }
 
   function shouldAutoRequestFirstStoryTurn(plot) {
@@ -12840,7 +12903,11 @@
           const narrHtml = renderNarrativePara(buffer);
           if (narrHtml) rendered.push(narrHtml);
           buffer = "";
-          rendered.push('<p class="story-dialogue"><strong>' + escapeHtml(p.text) + "</strong></p>");
+          rendered.push(
+            '<p class="story-dialogue"><span class="story-dialogue__body">' +
+              escapeHtml(p.text) +
+              "</span></p>"
+          );
         } else {
           buffer += p.text;
         }
@@ -14273,6 +14340,9 @@
     const uiFontScale = getPersistedUiFontScale();
     const uiFontSliderPct = Math.round(uiFontScale * 100);
     const uiFontPctLabel = uiFontSliderPct + "%";
+    const uiBrightness = getPersistedUiBrightness();
+    const uiBrightnessSliderPct = Math.round(uiBrightness * 100);
+    const uiBrightnessPctLabel = uiBrightnessSliderPct + "%";
     const paletteCards = palettes.map(function (p) {
       const cardClass = "theme-preset-card" + (p.id === paletteId ? " is-active" : "");
       return (
@@ -14357,7 +14427,6 @@
       moonSvg +
       " 深色</button></div>" +
       '<div class="theme-custom-editor">' +
-      '<p class="field__hint theme-custom-editor__hint">自定义三种颜色（过渡 / 基底 / 强调），点击下方按钮后直接全局应用，不会保存到下方色板列表。</p>' +
       '<div class="theme-custom-editor__inputs">' +
       '<label class="theme-color-field"><span class="theme-color-field__label">过渡色</span><input type="color" id="custom-palette-tone-1" value="' +
       escapeHtml(customTones[0]) +
@@ -14372,6 +14441,19 @@
       '<div class="btn-row theme-custom-editor__actions">' +
       '<button type="button" class="btn btn-secondary btn--pill" id="btn-custom-palette-save">应用该色板</button>' +
       "</div>" +
+      '<div class="ui-brightness-control">' +
+      '<label class="ui-brightness-control__label" for="ui-brightness-slider">页面整体亮度</label>' +
+      '<div class="ui-brightness-control__row">' +
+      '<input type="range" id="ui-brightness-slider" min="65" max="135" step="1" value="' +
+      uiBrightnessSliderPct +
+      '" aria-valuemin="65" aria-valuemax="135" aria-valuenow="' +
+      uiBrightnessSliderPct +
+      '" aria-valuetext="' +
+      escapeHtml(uiBrightnessPctLabel) +
+      '" aria-label="页面整体亮度，中间为默认" />' +
+      '<span class="ui-brightness-control__value" id="ui-brightness-value">' +
+      escapeHtml(uiBrightnessPctLabel) +
+      "</span></div></div>" +
       "</div></div></section>";
 
     html +=
@@ -16126,6 +16208,7 @@
   loadAppearance();
   initSystemThemeListener();
   loadUiFontScaleAndApply();
+  loadUiBrightnessAndApply();
   loadApiConfigs();
   loadAssistantState();
   applyPostClearAssistantBlankStateIfNeeded();

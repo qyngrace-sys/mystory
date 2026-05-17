@@ -47,6 +47,8 @@
   --wb-tag-border: rgba(26, 26, 26, 0.22);
   /** 界面字体缩放（1 = 默认）；由设置滑块与脚本写入 html 的 style */
   --hj-font-scale: 1;
+  /** 页面整体亮度倍率（1 = 默认）；由设置滑块与脚本写入 html */
+  --hj-ui-brightness: 1;
   color-scheme: light;
 }
 
@@ -119,6 +121,8 @@ html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   font-size: calc(16px * var(--hj-font-scale, 1));
+  /** 单字重字体仍尝试合成粗斜体（尤其移动端 WebView） */
+  font-synthesis: weight style;
 }
 
 body {
@@ -128,6 +132,20 @@ body {
   color: var(--text);
   min-height: 100dvh;
   overflow-x: hidden;
+  filter: brightness(var(--hj-ui-brightness, 1));
+}
+
+/** strong/em：保留继承的 font-family（含自定义字体），由浏览器合成字重/倾斜 */
+strong,
+b {
+  font-weight: 700;
+  font-synthesis: weight style;
+}
+
+em,
+i {
+  font-style: italic;
+  font-synthesis: weight style;
 }
 
 .page-backdrop {
@@ -4567,6 +4585,16 @@ html[data-theme="dark"] .story-scroll-nav__btn {
   align-items: stretch;
 }
 
+/** 主视角：头像在上、昵称在下，整体靠右；正文在下一行全宽（不与侧栏左右并排） */
+.story-msg--me .story-msg__aside {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.story-msg--me .story-msg__name {
+  text-align: right;
+}
+
 .story-msg__row {
   display: flex;
   flex-direction: column;
@@ -4594,11 +4622,6 @@ html[data-theme="dark"] .story-scroll-nav__btn {
   flex-direction: column;
   gap: 0;
   max-width: 100%;
-  align-items: stretch;
-  text-align: left;
-}
-
-.story-msg--me .story-msg__body {
   align-items: stretch;
   text-align: left;
 }
@@ -4631,10 +4654,6 @@ html[data-theme="dark"] .story-scroll-nav__btn {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   word-break: break-word;
-}
-
-.story-msg--me .story-msg__name {
-  text-align: left;
 }
 
 .story-msg__text {
@@ -4691,9 +4710,11 @@ html[data-theme="dark"] .story-msg--me .story-msg__text--rp {
   text-align: left;
 }
 
-.story-msg__text--rp strong {
+.story-msg__text--rp strong,
+.story-msg__text--rp .story-dialogue__body {
   font-weight: 700;
   font-style: normal;
+  font-synthesis: weight style;
 }
 
 .story-msg__text--rp em {
@@ -5045,9 +5066,11 @@ html[data-theme="dark"] .story-msg--me .story-msg__text--rp {
   outline: none;
 }
 
-.story-feed-narr--rp strong {
+.story-feed-narr--rp strong,
+.story-feed-narr--rp .story-dialogue__body {
   font-weight: 700;
   font-style: normal;
+  font-synthesis: weight style;
 }
 
 .story-feed-narr--rp em {
@@ -5085,18 +5108,23 @@ html[data-theme="dark"] .story-msg--me .story-msg__text--rp {
 .story-feed-narr--rp .story-narr {
   font-style: italic;
   font-weight: 400;
+  font-synthesis: weight style;
 }
 
 .story-msg__text--rp .story-dialogue strong,
-.story-feed-narr--rp .story-dialogue strong {
+.story-msg__text--rp .story-dialogue .story-dialogue__body,
+.story-feed-narr--rp .story-dialogue strong,
+.story-feed-narr--rp .story-dialogue .story-dialogue__body {
   font-style: normal;
   font-weight: 700;
+  font-synthesis: weight style;
 }
 
 .story-inline-term {
   display: inline;
   font-style: italic;
   font-weight: 400;
+  font-synthesis: weight style;
 }
 
 .story-msg__text--dialogue {
@@ -5172,11 +5200,14 @@ html[data-theme="dark"] .story-msg--me .story-msg__text--rp {
 }
 
 .story-msg__text strong,
-.story-feed-narr strong {
+.story-msg__text .story-dialogue__body,
+.story-feed-narr strong,
+.story-feed-narr .story-dialogue__body {
   font-weight: 700;
+  font-synthesis: weight style;
 }
 
-/* 互动叙事 RP 段：旁白与对白均用正字，对白仅靠 strong 加粗；勿被下方规则改成斜体 */
+/* 互动叙事 RP 段：旁白与对白均用正字；对白用 .story-dialogue__body / strong 加粗；勿被下方规则改成斜体 */
 .story-msg__text:not(.story-msg__text--rp) em,
 .story-feed-narr:not(.story-feed-narr--rp) em {
   font-style: italic;
@@ -5311,6 +5342,30 @@ html[data-theme="dark"] .story-choice-action-btn {
   padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg) 88%, var(--surface));
+}
+
+.story-composer__protagonist {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+  max-width: 29%;
+  min-width: 0;
+}
+
+.story-composer__name {
+  display: block;
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--muted);
+  line-height: 1.2;
+  text-align: right;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .story-composer__avatar {
@@ -5915,10 +5970,6 @@ html[data-theme="dark"] .story-choice-action-btn {
   border-top: 1px dashed color-mix(in srgb, var(--accent) 18%, var(--border));
 }
 
-.theme-custom-editor__hint {
-  margin: 0 0 10px;
-}
-
 .theme-custom-editor__inputs {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -5948,6 +5999,55 @@ html[data-theme="dark"] .story-choice-action-btn {
 
 .theme-custom-editor__actions {
   margin-top: 10px;
+}
+
+.ui-brightness-control {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ui-brightness-control__label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.ui-brightness-control__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: min(100%, 320px);
+  margin: 0 auto;
+  min-width: 0;
+  justify-content: center;
+}
+
+.ui-brightness-control__row input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+  touch-action: pan-y;
+}
+
+.ui-brightness-control__value {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  min-width: 2.75rem;
+  text-align: right;
 }
 
 .theme-preset-grid {
