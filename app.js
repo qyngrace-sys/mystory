@@ -11682,14 +11682,9 @@
 
   function fillStoryComposerAvatar(plot) {
     const el = document.getElementById("story-composer-avatar");
-    const nameEl = document.getElementById("story-composer-name");
     const view = getPlotCharacterView(plot, plot && plot.protagonistId);
     fillAvatarElement(el, view);
     const rawName = view && view.name != null ? String(view.name).trim() : "";
-    if (nameEl) {
-      nameEl.textContent = rawName;
-      nameEl.title = rawName;
-    }
     if (el) el.title = rawName ? rawName + " · 主视角" : "主视角";
   }
 
