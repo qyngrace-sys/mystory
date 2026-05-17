@@ -11717,6 +11717,26 @@
       .trim();
   }
 
+  /** 单行去掉行首「旁白 / narrator」发言标记（支持冒号、空格或紧贴汉字） */
+  function stripLeadingNarratorMarkerOneLine(trim) {
+    let t = String(trim || "").trim();
+    if (!t) return "";
+    let next = t.replace(/^(?:旁白|narrator)\s*[：:]\s*/i, "").trim();
+    if (next !== t) return next;
+    next = t.replace(/^(?:旁白|narrator)\s+/i, "").trim();
+    if (next !== t) return next;
+    if (/^(?:旁白|narrator)(?=[\u4e00-\u9fff])/i.test(t))
+      return t.replace(/^(?:旁白|narrator)/i, "").trim();
+    if (/^(?:旁白|narrator)$/i.test(t)) return "";
+    return t;
+  }
+
+  function lineOpensExplicitNarratorSpeaker(trim) {
+    const t = String(trim || "").trim();
+    if (!t) return false;
+    return stripLeadingNarratorMarkerOneLine(t) !== t;
+  }
+
   /** 去掉「：。」后接弯引号对白等非法连用（模型偶发；亦勿与 ensureEndingPunctuation 叠加出伪影） */
   function fixColonPeriodBeforeCurlyQuote(s) {
     return String(s || "").replace(/：。\s*(\u201c)/g, "：$1");
@@ -11760,7 +11780,8 @@
       .replace(new RegExp("\\s*第\\s*" + ord + "\\s*条\\s*[｜|/\\\\]?\\s*$", "m"), "");
     out = out.replace(/^\s*[▸▹▻▶▷►▲△]+\s*/, "");
     out = out.replace(/^\s*[（(]\s*(?:旁白|我|[^)）]{1,20})\s*[)）]\s*/, "");
-    out = out.replace(/^旁白\s*[：:]\s*/i, "").replace(/^我\s*[：:]\s*/i, "我");
+    out = stripLeadingNarratorMarkerOneLine(out);
+    out = out.replace(/^我\s*[：:]\s*/i, "我");
     (knownNames || []).forEach(function (name) {
       const nm = String(name || "").trim();
       if (!nm) return;
@@ -11844,6 +11865,13 @@
         return;
       }
       if (!current) return;
+      const lnClean = cleanStoryLine(line);
+      if (lineOpensExplicitNarratorSpeaker(lnClean)) {
+        const rest = stripLeadingNarratorMarkerOneLine(lnClean);
+        current = { titleHint: "\u65c1\u767d", chunks: rest ? [rest] : [] };
+        blocks.push(current);
+        return;
+      }
       current.chunks.push(line);
     });
     return finalizeStoryBlocks(blocks, resolveCharacterId);
@@ -11858,7 +11886,63 @@
     return t;
   }
 
-  function tryMatchStandaloneCastSpeaker(trim, nameList, protagonist) {
+  /**
+   * 将【块标题】或独占行姓名匹配到花名册（允许：带括号后缀、标题比全名更长、略写等）。
+   * 无法唯一确定时返回 null，避免误绑头像。
+   */
+  function findCastIdBySpeakerTitle(title, cast) {
+    let tt = normalizeStandaloneSpeakerLabel(String(title || "")).trim().replace(/\s+/g, "");
+    if (!tt) return null;
+    tt = tt.replace(/[（(][^)）]*[)）]\s*$/u, "").trim().replace(/\s+/g, "");
+    if (!tt) return null;
+    if (/^(?:旁白|narrator)$/i.test(tt)) return null;
+
+    const list = (cast || []).filter(function (c) {
+      return c && c.id && String(c.name || "").trim();
+    });
+    if (!list.length) return null;
+
+    for (let i = 0; i < list.length; i++) {
+      const nmRaw = String(list[i].name).trim();
+      const nm = nmRaw.replace(/\s+/g, "");
+      if (nm === tt) return list[i].id;
+      if (/[a-zA-Z]/.test(nm) && nm.toLowerCase() === tt.toLowerCase()) return list[i].id;
+    }
+
+    const byExtend = [];
+    const byPrefix = [];
+    for (let i = 0; i < list.length; i++) {
+      const nm = String(list[i].name).trim().replace(/\s+/g, "");
+      if (!nm.length) continue;
+      if (tt.startsWith(nm)) byExtend.push({ c: list[i], nm: nm, len: nm.length });
+      if (nm.startsWith(tt) && (tt.length >= 2 || nm.length === tt.length))
+        byPrefix.push({ c: list[i], nm: nm, len: nm.length });
+    }
+    byExtend.sort(function (a, b) {
+      return b.len - a.len;
+    });
+    if (byExtend.length) {
+      const top = byExtend[0].len;
+      const tops = byExtend.filter(function (x) {
+        return x.len === top;
+      });
+      if (tops.length === 1 && tops[0].nm.length >= 2) return tops[0].c.id;
+    }
+    byPrefix.sort(function (a, b) {
+      return b.len - a.len;
+    });
+    if (byPrefix.length === 1) return byPrefix[0].c.id;
+    if (byPrefix.length > 1) {
+      const top = byPrefix[0].len;
+      const tops = byPrefix.filter(function (x) {
+        return x.len === top;
+      });
+      if (tops.length === 1) return tops[0].c.id;
+    }
+    return null;
+  }
+
+  function tryMatchStandaloneCastSpeaker(trim, nameList, cast, protagonist) {
     const t = normalizeStandaloneSpeakerLabel(trim);
     if (!t) return null;
     if (protagonist && protagonist.id && /^(?:我|主角)$/i.test(t)) {
@@ -11867,6 +11951,12 @@
     for (let i = 0; i < nameList.length; i++) {
       const nm = nameList[i];
       if (nm && t === nm) return { titleHint: nm };
+    }
+    const looseId = findCastIdBySpeakerTitle(t, cast);
+    if (looseId) {
+      for (let j = 0; j < cast.length; j++) {
+        if (cast[j].id === looseId && cast[j].name) return { titleHint: String(cast[j].name).trim() };
+      }
     }
     return null;
   }
@@ -11887,7 +11977,19 @@
       if (/^(?:旁白|narrator)\s*[：:]/i.test(trim)) {
         return {
           nm: "\u65c1\u767d",
-          rest: trim.replace(/^(?:旁白|narrator)\s*[：:]/i, "").trim(),
+          rest: trim.replace(/^(?:旁白|narrator)\s*[：:]\s*/i, "").trim(),
+        };
+      }
+      if (/^(?:旁白|narrator)\s+/i.test(trim)) {
+        return {
+          nm: "\u65c1\u767d",
+          rest: trim.replace(/^(?:旁白|narrator)\s+/i, "").trim(),
+        };
+      }
+      if (/^(?:旁白|narrator)(?=[\u4e00-\u9fff])/i.test(trim)) {
+        return {
+          nm: "\u65c1\u767d",
+          rest: trim.replace(/^(?:旁白|narrator)/i, "").trim(),
         };
       }
       for (let i = 0; i < nameList.length; i++) {
@@ -11895,8 +11997,20 @@
         if (!nm) continue;
         if (!(trim.startsWith(nm + "\uff1a") || trim.startsWith(nm + ":"))) continue;
         const rest = trim.slice(nm.length).replace(/^[：:]\s*/, "").trim();
-        if (!rest) continue;
         return { nm: nm, rest: rest };
+      }
+      const colonLoose = trim.match(/^([^:：\n]{1,16})([：:])([\s\S]*)$/);
+      if (colonLoose) {
+        const head = String(colonLoose[1] || "").trim();
+        const restPart = String(colonLoose[3] || "").trim();
+        const hid = findCastIdBySpeakerTitle(head, cast);
+        if (hid) {
+          for (let k = 0; k < cast.length; k++) {
+            if (cast[k].id === hid && cast[k].name) {
+              return { nm: String(cast[k].name).trim(), rest: restPart };
+            }
+          }
+        }
       }
       return null;
     }
@@ -11915,7 +12029,7 @@
         pendingPrelude.push(String(ln || ""));
         return;
       }
-      const standalone = tryMatchStandaloneCastSpeaker(trim, nameList, protagonist);
+      const standalone = tryMatchStandaloneCastSpeaker(trim, nameList, cast, protagonist);
       if (standalone) {
         flushPreludeIfAny();
         current = { titleHint: standalone.titleHint, chunks: [] };
@@ -11923,11 +12037,18 @@
         return;
       }
       const mc = tryMatchNameColon(trim);
-      if (mc && mc.rest) {
+      if (mc) {
+        if (mc.nm === "\u65c1\u767d") {
+          flushPreludeIfAny();
+          current = { titleHint: "\u65c1\u767d", chunks: [] };
+          blocks.push(current);
+          if (mc.rest) current.chunks.push(mc.rest);
+          return;
+        }
         flushPreludeIfAny();
-        current = { titleHint: mc.nm === "\u65c1\u767d" ? "\u65c1\u767d" : mc.nm, chunks: [] };
+        current = { titleHint: mc.nm, chunks: [] };
         blocks.push(current);
-        current.chunks.push(mc.rest);
+        if (mc.rest) current.chunks.push(mc.rest);
         return;
       }
       if (!trim) return;
@@ -11972,7 +12093,8 @@
       for (let i = 0; i < cast.length; i++) {
         if (cast[i].name === t) return cast[i].id;
       }
-      return "narrator";
+      const loose = findCastIdBySpeakerTitle(t, cast);
+      return loose || "narrator";
     }
     const lines = src.split(/\n/);
     let out = parseTurnByCharacterBlocksStrict(lines, resolveCharacterId);
@@ -12442,16 +12564,21 @@
     return Array.isArray(sup) && sup.indexOf(characterId) >= 0;
   }
 
-  /** 旁白展示用：去掉模型偶尔输出的章节标题、「旁白」起首标记（含「旁白：」或「旁白 ␠」） */
+  /** 旁白展示与入库清洗：去掉模型输出的章节标题、「旁白」行首标记（支持多行、每行独立；含「旁白：」「旁白 ␠」「旁白正文」） */
   function stripNarratorDisplayText(text) {
-    return String(text || "")
-      .trim()
-      .replace(/^(?:续写内容|剧情续写|剧情内容|正文)\s*[：:]\s*/i, "")
-      .trim()
-      .replace(/^(?:旁白|narrator)\s*[：:]\s*/i, "")
-      .trim()
-      .replace(/^(?:旁白|narrator)\s+/i, "")
+    let s = String(text || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
       .trim();
+    if (!s) return "";
+    s = s.replace(/^(?:续写内容|剧情续写|剧情内容|正文)\s*[：:]\s*/i, "").trim();
+    const lines = s.split("\n");
+    const out = lines.map(function (line) {
+      let t = String(line || "").trim();
+      t = t.replace(/^[（(]\s*(?:旁白|narrator)\s*[)）]\s*/i, "").trim();
+      return stripLeadingNarratorMarkerOneLine(t);
+    });
+    return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   }
 
   function escapeHtml(raw) {
@@ -13215,7 +13342,7 @@
             editable.setAttribute("aria-label", "编辑角色台词");
             editable.setAttribute("contenteditable", "true");
             editable.setAttribute("spellcheck", "false");
-            editable.innerHTML = renderStoryInlineMarkup(rawText);
+              editable.innerHTML = renderStoryInlineMarkup(stripNarratorDisplayText(rawText));
             applyStoryLineDecorations(editable, p, String(line.id || ""));
             const actions = document.createElement("div");
             actions.className = "story-line-edit-actions";
@@ -13278,7 +13405,7 @@
               mergeRow.setAttribute("data-story-line-id", String(line.id || ""));
               var mergeTxt = document.createElement("div");
               mergeTxt.className = "story-msg__text story-msg__text--rp";
-              mergeTxt.innerHTML = renderStoryInlineMarkup(mergedParticipantText);
+              mergeTxt.innerHTML = renderStoryInlineMarkup(stripNarratorDisplayText(mergedParticipantText));
               applyStoryLineDecorations(mergeTxt, p, String(line.id || ""));
               shellM.body.appendChild(mergeTxt);
               if (!p.playSealed) {
@@ -13308,7 +13435,7 @@
           if (turn.choices && turn.choices.length >= 2) {
             bubbleDisplayText = stripTrailingInlineNumberedChoicesFromText(bubbleDisplayText, turn.choices).trim();
           }
-          txt.innerHTML = renderStoryInlineMarkup(bubbleDisplayText || rawText);
+          txt.innerHTML = renderStoryInlineMarkup(stripNarratorDisplayText(bubbleDisplayText || rawText));
           applyStoryLineDecorations(txt, p, String(line.id || ""));
           shellN.body.appendChild(txt);
           if (!p.playSealed) {
@@ -13876,7 +14003,7 @@
         return {
           id: line && line.id ? line.id : uid("ln"),
           characterId: line ? line.characterId : "",
-          text: normalizeStoryPlainTextForLayout(String(line && line.text ? line.text : "")),
+          text: normalizeStoryPlainTextForLayout(stripNarratorDisplayText(String(line && line.text ? line.text : ""))),
         };
       });
       if (linesWithIds.length && (!Array.isArray(choices) || choices.length < 2)) {
