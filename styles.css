@@ -4585,14 +4585,14 @@ html[data-theme="dark"] .story-scroll-nav__btn {
   align-items: stretch;
 }
 
-/** 主视角：头像在上、昵称在下，整体靠右；正文在下一行全宽（不与侧栏左右并排） */
+/** 主视角：侧栏贴右且宽度随内容收缩；昵称与头像中线对齐 */
 .story-msg--me .story-msg__aside {
   align-self: flex-end;
-  align-items: flex-end;
+  align-items: center;
 }
 
 .story-msg--me .story-msg__name {
-  text-align: right;
+  text-align: center;
 }
 
 .story-msg__row {
@@ -4607,7 +4607,8 @@ html[data-theme="dark"] .story-scroll-nav__btn {
 .story-msg__aside {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
+  align-self: flex-start;
   gap: 4px;
   width: auto;
   max-width: 100%;
@@ -4646,7 +4647,7 @@ html[data-theme="dark"] .story-scroll-nav__btn {
   font-size: 0.68rem;
   font-weight: 600;
   color: color-mix(in srgb, var(--muted) 88%, var(--text) 12%);
-  text-align: left;
+  text-align: center;
   max-width: 16rem;
   line-height: 1.25;
   overflow: hidden;

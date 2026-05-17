@@ -1341,11 +1341,10 @@
 
   /** 每回合「续写内容」目标字数下限（汉字）；影响提示词与 API token；须早于 normalizeItemCategories */
   const DEFAULT_STORY_WORD_LIMIT = 1800;
-  /** 剧情总结生成：目标约此字数（汉字等宽计字），硬性上限见 SUMMARY_OUTPUT_HARD_CAP_CHARS */
-  const SUMMARY_OUTPUT_TARGET_CHARS = 800;
-  const SUMMARY_OUTPUT_HARD_CAP_CHARS = 1000;
+  /** 剧情总结生成：以写全要点为先；仅当模型输出失控时用 SUMMARY_OUTPUT_HARD_CAP_CHARS 兜底截断 */
+  const SUMMARY_OUTPUT_HARD_CAP_CHARS = 24000;
   const PLAY_SUMMARY_REF_LIMIT = 6;
-  const PLAY_SUMMARY_ITEM_MAX_CHARS = 800;
+  const PLAY_SUMMARY_ITEM_MAX_CHARS = 12000;
   const PLOT_MEMORY_MAX_STORE = 20;
   const PLOT_MEMORY_PROMPT_MAX = 5;
   const PLOT_MEMORY_PROMPT_ITEM_MAX_CHARS = 200;
@@ -3591,11 +3590,11 @@
         .filter(Boolean)
         .join("\n") || "（无）";
     const dynamicMaxTokens = Math.min(
-      2200,
+      8192,
       Math.max(
-        700,
-        Math.round(SUMMARY_OUTPUT_HARD_CAP_CHARS * 2),
-        Math.round(summaryPrompt.length * 0.35)
+        1200,
+        Math.round(SUMMARY_OUTPUT_HARD_CAP_CHARS * 0.45),
+        Math.round(summaryPrompt.length * 0.3)
       )
     );
     try {
@@ -3604,16 +3603,8 @@
           {
             role: "system",
             content: autoMode
-              ? "你是剧情摘要助手。请输出简洁清晰的剧情总结，准确覆盖关键发展、关系变化与当前局势。禁止使用编号和标题。篇幅目标约 " +
-                SUMMARY_OUTPUT_TARGET_CHARS +
-                " 字，最长不超过 " +
-                SUMMARY_OUTPUT_HARD_CAP_CHARS +
-                " 字；忌冗长铺陈与同义反复。"
-              : "你是剧情摘要助手。请输出简洁清晰的剧情总结，准确覆盖关键发展、关系变化与当前局势。禁止使用编号和标题。篇幅目标约 " +
-                SUMMARY_OUTPUT_TARGET_CHARS +
-                " 字，最长不超过 " +
-                SUMMARY_OUTPUT_HARD_CAP_CHARS +
-                " 字；忌冗长铺陈与同义反复。请完整写完，不要截断半句，不要用“未完待续”等占位语。",
+              ? "你是剧情摘要助手。请输出清晰、完整的剧情总结，准确覆盖关键发展、关系变化与当前局势；以信息完整为先，不必刻意压缩字数，也不要为凑字数重复堆砌。禁止使用编号和标题。篇幅通常可在千余字量级自然伸缩，必要时更长亦可。"
+              : "你是剧情摘要助手。请输出清晰、完整的剧情总结，准确覆盖关键发展、关系变化与当前局势；以信息完整为先，不必刻意压缩字数，也不要为凑字数重复堆砌。禁止使用编号和标题。篇幅通常可在千余字量级自然伸缩，必要时更长亦可。请完整写完，不要截断半句，不要用「未完待续」等占位语。",
           },
           {
             role: "user",
@@ -3622,24 +3613,16 @@
                 summaryPrompt +
                 "\n\n输出要求：\n" +
                 "- 用简体中文，聚焦关键推进与关系变化\n" +
-                "- 可分 1~4 段，但不要编号和小标题\n" +
-                "- 目标约 " +
-                SUMMARY_OUTPUT_TARGET_CHARS +
-                " 字，总长度不得超过 " +
-                SUMMARY_OUTPUT_HARD_CAP_CHARS +
-                " 字\n" +
-                "- 表意清楚即可，不要冗长铺陈"
+                "- 可多分段，但不要编号和小标题\n" +
+                "- 不必严格凑字数；优先写全要点，篇幅按内容自然展开即可\n" +
+                "- 避免空洞复述与同义反复堆叠"
               : "请总结以下剧情片段（保持信息准确，不要杜撰）：\n" +
                 summaryPrompt +
                 "\n\n输出要求：\n" +
                 "- 用简体中文，聚焦关键推进与关系变化\n" +
-                "- 可分 1~4 段，但不要编号和小标题\n" +
-                "- 目标约 " +
-                SUMMARY_OUTPUT_TARGET_CHARS +
-                " 字，总长度不得超过 " +
-                SUMMARY_OUTPUT_HARD_CAP_CHARS +
-                " 字\n" +
-                "- 表意清楚即可，不要冗长铺陈；不要为凑篇幅重复叙述已交代的细节",
+                "- 可多分段，但不要编号和小标题\n" +
+                "- 不必严格凑字数；优先写全要点，篇幅按内容自然展开即可\n" +
+                "- 避免空洞复述；不要为凑篇幅重复叙述已交代的细节",
           },
         ],
         0.35,
@@ -3775,7 +3758,8 @@
     return Array.from(raw).length > maxChars;
   }
 
-  const SUMMARY_CARD_PREVIEW_CHARS = 100;
+  /** 总结卡片默认展示全文（仅极端超长再折叠，避免日常被截成一两行） */
+  const SUMMARY_CARD_PREVIEW_CHARS = 100000;
   const MEMORY_CARD_PREVIEW_CHARS = 100;
 
   function fitStorySummaryEditor(textarea) {
@@ -9822,7 +9806,7 @@
   function buildPlotShareAssistantContext(plot) {
     if (!plot) return "（无剧情数据）";
     ensurePlotExtendedState(plot);
-    const maxChars = 9200;
+    const maxChars = 28000;
     const summaryTexts = (plot.summaries || [])
       .slice()
       .sort(function (a, b) {
@@ -12484,30 +12468,43 @@
   }
 
   /**
-   * 模型有时在【选项】区之前又写一遍「选项 1. / 2. …」，与文末按钮重复。
-   * 在已解析出文末选项的前提下，从各说话块正文中剔除这些行（仅删与选项表高度重合的编号行，或「选项+序号」行）。
+   * 模型常在【选项】区之前把选项又写进正文（甚至挂在角色名下）。
+   * 在已解析出文末选项的前提下，从各说话块中剔除：编号/项目符号行、无编号但与选项文案重合的短行，以及文末重复的编号列表。
    */
   function stripEmbeddedChoicePreviewFromStoryLines(lines, choices) {
     if (!Array.isArray(lines) || !lines.length) return lines;
     if (!Array.isArray(choices) || choices.length < 2) return lines;
-    const choiceNorms = choices
-      .map(function (c) {
-        return normalizeChoiceForCompare(String((c && c.line) || ""));
+    const choiceLines = choices.map(function (c) {
+      return String((c && c.line) || "").trim();
+    });
+    const choiceNorms = choiceLines
+      .map(function (t) {
+        return normalizeChoiceForCompare(t);
       })
       .filter(function (s) {
         return s.length >= 4;
       });
     if (!choiceNorms.length) return lines;
 
-    function numberedRowMatchesParsedChoice(restNorm) {
-      if (restNorm.length < 6) return false;
+    const maxChoiceRawChars = Math.max.apply(
+      null,
+      choiceLines
+        .map(function (t) {
+          return t.length;
+        })
+        .concat([0])
+    );
+
+    function normMatchesChoice(restNorm, minSubstrLen) {
+      const ms = minSubstrLen == null ? 10 : minSubstrLen;
+      if (!restNorm || restNorm.length < 4) return false;
       for (let i = 0; i < choiceNorms.length; i++) {
         const ch = choiceNorms[i];
-        if (!ch) continue;
+        if (!ch || ch.length < 4) continue;
         if (restNorm === ch) return true;
         const shorter = restNorm.length <= ch.length ? restNorm : ch;
         const longer = restNorm.length > ch.length ? restNorm : ch;
-        if (shorter.length >= 8 && longer.indexOf(shorter) !== -1) return true;
+        if (shorter.length >= ms && longer.indexOf(shorter) !== -1) return true;
       }
       return false;
     }
@@ -12517,22 +12514,60 @@
       if (!row) return false;
       if (/^选项\s*\d{0,2}\s*[\.．、:：]\s*\S/.test(row)) return true;
       if (/^选项\s*[：:]\s*\S/.test(row)) return true;
-      const m = row.match(/^\d{1,2}\s*[\.．、:：]\s*(.+)$/);
-      if (!m) return false;
-      return numberedRowMatchesParsedChoice(normalizeChoiceForCompare(m[1]));
+      const mNum = row.match(/^\d{1,2}\s*[\.．、:：]\s*(.+)$/);
+      if (mNum && normMatchesChoice(normalizeChoiceForCompare(mNum[1]), 8)) return true;
+      const mCn = row.match(/^[（(]?\s*[一二三四五六七八九十]+\s*[）)]?\s*[\.．、:：]\s*(.+)$/);
+      if (mCn && normMatchesChoice(normalizeChoiceForCompare(mCn[1]), 8)) return true;
+      const mBul = row.match(/^[•·▸▹\-*＊]\s*(.+)$/);
+      if (mBul && normMatchesChoice(normalizeChoiceForCompare(mBul[1]), 8)) return true;
+      const bare = normalizeChoiceForCompare(row);
+      if (
+        bare.length >= 6 &&
+        row.length <= maxChoiceRawChars + 28 &&
+        normMatchesChoice(bare, 10)
+      )
+        return true;
+      return false;
+    }
+
+    function stripTrailingChoiceLikeLines(rows) {
+      const out = rows.slice();
+      while (out.length) {
+        const trimmed = cleanStoryLine(String(out[out.length - 1] || "")).trim();
+        if (!trimmed) {
+          out.pop();
+          continue;
+        }
+        if (!lineLooksLikeEmbeddedChoiceRow(trimmed)) break;
+        out.pop();
+      }
+      return out;
     }
 
     function cleanBlockText(text) {
       const raw = String(text || "").replace(/\r\n/g, "\n");
-      const rows = raw.split("\n");
       const keptRows = [];
+      const rows = raw.split("\n");
       for (let ri = 0; ri < rows.length; ri++) {
         if (!lineLooksLikeEmbeddedChoiceRow(rows[ri])) keptRows.push(rows[ri]);
       }
-      let out = keptRows.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+      const trimmedRows = stripTrailingChoiceLikeLines(keptRows);
+      let out = trimmedRows.join("\n").replace(/\n{3,}/g, "\n\n").trim();
       const paras = out.split(/\n\s*\n+/);
       const keptParas = paras.filter(function (p) {
-        return !lineLooksLikeEmbeddedChoiceRow(p);
+        const pt = cleanStoryLine(p).trim();
+        if (!pt) return false;
+        if (lineLooksLikeEmbeddedChoiceRow(pt)) return false;
+        if (!/\n/.test(pt)) {
+          const pn = normalizeChoiceForCompare(pt);
+          if (
+            pt.length <= maxChoiceRawChars + 28 &&
+            pn.length >= 6 &&
+            normMatchesChoice(pn, 10)
+          )
+            return false;
+        }
+        return true;
       });
       let joined = keptParas.join("\n\n").trim();
       joined = stripTrailingInlineNumberedChoicesFromText(joined, choices);
@@ -13986,22 +14021,21 @@
         playTemperature,
         storyPlayMaxTokens(plot)
       );
-      let lines = parseTurnByCharacterBlocks(rawResp, protagonist, supporting);
+      const rawProcessed = preprocessStoryPlayModelRaw(rawResp);
+      const bodyBeforeChoiceHeader = sliceStoryRawBeforeChoicesHeader(rawProcessed);
+      const parseSource = bodyBeforeChoiceHeader.length >= 16 ? bodyBeforeChoiceHeader : rawProcessed;
+      let lines = parseTurnByCharacterBlocks(parseSource, protagonist, supporting);
       let choices = parseChoicesBlock(rawResp);
-      if (Array.isArray(lines) && lines.length && Array.isArray(choices) && choices.length >= 2) {
-        const stripped = stripEmbeddedChoicePreviewFromStoryLines(lines, choices);
-        if (stripped.length) lines = stripped;
+      function applyEmbeddedChoiceStrip() {
+        if (Array.isArray(lines) && lines.length && Array.isArray(choices) && choices.length >= 2) {
+          const stripped = stripEmbeddedChoicePreviewFromStoryLines(lines, choices);
+          if (stripped.length) lines = stripped;
+        }
       }
+      applyEmbeddedChoiceStrip();
 
       if (!plot.playTurns) plot.playTurns = [];
-      let linesWithIds = (lines || []).map(function (line) {
-        return {
-          id: line && line.id ? line.id : uid("ln"),
-          characterId: line ? line.characterId : "",
-          text: normalizeStoryPlainTextForLayout(stripNarratorDisplayText(String(line && line.text ? line.text : ""))),
-        };
-      });
-      if (linesWithIds.length && (!Array.isArray(choices) || choices.length < 2)) {
+      if ((lines || []).length && (!Array.isArray(choices) || choices.length < 2)) {
         const bodyOnly = preprocessStoryPlayModelRaw(String(rawResp || ""))
           .replace(/\n#{1,6}\s*[^\n]*?(?:选项|选择支)[\s\S]*$/im, "")
           .replace(/\n\s*【\s*(?:选项|选择支)\s*】[\s\S]*$/im, "")
@@ -14043,6 +14077,16 @@
           }
         }
       }
+
+      applyEmbeddedChoiceStrip();
+
+      const linesWithIds = (lines || []).map(function (line) {
+        return {
+          id: line && line.id ? line.id : uid("ln"),
+          characterId: line ? line.characterId : "",
+          text: normalizeStoryPlainTextForLayout(stripNarratorDisplayText(String(line && line.text ? line.text : ""))),
+        };
+      });
 
       if (!linesWithIds.length) throw new Error("剧情生成失败，请点重生成或换模型重试。");
       if (!Array.isArray(choices) || choices.length < 2) throw new Error("生成失败（缺少有效选项），请点重生成或换模型重试。");
