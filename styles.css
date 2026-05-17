@@ -4489,10 +4489,15 @@ html[data-theme="dark"] .story-scroll-nav__btn {
   align-items: flex-start;
 }
 
-/* 同一条存储行在阅览态拆成的后续气泡：隐藏重复头像与名字，仅留正文区 */
-.story-msg--split-continuation .story-msg__top {
+/* 同一条存储行在阅览态拆成的后续段：隐藏重复侧栏，仅留正文区 */
+.story-msg--split-continuation .story-msg__aside {
   display: none;
 }
+
+.story-msg--split-continuation .story-msg__body {
+  max-width: 100%;
+}
+
 .story-msg--split-continuation {
   margin-top: 4px;
 }
@@ -4506,14 +4511,43 @@ html[data-theme="dark"] .story-scroll-nav__btn {
 
 .story-msg--me {
   align-self: stretch;
-  align-items: flex-end;
+  align-items: stretch;
 }
 
-.story-msg__top {
+.story-msg__row {
   display: flex;
   flex-direction: column;
-  align-items: inherit;
+  align-items: stretch;
+  gap: 10px;
+  width: 100%;
+  max-width: 100%;
+}
+
+.story-msg__aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 4px;
+  width: auto;
+  max-width: 100%;
+  flex-shrink: 0;
+}
+
+.story-msg__body {
+  flex: none;
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-width: 100%;
+  align-items: stretch;
+  text-align: left;
+}
+
+.story-msg--me .story-msg__body {
+  align-items: stretch;
+  text-align: left;
 }
 
 .story-turn-action-inline {
@@ -4529,16 +4563,25 @@ html[data-theme="dark"] .story-scroll-nav__btn {
   width: 40px;
   height: 40px;
   font-size: 0.95rem;
+  flex-shrink: 0;
 }
 
 .story-msg__name {
-  font-size: 0.72rem;
-  color: var(--muted);
-  text-align: center;
-  max-width: 120px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--muted) 88%, var(--text) 12%);
+  text-align: left;
+  max-width: 16rem;
+  line-height: 1.25;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+}
+
+.story-msg--me .story-msg__name {
+  text-align: left;
 }
 
 .story-msg__text {
@@ -4562,9 +4605,27 @@ html[data-theme="dark"] .story-scroll-nav__btn {
   text-justify: inter-ideograph;
   white-space: normal;
   line-height: 1.75;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  box-sizing: border-box;
 }
 
-/* 紧随角色气泡后的旁白/环境：并入同卡，减少 round 内顶部分割线 */
+.story-msg--me .story-msg__text--rp {
+  background: transparent;
+  border: none;
+}
+
+html[data-theme="dark"] .story-msg__text--rp {
+  background: transparent;
+}
+
+html[data-theme="dark"] .story-msg--me .story-msg__text--rp {
+  background: transparent;
+}
+
+/* 紧随角色条后的旁白/环境：并入同卡 */
 .story-msg__ambience {
   margin-top: 0.5em;
   padding: 0;
@@ -4900,11 +4961,11 @@ html[data-theme="dark"] .story-scroll-nav__btn {
 
 .story-line-edit-msg-col {
   width: 100%;
-  max-width: min(100%, 420px);
+  max-width: 100%;
 }
 
 .story-msg--me .story-line-edit-msg-col {
-  align-self: flex-end;
+  align-self: stretch;
 }
 
 .story-line-editable-inline {
@@ -4925,7 +4986,7 @@ html[data-theme="dark"] .story-scroll-nav__btn {
   font-style: normal;
 }
 
-/* 阅览态对白与描写分列 <p>，但同一条气泡内不分「条」——仅段落间距，无横线分隔感 */
+/* 阅览态对白与描写分列 <p>；同一条内仅段落间距 */
 .story-msg__text--rp .story-para,
 .story-feed-narr--rp .story-para {
   margin: 0 0 0.5em;

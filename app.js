@@ -86,12 +86,17 @@
   const STORAGE_API_CONFIGS = "hj-api-configs-v1";
   const STORAGE_ACTIVE_API_ID = "hj-active-api-id-v1";
   const STORAGE_ASSISTANT = "hj-assistant-v1";
+  const STORAGE_POST_CLEAR_ASSISTANT_V1 = "hj-post-clear-assistant-v1";
   const ASSISTANT_MAX_COUNT = 12;
   /** 一次性：为空存档填入默认人设（用户仍可清空或改写） */
   const STORAGE_ASSISTANT_PERSONA_PRESET_APPLIED = "hj-assistant-persona-preset-v1";
   /** 一次性：仅迁移仍使用旧默认值且未自定义的助手人设与名称 */
   const STORAGE_ASSISTANT_TONGREN_GIRL_MIGRATION_APPLIED = "hj-assistant-tongren-girl-migration-v1";
   const DEFAULT_ASSISTANT_NAME = "永远追随太太";
+  /** 顶栏等：允许空名（清空数据后不回落到默认陪读名） */
+  function assistantNameForDisplay(name) {
+    return String(name != null ? name : "").trim();
+  }
   const LEGACY_DEFAULT_ASSISTANT_NAME = "AI助手";
 
   function newAssistantId() {
@@ -698,6 +703,9 @@
       }
     });
     try {
+      localStorage.setItem(STORAGE_POST_CLEAR_ASSISTANT_V1, "1");
+    } catch (e2) {}
+    try {
       await idbDeleteFont();
     } catch (e) {}
     showToast("数据已清除，正在刷新页面…", "success");
@@ -747,7 +755,7 @@
         {
           format: BACKUP_FORMAT,
           version: BACKUP_VERSION,
-          appTitle: "嗅嗅剧场",
+          appTitle: "小狗陪读",
           exportedAt: new Date().toISOString(),
         },
         null,
@@ -3123,7 +3131,7 @@
         showToast("已删除该条剧情", "success");
         return;
       }
-      ctx.line.text = normalizeStoryParagraphLeadingPunctuation(v);
+      ctx.line.text = normalizeStoryPlainTextForLayout(v);
       storyLineEditState = null;
       flushPersistNarrative();
       rerenderStoryPlayIfCurrent(plot);
@@ -4442,8 +4450,7 @@
       return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
     });
     if (!items.length) {
-      list.innerHTML =
-        '<div class="story-summaries-empty">还没有记录想法。在剧情中长按选中文本，点气泡里的「记录想法」即可添加。</div>';
+      list.innerHTML = "";
       return;
     }
     list.innerHTML = "";
@@ -5373,9 +5380,16 @@
 
   function normalizeAssistantRecord(raw) {
     raw = raw || {};
+    const nameRaw = raw.name;
+    const nameTrimmed =
+      typeof nameRaw === "string" ? String(nameRaw).trim() : String(nameRaw || "").trim();
+    const name =
+      typeof nameRaw === "string" && nameTrimmed === ""
+        ? ""
+        : nameTrimmed || DEFAULT_ASSISTANT_NAME;
     return {
       id: String(raw.id || "").trim() || newAssistantId(),
-      name: String(raw.name || "").trim() || DEFAULT_ASSISTANT_NAME,
+      name: name,
       avatarUrl: String(raw.avatarUrl || "").trim(),
       persona: String(raw.persona || "").trim(),
       apiMode: raw.apiMode === "dedicated" ? "dedicated" : "global",
@@ -5420,6 +5434,31 @@
         showToast("助手记录保存失败：本地存储空间不足。", "error");
       }
     }
+  }
+
+  /** 在「清空所有数据」后的首次启动：助手无名称、无人设、无欢迎气泡，且不注入默认人设。 */
+  function applyPostClearAssistantBlankStateIfNeeded() {
+    try {
+      if (localStorage.getItem(STORAGE_POST_CLEAR_ASSISTANT_V1) !== "1") return;
+      localStorage.removeItem(STORAGE_POST_CLEAR_ASSISTANT_V1);
+      assistantDirectory.assistants = [
+        normalizeAssistantRecord({
+          id: newAssistantId(),
+          name: "",
+          persona: "",
+          avatarUrl: "",
+          apiMode: "global",
+          dedicatedApiId: "",
+          assistantEverHadRealExchange: true,
+          messages: [],
+        }),
+      ];
+      syncAssistantStatePointer();
+      try {
+        localStorage.setItem(STORAGE_ASSISTANT_PERSONA_PRESET_APPLIED, "1");
+      } catch (e2) {}
+      persistAssistantState();
+    } catch (e) {}
   }
 
   function loadAssistantState() {
@@ -5953,6 +5992,7 @@
     "保持叙述流畅自然，避免语言过于华丽或浮夸。" +
     "避免同义反复与同一信息的重复交代；动作、心理与场景描写点到即止，勿用连环动作或与当前人际张力无关的空镜凑篇幅。" +
     "【中文标点】若用冒号「：」引出下文的弯引号对白或尚未写完的成分，冒号后不得紧跟句号（禁止「：。」）；该收束时用句号，该引出时冒号后直接接对白或续写，勿用句号提前截断。" +
+    "人物对白须用中文弯引号 “…” 或半角直引号 \"…\" 标示，不要用直角引号 「…」充当对白括号。" +
     "【生活化·反脸谱】语感贴近日常相处与真实对话，少用舞台化、霸总言情小说腔与严肃抽象大词唬人。" +
     "禁止为用「有张力」而滥写：压迫感、气场碾压、居高临下、不容置疑、冷冽入骨、骨子里的、与生俱来的威压；少用套路身体词当情绪（如眼眸深不见底、眯起危险的眸光、修长的手指漫不经心敲击、喉结滚动、咬牙切齿、邪魅一笑等），除非与具体职业或情节强相关且非装饰句。" +
     "情绪须克制内敛：通过小动作、具体物件、环境里的细微声音、一两句口语化对白侧面呈现；避免直接写激烈心理判词或网红总结句（如心潮澎湃、瞬间破防、该死的甜美、铺天盖地等）。" +
@@ -5965,6 +6005,7 @@
   var STORY_PLAY_PROSE_BRIEF =
     "文风口语、生活化，少堆砌修辞；用动作、环境声和短对白推进情绪，少用抽象大词。" +
     "避免霸总模版词与小作文式心理判词；" +
+    "对白使用弯引号 “…” ，不要用 「」 标示对白；" +
     "冒号引出对白后不要写成「：。」。";
 
   function storyBriefCharCount(s) {
@@ -7775,14 +7816,14 @@
       const av = document.createElement("div");
       av.className = "avatar assistant-switch-row__avatar";
       fillAvatarElement(av, {
-        name: rec.name || DEFAULT_ASSISTANT_NAME,
+        name: assistantNameForDisplay(rec.name),
         avatarUrl: rec.avatarUrl || "",
       });
       const text = document.createElement("div");
       text.className = "assistant-switch-row__text";
       const nm = document.createElement("div");
       nm.className = "assistant-switch-row__name";
-      nm.textContent = rec.name || DEFAULT_ASSISTANT_NAME;
+      nm.textContent = assistantNameForDisplay(rec.name) || "未命名";
       const hint = document.createElement("div");
       hint.className = "assistant-switch-row__hint";
       hint.textContent = "切换为当前会话助手";
@@ -7804,10 +7845,10 @@
     const deco = document.getElementById("assistant-avatar-deco");
     const nameEl = els.assistantName();
     if (!assistantState) syncAssistantStatePointer();
-    if (nameEl) nameEl.textContent = assistantState.name || DEFAULT_ASSISTANT_NAME;
+    if (nameEl) nameEl.textContent = assistantNameForDisplay(assistantState.name);
     if (avatar) {
       fillAvatarElement(avatar, {
-        name: assistantState.name || DEFAULT_ASSISTANT_NAME,
+        name: assistantNameForDisplay(assistantState.name),
         avatarUrl: assistantState.avatarUrl || "",
       });
     }
@@ -8033,12 +8074,12 @@
         delBtn.disabled = assistantDirectory.assistants.length <= 1;
       }
       if (clearBtn) clearBtn.hidden = false;
-      if (nameInput) nameInput.value = assistantState.name || DEFAULT_ASSISTANT_NAME;
+      if (nameInput) nameInput.value = assistantNameForDisplay(assistantState.name);
       if (personaInput) personaInput.value = assistantState.persona || "";
       if (avatarHidden) avatarHidden.value = assistantState.avatarUrl || "";
       if (avatarPreview) {
         fillAvatarElement(avatarPreview, {
-          name: assistantState.name || DEFAULT_ASSISTANT_NAME,
+          name: assistantNameForDisplay(assistantState.name),
           avatarUrl: assistantState.avatarUrl || "",
         });
       }
@@ -9558,14 +9599,14 @@
       const av = document.createElement("div");
       av.className = "avatar assistant-switch-row__avatar";
       fillAvatarElement(av, {
-        name: rec.name || DEFAULT_ASSISTANT_NAME,
+        name: assistantNameForDisplay(rec.name),
         avatarUrl: rec.avatarUrl || "",
       });
       const text = document.createElement("div");
       text.className = "assistant-switch-row__text";
       const nm = document.createElement("div");
       nm.className = "assistant-switch-row__name";
-      nm.textContent = rec.name || DEFAULT_ASSISTANT_NAME;
+      nm.textContent = assistantNameForDisplay(rec.name) || "未命名";
       const hint = document.createElement("div");
       hint.className = "assistant-switch-row__hint";
       hint.textContent = idx === 0 ? "当前会话助手" : "分享剧情卡片到此对话";
@@ -9941,8 +9982,6 @@
     const menu = els.menuFloating();
     const iconEdit =
       '<svg class="popover-menu-item__icon icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
-    const iconShare =
-      '<svg class="popover-menu-item__icon icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98"/></svg>';
     const iconLock =
       '<svg class="popover-menu-item__icon icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>';
     const iconUnlock =
@@ -9972,7 +10011,6 @@
       const sealIcon = sealed ? iconUnlock : iconLock;
       menu.innerHTML =
         popoverMenuItem("edit", "", iconEdit, "编辑") +
-        popoverMenuItem("share", "", iconShare, "分享") +
         popoverMenuItem("seal", "", sealIcon, sealLabel) +
         popoverMenuItem("del", "danger", iconDel, "删除");
     } else {
@@ -10002,7 +10040,6 @@
           }
         } else if (kind === "plot") {
           if (act === "edit") openPlotEditModal(id);
-          if (act === "share") openPlotShareAssistantPicker(id);
           if (act === "seal") {
             const plotObj = plots.find(function (x) {
               return x.id === id;
@@ -11476,6 +11513,28 @@
     return finalizeStoryBlocks(blocks, resolveCharacterId);
   }
 
+  /** 独占一行且与花名册完全一致的发言者标记（常见小说体：姓名单独一行，下一行起接对白或描写）。 */
+  function normalizeStandaloneSpeakerLabel(raw) {
+    let t = String(raw || "").trim();
+    if (!t) return "";
+    const bold = t.match(/^\*{1,2}\s*([^*]+?)\s*\*{1,2}$/);
+    if (bold) t = String(bold[1] || "").trim();
+    return t;
+  }
+
+  function tryMatchStandaloneCastSpeaker(trim, nameList, protagonist) {
+    const t = normalizeStandaloneSpeakerLabel(trim);
+    if (!t) return null;
+    if (protagonist && protagonist.id && /^(?:我|主角)$/i.test(t)) {
+      return { titleHint: /^主角$/i.test(t) ? "主角" : "我" };
+    }
+    for (let i = 0; i < nameList.length; i++) {
+      const nm = nameList[i];
+      if (nm && t === nm) return { titleHint: nm };
+    }
+    return null;
+  }
+
   /** 适配「张明：台词」单行起块（名册中的全名）。 */
   function parseTurnByCharacterBlocksNameColon(lines, cast, protagonist, resolveCharacterId) {
     const nameList = (cast || [])
@@ -11518,6 +11577,13 @@
       const trim = cleanStoryLine(String(ln || ""));
       if (/^【/.test(trim)) {
         pendingPrelude.push(String(ln || ""));
+        return;
+      }
+      const standalone = tryMatchStandaloneCastSpeaker(trim, nameList, protagonist);
+      if (standalone) {
+        flushPreludeIfAny();
+        current = { titleHint: standalone.titleHint, chunks: [] };
+        blocks.push(current);
         return;
       }
       const mc = tryMatchNameColon(trim);
@@ -11904,6 +11970,73 @@
     return sanitizeStoryChoices(parseStoryChoices("", src));
   }
 
+  /**
+   * 模型有时在【选项】区之前又写一遍「选项 1. / 2. …」，与文末按钮重复。
+   * 在已解析出文末选项的前提下，从各说话块正文中剔除这些行（仅删与选项表高度重合的编号行，或「选项+序号」行）。
+   */
+  function stripEmbeddedChoicePreviewFromStoryLines(lines, choices) {
+    if (!Array.isArray(lines) || !lines.length) return lines;
+    if (!Array.isArray(choices) || choices.length < 2) return lines;
+    const choiceNorms = choices
+      .map(function (c) {
+        return normalizeChoiceForCompare(String((c && c.line) || ""));
+      })
+      .filter(function (s) {
+        return s.length >= 4;
+      });
+    if (!choiceNorms.length) return lines;
+
+    function numberedRowMatchesParsedChoice(restNorm) {
+      if (restNorm.length < 6) return false;
+      for (let i = 0; i < choiceNorms.length; i++) {
+        const ch = choiceNorms[i];
+        if (!ch) continue;
+        if (restNorm === ch) return true;
+        const shorter = restNorm.length <= ch.length ? restNorm : ch;
+        const longer = restNorm.length > ch.length ? restNorm : ch;
+        if (shorter.length >= 8 && longer.indexOf(shorter) !== -1) return true;
+      }
+      return false;
+    }
+
+    function lineLooksLikeEmbeddedChoiceRow(rawLine) {
+      const row = cleanStoryLine(String(rawLine || ""));
+      if (!row) return false;
+      if (/^选项\s*\d{0,2}\s*[\.．、:：]\s*\S/.test(row)) return true;
+      if (/^选项\s*[：:]\s*\S/.test(row)) return true;
+      const m = row.match(/^\d{1,2}\s*[\.．、:：]\s*(.+)$/);
+      if (!m) return false;
+      return numberedRowMatchesParsedChoice(normalizeChoiceForCompare(m[1]));
+    }
+
+    function cleanBlockText(text) {
+      const raw = String(text || "").replace(/\r\n/g, "\n");
+      const rows = raw.split("\n");
+      const keptRows = [];
+      for (let ri = 0; ri < rows.length; ri++) {
+        if (!lineLooksLikeEmbeddedChoiceRow(rows[ri])) keptRows.push(rows[ri]);
+      }
+      let out = keptRows.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+      const paras = out.split(/\n\s*\n+/);
+      const keptParas = paras.filter(function (p) {
+        return !lineLooksLikeEmbeddedChoiceRow(p);
+      });
+      return keptParas.join("\n\n").trim();
+    }
+
+    return lines
+      .map(function (ln) {
+        return {
+          characterId: ln.characterId,
+          text: cleanBlockText(String((ln && ln.text) || "")),
+          id: ln.id,
+        };
+      })
+      .filter(function (ln) {
+        return String((ln && ln.text) || "").trim();
+      });
+  }
+
   function isPlotStoryParticipant(plot, characterId) {
     if (!characterId || characterId === "narrator") return false;
     if (characterId === plot.protagonistId) return true;
@@ -12122,6 +12255,7 @@
   function stripLeadingPunctuationExceptOpeningQuotes(para) {
     let s = String(para || "").replace(/\r\n/g, "\n").trim();
     if (!s) return "";
+    s = s.replace(/^[\uFEFF\u200B-\u200D\u2060]+/, "");
     while (s.length) {
       const cp = s.codePointAt(0);
       if (cp === undefined) break;
@@ -12160,7 +12294,7 @@
   }
 
   /**
-   * 段落首不得以逗号、句号等句读起笔（允许的段首标点仅为引号：「“‘ 与半角 "'）；
+   * 段落首不得以逗号、句号等句读起笔（允许的段首标点仅为引号：“‘ 与半角 "'）；
    * 合并「单独成行仅含句读」的段落，避免模型把句号甩成新行。
    */
   function normalizeStoryParagraphLeadingPunctuation(text) {
@@ -12184,15 +12318,114 @@
       .join("\n\n");
   }
 
+  /**
+   * 展示管尾巴：fixColon / 句号折叠之后偶发残留段首/行首句读；再剥一层并与保存口径一致。
+   */
+  function finalizeStoryPlainLeadingHygiene(text) {
+    let s = String(text || "").replace(/\r/g, "\n");
+    const lines = s.split("\n");
+    const linesOut = [];
+    for (let li = 0; li < lines.length; li++) {
+      const line = lines[li];
+      const trimmedOrig = String(line || "").trim();
+      if (!trimmedOrig) {
+        linesOut.push(line);
+        continue;
+      }
+      const m = line.match(/^([\t \u3000]*)([\s\S]*)$/);
+      const indent = m ? m[1] : "";
+      let body = m ? m[2] : line;
+      body = body.replace(/^[\uFEFF\u200B-\u200D\u2060]+/, "");
+      body = stripLeadingPunctuationExceptOpeningQuotes(body);
+      linesOut.push(indent + body);
+    }
+    s = linesOut.join("\n").trim();
+    const paras = s.split(/\n\s*\n+/).map(function (seg) {
+      const t = String(seg || "").trim();
+      if (!t) return "";
+      return stripLeadingPunctuationExceptOpeningQuotes(t);
+    });
+    return paras.filter(Boolean).join("\n\n");
+  }
+
+  /**
+   * 「…」内侧规范化：若已为成对白弯引号则只剥外层直角引号，不再外包一层（避免「“…”」→““…””）。
+   */
+  function normalizeCornerBracketPairInner(innerRaw) {
+    let t = String(innerRaw || "").replace(/\r/g, "").trim();
+    if (!t) return "";
+
+    while (t.startsWith("\u300c") && t.endsWith("\u300d")) {
+      const next = t.slice(1, -1).trim();
+      if (!next || next.length >= t.length) break;
+      t = next;
+    }
+
+    if (t.startsWith("\u201c") && t.endsWith("\u201d")) {
+      const mid = t.slice(1, -1);
+      if (mid.indexOf("\u201c") === -1 && mid.indexOf("\u201d") === -1) {
+        return "\u201c" + mid.trim() + "\u201d";
+      }
+    }
+
+    if (t.length >= 2 && t.charAt(0) === '"' && t.charAt(t.length - 1) === '"') {
+      return "\u201c" + t.slice(1, -1).trim() + "\u201d";
+    }
+
+    return "\u201c" + t + "\u201d";
+  }
+
+  /**
+   * 展示层：将成对直角引号「…」转为弯引号对白；未配对「保留原样。
+   */
+  function normalizeCornerBracketsToCurlyQuotes(raw) {
+    const s = String(raw || "");
+    let out = "";
+    let i = 0;
+    while (i < s.length) {
+      const ch = s[i];
+      if (ch === "\u300c") {
+        let j = i + 1;
+        while (j < s.length && s[j] !== "\u300d") j++;
+        if (j < s.length) {
+          const converted = normalizeCornerBracketPairInner(s.slice(i + 1, j));
+          if (converted) out += converted;
+          i = j + 1;
+          continue;
+        }
+      }
+      out += ch;
+      i++;
+    }
+    return out;
+  }
+
+  /** 收敛历史输出或异常叠加产生的连续双层弯引号 ““…”” → “…” */
+  function collapseDoubleCurlyQuoteWrappers(s) {
+    let t = String(s || "");
+    for (let guard = 0; guard < 24; guard++) {
+      const next = t.replace(/\u201c\u201c([\s\S]*?)\u201d\u201d/g, function (_w, mid) {
+        return "\u201c" + String(mid || "").trim() + "\u201d";
+      });
+      if (next === t) break;
+      t = next;
+    }
+    return t;
+  }
+
   /** 卡片/分享图正文：与 renderStoryInlineMarkup 相同的纯文本规范化（段首句读、孤立标点行等） */
   function normalizeStoryPlainTextForLayout(raw) {
     const src = String(raw || "").replace(/\r\n/g, "\n").trim();
     if (!src) return "";
-    return collapseDuplicatePeriodAfterClosingQuote(
-      fixColonPeriodBeforeCurlyQuote(
-        normalizeStoryParagraphLeadingPunctuation(src.replace(/\*\*/g, "").replace(/\*/g, "").trim())
-      )
+    const quoted = collapseDoubleCurlyQuoteWrappers(normalizeCornerBracketsToCurlyQuotes(src))
+      .replace(/\*\*/g, "")
+      .replace(/\*/g, "")
+      .trim();
+    if (!quoted) return "";
+    const body = collapseDuplicatePeriodAfterClosingQuote(
+      fixColonPeriodBeforeCurlyQuote(normalizeStoryParagraphLeadingPunctuation(quoted))
     );
+    return finalizeStoryPlainLeadingHygiene(body);
   }
 
   function renderStoryInlineMarkup(text) {
@@ -12365,6 +12598,31 @@
     }
   }
 
+  /** 剧情条：头像与昵称在上，正文在下全宽平铺。 */
+  function buildStoryPlayParticipantShell(isMe, displayChar, ch, extraClasses) {
+    const row = document.createElement("div");
+    row.className =
+      "story-msg story-msg--" + (isMe ? "me" : "npc") + (extraClasses ? " " + extraClasses : "");
+    const innerRow = document.createElement("div");
+    innerRow.className = "story-msg__row";
+    const aside = document.createElement("div");
+    aside.className = "story-msg__aside";
+    const av = document.createElement("div");
+    av.className = "avatar";
+    fillAvatarElement(av, displayChar);
+    const name = document.createElement("div");
+    name.className = "story-msg__name";
+    name.textContent = displayChar ? displayChar.name : ch ? ch.name : "未知";
+    aside.appendChild(av);
+    aside.appendChild(name);
+    const body = document.createElement("div");
+    body.className = "story-msg__body";
+    innerRow.appendChild(aside);
+    innerRow.appendChild(body);
+    row.appendChild(innerRow);
+    return { row: row, body: body };
+  }
+
   function renderStoryPlay(p) {
     const introEl = document.getElementById("story-play-intro");
     if (!introEl) return;
@@ -12529,19 +12787,9 @@
           const displayChar = getPlotCharacterView(p, line.characterId);
           const isMe = line.characterId === pid;
           if (isEditing) {
-            const row = document.createElement("div");
-            row.className = "story-msg story-msg--" + (isMe ? "me" : "npc") + " story-line-edit-outer";
+            const shell = buildStoryPlayParticipantShell(isMe, displayChar, ch, "story-line-edit-outer");
+            const row = shell.row;
             row.setAttribute("data-story-line-id", String(line.id || ""));
-            const top = document.createElement("div");
-            top.className = "story-msg__top";
-            const av = document.createElement("div");
-            av.className = "avatar";
-            fillAvatarElement(av, displayChar);
-            const name = document.createElement("div");
-            name.className = "story-msg__name";
-            name.textContent = displayChar ? displayChar.name : (ch ? ch.name : "未知");
-            top.appendChild(av);
-            top.appendChild(name);
             const col = document.createElement("div");
             col.className = "story-line-edit-msg-col";
             const editable = document.createElement("div");
@@ -12567,8 +12815,7 @@
             actions.appendChild(btnCancel);
             col.appendChild(editable);
             col.appendChild(actions);
-            row.appendChild(top);
-            row.appendChild(col);
+            shell.body.appendChild(col);
             turnGroup.appendChild(row);
             requestAnimationFrame(function () {
               focusEditableToEnd(editable);
@@ -12598,27 +12845,19 @@
                 mergedParts.push(String(turnLines[mx].text || "").trim());
               var mergedParticipantText = mergedParts.filter(Boolean).join("\n\n");
               if (String(mergedParticipantText || "").trim()) {
-              var mergeRow = document.createElement("div");
-              mergeRow.className =
-                "story-msg story-msg--" + (isMe ? "me" : "npc") +
-                (p.playSealed ? " story-msg--readonly" : " story-line-clickable");
+              var shellM = buildStoryPlayParticipantShell(
+                isMe,
+                displayChar,
+                ch,
+                p.playSealed ? "story-msg--readonly" : "story-line-clickable"
+              );
+              var mergeRow = shellM.row;
               mergeRow.setAttribute("data-story-line-id", String(line.id || ""));
-              var mergeTop = document.createElement("div");
-              mergeTop.className = "story-msg__top";
-              var mergeAv = document.createElement("div");
-              mergeAv.className = "avatar";
-              fillAvatarElement(mergeAv, displayChar);
-              var mergeName = document.createElement("div");
-              mergeName.className = "story-msg__name";
-              mergeName.textContent = displayChar ? displayChar.name : ch ? ch.name : "未知";
-              mergeTop.appendChild(mergeAv);
-              mergeTop.appendChild(mergeName);
               var mergeTxt = document.createElement("div");
               mergeTxt.className = "story-msg__text story-msg__text--rp";
               mergeTxt.innerHTML = renderStoryInlineMarkup(mergedParticipantText);
               applyStoryLineDecorations(mergeTxt, p, String(line.id || ""));
-              mergeRow.appendChild(mergeTop);
-              mergeRow.appendChild(mergeTxt);
+              shellM.body.appendChild(mergeTxt);
               if (!p.playSealed) {
                 setStoryPlayLinePressMeta(mergeRow, p, turnIndex, lineIndex);
               }
@@ -12632,27 +12871,19 @@
               }
             }
           }
-          const row = document.createElement("div");
-          row.className =
-            "story-msg story-msg--" + (isMe ? "me" : "npc") +
-            (p.playSealed ? " story-msg--readonly" : " story-line-clickable");
+          const shellN = buildStoryPlayParticipantShell(
+            isMe,
+            displayChar,
+            ch,
+            p.playSealed ? "story-msg--readonly" : "story-line-clickable"
+          );
+          const row = shellN.row;
           row.setAttribute("data-story-line-id", String(line.id || ""));
-          const top = document.createElement("div");
-          top.className = "story-msg__top";
-          const av = document.createElement("div");
-          av.className = "avatar";
-          fillAvatarElement(av, displayChar);
-          const name = document.createElement("div");
-          name.className = "story-msg__name";
-          name.textContent = displayChar ? displayChar.name : ch ? ch.name : "未知";
-          top.appendChild(av);
-          top.appendChild(name);
           const txt = document.createElement("div");
           txt.className = "story-msg__text story-msg__text--rp";
           txt.innerHTML = renderStoryInlineMarkup(rawText);
           applyStoryLineDecorations(txt, p, String(line.id || ""));
-          row.appendChild(top);
-          row.appendChild(txt);
+          shellN.body.appendChild(txt);
           if (!p.playSealed) {
             setStoryPlayLinePressMeta(row, p, turnIndex, lineIndex);
           }
@@ -13091,15 +13322,17 @@
             ? "本轮合计大约 9～15 枚说话块；同一角色同一场戏尽量只用一条【名】块写完。"
             : "本轮大约 6～12 枚说话块即可；同一角色莫为「短块」而机械拆条。") +
       "\n" +
-      "· 【单块形态·忌模板化】每个【角色】块内应像小说一段：对白、动作、神态可混写，用中文引号标对白即可；**禁止**几乎每轮都写成「先单独抬一句对白、再单独接一大段描写」的固定套路。要有意变化：纯对白连播、纯动作无对白、对白嵌在叙事里、短氛围段等都要出现，勿雷同。\n" +
+      "· 【单块形态·忌模板化】每个【角色】块内应像小说一段：对白、动作、神态可混写；**对白一律用中文弯引号 “…” 标示（也可用半角 \"…\"），不要用直角引号 「…」当对白符号。**忌几乎每轮都写成「先单独抬一句对白、再单独接一大段描写」的固定套路。要有意变化：纯对白连播、纯动作无对白、对白嵌在叙事里、短氛围段等都要出现，勿雷同。\n" +
       "· 【换人节奏】叙述上尽量轮番【角色甲】-【角色乙】-【旁白】交替；**同一角色若仍处同一场戏、同一口气，请写进同一个【名】块**，不要在相邻行重复【同名】切碎。只有换人、时间跳切或段落明显收束时再新开块。\n";
 
     const systemPrompt =
       "你是中文互动剧情续写助手。只输出剧情块与文末选项；不要开场寒暄；不要用代码围栏（三面反引号）包住全文。\n\n" +
+      "【玩家指令优先】当用户消息含「务必优先·玩家指令」时，该段所列点选选项或输入文字为本回合最高约束：后续场面、对白与因果链条必须与之相符，禁止忽略、禁止改写成相反走向，禁止仅用一句话带过再写无关支线。\n" +
+      "【选项区唯一】禁止在正文里（在文末「【选项】」「【选择支】」或「## 选项」等标题出现之前）再写「选项 1.」「选项1.」「2.」等分支罗列或与文末选项雷同的预告；玩家可点选的行动只准许在文末选项区出现一次。\n\n" +
       "【输出形态·程序依此解析】\n" +
       storyPlayTurnBlockBudgetLine +
-      "· 「说话块」按**说话者/视点**切换：换人或换【旁白】时用单独一行的【角色名】/【旁白】/【我】（仅第一人称主角）起头；姓名只能来自用户花名册；也可【名】后同一行接正文。**同一说话者同一场戏不要为每一句对白再起新的【名】行。**\n" +
-      "· 【标点】段落开头不要直接使用逗号、句号、冒号等句读——若该段第一句是对白，则用开引号（「““）打头即可。不要将单个标点单独占成一行；段末不要使用两个连续句号/问号/叹号等（如。。、？？），也不要写成「：。」。\n" +
+      "· 「说话块」按**说话者/视点**切换：换人或换【旁白】时用单独一行的【角色名】/【旁白】/【我】（仅第一人称主角）起头；姓名只能来自用户花名册；也可【名】后同一行接正文；**或与花名册完全一致的全名单独占一行**（下一行起接该角色的对白或描写；勿加括号或 Markdown 装饰）。亦可用「姓名：」同一行起段。**同一说话者同一场戏不要为每一句对白再起新的【名】行。**\n" +
+      "· 【标点】段落开头不要直接使用逗号、句号、冒号等句读——若该段第一句是对白，则用弯引号 “ 起笔。**对白不要使用 「」 作为起止符号。**不要将单个标点单独占成一行；段末不要使用两个连续句号/问号/叹号等（如。。、？？），也不要写成「：。」。\n" +
       "· 结尾留下玩家可介入的局面；最后一格尽量用配角或【旁白】收束。\n" +
       "· 文末单独一行「【选项】」或「【选择支】」，或用 Markdown 「## 选项」等小标题接引；后跟至少两行可选行动。\n" +
       "可加 1. / - 前缀；一行一条，勿把两段对白挤在同一行。\n\n" +
@@ -13151,8 +13384,21 @@
     const wbBlockPlay = formatWorldBooksPromptBlock(wbs);
     const includeRoleLibrary =
       roleLibraryBlock && !isPlayRoleLibraryRedundantWithIdentities(roleLibraryBlock, identitySelfBlock, identityOthersBlock);
+    const playerActionPriorityLead =
+      pendingPlayerTurnAction && String(pendingPlayerTurnAction.line || "").trim()
+        ? "【务必优先·玩家指令】\n" +
+          "本回合续写必须以下列玩家选择或输入为因果与场面发展的主轴；请贯穿落实其意图，不得背离；可用叙事技巧改写呈现，但结果走向须一致。\n" +
+          (String(pendingPlayerTurnAction.type || "") === "choice"
+            ? "（来源：玩家点击的预设选项——请落实正文与对白，并兼顾「提示」中的设计意图。）\n"
+            : "（来源：剧情框内玩家发送的自由文字——请直接承接其内容与语气。）\n") +
+          "玩家本次行动：\n" +
+          String(pendingPlayerTurnAction.line || "").trim() +
+          (pendingPlayerTurnAction.hint ? "\n提示：\n" + String(pendingPlayerTurnAction.hint || "").trim() : "") +
+          "\n\n"
+        : "";
     const userPrompt =
       (wbBlockPlay ? wbBlockPlay + "\n" : "") +
+      playerActionPriorityLead +
       "题材方向：" +
       (String(plot.theme || "").trim() || "无特定题材") +
       "\n\n【当前剧情设定】\n" +
@@ -13162,10 +13408,8 @@
       "\n\n故事开端：\n" + openingBlock +
       "\n\n花名册（仅可使用这些名字作为角色块标题）：" + (rosterNames || "无") +
       (includeRoleLibrary ? "\n\n【角色库·外貌与性格（仅作扮演参考）】\n" + roleLibraryBlock : "") +
-      (pendingPlayerTurnAction && pendingPlayerTurnAction.line
-        ? "\n\n玩家本次行动（结合叙事视角写成主角口吻或动作片段，勿原句复制）：\n" +
-          pendingPlayerTurnAction.line +
-          (pendingPlayerTurnAction.hint ? "\n提示：" + pendingPlayerTurnAction.hint : "")
+      (pendingPlayerTurnAction && String(pendingPlayerTurnAction.line || "").trim()
+        ? "\n\n（玩家指令全文见上文【务必优先·玩家指令】；叙事中勿机械复述提示词原句，须语义一致落实。）"
         : "") +
       (latestPlayerAction ? "\n\n上一手玩家行动（仅供连续性参考）：\n" + latestPlayerAction : "") +
       (roleOverrideBlock ? "\n\n当前角色形象覆盖：\n" + roleOverrideBlock : "") +
@@ -13195,13 +13439,17 @@
       );
       let lines = parseTurnByCharacterBlocks(rawResp, protagonist, supporting);
       let choices = parseChoicesBlock(rawResp);
+      if (Array.isArray(lines) && lines.length && Array.isArray(choices) && choices.length >= 2) {
+        const stripped = stripEmbeddedChoicePreviewFromStoryLines(lines, choices);
+        if (stripped.length) lines = stripped;
+      }
 
       if (!plot.playTurns) plot.playTurns = [];
       let linesWithIds = (lines || []).map(function (line) {
         return {
           id: line && line.id ? line.id : uid("ln"),
           characterId: line ? line.characterId : "",
-          text: normalizeStoryParagraphLeadingPunctuation(String(line && line.text ? line.text : "")),
+          text: normalizeStoryPlainTextForLayout(String(line && line.text ? line.text : "")),
         };
       });
       if (linesWithIds.length && (!Array.isArray(choices) || choices.length < 2)) {
@@ -13985,7 +14233,7 @@
       const fileEl = document.getElementById("assistant-avatar-file");
       if (fileEl) fileEl.value = "";
       fillAvatarElement(document.getElementById("assistant-avatar-preview"), {
-        name: document.getElementById("assistant-name-input").value || DEFAULT_ASSISTANT_NAME,
+        name: document.getElementById("assistant-name-input").value.trim(),
         avatarUrl: "",
       });
     }
@@ -14001,7 +14249,7 @@
       const preview = document.getElementById("assistant-avatar-preview");
       if (preview) {
         fillAvatarElement(preview, {
-          name: document.getElementById("assistant-name-input").value || DEFAULT_ASSISTANT_NAME,
+          name: document.getElementById("assistant-name-input").value.trim(),
           avatarUrl: url,
         });
       }
@@ -14018,7 +14266,7 @@
     const hidden = document.getElementById("assistant-avatar-data");
     if (hidden && !hidden.value.trim()) {
       fillAvatarElement(document.getElementById("assistant-avatar-preview"), {
-        name: document.getElementById("assistant-name-input").value || DEFAULT_ASSISTANT_NAME,
+        name: document.getElementById("assistant-name-input").value.trim(),
         avatarUrl: "",
       });
     }
@@ -14071,7 +14319,7 @@
     if (assistantProfileModalMode === "create") {
       const rec = normalizeAssistantRecord({
         id: newAssistantId(),
-        name: nameVal || DEFAULT_ASSISTANT_NAME,
+        name: nameVal,
         avatarUrl: avatarVal,
         persona: personaVal,
         apiMode: apiModeRadio && apiModeRadio.value === "dedicated" ? "dedicated" : "global",
@@ -14091,7 +14339,7 @@
       showToast("已添加助手。", "success");
       return;
     }
-    assistantState.name = nameVal || DEFAULT_ASSISTANT_NAME;
+    assistantState.name = nameVal;
     assistantState.avatarUrl = avatarVal;
     assistantState.persona = personaVal;
     assistantState.apiMode = apiModeRadio && apiModeRadio.value === "dedicated" ? "dedicated" : "global";
@@ -15546,6 +15794,7 @@
   loadUiFontScaleAndApply();
   loadApiConfigs();
   loadAssistantState();
+  applyPostClearAssistantBlankStateIfNeeded();
   migrateLegacyAssistantDefaultsOnce();
   ensureAssistantPersonaPresetAppliedOnce();
   initStatusBar();
