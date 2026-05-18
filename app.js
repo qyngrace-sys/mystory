@@ -3286,6 +3286,7 @@
         lines.push({
           id: typeof srcLine.id === "string" && srcLine.id.trim() ? srcLine.id : uid("ln"),
           characterId: srcLine.characterId,
+          speakerName: srcLine.speakerName,
           text: srcLine.text,
         });
       }
@@ -3548,6 +3549,7 @@
           lineIndex: lineIndex,
           lineId: line.id,
           characterId: line.characterId,
+          speakerName: line.speakerName,
           text: String(line.text || "").trim(),
         });
       });
@@ -3561,7 +3563,13 @@
     if (!row || !row.text) return "";
     const isNarr = !row.characterId || row.characterId === "narrator";
     const ch = isNarr ? null : getCharById(row.characterId);
-    const who = isNarr ? "旁白" : (ch && ch.name ? ch.name : "角色");
+    const who = isNarr
+      ? "旁白"
+      : isEphemeralStoryNpcId(row.characterId)
+        ? String(row.speakerName || "").trim() || "角色"
+        : ch && ch.name
+          ? ch.name
+          : "角色";
     return "[" + (row.turnIndex + 1) + "] " + who + "：" + row.text;
   }
 
@@ -3579,6 +3587,7 @@
     if (!slice.length) return null;
     if (plot.summaryInFlight) return null;
     plot.summaryInFlight = true;
+    storyAiWakeLockAcquire();
     syncStorySummaryBookState(plot);
     syncStorySummaryNowButtonState(plot);
     schedulePersistNarrative();
@@ -3656,6 +3665,7 @@
       return null;
     } finally {
       plot.summaryInFlight = false;
+      storyAiWakeLockRelease();
       syncStorySummaryBookState(plot);
       syncStorySummaryNowButtonState(plot);
       schedulePersistNarrative();
@@ -4729,7 +4739,7 @@
     const line = ctx.line;
     const isNarratorLine = !line.characterId || line.characterId === "narrator";
     const rawText = String(line.text || "").trim();
-    const showBubble = !isNarratorLine && isPlotStoryParticipant(plot, line.characterId);
+    const showBubble = storyTurnLineShowsParticipantBubble(plot, line);
     const storedContent = (showBubble ? rawText : stripNarratorDisplayText(rawText)).trim();
     if (!storedContent) return "invalid";
     const now = Date.now();
@@ -4740,7 +4750,7 @@
       avatarUrl: "",
     };
     if (showBubble) {
-      const displayChar = getPlotCharacterView(plot, line.characterId);
+      const displayChar = getStoryLineCharacterView(plot, line);
       snap = {
         kind: "role",
         characterId: String(line.characterId || ""),
@@ -4779,7 +4789,7 @@
     const line = ctx.line;
     const isNarratorLine = !line.characterId || line.characterId === "narrator";
     const rawText = String(line.text || "").trim();
-    const showBubble = !isNarratorLine && isPlotStoryParticipant(plot, line.characterId);
+    const showBubble = storyTurnLineShowsParticipantBubble(plot, line);
     const storedContent = (showBubble ? rawText : stripNarratorDisplayText(rawText)).trim();
     if (!storedContent) return null;
     let snap = {
@@ -4790,7 +4800,7 @@
       content: storedContent,
     };
     if (showBubble) {
-      const displayChar = getPlotCharacterView(plot, line.characterId);
+      const displayChar = getStoryLineCharacterView(plot, line);
       snap.kind = "role";
       snap.characterId = String(line.characterId || "");
       snap.displayName = displayChar && displayChar.name ? String(displayChar.name) : "未知";
@@ -6038,6 +6048,78 @@
     return msg && msg.content ? String(msg.content) : "";
   }
 
+  /**
+   * 剧情向长时间 API：在支持的浏览器上申请屏幕唤醒锁，降低切换 App 或短暂熄屏时页面被立刻冻结、fetch 停滞的概率。
+   * 说明：纯前端无法违背系统策略；iOS/Android 长时间在后台仍可能终止网页，关闭标签或清理后台后无法续跑。
+   */
+  var storyAiWakeLockRefCount = 0;
+  var storyAiWakeLockHandle = null;
+
+  async function storyAiWakeLockTryRequest() {
+    if (typeof navigator === "undefined" || !navigator.wakeLock || typeof navigator.wakeLock.request !== "function") {
+      return;
+    }
+    try {
+      if (document.visibilityState !== "visible") return;
+      if (storyAiWakeLockHandle) return;
+      storyAiWakeLockHandle = await navigator.wakeLock.request("screen");
+      storyAiWakeLockHandle.addEventListener(
+        "release",
+        function () {
+          storyAiWakeLockHandle = null;
+        },
+        { once: true }
+      );
+    } catch (_e) {
+      storyAiWakeLockHandle = null;
+    }
+  }
+
+  function storyAiWakeLockAcquire() {
+    storyAiWakeLockRefCount++;
+    if (storyAiWakeLockRefCount === 1) void storyAiWakeLockTryRequest();
+  }
+
+  function storyAiWakeLockRelease() {
+    if (storyAiWakeLockRefCount > 0) storyAiWakeLockRefCount--;
+    if (storyAiWakeLockRefCount > 0) return;
+    storyAiWakeLockRefCount = 0;
+    if (storyAiWakeLockHandle) {
+      try {
+        storyAiWakeLockHandle.release();
+      } catch (_e) {}
+      storyAiWakeLockHandle = null;
+    }
+  }
+
+  function storyAiWakeLockOnVisibleAgain() {
+    if (storyAiWakeLockRefCount > 0) void storyAiWakeLockTryRequest();
+  }
+
+  /** 从系统后台回到前台时刷新生成中界面（避免停留在「正在推动剧情」却不更新）。 */
+  function refreshStoryUiAfterTabVisible() {
+    try {
+      var busy = plots.some(function (p) {
+        return (
+          p &&
+          (p.playTurnInFlight ||
+            p.playChoiceExpandInFlight ||
+            p.playChoicesRegenerateInFlight ||
+            p.summaryInFlight)
+        );
+      });
+      if (!busy) return;
+      renderDynamic();
+      var layer = els.layerStory();
+      if (!layer || layer.hidden || !lastStoryPlotId) return;
+      var plot = plots.find(function (x) {
+        return x.id === lastStoryPlotId;
+      });
+      var playPanel = document.getElementById("story-panel-play");
+      if (plot && playPanel && !playPanel.hidden) renderStoryPlay(plot);
+    } catch (_e) {}
+  }
+
   /** 对指定配置发起极小 chat 请求，用于设置页「测试模型可用性」。 */
   async function testModelAvailabilityForConfig(cfg, modelId) {
     if (!cfg) throw new Error("未找到配置。");
@@ -6127,6 +6209,16 @@
     "避免霸总模版词与小作文式心理判词；" +
     "对白使用弯引号 “…” ，不要用 「」 标示对白；" +
     "冒号引出对白后不要写成「：。」。";
+
+  /**
+   * 剧情回合续写：抑制无过渡的时间快进与信息补丁式跳写（与 storyPlayTurnBlockBudgetLine 中「时间跳切」配合：
+   * 允许换场，但必须让读者感到过程存在）。
+   */
+  var STORY_PLAY_CONTINUITY_GUIDE =
+    "【时空连贯·禁跳步】默认紧贴当前场面与同一时间线上续写；未经玩家明示「跳过/快进/直接到……」，禁止从席间的对话、小动作中途骤然切到「吃完饭已离店走上街」等大块省略（勿无交代地换镜头）。\n" +
+    "若须换场或收束当下场景，须写清可感知的过渡：离席、买单、推门出门、路上一两笔即可，不必长描，但不能让读者觉得中间整段被剪掉。\n" +
+    "【信息衔接】正文里首次点到的重要他人、具体约定（时间、地点、同行者）须扣回当前话题或上文情绪，勿单独一句像补设定般硬插入。\n" +
+    "【收尾完整】进入文末选项区前，正文最后一句尽量落在完整句号或已闭合的对白引号上；避免以「对了，」「他刚要——」等明显半截悬停结束（若篇幅吃紧宁可略写景物也要把尾句说圆）。\n";
 
   function storyBriefCharCount(s) {
     return Array.from(String(s || "")).length;
@@ -7109,6 +7201,30 @@
       name: base.name || "未知",
       avatarUrl: avatarUrl || "",
     };
+  }
+
+  /** 不在花名册中的【名】块：用首字头像 + speakerName 展示，与正式角色同布局。 */
+  function getStoryLineCharacterView(plot, line) {
+    if (line && isEphemeralStoryNpcId(line.characterId)) {
+      const name = String(line.speakerName || "").trim() || "角色";
+      return {
+        id: line.characterId,
+        name: name,
+        avatarUrl: "",
+      };
+    }
+    return getPlotCharacterView(plot, line && line.characterId);
+  }
+
+  /** 续写摘要/历史等：统一说话者前缀。 */
+  function storyLineHistoryPrefix(line) {
+    const isNarr = !line || !line.characterId || line.characterId === "narrator";
+    if (isNarr) return "旁白：";
+    if (isEphemeralStoryNpcId(line.characterId)) {
+      return (String(line.speakerName || "").trim() || "角色") + "：";
+    }
+    const ch = getCharById(line.characterId);
+    return ch && ch.name ? ch.name + "：" : "旁白：";
   }
 
   function buildCharacterProfileFromLibrary(character) {
@@ -11797,7 +11913,45 @@
     return s.trim();
   }
 
-  function finalizeStoryBlocks(blocks, resolveCharacterId) {
+  /** 花名册外客串角色：稳定 id（同显示名同回合可合并），界面用 speakerName + 首字头像。 */
+  var EPHEMERAL_NPC_PREFIX = "ephe_npc_";
+
+  function isEphemeralStoryNpcId(characterId) {
+    return String(characterId || "").indexOf(EPHEMERAL_NPC_PREFIX) === 0;
+  }
+
+  function normalizeEphemeralSpeakerKey(title) {
+    let t = String(title || "")
+      .trim()
+      .replace(/\*+/g, "")
+      .replace(/\s+/g, "");
+    t = t.replace(/[（(][^)）]{0,16}[)）]\s*$/u, "");
+    return t.slice(0, 40);
+  }
+
+  function ephemeralNpcCharacterIdFromTitle(title) {
+    const key = normalizeEphemeralSpeakerKey(title);
+    if (!key) return EPHEMERAL_NPC_PREFIX + uid("x");
+    let h = 2166136261;
+    for (let i = 0; i < key.length; i++) {
+      h ^= key.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return EPHEMERAL_NPC_PREFIX + (h >>> 0).toString(36);
+  }
+
+  function displayNameFromEphemeralBlockTitle(title) {
+    let t = String(title || "")
+      .trim()
+      .replace(/\*+/g, "")
+      .trim();
+    if (!t) return "角色";
+    const arr = Array.from(t);
+    if (arr.length > 20) return arr.slice(0, 20).join("") + "…";
+    return t;
+  }
+
+  function finalizeStoryBlocks(blocks, resolveLineSpeaker) {
     const out = [];
     (blocks || []).forEach(function (blk) {
       const text = String((blk.chunks || []).join("\n") || "").trim();
@@ -11809,15 +11963,18 @@
         })
         .filter(Boolean);
       if (!paras.length) return;
-      out.push({
-        characterId: resolveCharacterId(blk.titleHint),
+      const res = resolveLineSpeaker(blk.titleHint);
+      const row = {
+        characterId: res.characterId,
         text: fixColonPeriodBeforeCurlyQuote(paras.join("\n\n")),
-      });
+      };
+      if (res.speakerName) row.speakerName = res.speakerName;
+      out.push(row);
     });
     return out;
   }
 
-  function parseTurnByCharacterBlocksStrict(lines, resolveCharacterId) {
+  function parseTurnByCharacterBlocksStrict(lines, resolveLineSpeaker) {
     const blocks = [];
     let current = null;
     lines.forEach(function (ln) {
@@ -11853,7 +12010,7 @@
       }
       current.chunks.push(line);
     });
-    return finalizeStoryBlocks(blocks, resolveCharacterId);
+    return finalizeStoryBlocks(blocks, resolveLineSpeaker);
   }
 
   /** 独占一行且与花名册完全一致的发言者标记（常见小说体：姓名单独一行，下一行起接对白或描写）。 */
@@ -11937,11 +12094,21 @@
         if (cast[j].id === looseId && cast[j].name) return { titleHint: String(cast[j].name).trim() };
       }
     }
+    if (/^(?:旁白|narrator)$/i.test(t)) return null;
+    const charCount = Array.from(t).length;
+    if (
+      charCount >= 1 &&
+      t.length <= 32 &&
+      !/^[\d\s._·…《》「」:【】]+$/.test(t) &&
+      !/^(?:第.{1,12}章|第.{1,12}节|序章|楔子)/.test(t)
+    ) {
+      if (charCount >= 2 || /[\u4e00-\u9fff]/.test(t)) return { titleHint: t };
+    }
     return null;
   }
 
   /** 适配「张明：台词」单行起块（名册中的全名）。 */
-  function parseTurnByCharacterBlocksNameColon(lines, cast, protagonist, resolveCharacterId) {
+  function parseTurnByCharacterBlocksNameColon(lines, cast, protagonist, resolveLineSpeaker) {
     const nameList = (cast || [])
       .filter(function (c) {
         return c && String(c.name || "").trim();
@@ -11989,6 +12156,9 @@
               return { nm: String(cast[k].name).trim(), rest: restPart };
             }
           }
+        }
+        if (head && !/^(?:旁白|narrator|我|主角)$/i.test(head) && head.length <= 20) {
+          return { nm: head, rest: restPart };
         }
       }
       return null;
@@ -12038,7 +12208,7 @@
       pendingPrelude.push(String(ln || ""));
     });
     flushPreludeIfAny();
-    return finalizeStoryBlocks(blocks, resolveCharacterId);
+    return finalizeStoryBlocks(blocks, resolveLineSpeaker);
   }
 
   function parseTurnByFallbackNarrator(src) {
@@ -12064,21 +12234,27 @@
       .filter(function (c) {
         return c && c.id && c.name;
       });
-    function resolveCharacterId(title) {
+    function resolveLineSpeaker(title) {
       const t = String(title || "").trim();
-      if (!t) return "narrator";
-      if (/^(?:旁白|narrator)$/i.test(t)) return "narrator";
-      if (/^(?:我|主角)$/i.test(t) && protagonist && protagonist.id) return protagonist.id;
+      if (!t) return { characterId: "narrator" };
+      if (/^(?:旁白|narrator)$/i.test(t)) return { characterId: "narrator" };
+      if (/^(?:我|主角)$/i.test(t) && protagonist && protagonist.id) return { characterId: protagonist.id };
       for (let i = 0; i < cast.length; i++) {
-        if (cast[i].name === t) return cast[i].id;
+        if (cast[i].name === t) return { characterId: cast[i].id };
       }
       const loose = findCastIdBySpeakerTitle(t, cast);
-      return loose || "narrator";
+      if (loose) return { characterId: loose };
+      const key = normalizeEphemeralSpeakerKey(t);
+      if (!key) return { characterId: "narrator" };
+      return {
+        characterId: ephemeralNpcCharacterIdFromTitle(t),
+        speakerName: displayNameFromEphemeralBlockTitle(t),
+      };
     }
     const lines = src.split(/\n/);
-    let out = parseTurnByCharacterBlocksStrict(lines, resolveCharacterId);
+    let out = parseTurnByCharacterBlocksStrict(lines, resolveLineSpeaker);
     if (out.length) return out;
-    out = parseTurnByCharacterBlocksNameColon(lines, cast, protagonist, resolveCharacterId);
+    out = parseTurnByCharacterBlocksNameColon(lines, cast, protagonist, resolveLineSpeaker);
     if (out.length) return out;
     return parseTurnByFallbackNarrator(src);
   }
@@ -12576,11 +12752,13 @@
 
     return lines
       .map(function (ln) {
-        return {
+        const o = {
           characterId: ln.characterId,
           text: cleanBlockText(String((ln && ln.text) || "")),
           id: ln.id,
         };
+        if (ln && String(ln.speakerName || "").trim()) o.speakerName = String(ln.speakerName).trim();
+        return o;
       })
       .filter(function (ln) {
         return String((ln && ln.text) || "").trim();
@@ -12972,19 +13150,58 @@
     return t;
   }
 
-  /** 卡片/分享图正文：与 renderStoryInlineMarkup 相同的纯文本规范化（段首句读、孤立标点行等） */
+  /** 卡片/分享图正文：与 renderStoryInlineMarkup 相同的纯文本规范化（段首句读、孤立标点行等）；保留双星号、双下划线粗体标记供渲染。 */
   function normalizeStoryPlainTextForLayout(raw) {
     const src = String(raw || "").replace(/\r\n/g, "\n").trim();
     if (!src) return "";
-    const quoted = collapseDoubleCurlyQuoteWrappers(normalizeCornerBracketsToCurlyQuotes(src))
-      .replace(/\*\*/g, "")
-      .replace(/\*/g, "")
-      .trim();
+    const quoted = collapseDoubleCurlyQuoteWrappers(normalizeCornerBracketsToCurlyQuotes(src)).trim();
     if (!quoted) return "";
     const body = collapseDuplicatePeriodAfterClosingQuote(
       fixColonPeriodBeforeCurlyQuote(normalizeStoryParagraphLeadingPunctuation(quoted))
     );
     return finalizeStoryPlainLeadingHygiene(body);
+  }
+
+  /** 将 **粗体** 与 __粗体__ 转为 &lt;strong&gt;，其余转义；支持自定义字体下 font-synthesis 加粗。 */
+  function escapeHtmlWithInlineBold(text) {
+    const s = String(text || "");
+    if (!s) return "";
+    if (s.indexOf("**") < 0 && s.indexOf("__") < 0) return escapeHtml(s);
+    function splitByDelimiter(str, delim) {
+      const L = delim.length;
+      const chunks = [];
+      let i = 0;
+      while (i < str.length) {
+        const a = str.indexOf(delim, i);
+        if (a < 0) {
+          chunks.push({ bold: false, t: str.slice(i) });
+          break;
+        }
+        if (a > i) chunks.push({ bold: false, t: str.slice(i, a) });
+        const b = str.indexOf(delim, a + L);
+        if (b < 0) {
+          chunks.push({ bold: false, t: str.slice(a) });
+          break;
+        }
+        chunks.push({ bold: true, t: str.slice(a + L, b) });
+        i = b + L;
+      }
+      return chunks;
+    }
+    function expandNonBoldFragment(frag) {
+      if (frag.indexOf("__") < 0) return escapeHtml(frag);
+      return splitByDelimiter(frag, "__")
+        .map(function (seg) {
+          return seg.bold ? "<strong>" + escapeHtml(seg.t) + "</strong>" : escapeHtml(seg.t);
+        })
+        .join("");
+    }
+    return splitByDelimiter(s, "**")
+      .map(function (seg) {
+        if (seg.bold) return "<strong>" + escapeHtml(seg.t) + "</strong>";
+        return expandNonBoldFragment(seg.t);
+      })
+      .join("");
   }
 
   function renderStoryInlineMarkup(text) {
@@ -13034,10 +13251,10 @@
       let html = "";
       parts.forEach(function (p) {
         if (p.kind === "plain") {
-          const esc = escapeHtml(p.text);
+          const esc = escapeHtmlWithInlineBold(p.text);
           if (esc) html += '<em class="story-narr">' + esc + "</em>";
         } else if (p.kind === "term") {
-          html += '<span class="story-inline-term">' + escapeHtml(p.text) + "</span>";
+          html += '<span class="story-inline-term">' + escapeHtmlWithInlineBold(p.text) + "</span>";
         }
       });
       const trimmed = html.trim();
@@ -13062,7 +13279,7 @@
           buffer = "";
           rendered.push(
             '<p class="story-dialogue"><span class="story-dialogue__body">' +
-              escapeHtml(p.text) +
+              escapeHtmlWithInlineBold(p.text) +
               "</span></p>"
           );
         } else {
@@ -13090,7 +13307,9 @@
 
   function storyTurnLineShowsParticipantBubble(plot, lineObj) {
     const isNarratorLine = !lineObj.characterId || lineObj.characterId === "narrator";
-    return !isNarratorLine && isPlotStoryParticipant(plot, lineObj.characterId);
+    if (isNarratorLine) return false;
+    if (isEphemeralStoryNpcId(lineObj.characterId)) return true;
+    return isPlotStoryParticipant(plot, lineObj.characterId);
   }
 
   function storyTurnLineEditing(plot, turnIndex, lineIndex) {
@@ -13271,7 +13490,6 @@
         let lineIndex = 0;
         while (lineIndex < turnLines.length) {
           const line = turnLines[lineIndex];
-          const isNarratorLine = !line.characterId || line.characterId === "narrator";
           const showBubble = storyTurnLineShowsParticipantBubble(p, line);
           const rawText = line.text || "";
           const isEditing =
@@ -13358,7 +13576,7 @@
             continue;
           }
           const ch = getCharById(line.characterId);
-          const displayChar = getPlotCharacterView(p, line.characterId);
+          const displayChar = getStoryLineCharacterView(p, line);
           const isMe = line.characterId === pid;
           if (isEditing) {
             const shell = buildStoryPlayParticipantShell(isMe, displayChar, ch, "story-line-edit-outer");
@@ -13685,10 +13903,7 @@
   function buildSceneTextFromTurnLines(lines) {
     return (lines || [])
       .map(function (line) {
-        const isNarr = !line.characterId || line.characterId === "narrator";
-        const ch = isNarr ? null : getCharById(line.characterId);
-        const prefix = ch ? ch.name + "：" : "旁白：";
-        return prefix + String(line.text || "");
+        return storyLineHistoryPrefix(line) + String(line.text || "");
       })
       .join("\n");
   }
@@ -13735,6 +13950,7 @@
       return;
     }
     plot.playChoicesRegenerateInFlight = true;
+    storyAiWakeLockAcquire();
     renderStoryPlay(plot);
     try {
       const scene = buildSceneTextFromTurnLines(last.lines);
@@ -13781,6 +13997,7 @@
       showToast(err && err.message ? err.message : "重新生成选项失败", "error", 3800);
     } finally {
       plot.playChoicesRegenerateInFlight = false;
+      storyAiWakeLockRelease();
       renderStoryPlay(plot);
       flushPersistNarrative();
     }
@@ -13818,6 +14035,7 @@
         }
       : null;
     plot.playTurnInFlight = true;
+    storyAiWakeLockAcquire();
     renderStoryPlay(plot);
     const protagonist = getCharById(plot.protagonistId);
     const supporting = (plot.supportingIds || [])
@@ -13838,10 +14056,7 @@
       .map(function (turn) {
         return (turn.lines || [])
           .map(function (line) {
-            const isNarr = !line.characterId || line.characterId === "narrator";
-            const ch = isNarr ? null : getCharById(line.characterId);
-            const prefix = ch ? ch.name + "：" : "旁白：";
-            return prefix + (line.text || "");
+            return storyLineHistoryPrefix(line) + (line.text || "");
           })
           .join("\n");
       })
@@ -13899,15 +14114,17 @@
     const storyPlayTurnBlockBudgetLine =
       "· 【块数·随本轮目标字数】" +
       (wlim2 >= 14000
-        ? "本轮在多角色交替推进的前提下，合计大约 14～24 枚「说话块」甚至更多；**块多主要指换人换视点，不是把同一人拆成许多碎块**。"
+        ? "本轮在多角色交替推进的前提下，合计大约 16～26 枚「说话块」甚至更多；**块多主要指换人换视点，不是把同一人拆成许多碎块**。"
         : wlim2 >= 9000
-          ? "本轮合计大约 11～18 枚说话块；优先靠多角色轮换来切块，避免同一角色连续多个【同名】标题。"
+          ? "本轮合计大约 12～20 枚说话块；优先靠多角色轮换来切块，避免同一角色连续多个【同名】标题。"
           : wlim2 >= 5500
-            ? "本轮合计大约 9～15 枚说话块；同一角色同一场戏尽量只用一条【名】块写完。"
-            : "本轮大约 6～12 枚说话块即可；同一角色莫为「短块」而机械拆条。") +
+            ? "本轮合计大约 10～16 枚说话块；同一角色同一场戏尽量只用一条【名】块写完。"
+            : "本轮大约 7～14 枚说话块即可（同场多角色时倾向区间中上沿）；同一角色莫为「短块」而机械拆条。") +
       "\n" +
       "· 【单块形态·忌模板化】每个【角色】块内应像小说一段：对白、动作、神态可混写；**对白一律用中文弯引号 “…” 标示（也可用半角 \"…\"），不要用直角引号 「…」当对白符号。**忌几乎每轮都写成「先单独抬一句对白、再单独接一大段描写」的固定套路。要有意变化：纯对白连播、纯动作无对白、对白嵌在叙事里、短氛围段等都要出现，勿雷同。\n" +
-      "· 【换人节奏】叙述上尽量轮番【角色甲】-【角色乙】-【旁白】交替；**同一角色若仍处同一场戏、同一口气，请写进同一个【名】块**，不要在相邻行重复【同名】切碎。只有换人、时间跳切或段落明显收束时再新开块。\n";
+      "· 【换人节奏】叙述上尽量轮番【角色甲】-【角色乙】-【旁白】交替；**同一角色若仍处同一场戏、同一口气，请写进同一个【名】块**，不要在相邻行重复【同名】切碎。只有换人、时间跳切或段落明显收束时再新开块。\n" +
+      "· 【多角色露脸·非强制】同场若花名册里有多名主要角色在场，在篇幅与节拍允许时**尽量**让两人及以上各自有独立【名】块（可很短：一句对白、一个反应或小动作即可），比整轮单角色独角戏更丰富；若玩家指令或场面逻辑只需一人推进，则不必为凑人数硬插。\n" +
+      STORY_PLAY_CONTINUITY_GUIDE;
 
     const systemPrompt =
       "你是中文互动剧情续写助手。只输出剧情块与文末选项；不要开场寒暄；不要用代码围栏（三面反引号）包住全文。\n\n" +
@@ -13915,7 +14132,7 @@
       "【选项区唯一】禁止在正文里（在文末「【选项】」「【选择支】」或「## 选项」等标题出现之前）再写「选项 1.」「选项1.」「2.」等分支罗列或与文末选项雷同的预告；玩家可点选的行动只准许在文末选项区出现一次。\n\n" +
       "【输出形态·程序依此解析】\n" +
       storyPlayTurnBlockBudgetLine +
-      "· 「说话块」按**说话者/视点**切换：换人或换【旁白】时用单独一行的【角色名】/【旁白】/【我】（仅第一人称主角）起头；姓名只能来自用户花名册；也可【名】后同一行接正文；**或与花名册完全一致的全名单独占一行**（下一行起接该角色的对白或描写；勿加括号或 Markdown 装饰）。亦可用「姓名：」同一行起段。**同一说话者同一场戏不要为每一句对白再起新的【名】行。**\n" +
+      "· 「说话块」按**说话者/视点**切换：换人或换【旁白】时用单独一行的【角色名】/【旁白】/【我】（仅第一人称主角）起头；**优先**使用下方花名册中的姓名；剧情需要的店员、路人等**未建档角色**也可用【显示名】起块，界面会以首字头像与昵称展示。亦可用「姓名：」同一行起段，或与花名册一致的全名单独占一行（下一行起接对白或描写；勿加括号或 Markdown 装饰）。**同一说话者同一场戏不要为每一句对白再起新的【名】行。**\n" +
       "· 【标点】段落开头不要直接使用逗号、句号、冒号等句读——若该段第一句是对白，则用弯引号 “ 起笔。**对白不要使用 「」 作为起止符号。**不要将单个标点单独占成一行；段末不要使用两个连续句号/问号/叹号等（如。。、？？），也不要写成「：。」。\n" +
       "· 结尾留下玩家可介入的局面；最后一格尽量用配角或【旁白】收束。\n" +
       "· 文末单独一行「【选项】」或「【选择支】」，或用 Markdown 「## 选项」等小标题接引；后跟至少两行可选行动。\n" +
@@ -13924,13 +14141,13 @@
       "\n\n" +
       "【篇幅】约 " +
       wlim2 +
-      " 汉字；多用对话与小动作推进，少用纯景物长描与重复上一轮信息。\n\n" +
+      " 汉字；多用对话与小动作推进，少用纯景物长描与重复上一轮信息；篇幅内可分摊给多名角色各写一小段，不必一人包揽。\n\n" +
       "【戏份】" +
       "侧重：" +
       (dominantRoster || "无") +
       "；配角/NPC：" +
       (extraRoster || "无") +
-      "（少写；点名或必要时再出场）。\n\n" +
+      "（主线仍以侧重名单为主；同场有多名侧重角色时**宜**交替给戏份，非侧重仍少写、点名或必要时再出场）。\n\n" +
       "【人称】" +
       povConstraintPlay +
       "\n\n【文风】" +
@@ -13990,7 +14207,7 @@
       "\n\n我的形象：\n" + identitySelfBlock +
       "\n\n其他角色：\n" + identityOthersBlock +
       "\n\n故事开端：\n" + openingBlock +
-      "\n\n花名册（仅可使用这些名字作为角色块标题）：" + (rosterNames || "无") +
+      "\n\n花名册（主要角色须优先使用其中姓名；未在册的客串也可用【姓名】起块）：" + (rosterNames || "无") +
       (includeRoleLibrary ? "\n\n【角色库·外貌与性格（仅作扮演参考）】\n" + roleLibraryBlock : "") +
       (pendingPlayerTurnAction && String(pendingPlayerTurnAction.line || "").trim()
         ? "\n\n（玩家指令全文见上文【务必优先·玩家指令】；叙事中勿机械复述提示词原句，须语义一致落实。）"
@@ -14081,11 +14298,13 @@
       applyEmbeddedChoiceStrip();
 
       const linesWithIds = (lines || []).map(function (line) {
-        return {
+        const o = {
           id: line && line.id ? line.id : uid("ln"),
           characterId: line ? line.characterId : "",
           text: normalizeStoryPlainTextForLayout(stripNarratorDisplayText(String(line && line.text ? line.text : ""))),
         };
+        if (line && String(line.speakerName || "").trim()) o.speakerName = String(line.speakerName).trim();
+        return o;
       });
 
       if (!linesWithIds.length) throw new Error("剧情生成失败，请点重生成或换模型重试。");
@@ -14118,6 +14337,7 @@
     } finally {
       plot.pendingPlayerTurnAction = null;
       plot.playTurnInFlight = false;
+      storyAiWakeLockRelease();
       renderStoryPlay(plot);
       flushPersistNarrative();
       const lineIdForScrollTop = scrollToNewTurnFirstLineId;
@@ -16366,6 +16586,10 @@
   });
   document.addEventListener("visibilitychange", function () {
     if (document.visibilityState === "hidden") flushPersistNarrative();
+    else {
+      storyAiWakeLockOnVisibleAgain();
+      refreshStoryUiAfterTabVisible();
+    }
   });
 
   if (!location.hash) location.hash = "#/tab/overview";

@@ -5112,6 +5112,19 @@ html[data-theme="dark"] .story-msg--me .story-msg__text--rp {
   font-synthesis: weight style;
 }
 
+.story-msg__text--rp .story-narr strong,
+.story-feed-narr--rp .story-narr strong {
+  font-weight: 700;
+  font-style: italic;
+  font-synthesis: weight style;
+}
+
+.story-inline-term strong {
+  font-weight: 700;
+  font-style: italic;
+  font-synthesis: weight style;
+}
+
 .story-msg__text--rp .story-dialogue strong,
 .story-msg__text--rp .story-dialogue .story-dialogue__body,
 .story-feed-narr--rp .story-dialogue strong,
@@ -5337,7 +5350,7 @@ html[data-theme="dark"] .story-choice-action-btn {
 .story-composer {
   flex-shrink: 0;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 10px;
   padding: 10px 12px;
   padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
@@ -5346,6 +5359,8 @@ html[data-theme="dark"] .story-choice-action-btn {
 }
 
 .story-composer__avatar {
+  position: relative;
+  top: -4px;
   width: 40px;
   height: 40px;
   font-size: 0.95rem;
@@ -5382,6 +5397,8 @@ html[data-theme="dark"] .story-choice-action-btn {
 }
 
 .story-composer__actions {
+  position: relative;
+  top: -4px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
