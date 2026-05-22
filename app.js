@@ -3663,13 +3663,10 @@
         })
         .filter(Boolean)
         .join("\n") || "（无）";
+    /** 摘要输出预算：原先常因与 SUMMARY_OUTPUT 成比例的项而把 max_tokens 顶到 8192，多半供应商会更慢 */
     const dynamicMaxTokens = Math.min(
-      8192,
-      Math.max(
-        1200,
-        Math.round(SUMMARY_OUTPUT_HARD_CAP_CHARS * 0.45),
-        Math.round(summaryPrompt.length * 0.3)
-      )
+      5600,
+      Math.max(880, Math.round(summaryPrompt.length * 0.2 + 640))
     );
     try {
       const result = await callChatCompletion(
@@ -6090,12 +6087,13 @@
   }
 
   /**
-   * 剧情续写：max_tokens 与 wordLimit 联动；过低易在转折处截断。
+   * 剧情续写：max_tokens 与 wordLimit 联动；下限跟随目标字数避免小目标仍申请过大输出预算拖慢网关。
+   * 仍为长目标保留足够余量以降低截断概率。
    */
   function storyPlayMaxTokens(plot) {
     const w =
       plot && typeof plot.wordLimit === "number" && Number.isFinite(plot.wordLimit) ? plot.wordLimit : DEFAULT_STORY_WORD_LIMIT;
-    let mul = 3.25;
+    let mul = 3.05;
     let cfg = null;
     if (typeof activeApiId === "string" && apiConfigs && apiConfigs.length) {
       cfg =
@@ -6103,10 +6101,16 @@
           return a.id === activeApiId;
         }) || null;
     }
-    if (cfg && String(cfg.model || "").toLowerCase().indexOf("gemini") !== -1) {
-      mul = 3.55;
+    var modelLc = String(cfg && cfg.model ? cfg.model : "").toLowerCase();
+    var isGem = modelLc.indexOf("gemini") !== -1;
+    if (isGem) {
+      mul = 3.32;
     }
-    return Math.min(8192, Math.max(5200, Math.round(w * mul)));
+    const scaled = Math.round(w * mul);
+    /** 保底≈「目标汉字的 ~1.9× tokenizer 粗算」但与 scaled 取大，超长目标仍宽裕 */
+    const floorTok = Math.max(2176, Math.round(w * 1.92));
+    const capTok = isGem ? 7680 : 7168;
+    return Math.min(capTok, Math.max(floorTok, scaled));
   }
 
   /** 开场概要、剧情续写、剧情标题等默认通过当前「设置 → API」中选中的配置发起请求（activeApiId），也可按需指定配置。 */
@@ -7006,10 +7010,42 @@
     trigger.textContent = txt || "请选择";
   }
 
+  /** 用于避免每次 renderDynamic 都整块重建自定义下拉选项（大量 select 时很贵）。 */
+  function customSelectOptionSignature(selectEl) {
+    if (!selectEl || !selectEl.options) return "";
+    return Array.from(selectEl.options)
+      .map(function (o) {
+        return (o.disabled ? "1" : "0") + "\t" + o.value + "\t" + String(o.textContent || "");
+      })
+      .join("\n");
+  }
+
   function refreshCustomSelectPanel(selectEl, root) {
     const panel = root._customSelectPanel || root.querySelector(".custom-select__panel");
     const trigger = root.querySelector(".custom-select__trigger");
     if (!panel || !trigger) return;
+    var sigNow = customSelectOptionSignature(selectEl);
+    var idxNow = selectEl.selectedIndex;
+    var disNow = !!selectEl.disabled;
+    var optsBtns = panel.querySelectorAll(".custom-select__option");
+    if (
+      root._hjCssOptSig === sigNow &&
+      root._hjCssDis === disNow &&
+      optsBtns.length === selectEl.options.length &&
+      optsBtns.length > 0
+    ) {
+      if (root._hjCssSelIdx !== idxNow) {
+        optsBtns.forEach(function (b, j) {
+          b.classList.toggle("is-selected", j === idxNow);
+        });
+        root._hjCssSelIdx = idxNow;
+      }
+      syncCustomSelectTriggerLabel(selectEl, trigger);
+      return;
+    }
+    root._hjCssOptSig = sigNow;
+    root._hjCssSelIdx = idxNow;
+    root._hjCssDis = disNow;
     panel.innerHTML = "";
     Array.from(selectEl.options).forEach(function (opt, i) {
       const btn = document.createElement("button");
@@ -7115,6 +7151,21 @@
     scope.querySelectorAll("select.field__input, select.model-select").forEach(function (sel) {
       enhanceCustomSelect(sel);
     });
+  }
+
+  /** 仅增强当前能看见的范围：激活的主视图 + 未隐藏的 overlay +（可选）全屏剧情层。 */
+  function enhanceCustomSelectsVisible() {
+    var layerStory = els.layerStory();
+    var storyOpen = !!(layerStory && !layerStory.hidden);
+    if (!storyOpen) {
+      var selView = document.querySelector("#main-scroll section.view.view--active");
+      if (selView) enhanceCustomSelectsIn(selView);
+    }
+    document.querySelectorAll("#app-shell div.overlay").forEach(function (layer) {
+      if (layer.hidden) return;
+      enhanceCustomSelectsIn(layer);
+    });
+    if (storyOpen && layerStory) enhanceCustomSelectsIn(layerStory);
   }
 
   function fillWbCategorySelect(selectedId) {
@@ -10995,7 +11046,8 @@
       span.title = String(ch.name || "").trim() || "角色";
       span.setAttribute("role", "img");
       span.setAttribute("aria-label", span.title);
-      fillAvatarElement(span, ch);
+      /** 与剧情页一致：主视角「我的形象」与单剧角色头像覆盖反映在列表小头像 */
+      fillAvatarElement(span, getPlotCharacterView(plot, cid));
       mount.appendChild(span);
     });
   }
@@ -14642,9 +14694,11 @@
     els.layerStory().hidden = true;
     if (targetTab && ["overview", "worldbook", "plot", "characters", "settings"].includes(targetTab)) {
       location.hash = "#/tab/" + targetTab;
-      return;
+    } else {
+      location.hash = "#/tab/" + activeTab;
     }
-    location.hash = "#/tab/" + activeTab;
+    applyHash();
+    renderDynamic();
   }
 
   function isNewApiFormComplete(form) {
@@ -15110,14 +15164,29 @@
   }
 
   function renderDynamic() {
-    renderAssistantView();
-    renderWbFilters();
-    renderPlotFilters();
-    renderCharFilters();
-    renderWbList();
-    renderCharList();
-    renderPlotList();
-    renderSettings();
+    var layerStory = els.layerStory();
+    var storyOpen = !!(layerStory && !layerStory.hidden);
+    if (activeTab === "overview" && !storyOpen) {
+      renderAssistantHeader();
+      renderAssistantChatList();
+    }
+    if (els.modalAssistantProfile() && !els.modalAssistantProfile().hidden) {
+      renderAssistantProfileModal();
+    }
+
+    if (activeTab === "worldbook" && !storyOpen) {
+      renderWbFilters();
+      renderWbList();
+    } else if (activeTab === "plot" && !storyOpen) {
+      renderPlotFilters();
+      renderPlotList();
+    } else if (activeTab === "characters" && !storyOpen) {
+      renderCharFilters();
+      renderCharList();
+    } else if (activeTab === "settings" && !storyOpen) {
+      renderSettings();
+    }
+
     document.querySelectorAll(".js-add-api-block").forEach((block) => {
       block.hidden = !showSettingsAdd;
     });
@@ -15125,8 +15194,7 @@
     if (modalStoryApi && !modalStoryApi.hidden) {
       renderStoryApiSettingsModalContent();
     }
-    const shell = document.getElementById("app-shell");
-    if (shell) enhanceCustomSelectsIn(shell);
+    enhanceCustomSelectsVisible();
     schedulePersistNarrative();
   }
 
