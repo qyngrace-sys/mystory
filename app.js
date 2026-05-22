@@ -261,6 +261,8 @@
   let suppressUserDataPersistence = false;
   const IDB_NAME = "hj_narrative_ui";
   const IDB_STORE = "assets";
+  /** 与用户剧情/角色/世界书 JSON 存档（原为 localStorage 单键 hj-narrative-v1）；大体积仅存 IndexedDB。 */
+  const IDB_NARRATIVE_KEY = "narrativeV1";
   const FONT_FACE_NAME = "HJUserCustomFont";
   const DEFAULT_FONT_STACK =
     'system-ui, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Hiragino Sans", "Noto Sans", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", "Microsoft YaHei UI", sans-serif';
@@ -610,6 +612,49 @@
     );
   }
 
+  /** @returns {Promise<string|null>} */
+  function idbGetNarrativeJson() {
+    return idbOpen().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          const tx = db.transaction(IDB_STORE, "readonly");
+          const r = tx.objectStore(IDB_STORE).get(IDB_NARRATIVE_KEY);
+          r.onsuccess = () => {
+            var v = r.result;
+            if (typeof v === "string") resolve(v);
+            else resolve(null);
+          };
+          r.onerror = () => reject(r.error);
+        })
+    );
+  }
+
+  /** @returns {Promise<void>} */
+  function idbPutNarrativeJson(s) {
+    return idbOpen().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          const tx = db.transaction(IDB_STORE, "readwrite");
+          tx.objectStore(IDB_STORE).put(String(s), IDB_NARRATIVE_KEY);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        })
+    );
+  }
+
+  /** @returns {Promise<void>} */
+  function idbDeleteNarrativeJson() {
+    return idbOpen().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          const tx = db.transaction(IDB_STORE, "readwrite");
+          tx.objectStore(IDB_STORE).delete(IDB_NARRATIVE_KEY);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        })
+    );
+  }
+
   function formatApproxStoredBytes(bytes) {
     const n = typeof bytes === "number" ? bytes : parseInt(bytes, 10);
     if (!Number.isFinite(n) || n < 0) return "未知体积";
@@ -760,6 +805,9 @@
     try {
       await idbDeleteFont();
     } catch (e) {}
+    try {
+      await idbDeleteNarrativeJson();
+    } catch (e2) {}
     showToast("数据已清除，正在刷新页面…", "success");
     try {
       location.hash = "#/tab/overview";
@@ -814,7 +862,12 @@
         2
       )
     );
-    zip.file("localStorage.json", JSON.stringify(collectLocalStorageSnapshot(), null, 2));
+    const storageSnap = collectLocalStorageSnapshot();
+    try {
+      const nar = await idbGetNarrativeJson();
+      if (typeof nar === "string" && nar.length) storageSnap[STORAGE_NARRATIVE] = nar;
+    } catch (_eIb) {}
+    zip.file("localStorage.json", JSON.stringify(storageSnap, null, 2));
     let fontBuffer = null;
     try {
       fontBuffer = await idbGetFont();
@@ -830,7 +883,7 @@
   }
 
   async function exportFullBackup() {
-    flushPersistNarrative();
+    await flushPersistNarrativeAwaitForBackup();
     persistAssistantState();
     persistApiConfigs();
     persistAppearance();
@@ -938,6 +991,19 @@
       Object.keys(snapshot).forEach(function (k) {
         localStorage.setItem(k, snapshot[k]);
       });
+      var importedNar = snapshot[STORAGE_NARRATIVE];
+      if (typeof importedNar === "string" && importedNar.length) {
+        try {
+          await idbPutNarrativeJson(importedNar);
+        } catch (_eImp) {}
+        try {
+          localStorage.removeItem(STORAGE_NARRATIVE);
+        } catch (_eLs) {}
+      } else {
+        try {
+          await idbDeleteNarrativeJson();
+        } catch (_eDel) {}
+      }
       /**
        * 必须立刻禁止持久化并向磁盘 flush：否则会话内存仍是「导入前」的空数据，
        * reload 前的 beforeunload/pagehide 会把空 narrative 写回盖掉刚导入的内容。
@@ -1632,8 +1698,7 @@
     }
   }
 
-  loadNarrative();
-  normalizeItemCategories();
+  /** narrative 载入与 migrate 延后到 bootstrap 末尾的 hydrate（IndexedDB / localStorage）；此处占位。 */
 
   let apiConfigs = [
     {
@@ -5675,26 +5740,44 @@
 
   let narrativePersistTimer = null;
 
-  function persistNarrative() {
+  function serializeNarrativePayload() {
+    return JSON.stringify({
+      v: 1,
+      wbCategories,
+      plotCategories,
+      charCategories,
+      characters,
+      worldBooks,
+      plots,
+    });
+  }
+
+  async function persistNarrativeAsync() {
     if (suppressUserDataPersistence) return;
+    var payload = serializeNarrativePayload();
     try {
-      localStorage.setItem(
-        STORAGE_NARRATIVE,
-        JSON.stringify({
-          v: 1,
-          wbCategories,
-          plotCategories,
-          charCategories,
-          characters,
-          worldBooks,
-          plots,
-        })
-      );
-    } catch (e) {
-      if (e && (e.name === "QuotaExceededError" || e.code === 22)) {
-        showToast("本地存储空间不足，无法完整保存（可尝试缩小角色头像或精简剧情记录）。", "error", 5000);
+      localStorage.removeItem(STORAGE_NARRATIVE);
+    } catch (eRm) {}
+    try {
+      await idbPutNarrativeJson(payload);
+    } catch (_eIdb) {
+      try {
+        localStorage.setItem(STORAGE_NARRATIVE, payload);
+      } catch (eLs) {
+        if (eLs && (eLs.name === "QuotaExceededError" || eLs.code === 22)) {
+          showToast(
+            "保存失败：剧情数据无法在本地写入（IndexedDB 失败且 localStorage 已满）。请先导出备份，或尝试缩小头像/精简剧情后再存。",
+            "error",
+            5200
+          );
+        }
       }
     }
+  }
+
+  function persistNarrative() {
+    if (suppressUserDataPersistence) return;
+    void persistNarrativeAsync();
   }
 
   function flushPersistNarrative() {
@@ -5704,6 +5787,16 @@
     }
     if (suppressUserDataPersistence) return;
     persistNarrative();
+  }
+
+  /** 导出备份前必须 await，否则会读到尚未提交的 IndexedDB 写入。 */
+  async function flushPersistNarrativeAwaitForBackup() {
+    if (narrativePersistTimer) {
+      clearTimeout(narrativePersistTimer);
+      narrativePersistTimer = null;
+    }
+    if (suppressUserDataPersistence) return;
+    await persistNarrativeAsync();
   }
 
   function schedulePersistNarrative() {
@@ -5717,21 +5810,13 @@
   function applyOneTimeNarrativePresetWipe() {
     try {
       if (localStorage.getItem(STORAGE_NARRATIVE_PRESET_WIPE_DONE)) return;
-      /** 导入备份等场景：存档里已有剧情/角色/世界书但缺少本标记时，不得清空否则会把导入数据覆盖掉 */
-      const raw = localStorage.getItem(STORAGE_NARRATIVE);
-      if (raw) {
-        try {
-          const o = JSON.parse(raw);
-          if (o && typeof o === "object") {
-            const hasChars = Array.isArray(o.characters) && o.characters.length > 0;
-            const hasPlots = Array.isArray(o.plots) && o.plots.length > 0;
-            const hasWb = Array.isArray(o.worldBooks) && o.worldBooks.length > 0;
-            if (hasChars || hasPlots || hasWb) {
-              localStorage.setItem(STORAGE_NARRATIVE_PRESET_WIPE_DONE, "1");
-              return;
-            }
-          }
-        } catch (e2) {}
+      /** 已载入内存即有内容时跳过（含从 IndexedDB/localStorage 恢复的导入数据） */
+      const hasChars = Array.isArray(characters) && characters.length > 0;
+      const hasPlots = Array.isArray(plots) && plots.length > 0;
+      const hasWb = Array.isArray(worldBooks) && worldBooks.length > 0;
+      if (hasChars || hasPlots || hasWb) {
+        localStorage.setItem(STORAGE_NARRATIVE_PRESET_WIPE_DONE, "1");
+        return;
       }
       characters = [];
       worldBooks = [];
@@ -5741,12 +5826,11 @@
       flushPersistNarrative();
     } catch (e) {}
   }
-  applyOneTimeNarrativePresetWipe();
 
-  function loadNarrative() {
+  /** 将 JSON 字符串灌入世界观/剧情内存（raw 为空或非对象则跳过） */
+  function applyNarrativeBlob(raw) {
     try {
-      const raw = localStorage.getItem(STORAGE_NARRATIVE);
-      if (!raw) return;
+      if (!raw || typeof raw !== "string") return;
       const o = JSON.parse(raw);
       if (!o || typeof o !== "object") return;
 
@@ -5786,6 +5870,33 @@
       if (pls) plots = pls;
       migratePlotsWorldBookWhitelistOnce();
     } catch (e) {}
+  }
+
+  async function hydrateNarrativeFromStorage() {
+    let raw = null;
+    try {
+      raw = await idbGetNarrativeJson();
+    } catch (eIb) {
+      raw = null;
+    }
+    if (!raw || typeof raw !== "string") {
+      try {
+        raw = localStorage.getItem(STORAGE_NARRATIVE);
+      } catch (eLs0) {
+        raw = null;
+      }
+      if (raw && typeof raw === "string") {
+        try {
+          await idbPutNarrativeJson(raw);
+        } catch (eMig) {}
+        try {
+          localStorage.removeItem(STORAGE_NARRATIVE);
+        } catch (eRm) {}
+      }
+    }
+    applyNarrativeBlob(raw || null);
+    applyOneTimeNarrativePresetWipe();
+    normalizeItemCategories();
   }
 
   /** 将一条世界书引用解析为条目（兼容 id、名称；旧存档可能仅存标题字符串） */
@@ -11951,6 +12062,57 @@
     return t;
   }
 
+  /** 去掉块标题首尾引号、空白与零碎标点，用语义判断是否在「起名」而非旁白对白碎片 */
+  function stripEdgeSpeakerTitleNoise(s) {
+    let t = String(s || "").trim();
+    for (let n = 0; n < 16; n++) {
+      const u = t
+        .replace(/^[\s\u3000"'「」『』〈〉《》【】[\]()（）\u201c\u201d\u2018\u2019\u00b7.,，。．!！?？:：;；···…\-—_=＿]+/u, "")
+        .replace(/[\s\u3000"'「」『』〈〉《》【】[\]()（）\u201c\u201d\u2018\u2019\u00b7.,，。．!！?？:：;；···…\-—_=＿]+$/u, "");
+      if (u === t) break;
+      t = u.trim();
+    }
+    return t;
+  }
+
+  /** 整块标题长得像「对白一句」而非人名（如 “遵命。”），不当成客串头像行 */
+  function looksQuotedDialogFragmentTitle(raw) {
+    const t = String(raw || "").trim();
+    if (t.length < 2 || t.length > 36) return false;
+    const first = t[0];
+    const lastCh = t[t.length - 1];
+    const openOk = /^[\u201c\u2018"'「『“]/.test(first);
+    if (!openOk && first !== "(" && first !== "（") return false;
+    const tailOk = /[。！？!?…⋯」』\u201d"']$/u.test(lastCh);
+    return tailOk && /[，。．…！？;；、]/.test(t);
+  }
+
+  /**
+   * 花名册外客串：避免出现【"】、对白碎片误当姓名等。
+   * 未通过时 resolveLineSpeaker 会退回旁白合并。
+   */
+  function acceptableEphemeralStorySpeakerTitle(title) {
+    const raw = String(title || "").trim().replace(/\*+/g, "").trim();
+    if (!raw || raw === "\u65c1\u767d" || /^narrator$/i.test(raw)) return false;
+    if (/^(?:我|主角)$/i.test(raw)) return false;
+    if (/^[\s\u201c\u201d\u2018\u2019"'「」『』〈〉]+$/.test(raw)) return false;
+    if (looksQuotedDialogFragmentTitle(raw)) return false;
+    const keyGuess = normalizeEphemeralSpeakerKey(raw);
+    let core = stripEdgeSpeakerTitleNoise(keyGuess || "");
+    if (!core) core = stripEdgeSpeakerTitleNoise(raw);
+    if (!core) return false;
+    if (/^[\d\s,.，。\-\—_]+$/.test(core)) return false;
+    const hasNameChar = /[\u4e00-\u9fff\u3400-\u4dbfA-Za-z]/.test(core);
+    if (!hasNameChar) return false;
+    const glyphs = Array.from(core);
+    if (glyphs.length < 2) return false;
+    if (/^[，。！？、；：·…]+$/.test(core)) return false;
+    if (/^(此时|此刻|转念|转念间|转念一想|转念之间|话音)$/u.test(core)) return false;
+    if (/^(话音未落|话音刚落|话锋一转|话音甫落|未及他|未及她|未及两人|未及众人)$/u.test(core)) return false;
+    if (/^(这一|那一次|那一瞬间|一转眼|一转眼儿|一转眼功夫)/u.test(core)) return false;
+    return true;
+  }
+
   function finalizeStoryBlocks(blocks, resolveLineSpeaker) {
     const out = [];
     (blocks || []).forEach(function (blk) {
@@ -12095,14 +12257,15 @@
       }
     }
     if (/^(?:旁白|narrator)$/i.test(t)) return null;
+    if (!acceptableEphemeralStorySpeakerTitle(t)) return null;
     const charCount = Array.from(t).length;
     if (
-      charCount >= 1 &&
+      charCount >= 2 &&
       t.length <= 32 &&
       !/^[\d\s._·…《》「」:【】]+$/.test(t) &&
       !/^(?:第.{1,12}章|第.{1,12}节|序章|楔子)/.test(t)
     ) {
-      if (charCount >= 2 || /[\u4e00-\u9fff]/.test(t)) return { titleHint: t };
+      return { titleHint: t };
     }
     return null;
   }
@@ -12157,7 +12320,7 @@
             }
           }
         }
-        if (head && !/^(?:旁白|narrator|我|主角)$/i.test(head) && head.length <= 20) {
+        if (head && acceptableEphemeralStorySpeakerTitle(head) && head.length <= 20) {
           return { nm: head, rest: restPart };
         }
       }
@@ -12244,6 +12407,7 @@
       }
       const loose = findCastIdBySpeakerTitle(t, cast);
       if (loose) return { characterId: loose };
+      if (!acceptableEphemeralStorySpeakerTitle(t)) return { characterId: "narrator" };
       const key = normalizeEphemeralSpeakerKey(t);
       if (!key) return { characterId: "narrator" };
       return {
@@ -16614,29 +16778,50 @@
     if (metaEarly) customFontMeta = JSON.parse(metaEarly);
   } catch (e) {}
 
-  try {
-    applyHash();
-    renderDynamic();
-  } catch (bootErr) {
+  void (async function bootShellWithNarrative() {
     try {
-      console.error(bootErr);
-    } catch (e) {}
+      await hydrateNarrativeFromStorage();
+    } catch (hydErr) {
+      try {
+        console.error(hydErr);
+      } catch (_) {}
+      try {
+        applyNarrativeBlob(null);
+        applyOneTimeNarrativePresetWipe();
+        normalizeItemCategories();
+      } catch (_) {}
+      try {
+        showToast(
+          "剧情存档（IndexedDB）读取异常，已按空白或本地缓存尽量恢复；若内容缺失请导入备份或检查浏览器私密模式权限。",
+          "error",
+          5200
+        );
+      } catch (_) {}
+    }
     try {
-      showToast("载入界面时出错，已尝试退回主标签。", "error", 4200);
-    } catch (e2) {}
-    try {
-      location.hash = "#/tab/overview";
       applyHash();
       renderDynamic();
-    } catch (e3) {
+    } catch (bootErr) {
       try {
-        console.error(e3);
-      } catch (e4) {}
+        console.error(bootErr);
+      } catch (e) {}
+      try {
+        showToast("载入界面时出错，已尝试退回主标签。", "error", 4200);
+      } catch (e2) {}
+      try {
+        location.hash = "#/tab/overview";
+        applyHash();
+        renderDynamic();
+      } catch (e3) {
+        try {
+          console.error(e3);
+        } catch (e4) {}
+      }
+    } finally {
+      if (appShell) appShell.classList.remove("app-shell--booting");
     }
-  } finally {
-    if (appShell) appShell.classList.remove("app-shell--booting");
-  }
-  tryLoadPersistedFont()
-    .then(() => renderDynamic())
-    .catch(() => {});
+    tryLoadPersistedFont()
+      .then(() => renderDynamic())
+      .catch(() => {});
+  })();
 })();
