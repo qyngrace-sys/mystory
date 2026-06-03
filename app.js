@@ -1793,7 +1793,8 @@
   const PLAY_SUMMARY_PROMPT_ITEM_MAX_CHARS = 4000;
   /** 剧情续写：最近 N 轮正文 + 最新 N 条总结 + N 条相关记忆（单一窗口，便于控制体积） */
   const STORY_PLAY_REF_TURN_LIMIT = 5;
-  const PLAY_SUMMARY_PROMPT_REF_LIMIT = STORY_PLAY_REF_TURN_LIMIT;
+  /** 续写送入模型的总结条数（总结已压缩，可略多于正文轮数窗口） */
+  const PLAY_SUMMARY_PROMPT_REF_LIMIT = PLAY_SUMMARY_REF_LIMIT;
   /** 剧情续写单次请求的用户/系统提示软上限，避免 Gemini 中转因上下文过大返回 empty_response */
   const STORY_PLAY_API_USER_MAX_CHARS = 30000;
   const STORY_PLAY_API_SYSTEM_MAX_CHARS = 14000;
@@ -1801,7 +1802,7 @@
   const PLOT_MEMORY_MAX_STORE = 20;
   /** 续写时送入模型的记忆条数（与 STORY_PLAY_REF_TURN_LIMIT 一致） */
   const PLOT_MEMORY_PROMPT_MAX = STORY_PLAY_REF_TURN_LIMIT;
-  const PLOT_MEMORY_PROMPT_ITEM_MAX_CHARS = 200;
+  const PLOT_MEMORY_PROMPT_ITEM_MAX_CHARS = 480;
   const PLOT_MEMORY_CONTEXT_MAX_CHARS = 3800;
 
   function ensureFixedCharCategory() {
@@ -7104,19 +7105,54 @@
     }
   }
 
-  /** 续写 user 提示过长时优先压缩「最近剧情」段，保留玩家指令与设定头部 */
+  /** 定位 user 提示中「最近剧情」正文起始位置（兼容「【必读·最近剧情】」等变体） */
+  function findStoryPlayRecentHistoryContentStart(userPrompt) {
+    const s = String(userPrompt || "");
+    const markers = ["\n\n【必读·最近剧情】", "\n\n最近剧情"];
+    for (let i = 0; i < markers.length; i++) {
+      const idx = s.indexOf(markers[i]);
+      if (idx < 0) continue;
+      const colonNl = s.indexOf("：\n", idx);
+      if (colonNl < 0) continue;
+      return colonNl + 2;
+    }
+    return -1;
+  }
+
+  /** 续写 user 提示过长时优先压缩末尾「阶段总结」「记忆」，保留「最近剧情」与设定头部 */
   function capStoryPlayUserPromptForApi(userPrompt) {
     const maxC = STORY_PLAY_API_USER_MAX_CHARS;
     let s = String(userPrompt || "");
     if (charCountForApiPrompt(s) <= maxC) return s;
-    const marker = "\n\n最近剧情：\n";
-    const idx = s.indexOf(marker);
-    if (idx >= 0) {
-      const head = s.slice(0, idx + marker.length);
-      const tail = s.slice(idx + marker.length);
+
+    function capFromMarker(marker) {
+      const idx = s.indexOf(marker);
+      if (idx < 0) return null;
+      const head = s.slice(0, idx);
+      const tail = s.slice(idx);
       const headLen = charCountForApiPrompt(head);
-      const tailBudget = Math.max(800, maxC - headLen);
+      if (headLen >= maxC) return null;
+      const tailBudget = Math.max(400, maxC - headLen);
       return head + truncateCharsWithEllipsis(tail, tailBudget);
+    }
+
+    let capped = capFromMarker("\n\n【必读·阶段总结】");
+    if (capped && charCountForApiPrompt(capped) <= maxC) return capped;
+    if (capped) s = capped;
+
+    capped = capFromMarker("\n\n【必读·记忆】");
+    if (capped && charCountForApiPrompt(capped) <= maxC) return capped;
+    if (capped) s = capped;
+
+    const contentStart = findStoryPlayRecentHistoryContentStart(s);
+    if (contentStart >= 0) {
+      const head = s.slice(0, contentStart);
+      const tail = s.slice(contentStart);
+      const headLen = charCountForApiPrompt(head);
+      if (headLen < maxC) {
+        const tailBudget = Math.max(800, maxC - headLen);
+        return head + truncateCharsWithEllipsis(tail, tailBudget);
+      }
     }
     return truncateCharsWithEllipsis(s, maxC);
   }
@@ -7263,7 +7299,9 @@
     "【采信层级】数字小者优先；同层内多项并存时一并兼顾，跨层冲突时以前层为准。\n" +
     "① 人设·外貌、整体气质、性格与处事方式：最高优先，须使人始终「像该角色」。\n" +
     "② 世界书·禁令及条目明示的硬性规则、不可违反的叙事边界：次优先；若与①冲突，以①为准。\n" +
-    "③ 题材方向、故事开端、玩家本轮及近期行动、阶段总结、关键词记忆：再次，用于接戏与连贯；若与①或②冲突，以前两层为准。\n" +
+    "③ 玩家本轮指令、最近剧情正文（最近 " +
+    STORY_PLAY_REF_TURN_LIMIT +
+    " 轮）、记忆、阶段总结、题材与故事开端：再次，用于接戏与连贯，须严格参照不得失忆；同层冲突时以最近剧情正文优先于阶段总结；若与①或②冲突，以前两层为准。\n" +
     "④ 角色档案中的职业、学籍、过往经历等可调整背景：仅作情节参考，勿用语义锁死①中的外貌与性格气质。";
 
   /**
@@ -7303,6 +7341,14 @@
     "若须换场或收束当下场景，须写清可感知的过渡：离席、买单、推门出门、路上一两笔即可，不必长描，但不能让读者觉得中间整段被剪掉。\n" +
     "【信息衔接】正文里首次点到的重要他人、具体约定（时间、地点、同行者）须扣回当前话题或上文情绪，勿单独一句像补设定般硬插入。\n" +
     "【收尾完整】进入文末选项区前，正文最后一句尽量落在完整句号或已闭合的对白引号上；避免以「对了，」「他刚要——」等明显半截悬停结束（若篇幅吃紧宁可略写景物也要把尾句说圆）。\n";
+
+  /** 续写时须严格参照用户消息中的最近正文、记忆与总结 */
+  var STORY_PLAY_CONTEXT_REF_GUIDE =
+    "【上下文必读·禁失忆】续写前须完整阅读用户消息中的「最近剧情」「记忆」「阶段总结」及世界书；将其视为已发生内容的权威依据，须无缝衔接、不得矛盾、不得当作新故事重写。\n" +
+    "· 最近剧情（最高）：紧接上一场的台词、动作与情绪，从最后一轮收束处自然续写；同层冲突时以本段为准，勿重复上一轮已写过的信息。\n" +
+    "· 记忆：用户标记须长期遵守的要点（含自总结钉选），本轮须呼应，不得遗漏或反向处理。\n" +
+    "· 阶段总结：覆盖更早回合的概要，补充最近剧情未写明的历史事实与关系；勿与最近剧情及总结中的核心事实相悖，勿凭空改写已确立设定。\n" +
+    "· 若阶段总结/记忆与最近剧情细节表面冲突，**以最近剧情为准**；不得推翻总结中的核心事实时，用一两句过渡交代即可。\n";
 
   function storyBriefCharCount(s) {
     return Array.from(String(s || "")).length;
@@ -8527,23 +8573,43 @@
   function buildPlotMemoriesPrompt(plot, contextText) {
     ensurePlotExtendedState(plot);
     const ctx = String(contextText || "").trim();
-    const memories = (plot.memories || [])
+    const all = (plot.memories || [])
       .slice()
       .sort(function (a, b) {
         return (b.updatedAt || 0) - (a.updatedAt || 0);
       })
       .filter(function (it) {
-        const txt = String((it && it.content) || "").trim();
-        if (!txt) return false;
-        if (!ctx) return true;
-        return memoryLooksRelevantToContext(txt, ctx);
-      })
-      .slice(0, PLOT_MEMORY_PROMPT_MAX)
+        return String((it && it.content) || "").trim();
+      });
+    const picked = [];
+    const pickedKeys = new Set();
+
+    function tryPick(it) {
+      if (!it || picked.length >= PLOT_MEMORY_PROMPT_MAX) return;
+      const key = String(it.id || "") || String(it.content || "").slice(0, 48);
+      if (pickedKeys.has(key)) return;
+      pickedKeys.add(key);
+      picked.push(it);
+    }
+
+    all.forEach(function (it) {
+      if (it.sourceType === "summary" && it.sourceSummaryId) tryPick(it);
+    });
+    if (ctx) {
+      all.forEach(function (it) {
+        if (memoryLooksRelevantToContext(String(it.content || ""), ctx)) tryPick(it);
+      });
+    }
+    all.forEach(function (it) {
+      tryPick(it);
+    });
+
+    return picked
       .map(function (it) {
         return "- " + truncateCharsWithEllipsis(it && it.content, PLOT_MEMORY_PROMPT_ITEM_MAX_CHARS);
       })
-      .filter(Boolean);
-    return memories.join("\n");
+      .filter(Boolean)
+      .join("\n");
   }
 
   function getSelfCharacters() {
@@ -27790,6 +27856,14 @@
     if (others) p.characterIdentityOthers = others.value;
     p.characterIdentities = composeStoryIdentityText(p.characterIdentitySelf, p.characterIdentityOthers, p.characterIdentities);
     if (st) p.storyStart = st.value;
+    if (!p.playIntro || typeof p.playIntro !== "object") {
+      p.playIntro = { era: "", identities: "", myImage: "", otherRoles: "", opening: "" };
+    }
+    p.playIntro.era = String(p.eraBackground || "");
+    p.playIntro.myImage = String(p.characterIdentitySelf || "");
+    p.playIntro.otherRoles = String(p.characterIdentityOthers || "");
+    p.playIntro.identities = String(p.characterIdentities || "");
+    p.playIntro.opening = String(p.storyStart || "");
   }
 
   function setStorySetupEditing(on) {
@@ -30708,7 +30782,9 @@
       "（主线仍以侧重名单为主；同场有多名侧重角色时**宜**交替给戏份，非侧重仍少写、点名或必要时再出场）。\n\n" +
       "【人称】" +
       povConstraintPlay +
-      "\n\n【文风】" +
+      "\n\n" +
+      STORY_PLAY_CONTEXT_REF_GUIDE +
+      "\n【文风】" +
       STORY_PLAY_PROSE_BRIEF +
       "\n" +
       STORY_PERSONA_PRIORITY_GUIDE +
@@ -30723,6 +30799,7 @@
     const roleLibraryBlock = buildPlayRoleLibraryPromptBlock(protagonist, supporting);
     const memoryContext = buildPlotMemoryContextBlob([
       plot.theme,
+      summaryBlock,
       pendingPlayerTurnAction && pendingPlayerTurnAction.line ? pendingPlayerTurnAction.line : "",
       pendingPlayerTurnAction && pendingPlayerTurnAction.hint ? pendingPlayerTurnAction.hint : "",
       latestPlayerAction,
@@ -30755,6 +30832,7 @@
           (pendingPlayerTurnAction.hint ? "\n提示：\n" + String(pendingPlayerTurnAction.hint || "").trim() : "") +
           "\n\n"
         : "";
+    const hasPriorPlay = (plot.playTurns || []).length > 0;
     const userPrompt =
       (wbBlockPlay ? wbBlockPlay + "\n" : "") +
       playerActionPriorityLead +
@@ -30772,19 +30850,25 @@
         : "") +
       (latestPlayerAction ? "\n\n上一手玩家行动（仅供连续性参考）：\n" + latestPlayerAction : "") +
       (roleOverrideBlock ? "\n\n当前角色形象覆盖：\n" + roleOverrideBlock : "") +
-      (summaryBlock
-        ? "\n\n阶段总结（最新 " +
-          PLAY_SUMMARY_PROMPT_REF_LIMIT +
-          " 条；更早情节以此为准，勿与总结矛盾）：\n" +
-          summaryBlock
-        : "") +
-      (memoryBlock
-        ? "\n\n记忆（最多 " + PLOT_MEMORY_PROMPT_MAX + " 条，与当前场面相关）：\n" + memoryBlock
-        : "") +
-      "\n\n最近剧情（仅最近 " +
+      (hasPriorPlay ? "\n\n" + STORY_PLAY_CONTEXT_REF_GUIDE : "") +
+      "\n\n【必读·最近剧情】（仅最近 " +
       STORY_PLAY_REF_TURN_LIMIT +
-      " 轮记录）：\n" +
-      (history || "故事刚开始。");
+      " 轮；**最高优先**，须从最后一轮收束处无缝续写；同层冲突时以本段为准）：\n" +
+      (history || "故事刚开始。") +
+      (memoryBlock
+        ? "\n\n【必读·记忆】（最多 " +
+          PLOT_MEMORY_PROMPT_MAX +
+          " 条；须长期遵守并在本轮呼应，不得遗漏或违背）：\n" +
+          memoryBlock
+        : "") +
+      (summaryBlock
+        ? "\n\n【必读·阶段总结】（最新 " +
+          PLAY_SUMMARY_PROMPT_REF_LIMIT +
+          " 条；补充更早回合背景，须延续核心事实与关系；细节冲突时以「最近剧情」为准）：\n" +
+          summaryBlock
+        : hasPriorPlay
+          ? "\n\n【必读·阶段总结】（暂无总结；请严格依据上方「最近剧情」承接，勿与已写正文矛盾。）"
+          : "");
 
     const apiSystemPrompt = truncateCharsWithEllipsis(systemPrompt, STORY_PLAY_API_SYSTEM_MAX_CHARS);
     const apiUserPrompt = capStoryPlayUserPromptForApi(userPrompt);
