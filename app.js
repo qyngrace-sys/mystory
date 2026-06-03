@@ -164,13 +164,13 @@
         role: "assistant",
         kind: ASSISTANT_PRESET_WELCOME_KIND,
         content:
-          "下面那排按钮也能直接用：题材方向、改写人设、生成世界书、灵感汲取。你要结构化结果我就收住风格走实用流；你要嗑 CP 发疯我就陪你一起上头。",
+          "点星里六个工具都能直接用：题材方向、改写人设、生成世界书、灵感汲取、查手机、小狗饭。你要结构化结果我就走实用流，要嗑 CP 上同人机我也陪你发疯。",
       },
       {
         role: "assistant",
         kind: ASSISTANT_PRESET_WELCOME_KIND,
         content:
-          "剧情里长按也能直接分享到我这边，我会按聊天气泡连发回复，不端着写报告。来，给我一段你最近最上头的片段试试？",
+          "剧情列表里仍可「分享给助手」——回复会在弹窗里连发展示，不占用点星主界面。点头像可改助手人设与模型。",
       },
     ].map(function (x) {
       return { role: x.role, kind: x.kind, content: x.content };
@@ -231,6 +231,8 @@
 
   /** 世界书、角色、剧情及自定义分类的本地持久化 */
   const STORAGE_NARRATIVE = "hj-narrative-v1";
+  /** localStorage 同步镜像时间戳（关页/切后台时写入，与 IndexedDB 互为备份） */
+  const STORAGE_NARRATIVE_SYNC_AT = "hj-narrative-sync-at-v1";
   /** 一次性清空旧版/无标记的预设剧情、角色、世界书（仅需执行一次） */
   const STORAGE_NARRATIVE_PRESET_WIPE_DONE = "hj-narrative-preset-wipe-v1";
   const FONT_META_KEY = "hj_font_meta_v1";
@@ -245,6 +247,8 @@
   const UI_BRIGHTNESS_DEFAULT = 1;
   const BACKUP_STORAGE_PREFIX = "hj-";
   const BACKUP_FORMAT = "hj-backup";
+  /** ZIP 内独立 narrative 文件（大体积剧情/查手机/同人粮等，与 localStorage 快照互为备份） */
+  const BACKUP_NARRATIVE_FILE = "narrativeV1.json";
   /** 当前导出的 manifest 版本号；提高此值时请勿降低「可导入」旧号段，见 isBackupManifestImportable */
   const BACKUP_VERSION = 1;
   /** 仍可接受的最旧 manifest.version（旧备份固定为 1） */
@@ -256,12 +260,13 @@
   const CLEAR_DATA_KEEP_KEYS = [STORAGE_API_CONFIGS, STORAGE_ACTIVE_API_ID];
   /**
    * 清除本地数据后、页面刷新前必须置为 true：否则 beforeunload/pagehide 等仍会
-   * 调用 flushPersistNarrative，把内存里的角色/剧情再写回 localStorage。
+   * 调用 flushPersistNarrative，把内存里的角色/剧情再写回设备存储。
    */
   let suppressUserDataPersistence = false;
+  /** IndexedDB 库名/键名与 localStorage 的 hj-* 键为跨版本稳定标识；发新版网页时勿改，否则旧用户存档无法自动衔接。 */
   const IDB_NAME = "hj_narrative_ui";
   const IDB_STORE = "assets";
-  /** 与用户剧情/角色/世界书 JSON 存档（原为 localStorage 单键 hj-narrative-v1）；大体积仅存 IndexedDB。 */
+  /** 与用户剧情/角色/世界书 JSON 存档（原为 localStorage 单键 hj-narrative-v1）；大体积主存 IndexedDB，localStorage 作关页同步镜像。 */
   const IDB_NARRATIVE_KEY = "narrativeV1";
   const FONT_FACE_NAME = "HJUserCustomFont";
   const DEFAULT_FONT_STACK =
@@ -273,12 +278,86 @@
     { id: "forbidden", name: "禁止内容" },
   ];
 
-  let plotCategories = [
-    { id: "pc-main", name: "进行中的故事" },
-    { id: "pc-archive", name: "归档" },
+  const PLOT_CATEGORY_MAIN_ID = "pc-main";
+  const PLOT_CATEGORY_ARCHIVE_ID = "pc-archive";
+  const FIXED_PLOT_CATEGORY_DEFS = [
+    { id: PLOT_CATEGORY_MAIN_ID, name: "进行中的故事" },
+    { id: PLOT_CATEGORY_ARCHIVE_ID, name: "归档" },
   ];
+  let plotCategories = FIXED_PLOT_CATEGORY_DEFS.map(function (x) {
+    return { id: x.id, name: x.name, fixed: true };
+  });
   /** 剧情「不分类」：仅出现在「全部」筛选下，不属于任何剧情分类标签 */
   const PLOT_CATEGORY_UNASSIGNED = "";
+
+  function isPlotBuiltinSealCategory(id) {
+    return id === PLOT_CATEGORY_MAIN_ID || id === PLOT_CATEGORY_ARCHIVE_ID;
+  }
+
+  function ensureFixedPlotCategory() {
+    FIXED_PLOT_CATEGORY_DEFS.forEach(function (def, idx) {
+      const found = plotCategories.find(function (c) {
+        return c && c.id === def.id;
+      });
+      if (!found) {
+        plotCategories.splice(idx, 0, { id: def.id, name: def.name, fixed: true });
+        return;
+      }
+      found.name = def.name;
+      found.fixed = true;
+    });
+  }
+
+  /** 用户可手动指定的剧情分类（不含按封笔自动归类的系统分类） */
+  function plotUserAssignableCategories() {
+    return plotCategories.filter(function (c) {
+      return c && !isPlotBuiltinSealCategory(c.id);
+    });
+  }
+
+  function defaultPlotUserCategoryId() {
+    const user = plotUserAssignableCategories();
+    if (user.length) return user[0].id;
+    return PLOT_CATEGORY_UNASSIGNED;
+  }
+
+  function normalizePlotUserCategoryId(cid) {
+    if (cid === PLOT_CATEGORY_UNASSIGNED || cid == null || String(cid).trim() === "") {
+      return PLOT_CATEGORY_UNASSIGNED;
+    }
+    const s = String(cid).trim();
+    if (isPlotBuiltinSealCategory(s)) return PLOT_CATEGORY_UNASSIGNED;
+    if (plotUserAssignableCategories().some(function (c) {
+      return c.id === s;
+    })) {
+      return s;
+    }
+    return defaultPlotUserCategoryId();
+  }
+
+  /** 列表筛选：进行中=未封笔，归档=已封笔，其余=用户自定义 categoryId */
+  function plotMatchesFilter(p, filterId) {
+    if (!p) return false;
+    if (filterId === "all") return true;
+    if (filterId === PLOT_CATEGORY_MAIN_ID) return !p.playSealed;
+    if (filterId === PLOT_CATEGORY_ARCHIVE_ID) return !!p.playSealed;
+    return String(p.categoryId || "") === String(filterId);
+  }
+
+  function resolveNewPlotCategoryId(preferredId) {
+    const id = preferredId != null ? String(preferredId).trim() : "";
+    if (
+      id &&
+      id !== "all" &&
+      !isPlotBuiltinSealCategory(id) &&
+      plotUserAssignableCategories().some(function (c) {
+        return c.id === id;
+      })
+    ) {
+      return id;
+    }
+    return normalizePlotUserCategoryId(id);
+  }
 
   let charCategories = FIXED_CHAR_CATEGORY_DEFS.map(function (x) {
     return { id: x.id, name: x.name, fixed: true };
@@ -376,9 +455,10 @@
     if (mode === "dark") {
       const accent = mixHex(deep, "#a7a7b4", 0.86);
       const solidFill = mixHex(deep, "#2a2a31", 0.68);
+      const shellBg = mixHex("#121214", deep, 0.86);
       return {
         "--palette-mid": mid,
-        "--bg": mixHex("#121214", deep, 0.86),
+        "--bg": shellBg,
         "--surface": toRgba(mixHex("#202025", mid, 0.72), 0.58),
         "--border": toRgba(mixHex("#d4d7e1", mid, 0.28), 0.2),
         "--text": mixHex("#f0f0f0", base, 0.88),
@@ -393,17 +473,18 @@
         "--glass-border": toRgba(mixHex("#ffffff", base, 0.34), 0.22),
         "--glass-edge": toRgba(mixHex("#ffffff", mid, 0.26), 0.16),
         "--glass-shadow": "0 6px 28px rgba(0, 0, 0, 0.45)",
-        "--phone-screen-start": mixHex("#1a1a1d", deep, 0.86),
-        "--phone-screen-end": mixHex("#0e0e10", deep, 0.9),
+        "--phone-screen-start": shellBg,
+        "--phone-screen-end": shellBg,
         "--wb-tag-bg": deep,
         "--wb-tag-fg": pickContrastForAccent(deep),
         "--wb-tag-border": toRgba(mixHex(deep, "#000000", 0.7), 0.42),
       };
     }
     const accent = deep;
+    const shellBg = mixHex(base, "#ffffff", 0.84);
     return {
       "--palette-mid": mid,
-      "--bg": mixHex(base, "#ffffff", 0.84),
+      "--bg": shellBg,
       "--surface": toRgba(mixHex(base, "#ffffff", 0.72), 0.62),
       "--border": toRgba(mixHex(deep, "#2a2a2a", 0.2), 0.16),
       "--text": mixHex(deep, "#1a1a1a", 0.25),
@@ -418,8 +499,8 @@
       "--glass-border": toRgba(mixHex(base, "#ffffff", 0.8), 0.74),
       "--glass-edge": toRgba(mixHex(deep, base, 0.34), 0.14),
       "--glass-shadow": "0 4px 24px rgba(0, 0, 0, 0.06)",
-      "--phone-screen-start": mixHex(base, "#d8d8dc", 0.68),
-      "--phone-screen-end": mixHex(base, "#c8c8ce", 0.62),
+      "--phone-screen-start": shellBg,
+      "--phone-screen-end": shellBg,
       "--wb-tag-bg": deep,
       "--wb-tag-fg": pickContrastForAccent(deep),
       "--wb-tag-border": toRgba(mixHex(deep, "#1a1a1a", 0.4), 0.3),
@@ -481,6 +562,14 @@
     document.documentElement.style.setProperty("--story-selection-marker", marker || "#f5d97f");
     document.documentElement.style.setProperty("--story-selection-marker-soft", toRgba(marker || "#f5d97f", 0.36));
     refreshStoryPlayBackgroundForCurrentPlot();
+    syncThemeColorMeta();
+  }
+
+  function syncThemeColorMeta() {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (!meta) return;
+    const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+    if (bg) meta.setAttribute("content", bg);
   }
 
   /** 切换浅色/深色后刷新剧情正文区背景（若当前打开了剧情）。 */
@@ -541,6 +630,238 @@
     };
     if (mq.addEventListener) mq.addEventListener("change", onSchemeChange);
     else if (mq.addListener) mq.addListener(onSchemeChange);
+  }
+
+  const GLOBAL_GEN_PAW_MODAL_IDS = [
+    "modal-assistant-theme",
+    "modal-assistant-rewrite",
+    "modal-assistant-gen-wb",
+    "modal-assistant-inspiration",
+    "modal-assistant-plot-reply",
+    "modal-assistant-switch",
+  ];
+  const globalGenPawCounts = Object.create(null);
+  let globalGenPawKeyStack = [];
+  let globalGenPawWatchHandle = 0;
+  let pendingGenCallContext = null;
+  let genReadyBannerEl = null;
+  let genReadyBannerTimer = 0;
+
+  function totalGlobalGenPawActive() {
+    let n = 0;
+    for (const k in globalGenPawCounts) {
+      if (Object.prototype.hasOwnProperty.call(globalGenPawCounts, k)) n += globalGenPawCounts[k];
+    }
+    return n;
+  }
+
+  function getGlobalGenPawContext() {
+    for (let i = 0; i < GLOBAL_GEN_PAW_MODAL_IDS.length; i++) {
+      const id = GLOBAL_GEN_PAW_MODAL_IDS[i];
+      const modal = document.getElementById(id);
+      if (modal && !modal.hidden) {
+        const root = modal.querySelector(".modal-sheet") || modal;
+        return { key: "modal:" + id, root: root };
+      }
+    }
+    const modalStoryPhone = document.getElementById("modal-story-phone");
+    if (modalStoryPhone && !modalStoryPhone.hidden) {
+      const slot = document.getElementById("story-phone-slot");
+      const nav = getPhoneNav(slot);
+      return {
+        key: "story:phone:" + phoneNavContextKey(nav),
+        root: resolveGenPawRootFromSlot(slot) || slot,
+      };
+    }
+    const modalStoryFanwork = document.getElementById("modal-story-fanwork");
+    if (modalStoryFanwork && !modalStoryFanwork.hidden) {
+      const slot = document.getElementById("story-fanwork-slot");
+      const nav = getFanworkNav(slot);
+      return {
+        key: "story:fanwork:" + fanworkNavContextKey(nav),
+        root: resolveGenPawRootFromSlot(slot) || slot,
+      };
+    }
+    const layerStory = document.getElementById("layer-story");
+    if (layerStory && !layerStory.hidden) {
+      const playPanel = document.getElementById("story-panel-play");
+      const setupPanel = document.getElementById("story-panel-setup");
+      let root = layerStory;
+      let sub = "layer";
+      if (playPanel && !playPanel.hidden) {
+        root = playPanel;
+        sub = "play";
+      } else if (setupPanel && !setupPanel.hidden) {
+        root = setupPanel;
+        sub = "setup";
+      }
+      const pid = lastStoryPlotId || "unknown";
+      return { key: "story:" + pid + ":" + sub, root: root };
+    }
+    if (activeTab === "overview") {
+      if (overviewSubView === "phone") {
+        const slot = document.getElementById("phone-content-slot");
+        const ctx = buildPhonePawContext(slot);
+        return { key: "overview:" + ctx.key, root: ctx.root };
+      }
+      if (overviewSubView === "fanwork") {
+        const slot = document.getElementById("fanwork-content-slot");
+        const ctx = buildFanworkPawContext(slot);
+        return { key: "overview:" + ctx.key, root: ctx.root };
+      }
+      return { key: "overview:hub", root: document.getElementById("view-overview") };
+    }
+    const view = document.getElementById("view-" + activeTab);
+    return { key: "tab:" + activeTab, root: view || document.getElementById("main-scroll") };
+  }
+
+  function setGenCallContext(ctx) {
+    pendingGenCallContext = ctx || null;
+  }
+
+  function clearGenCallContext() {
+    pendingGenCallContext = null;
+  }
+
+  function buildGenReadyPawSvg() {
+    return (
+      '<svg class="gen-ready-banner__paw-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">' +
+      '<ellipse cx="10" cy="14.5" rx="3.4" ry="2.6"/>' +
+      '<circle cx="6.2" cy="8.2" r="1.9"/><circle cx="10" cy="6.8" r="1.9"/>' +
+      '<circle cx="13.8" cy="8.2" r="1.9"/><circle cx="7.8" cy="11.2" r="1.55"/>' +
+      "</svg>"
+    );
+  }
+
+  function dismissGenReadyBanner() {
+    if (genReadyBannerTimer) {
+      clearTimeout(genReadyBannerTimer);
+      genReadyBannerTimer = 0;
+    }
+    if (!genReadyBannerEl) return;
+    genReadyBannerEl.classList.remove("gen-ready-banner--show");
+    const el = genReadyBannerEl;
+    genReadyBannerEl = null;
+    setTimeout(function () {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    }, 280);
+  }
+
+  function triggerGenReadyNavigate(notice) {
+    dismissGenReadyBanner();
+    if (typeof notice.navigate !== "function") return;
+    try {
+      notice.navigate();
+    } catch (err) {
+      console.error(err);
+      showToast("无法打开生成结果，请手动进入对应页面。", "warning");
+    }
+  }
+
+  function showGenReadyBanner(notice) {
+    if (!notice || !notice.message) return;
+    dismissGenReadyBanner();
+    const shell = document.getElementById("app-shell");
+    if (!shell) return;
+    const el = document.createElement("div");
+    el.className = "gen-ready-banner";
+    el.setAttribute("role", "button");
+    el.setAttribute("aria-label", "前往查看：" + String(notice.message));
+    el.tabIndex = 0;
+    el.innerHTML =
+      '<span class="gen-ready-banner__text">' +
+      escapeHtml(String(notice.message)) +
+      '</span><span class="gen-ready-banner__paw" aria-hidden="true">' +
+      buildGenReadyPawSvg() +
+      "</span>";
+    el.addEventListener("click", function () {
+      triggerGenReadyNavigate(notice);
+    });
+    el.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        triggerGenReadyNavigate(notice);
+      }
+    });
+    shell.appendChild(el);
+    genReadyBannerEl = el;
+    requestAnimationFrame(function () {
+      el.classList.add("gen-ready-banner--show");
+    });
+    genReadyBannerTimer = setTimeout(dismissGenReadyBanner, 5000);
+  }
+
+  function reopenStoryLayerIfHidden() {
+    const layerStory = document.getElementById("layer-story");
+    if (!layerStory || !layerStory.hidden) return;
+    const pid = lastStoryPlotId || phoneHolderPlotId;
+    if (!pid) return;
+    const plot = plots.find(function (p) {
+      return p.id === pid;
+    });
+    if (!plot) return;
+    openStoryLayer(plot, plot.storyEntered ? "play" : "setup");
+  }
+
+  function dismissStoryLayerForOverview() {
+    const layerStory = document.getElementById("layer-story");
+    if (!layerStory || layerStory.hidden) return;
+    closeStoryLayer("overview");
+  }
+
+  function resolveGenCallExtras(opts) {
+    opts = opts && typeof opts === "object" ? opts : {};
+    const pending = pendingGenCallContext || {};
+    return {
+      pawContext: opts.pawContext || pending.pawContext || getGlobalGenPawContext(),
+      genReady: opts.genReady || pending.genReady || null,
+    };
+  }
+
+  function ensureGlobalGenPawContextWatch() {
+    if (globalGenPawWatchHandle) return;
+    function tick() {
+      if (totalGlobalGenPawActive() <= 0) {
+        globalGenPawWatchHandle = 0;
+        return;
+      }
+      syncGlobalGenPawOverlay();
+      globalGenPawWatchHandle = requestAnimationFrame(tick);
+    }
+    globalGenPawWatchHandle = requestAnimationFrame(tick);
+  }
+
+  function syncGlobalGenPawOverlay() {
+    const el = document.getElementById("global-gen-paw-overlay");
+    if (!el) return;
+    const current = getGlobalGenPawContext();
+    const count = globalGenPawCounts[current.key] || 0;
+    const show = count > 0;
+    if (show && current.root) {
+      current.root.classList.add("global-gen-paw-host");
+      if (el.parentNode !== current.root) current.root.appendChild(el);
+    } else {
+      const fallback = document.getElementById("app-shell");
+      if (fallback && el.parentNode !== fallback) fallback.appendChild(el);
+    }
+    el.hidden = !show;
+    el.setAttribute("aria-hidden", show ? "false" : "true");
+  }
+
+  function beginGlobalGenPawOverlay(ctxOpt) {
+    const ctx = ctxOpt || getGlobalGenPawContext();
+    globalGenPawCounts[ctx.key] = (globalGenPawCounts[ctx.key] || 0) + 1;
+    globalGenPawKeyStack.push(ctx.key);
+    syncGlobalGenPawOverlay();
+    ensureGlobalGenPawContextWatch();
+  }
+
+  function endGlobalGenPawOverlay() {
+    const key = globalGenPawKeyStack.pop();
+    if (!key) return;
+    globalGenPawCounts[key] = Math.max(0, (globalGenPawCounts[key] || 0) - 1);
+    if (globalGenPawCounts[key] === 0) delete globalGenPawCounts[key];
+    syncGlobalGenPawOverlay();
   }
 
   function showToast(message, type, duration) {
@@ -845,6 +1166,33 @@
     }, 2500);
   }
 
+  /** 导出备份用的 narrative JSON：优先当前内存（最全），再与 IndexedDB / localStorage 镜像取较新者。 */
+  async function collectBackupNarrativeJson() {
+    var memNar = null;
+    try {
+      memNar = serializeNarrativePayload();
+    } catch (eMem) {
+      memNar = null;
+    }
+    var idbNar = null;
+    var lsNar = null;
+    try {
+      idbNar = await idbGetNarrativeJson();
+    } catch (eIb) {
+      idbNar = null;
+    }
+    try {
+      lsNar = localStorage.getItem(STORAGE_NARRATIVE);
+    } catch (eLs) {
+      lsNar = null;
+    }
+    var diskNar = pickNewerNarrativeRaw(idbNar, lsNar);
+    if (memNar && diskNar) {
+      return narrativeBlobSavedAt(memNar) >= narrativeBlobSavedAt(diskNar) ? memNar : diskNar;
+    }
+    return memNar || diskNar || null;
+  }
+
   async function buildBackupZipBlob() {
     const JSZip = getBackupLib();
     if (!JSZip) throw new Error("JSZIP_MISSING");
@@ -857,6 +1205,16 @@
           version: BACKUP_VERSION,
           appTitle: "嗅嗅剧场",
           exportedAt: new Date().toISOString(),
+          contents: [
+            "角色、剧情、世界书及分类",
+            "剧情正文/总结/记忆/收藏/划线/想法/背景图",
+            "查手机各 App 生成内容与壁纸",
+            "小狗饭 CP 与作品数据",
+            "点星助手、人设与聊天记录",
+            "API 配置与密钥",
+            "外观主题、亮度、字体与状态栏等设置",
+            "自定义字体文件（如有）",
+          ],
         },
         null,
         2
@@ -864,9 +1222,12 @@
     );
     const storageSnap = collectLocalStorageSnapshot();
     try {
-      const nar = await idbGetNarrativeJson();
-      if (typeof nar === "string" && nar.length) storageSnap[STORAGE_NARRATIVE] = nar;
-    } catch (_eIb) {}
+      const nar = await collectBackupNarrativeJson();
+      if (typeof nar === "string" && nar.length) {
+        storageSnap[STORAGE_NARRATIVE] = nar;
+        zip.file(BACKUP_NARRATIVE_FILE, nar);
+      }
+    } catch (_eNar) {}
     zip.file("localStorage.json", JSON.stringify(storageSnap, null, 2));
     let fontBuffer = null;
     try {
@@ -992,12 +1353,20 @@
         localStorage.setItem(k, snapshot[k]);
       });
       var importedNar = snapshot[STORAGE_NARRATIVE];
+      const narrativeEntry = zipGetFileInsensitive(zip, BACKUP_NARRATIVE_FILE);
+      if (narrativeEntry) {
+        try {
+          const fileNar = await narrativeEntry.async("string");
+          importedNar = pickNewerNarrativeRaw(importedNar, fileNar);
+        } catch (_eNarFile) {}
+      }
       if (typeof importedNar === "string" && importedNar.length) {
         try {
           await idbPutNarrativeJson(importedNar);
         } catch (_eImp) {}
         try {
           localStorage.removeItem(STORAGE_NARRATIVE);
+          localStorage.removeItem(STORAGE_NARRATIVE_SYNC_AT);
         } catch (_eLs) {}
       } else {
         try {
@@ -1169,12 +1538,21 @@
     applyUiBrightnessToDom(getPersistedUiBrightness());
   }
 
+  function formatClockTime(d) {
+    const dt = d instanceof Date ? d : new Date();
+    return String(dt.getHours()).padStart(2, "0") + ":" + String(dt.getMinutes()).padStart(2, "0");
+  }
+
   function tickStatusClock() {
     const el = document.getElementById("status-time");
-    if (!el) return;
-    const d = new Date();
-    el.textContent =
-      String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+    const timeText = formatClockTime(new Date());
+    if (el) el.textContent = timeText;
+    document.querySelectorAll(".phone-home__clock").forEach(function (clockEl) {
+      clockEl.textContent = timeText;
+    });
+    document.querySelectorAll(".phone-device__time").forEach(function (clockEl) {
+      clockEl.textContent = timeText;
+    });
   }
 
   function getStatusBarRightLabel() {
@@ -1411,8 +1789,18 @@
   const SUMMARY_OUTPUT_HARD_CAP_CHARS = 24000;
   const PLAY_SUMMARY_REF_LIMIT = 6;
   const PLAY_SUMMARY_ITEM_MAX_CHARS = 12000;
+  /** 送入 API 的总结摘录上限（存档仍可用 PLAY_SUMMARY_ITEM_MAX_CHARS 存全文） */
+  const PLAY_SUMMARY_PROMPT_ITEM_MAX_CHARS = 4000;
+  /** 剧情续写：最近 N 轮正文 + 最新 N 条总结 + N 条相关记忆（单一窗口，便于控制体积） */
+  const STORY_PLAY_REF_TURN_LIMIT = 5;
+  const PLAY_SUMMARY_PROMPT_REF_LIMIT = STORY_PLAY_REF_TURN_LIMIT;
+  /** 剧情续写单次请求的用户/系统提示软上限，避免 Gemini 中转因上下文过大返回 empty_response */
+  const STORY_PLAY_API_USER_MAX_CHARS = 30000;
+  const STORY_PLAY_API_SYSTEM_MAX_CHARS = 14000;
+  const STORY_PLAY_HISTORY_LINE_MAX_CHARS = 900;
   const PLOT_MEMORY_MAX_STORE = 20;
-  const PLOT_MEMORY_PROMPT_MAX = 5;
+  /** 续写时送入模型的记忆条数（与 STORY_PLAY_REF_TURN_LIMIT 一致） */
+  const PLOT_MEMORY_PROMPT_MAX = STORY_PLAY_REF_TURN_LIMIT;
   const PLOT_MEMORY_PROMPT_ITEM_MAX_CHARS = 200;
   const PLOT_MEMORY_CONTEXT_MAX_CHARS = 3800;
 
@@ -1452,17 +1840,10 @@
         if (!w.category || !wbCategories.some((c) => c.id === w.category)) w.category = defWb;
       });
     }
-    const defP = plotCategories[0] && plotCategories[0].id;
-    if (defP) {
-      plots.forEach((p) => {
-        const cid = p.categoryId;
-        if (cid === PLOT_CATEGORY_UNASSIGNED || cid == null) {
-          p.categoryId = PLOT_CATEGORY_UNASSIGNED;
-          return;
-        }
-        if (!plotCategories.some((c) => c.id === cid)) p.categoryId = defP;
-      });
-    }
+    ensureFixedPlotCategory();
+    plots.forEach((p) => {
+      p.categoryId = normalizePlotUserCategoryId(p.categoryId);
+    });
     plots.forEach((p) => {
       if (typeof p.theme !== "string" && typeof p.opening === "string") p.theme = p.opening;
       if (!Array.isArray(p.supportingIds)) p.supportingIds = [];
@@ -1533,6 +1914,7 @@
       if (typeof p.summaryCursorLineId !== "string") p.summaryCursorLineId = "";
       if (typeof p.summaryAutoEnabled !== "boolean") p.summaryAutoEnabled = true;
       if (typeof p.summaryInFlight !== "boolean") p.summaryInFlight = false;
+      if (typeof p.phoneStoryDateKey !== "string") p.phoneStoryDateKey = "";
       if (!p.myCharacterOverride || typeof p.myCharacterOverride !== "object") p.myCharacterOverride = null;
       else {
         p.myCharacterOverride = {
@@ -1721,18 +2103,171 @@
   let wbFilter = "all";
   let plotFilter = "all";
   let charFilter = "all";
-  let sheetPlotCategoryId = plotCategories[0] ? plotCategories[0].id : "pc-main";
+  let sheetPlotCategoryId = defaultPlotUserCategoryId();
   let catManageKind = "wb";
+  const MAIN_TAB_IDS = [
+    "overview",
+    "worldbook",
+    "plot",
+    "characters",
+    "settings",
+  ];
+  /** 旧版底栏 tab，hash 兼容重定向到点星子视图 */
+  const LEGACY_OVERVIEW_SUB_TAB_IDS = { phone: "phone", fanwork: "fanwork" };
+
   let activeTab = "overview";
+  /** 点星内嵌子页：null | "phone" | "fanwork" */
+  let overviewSubView = null;
+  /** 灵感汲取弹窗：待采纳的结构化方案 */
+  let assistantInspirationPendingResult = null;
+  /** 剧情分享后是否在 API 回复完成后弹出读后感 */
+  let assistantPlotShareReplyModalPending = false;
+  /** 查手机：当前查看的角色 id（须为「我的形象」以外的角色） */
+  let phoneHolderCharId = null;
+  /** 查手机：持有者所在剧情 id */
+  let phoneHolderPlotId = null;
+  /** 查手机设置弹窗：plot | char */
+  let phoneHolderModalStep = "plot";
+  let phoneHolderModalPlotId = null;
+  /** 查手机：各角色 id -> 壁纸 data URL */
+  let phoneWallpapers = {};
+  /** 查手机微信：key = plotId + \\u001e + holderCharId */
+  let phoneWechatData = {};
+  let phoneWechatGenerating = false;
+  /** null | "list" | 当前会话 chatId */
+  let phoneWechatGeneratingTarget = null;
+  /** 查手机朋友圈：key = plotId + \\u001e + holderCharId */
+  let phoneMomentsData = {};
+  /** 查手机朋友圈封面：key = plotId + \\u001e + holderCharId */
+  let phoneMomentsCovers = {};
+  let phoneMomentsGenerating = false;
+  /** 查手机音乐：key = plotId + \\u001e + holderCharId */
+  let phoneMusicData = {};
+  let phoneMusicGenerating = false;
+  /** 查手机相册：key = plotId + \\u001e + holderCharId */
+  let phoneAlbumData = {};
+  let phoneAlbumGenerating = false;
+  /** 查手机论坛：key = plotId + \\u001e + holderCharId */
+  let phoneForumData = {};
+  let phoneForumGenerating = false;
+  /** 查手机论坛帖子详情生成中的 postId */
+  let phoneForumPostGeneratingId = null;
+  /** 查手机浏览器：key = plotId + \\u001e + holderCharId */
+  let phoneBrowserData = {};
+  let phoneBrowserGenerating = false;
+  /** 查手机备忘录：key = plotId + \\u001e + holderCharId */
+  let phoneMemoData = {};
+  let phoneMemoGenerating = false;
+  /** 查手机日记：key = plotId + \\u001e + holderCharId */
+  let phoneDiaryData = {};
+  let phoneDiaryGenerating = false;
+  /** 查手机账单：key = plotId + \\u001e + holderCharId */
+  let phoneBillData = {};
+  let phoneBillGenerating = false;
+  /** 查手机微信读书：key = plotId + \\u001e + holderCharId */
+  let phoneWereadData = {};
+  let phoneWereadGenerating = false;
+  /** 查手机晋江：key = plotId + \\u001e + holderCharId */
+  let phoneJjwxcData = {};
+  let phoneJjwxcGenerating = false;
+  let phoneJjwxcNovelGeneratingId = null;
+  let phoneJjwxcChapterGeneratingId = null;
+  /** 同人粮 CP：已选两位角色 id（排序后） */
+  let fanworkCpCharIds = null;
+  /** 同人粮晋江：key = charIdA + \\u001e + charIdB（id 已排序） */
+  let fanworkJjwxcData = {};
+  let fanworkJjwxcGenerating = false;
+  let fanworkJjwxcNovelGeneratingId = null;
+  let fanworkJjwxcChapterGeneratingId = null;
+
+  const phoneNavBySlotId = {
+    "phone-content-slot": { screen: "home", chatId: null },
+    "story-phone-slot": { screen: "home", chatId: null },
+  };
+  const fanworkNavBySlotId = {
+    "fanwork-content-slot": { screen: "jjwxc", cpPickSlot: "a", cpPickOpen: false },
+    "story-fanwork-slot": { screen: "jjwxc", cpPickSlot: "a", cpPickOpen: false },
+  };
+
+  function getPhoneNav(slot) {
+    if (!slot || !slot.id) return phoneNavBySlotId["phone-content-slot"];
+    if (!phoneNavBySlotId[slot.id]) {
+      phoneNavBySlotId[slot.id] = { screen: "home", chatId: null };
+    }
+    return phoneNavBySlotId[slot.id];
+  }
+
+  function getFanworkNav(slot) {
+    if (!slot || !slot.id) return fanworkNavBySlotId["fanwork-content-slot"];
+    if (!fanworkNavBySlotId[slot.id]) {
+      fanworkNavBySlotId[slot.id] = { screen: "jjwxc", cpPickSlot: "a", cpPickOpen: false };
+    }
+    return fanworkNavBySlotId[slot.id];
+  }
+
+  function resolveGenPawRootFromSlot(slot) {
+    if (!slot) return null;
+    const app = slot.querySelector(".phone-app");
+    if (app) return app;
+    const device = slot.querySelector(".phone-device");
+    if (device) return device;
+    return slot;
+  }
+
+  function phoneNavContextKey(nav) {
+    if (!nav) return "home";
+    const s = String(nav.screen || "home");
+    if (s === "wechat-chat") return "wechat:chat:" + String(nav.chatId || "");
+    if (s === "wechat-list") return "wechat:list";
+    if (s === "jjwxc-chapter") return "jjwxc:ch:" + nav.jjwxcNovelId + ":" + nav.jjwxcChapterId;
+    if (s === "jjwxc-novel") return "jjwxc:novel:" + nav.jjwxcNovelId;
+    if (s === "forum-post") return "forum:post:" + nav.forumPostId;
+    if (s === "weread-book") return "weread:book:" + nav.wereadBookId;
+    if (s === "album" && nav.albumPhotoId) return "album:photo:" + nav.albumPhotoId;
+    return s;
+  }
+
+  function fanworkNavContextKey(nav) {
+    if (!nav) return "jjwxc";
+    const s = String(nav.screen || "jjwxc");
+    if (s === "jjwxc-chapter") return "jjwxc:ch:" + nav.jjwxcNovelId + ":" + nav.jjwxcChapterId;
+    if (s === "jjwxc-novel") return "jjwxc:novel:" + nav.jjwxcNovelId;
+    return s;
+  }
+
+  function buildPhonePawContext(slot) {
+    if (!slot) slot = document.getElementById("phone-content-slot");
+    const nav = getPhoneNav(slot);
+    const slotId = slot && slot.id ? slot.id : "phone-content-slot";
+    return {
+      key: "phone:" + slotId + ":" + phoneNavContextKey(nav),
+      root: resolveGenPawRootFromSlot(slot),
+    };
+  }
+
+  function buildFanworkPawContext(slot) {
+    if (!slot) slot = document.getElementById("fanwork-content-slot");
+    const nav = getFanworkNav(slot);
+    const slotId = slot && slot.id ? slot.id : "fanwork-content-slot";
+    return {
+      key: "fanwork:" + slotId + ":" + fanworkNavContextKey(nav),
+      root: resolveGenPawRootFromSlot(slot),
+    };
+  }
+
   let sheetPov = "第三人称";
   let sheetProtagonistId = null;
   let sheetSupportingIds = new Set();
   let sheetWbIds = new Set();
   /** 新建剧情抽屉：当前「合并候选世界书」指纹，阵容变化时只做增删，保留用户已取消的项 */
   let sheetWbCandSig = "";
-  /** 参与角色头像重叠时：最近点击的层级靠前（数值越大越靠前） */
+  /** 主视角/参与角色头像重叠时：最近点击的层级靠前（数值越大越靠前） */
+  let sheetProtagonistZCounter = 0;
+  const sheetProtagonistZRank = Object.create(null);
   let sheetSupportingZCounter = 0;
   const sheetSupportingZRank = Object.create(null);
+  let assistantThemeProtZCounter = 0;
+  const assistantThemeProtZRank = Object.create(null);
   let assistantThemeSupZCounter = 0;
   const assistantThemeSupZRank = Object.create(null);
   /** 角色表单：linkedWb=额外勾选的条目 id；wbDisabledIds=对全局/指定至本角色类世界书的取消 */
@@ -1811,10 +2346,9 @@
     views: () => document.querySelectorAll(".view"),
     navItems: () => document.querySelectorAll(".nav-item[data-tab]"),
     mainScroll: () => document.getElementById("main-scroll"),
-    assistantAvatar: () => document.getElementById("assistant-avatar"),
-    assistantName: () => document.getElementById("assistant-name"),
-    assistantChatList: () => document.getElementById("assistant-chat-list"),
-    assistantInput: () => document.getElementById("assistant-input"),
+    overviewHub: () => document.getElementById("overview-hub"),
+    overviewSubPhone: () => document.getElementById("overview-sub-phone"),
+    overviewSubFanwork: () => document.getElementById("overview-sub-fanwork"),
     modalAssistantProfile: () => document.getElementById("modal-assistant-profile"),
     assistantDedicatedApiSelect: () => document.getElementById("assistant-dedicated-api-select"),
     wbFilters: () => document.getElementById("wb-filters"),
@@ -1851,6 +2385,29 @@
     storyLineSheetClose: () => document.getElementById("story-line-sheet-close"),
     storySearchBtn: () => document.getElementById("story-search-btn"),
     storySummaryBook: () => document.getElementById("story-summary-book"),
+    storyPhoneBtn: () => document.getElementById("story-phone-btn"),
+    storyFanworkBtn: () => document.getElementById("story-fanwork-btn"),
+    modalStoryPhone: () => document.getElementById("modal-story-phone"),
+    storyPhoneClose: () => document.getElementById("story-phone-close"),
+    storyPhoneSlot: () => document.getElementById("story-phone-slot"),
+    phoneContentSlot: () => document.getElementById("phone-content-slot"),
+    fanworkContentSlot: () => document.getElementById("fanwork-content-slot"),
+    modalPhoneHolder: () => document.getElementById("modal-phone-holder"),
+    phoneHolderClose: () => document.getElementById("phone-holder-close"),
+    phoneHolderStepBack: () => document.getElementById("phone-holder-step-back"),
+    phoneHolderTitle: () => document.getElementById("phone-holder-title"),
+    phoneHolderHint: () => document.getElementById("phone-holder-hint"),
+    phoneHolderPlotList: () => document.getElementById("phone-holder-plot-list"),
+    phoneHolderPick: () => document.getElementById("phone-holder-pick"),
+    modalPhoneWallpaper: () => document.getElementById("modal-phone-wallpaper"),
+    phoneWallpaperClose: () => document.getElementById("phone-wallpaper-close"),
+    phoneWallpaperPreview: () => document.getElementById("phone-wallpaper-preview"),
+    phoneWallpaperHint: () => document.getElementById("phone-wallpaper-hint"),
+    phoneWallpaperFile: () => document.getElementById("phone-wallpaper-file"),
+    phoneWallpaperClear: () => document.getElementById("phone-wallpaper-clear"),
+    modalStoryFanwork: () => document.getElementById("modal-story-fanwork"),
+    storyFanworkClose: () => document.getElementById("story-fanwork-close"),
+    storyFanworkSlot: () => document.getElementById("story-fanwork-slot"),
     modalStorySearch: () => document.getElementById("modal-story-search"),
     storySearchClose: () => document.getElementById("story-search-close"),
     storySearchInput: () => document.getElementById("story-search-input"),
@@ -2274,6 +2831,51 @@
     return { start: start, end: end };
   }
 
+  /** 合并展示的一块（两条横线之间）：旁白 pack、角色气泡+氛围尾等 */
+  function getStoryFeedSegmentRoot(el) {
+    if (!el || !el.closest) return null;
+    return el.closest("[data-story-feed-segment]");
+  }
+
+  function markStoryFeedSegment(el) {
+    if (!el) return;
+    el.setAttribute("data-story-feed-segment", "1");
+    el.classList.add("story-feed-segment");
+  }
+
+  /** 选区/划线锚点：优先落在合并段容器，避免段内多条存储行仍被拆成多段 */
+  function resolveStorySelectionAnchorEl(node) {
+    const base =
+      node && node.nodeType === Node.ELEMENT_NODE
+        ? node
+        : node && node.parentElement
+          ? node.parentElement
+          : null;
+    if (!base) return null;
+    const seg = getStoryFeedSegmentRoot(base);
+    if (seg) return seg;
+    return base.closest("[data-story-line-id]");
+  }
+
+  /** 标注模式长按：选中当前「横线之间」整段正文，而非仅一句 */
+  function selectStoryFeedSegmentFull(lineEl) {
+    const segment = getStoryFeedSegmentRoot(lineEl) || lineEl;
+    if (!segment) return false;
+    const wholeText = String(segment.textContent || "");
+    if (!wholeText.trim()) return false;
+    const range = document.createRange();
+    try {
+      range.selectNodeContents(segment);
+    } catch (_e) {
+      return false;
+    }
+    const sel = window.getSelection ? window.getSelection() : null;
+    if (!sel) return false;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return true;
+  }
+
   function selectStorySentenceByPoint(lineEl, clientX, clientY) {
     if (!lineEl) return false;
     let baseRange = null;
@@ -2287,14 +2889,15 @@
         baseRange.collapse(true);
       }
     }
-    if (!baseRange || !lineEl.contains(baseRange.startContainer)) return false;
-    const wholeText = String(lineEl.textContent || "");
+    const segment = getStoryFeedSegmentRoot(lineEl) || lineEl;
+    if (!baseRange || !segment.contains(baseRange.startContainer)) return false;
+    const wholeText = String(segment.textContent || "");
     if (!wholeText.trim()) return false;
-    const caretOffset = getSelectionTextOffset(lineEl, baseRange.startContainer, baseRange.startOffset);
+    const caretOffset = getSelectionTextOffset(segment, baseRange.startContainer, baseRange.startOffset);
     const bounds = getStorySentenceBounds(wholeText, caretOffset);
     if (bounds.end <= bounds.start) return false;
-    const startPos = getSelectionTextNodePosition(lineEl, bounds.start);
-    const endPos = getSelectionTextNodePosition(lineEl, bounds.end);
+    const startPos = getSelectionTextNodePosition(segment, bounds.start);
+    const endPos = getSelectionTextNodePosition(segment, bounds.end);
     if (!startPos || !endPos || !startPos.node || !endPos.node) return false;
     const range = document.createRange();
     range.setStart(startPos.node, startPos.offset);
@@ -2363,10 +2966,10 @@
         if (!storyPlayAnnotateMode) return;
         const lineRoot = st.lineRootEl;
         if (!lineRoot || !document.contains(lineRoot)) return;
-        const ok = selectStorySentenceByPoint(lineRoot, st.x, st.y);
+        const ok = selectStoryFeedSegmentFull(lineRoot);
         if (ok) {
           storySelectionIgnoreNextBubble = false;
-          showToast("已选中当前短句，可继续拖动扩大范围。", "info", 1800);
+          showToast("已选中本段剧情（两条横线之间），可继续拖动调整范围。", "info", 2200);
           showStorySelectionBubble();
         }
       }, LONG_HOLD_MS);
@@ -2451,18 +3054,8 @@
     const host = document.getElementById("story-play-scroll");
     if (!host) return null;
     if (!host.contains(range.commonAncestorContainer)) return null;
-    const startLineEl =
-      range.startContainer && range.startContainer.nodeType === Node.ELEMENT_NODE
-        ? range.startContainer.closest("[data-story-line-id]")
-        : range.startContainer && range.startContainer.parentElement
-          ? range.startContainer.parentElement.closest("[data-story-line-id]")
-          : null;
-    const endLineEl =
-      range.endContainer && range.endContainer.nodeType === Node.ELEMENT_NODE
-        ? range.endContainer.closest("[data-story-line-id]")
-        : range.endContainer && range.endContainer.parentElement
-          ? range.endContainer.parentElement.closest("[data-story-line-id]")
-          : null;
+    const startLineEl = resolveStorySelectionAnchorEl(range.startContainer);
+    const endLineEl = resolveStorySelectionAnchorEl(range.endContainer);
     if (!startLineEl || !endLineEl) return null;
     const textRaw = String(sel.toString() || "").replace(/\u00A0/g, " ");
     const text = textRaw
@@ -2475,17 +3068,17 @@
       .trim();
     if (!text) return null;
     const sameLine = startLineEl === endLineEl;
-    const resolveTextBlock = function (node, lineEl) {
+    const resolveTextBlock = function (node, anchorEl) {
       const baseEl =
         node && node.nodeType === Node.ELEMENT_NODE
           ? node
           : node && node.parentElement
             ? node.parentElement
             : null;
-      if (!baseEl || !lineEl) return null;
+      if (!baseEl || !anchorEl) return null;
       return (
         baseEl.closest(".story-para, .story-dialogue, .story-msg__text, .story-feed-narr, .story-inline-term") ||
-        lineEl
+        anchorEl
       );
     };
     let start = 0;
@@ -2505,6 +3098,8 @@
         end = tmp;
       }
       if (end <= start) return null;
+    } else {
+      return null;
     }
     return {
       plot: plot,
@@ -3472,12 +4067,7 @@
       wbIds: Array.isArray(plot.wbIds) ? plot.wbIds.slice() : [],
       opening: plot.opening || "",
       theme: plot.theme || "",
-      categoryId: (() => {
-        const cid = plot.categoryId;
-        if (cid === PLOT_CATEGORY_UNASSIGNED || cid == null) return PLOT_CATEGORY_UNASSIGNED;
-        if (plotCategories.some((c) => c.id === cid)) return cid;
-        return plotCategories[0] ? plotCategories[0].id : PLOT_CATEGORY_UNASSIGNED;
-      })(),
+      categoryId: normalizePlotUserCategoryId(plot.categoryId),
       wordLimit: typeof plot.wordLimit === "number" && Number.isFinite(plot.wordLimit) ? plot.wordLimit : DEFAULT_STORY_WORD_LIMIT,
       summaryTags: Array.isArray(plot.summaryTags) ? plot.summaryTags.slice() : [],
       eraBackground: plot.eraBackground || "",
@@ -5737,15 +6327,62 @@
 
   let narrativePersistTimer = null;
 
+  function narrativeBlobSavedAt(raw) {
+    if (!raw || typeof raw !== "string") return 0;
+    try {
+      const o = JSON.parse(raw);
+      return Number.isFinite(o && o.savedAt) ? o.savedAt : 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  /** 双份存档时取较新的一份（savedAt 优先，否则取体积更大者）。 */
+  function pickNewerNarrativeRaw(idbRaw, lsRaw) {
+    if (!idbRaw && !lsRaw) return null;
+    if (!idbRaw) return lsRaw;
+    if (!lsRaw) return idbRaw;
+    const idbAt = narrativeBlobSavedAt(idbRaw);
+    const lsAt = narrativeBlobSavedAt(lsRaw);
+    if (lsAt > idbAt) return lsRaw;
+    if (idbAt > lsAt) return idbRaw;
+    return idbRaw.length >= lsRaw.length ? idbRaw : lsRaw;
+  }
+
+  function persistNarrativeSyncMirror(payload) {
+    try {
+      localStorage.setItem(STORAGE_NARRATIVE, payload);
+      localStorage.setItem(STORAGE_NARRATIVE_SYNC_AT, String(Date.now()));
+    } catch (e) {}
+  }
+
   function serializeNarrativePayload() {
     return JSON.stringify({
       v: 1,
+      savedAt: Date.now(),
       wbCategories,
       plotCategories,
       charCategories,
       characters,
       worldBooks,
       plots,
+      phoneHolderCharId: phoneHolderCharId || null,
+      phoneHolderPlotId: phoneHolderPlotId || null,
+      phoneWallpapers: phoneWallpapers || {},
+      phoneWechatData: phoneWechatData || {},
+      phoneMomentsData: phoneMomentsData || {},
+      phoneMomentsCovers: phoneMomentsCovers || {},
+      phoneMusicData: phoneMusicData || {},
+      phoneAlbumData: phoneAlbumData || {},
+      phoneForumData: phoneForumData || {},
+      phoneBrowserData: phoneBrowserData || {},
+      phoneMemoData: phoneMemoData || {},
+      phoneDiaryData: phoneDiaryData || {},
+      phoneBillData: phoneBillData || {},
+      phoneWereadData: phoneWereadData || {},
+      phoneJjwxcData: phoneJjwxcData || {},
+      fanworkCpCharIds: fanworkCpCharIds || null,
+      fanworkJjwxcData: fanworkJjwxcData || {},
     });
   }
 
@@ -5753,22 +6390,22 @@
     if (suppressUserDataPersistence) return;
     var payload = serializeNarrativePayload();
     try {
-      localStorage.removeItem(STORAGE_NARRATIVE);
-    } catch (eRm) {}
-    try {
       await idbPutNarrativeJson(payload);
-    } catch (_eIdb) {
       try {
-        localStorage.setItem(STORAGE_NARRATIVE, payload);
-      } catch (eLs) {
-        if (eLs && (eLs.name === "QuotaExceededError" || eLs.code === 22)) {
+        localStorage.removeItem(STORAGE_NARRATIVE);
+        localStorage.removeItem(STORAGE_NARRATIVE_SYNC_AT);
+      } catch (eRm) {}
+    } catch (_eIdb) {
+      persistNarrativeSyncMirror(payload);
+      try {
+        if (!localStorage.getItem(STORAGE_NARRATIVE)) {
           showToast(
             "保存失败：剧情数据无法在本地写入（IndexedDB 失败且 localStorage 已满）。请先导出备份，或尝试缩小头像/精简剧情后再存。",
             "error",
             5200
           );
         }
-      }
+      } catch (eToast) {}
     }
   }
 
@@ -5784,6 +6421,26 @@
     }
     if (suppressUserDataPersistence) return;
     persistNarrative();
+  }
+
+  /** 关页/切后台：先同步写入 localStorage（避免异步 IndexedDB 来不及落盘），再尽力写 IndexedDB。 */
+  function flushPersistNarrativeSync() {
+    if (narrativePersistTimer) {
+      clearTimeout(narrativePersistTimer);
+      narrativePersistTimer = null;
+    }
+    if (suppressUserDataPersistence) return;
+    var payload = serializeNarrativePayload();
+    persistNarrativeSyncMirror(payload);
+    void idbPutNarrativeJson(payload).catch(function () {});
+  }
+
+  async function requestPersistentDeviceStorage() {
+    try {
+      if (navigator.storage && typeof navigator.storage.persist === "function") {
+        await navigator.storage.persist();
+      }
+    } catch (e) {}
   }
 
   /** 导出备份前必须 await，否则会读到尚未提交的 IndexedDB 写入。 */
@@ -5865,33 +6522,168 @@
       if (chs) characters = chs;
       if (wbs) worldBooks = wbs;
       if (pls) plots = pls;
+      if (typeof o.phoneHolderCharId === "string" && o.phoneHolderCharId.trim()) {
+        phoneHolderCharId = o.phoneHolderCharId.trim();
+      } else {
+        phoneHolderCharId = null;
+      }
+      if (typeof o.phoneHolderPlotId === "string" && o.phoneHolderPlotId.trim()) {
+        phoneHolderPlotId = o.phoneHolderPlotId.trim();
+      } else {
+        phoneHolderPlotId = null;
+      }
+      phoneWallpapers = {};
+      if (o.phoneWallpapers && typeof o.phoneWallpapers === "object" && !Array.isArray(o.phoneWallpapers)) {
+        Object.keys(o.phoneWallpapers).forEach(function (k) {
+          const v = o.phoneWallpapers[k];
+          if (typeof v === "string" && v.trim()) phoneWallpapers[k] = v.trim();
+        });
+      }
+      phoneWechatData = {};
+      if (o.phoneWechatData && typeof o.phoneWechatData === "object" && !Array.isArray(o.phoneWechatData)) {
+        Object.keys(o.phoneWechatData).forEach(function (k) {
+          const v = o.phoneWechatData[k];
+          if (v && typeof v === "object" && Array.isArray(v.chats)) phoneWechatData[k] = v;
+        });
+      }
+      phoneMomentsData = {};
+      if (o.phoneMomentsData && typeof o.phoneMomentsData === "object" && !Array.isArray(o.phoneMomentsData)) {
+        Object.keys(o.phoneMomentsData).forEach(function (k) {
+          const v = o.phoneMomentsData[k];
+          if (v && typeof v === "object" && Array.isArray(v.posts)) phoneMomentsData[k] = v;
+        });
+      }
+      phoneMomentsCovers = {};
+      if (o.phoneMomentsCovers && typeof o.phoneMomentsCovers === "object" && !Array.isArray(o.phoneMomentsCovers)) {
+        Object.keys(o.phoneMomentsCovers).forEach(function (k) {
+          const v = o.phoneMomentsCovers[k];
+          if (typeof v === "string" && v.trim()) phoneMomentsCovers[k] = v.trim();
+        });
+      }
+      phoneMusicData = {};
+      if (o.phoneMusicData && typeof o.phoneMusicData === "object" && !Array.isArray(o.phoneMusicData)) {
+        Object.keys(o.phoneMusicData).forEach(function (k) {
+          const v = o.phoneMusicData[k];
+          if (v && typeof v === "object" && Array.isArray(v.recent)) phoneMusicData[k] = v;
+        });
+      }
+      phoneAlbumData = {};
+      if (o.phoneAlbumData && typeof o.phoneAlbumData === "object" && !Array.isArray(o.phoneAlbumData)) {
+        Object.keys(o.phoneAlbumData).forEach(function (k) {
+          const v = o.phoneAlbumData[k];
+          if (v && typeof v === "object" && v.byCategory && typeof v.byCategory === "object") {
+            phoneAlbumData[k] = v;
+          }
+        });
+      }
+      phoneForumData = {};
+      if (o.phoneForumData && typeof o.phoneForumData === "object" && !Array.isArray(o.phoneForumData)) {
+        Object.keys(o.phoneForumData).forEach(function (k) {
+          const v = o.phoneForumData[k];
+          if (v && typeof v === "object" && Array.isArray(v.sections)) phoneForumData[k] = v;
+        });
+      }
+      phoneBrowserData = {};
+      if (o.phoneBrowserData && typeof o.phoneBrowserData === "object" && !Array.isArray(o.phoneBrowserData)) {
+        Object.keys(o.phoneBrowserData).forEach(function (k) {
+          const v = o.phoneBrowserData[k];
+          if (v && typeof v === "object" && Array.isArray(v.sections)) {
+            if (!Array.isArray(v.entries)) v.entries = [];
+            phoneBrowserData[k] = v;
+          }
+        });
+      }
+      phoneMemoData = {};
+      if (o.phoneMemoData && typeof o.phoneMemoData === "object" && !Array.isArray(o.phoneMemoData)) {
+        Object.keys(o.phoneMemoData).forEach(function (k) {
+          const v = o.phoneMemoData[k];
+          if (v && typeof v === "object" && Array.isArray(v.sections)) {
+            if (!Array.isArray(v.notes)) v.notes = [];
+            phoneMemoData[k] = v;
+          }
+        });
+      }
+      phoneDiaryData = {};
+      if (o.phoneDiaryData && typeof o.phoneDiaryData === "object" && !Array.isArray(o.phoneDiaryData)) {
+        Object.keys(o.phoneDiaryData).forEach(function (k) {
+          const v = o.phoneDiaryData[k];
+          if (v && typeof v === "object" && Array.isArray(v.entries)) {
+            phoneDiaryData[k] = v;
+          }
+        });
+      }
+      phoneBillData = {};
+      if (o.phoneBillData && typeof o.phoneBillData === "object" && !Array.isArray(o.phoneBillData)) {
+        Object.keys(o.phoneBillData).forEach(function (k) {
+          const v = o.phoneBillData[k];
+          if (v && typeof v === "object" && Array.isArray(v.transactions)) {
+            phoneBillData[k] = v;
+          }
+        });
+      }
+      phoneWereadData = {};
+      if (o.phoneWereadData && typeof o.phoneWereadData === "object" && !Array.isArray(o.phoneWereadData)) {
+        Object.keys(o.phoneWereadData).forEach(function (k) {
+          const v = o.phoneWereadData[k];
+          if (v && typeof v === "object" && Array.isArray(v.books)) {
+            phoneWereadData[k] = v;
+          }
+        });
+      }
+      phoneJjwxcData = {};
+      if (o.phoneJjwxcData && typeof o.phoneJjwxcData === "object" && !Array.isArray(o.phoneJjwxcData)) {
+        Object.keys(o.phoneJjwxcData).forEach(function (k) {
+          const v = o.phoneJjwxcData[k];
+          if (v && typeof v === "object" && (Array.isArray(v.categories) || Array.isArray(v.novels))) {
+            phoneJjwxcData[k] = normalizePhoneJjwxcBundleOnLoad(v);
+          }
+        });
+      }
+      fanworkCpCharIds = null;
+      if (Array.isArray(o.fanworkCpCharIds) && o.fanworkCpCharIds.length === 2) {
+        const a = String(o.fanworkCpCharIds[0] || "").trim();
+        const b = String(o.fanworkCpCharIds[1] || "").trim();
+        if (a && b && a !== b && getCharById(a) && getCharById(b)) {
+          fanworkCpCharIds = a < b ? [a, b] : [b, a];
+        }
+      }
+      fanworkJjwxcData = {};
+      if (o.fanworkJjwxcData && typeof o.fanworkJjwxcData === "object" && !Array.isArray(o.fanworkJjwxcData)) {
+        Object.keys(o.fanworkJjwxcData).forEach(function (k) {
+          const v = o.fanworkJjwxcData[k];
+          if (v && typeof v === "object" && (Array.isArray(v.categories) || Array.isArray(v.novels))) {
+            fanworkJjwxcData[k] = normalizeFanworkJjwxcBundleOnLoad(v);
+          }
+        });
+      }
       migratePlotsWorldBookWhitelistOnce();
     } catch (e) {}
   }
 
   async function hydrateNarrativeFromStorage() {
-    let raw = null;
+    let idbRaw = null;
+    let lsRaw = null;
     try {
-      raw = await idbGetNarrativeJson();
+      idbRaw = await idbGetNarrativeJson();
     } catch (eIb) {
-      raw = null;
+      idbRaw = null;
     }
-    if (!raw || typeof raw !== "string") {
-      try {
-        raw = localStorage.getItem(STORAGE_NARRATIVE);
-      } catch (eLs0) {
-        raw = null;
-      }
-      if (raw && typeof raw === "string") {
-        try {
-          await idbPutNarrativeJson(raw);
-        } catch (eMig) {}
-        try {
-          localStorage.removeItem(STORAGE_NARRATIVE);
-        } catch (eRm) {}
-      }
+    try {
+      lsRaw = localStorage.getItem(STORAGE_NARRATIVE);
+    } catch (eLs0) {
+      lsRaw = null;
     }
+    const raw = pickNewerNarrativeRaw(idbRaw, lsRaw);
     applyNarrativeBlob(raw || null);
+    if (raw && typeof raw === "string") {
+      try {
+        await idbPutNarrativeJson(raw);
+      } catch (eConsolidate) {}
+      try {
+        localStorage.removeItem(STORAGE_NARRATIVE);
+        localStorage.removeItem(STORAGE_NARRATIVE_SYNC_AT);
+      } catch (eRm) {}
+    }
     applyOneTimeNarrativePresetWipe();
     normalizeItemCategories();
   }
@@ -6113,6 +6905,157 @@
     return Math.min(capTok, Math.max(floorTok, scaled));
   }
 
+  function apiModelLooksGemini(modelStr) {
+    return String(modelStr || "")
+      .toLowerCase()
+      .indexOf("gemini") >= 0;
+  }
+
+  function charCountForApiPrompt(s) {
+    return Array.from(String(s || "")).length;
+  }
+
+  /** 从 OpenAI 兼容 / 部分 Gemini 中转响应里取出正文 */
+  function extractMessageContentPart(part) {
+    if (part == null) return "";
+    if (typeof part === "string") return part;
+    if (typeof part === "object" && typeof part.text === "string") return part.text;
+    return "";
+  }
+
+  function extractMessageContent(msg) {
+    if (!msg || typeof msg !== "object") return "";
+    if (typeof msg.content === "string") return msg.content;
+    if (Array.isArray(msg.content)) {
+      return msg.content
+        .map(extractMessageContentPart)
+        .filter(Boolean)
+        .join("\n");
+    }
+    if (typeof msg.text === "string") return msg.text;
+    if (typeof msg.reasoning_content === "string") return msg.reasoning_content;
+    return "";
+  }
+
+  function extractChatCompletionText(data) {
+    if (!data || typeof data !== "object") return { text: "", finishReason: "" };
+    const choice = data.choices && data.choices[0];
+    if (choice) {
+      const finishReason = String(choice.finish_reason || choice.finishReason || "").trim();
+      const fromMsg = extractMessageContent(choice.message || choice.delta);
+      if (fromMsg) return { text: fromMsg, finishReason: finishReason };
+      if (typeof choice.text === "string" && choice.text) return { text: choice.text, finishReason: finishReason };
+    }
+    if (typeof data.output_text === "string" && data.output_text) {
+      return { text: data.output_text, finishReason: "" };
+    }
+    const cand =
+      data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
+    if (Array.isArray(cand)) {
+      const t = cand
+        .map(function (p) {
+          return p && typeof p.text === "string" ? p.text : "";
+        })
+        .filter(Boolean)
+        .join("\n");
+      if (t) return { text: t, finishReason: "" };
+    }
+    return { text: "", finishReason: choice ? String(choice.finish_reason || choice.finishReason || "") : "" };
+  }
+
+  function formatApiHttpError(status, rawText) {
+    const slice = String(rawText || "").slice(0, 480);
+    let friendly = "";
+    try {
+      const j = JSON.parse(slice);
+      const em =
+        (j && j.error && (j.error.message || j.error.code)) ||
+        (j && j.message) ||
+        "";
+      const emLc = String(em).toLowerCase();
+      if (emLc.indexOf("empty_response") >= 0 || emLc.indexOf("empty response") >= 0) {
+        friendly =
+          "中转返回「Gemini 无正文」：多为提示过长、内容安全拦截或模型名与站点不匹配。网页已自动缩短上下文并重试；若仍失败请核对模型名、减少世界书/总结，或换线路。";
+      }
+    } catch (_e) {}
+    if (friendly) return friendly;
+    return "API 请求失败 (" + status + "): " + (slice || "无详情");
+  }
+
+  function mergeSystemIntoUserMessages(messages) {
+    const sysParts = [];
+    const rest = [];
+    (messages || []).forEach(function (m) {
+      if (!m || typeof m !== "object") return;
+      if (m.role === "system") sysParts.push(String(m.content || ""));
+      else rest.push(m);
+    });
+    if (!sysParts.length) return messages;
+    const merged =
+      "【系统说明】\n" +
+      sysParts.join("\n\n") +
+      "\n\n【用户任务】\n" +
+      (rest.length && rest[0].content != null ? String(rest[0].content) : "");
+    const out = [{ role: "user", content: merged }];
+    for (let i = 1; i < rest.length; i++) out.push(rest[i]);
+    return out;
+  }
+
+  function buildChatCompletionRequestBody(cfg, messages, temperature, maxTokens) {
+    const model = (cfg && cfg.model) || "gpt-3.5-turbo";
+    const body = {
+      model: model,
+      messages: messages,
+      temperature: temperature,
+      max_tokens: maxTokens,
+    };
+    if (apiModelLooksGemini(model)) {
+      body.max_completion_tokens = maxTokens;
+    }
+    return body;
+  }
+
+  async function callChatCompletionOnce(cfg, messages, temperature, maxTokens) {
+    const ep = cfg.endpoint != null ? String(cfg.endpoint).trim() : "";
+    const k = cfg.key != null ? String(cfg.key).trim() : "";
+    const base = ep.replace(/\/+$/, "");
+    let url = base + "/chat/completions";
+    if (/\/chat\/completions$/i.test(base)) {
+      url = base;
+    }
+    const body = buildChatCompletionRequestBody(cfg, messages, temperature, maxTokens);
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + k,
+      },
+      body: JSON.stringify(body),
+    });
+    const rawText = await resp.text();
+    if (!resp.ok) {
+      const err = new Error(formatApiHttpError(resp.status, rawText));
+      err.httpStatus = resp.status;
+      err.rawBody = rawText;
+      throw err;
+    }
+    let data;
+    try {
+      data = JSON.parse(rawText);
+    } catch (e2) {
+      throw new Error("无法解析 API 响应 JSON");
+    }
+    const extracted = extractChatCompletionText(data);
+    if (extracted.text) return extracted.text;
+    const fr = String(extracted.finishReason || "").toLowerCase();
+    if (fr.indexOf("content_filter") >= 0 || fr.indexOf("safety") >= 0) {
+      throw new Error("模型因内容安全策略未返回正文，请调整剧情或换模型后重试。");
+    }
+    const errEmpty = new Error("API 返回成功但正文为空（empty_response）");
+    errEmpty.code = "empty_response";
+    throw errEmpty;
+  }
+
   /** 开场概要、剧情续写、剧情标题等默认通过当前「设置 → API」中选中的配置发起请求（activeApiId），也可按需指定配置。 */
   async function callChatCompletion(messages, temperature, maxTokens, opts) {
     if (temperature == null) temperature = 0.7;
@@ -6128,39 +7071,65 @@
     const k = cfg.key != null ? String(cfg.key).trim() : "";
     if (!k || k === "sk-placeholder") throw new Error("请填写有效的 API Key。");
 
-    const base = ep.replace(/\/+$/, "");
-    let url = base + "/chat/completions";
-    if (/\/chat\/completions$/i.test(base)) {
-      url = base;
-    }
-    const body = {
-      model: cfg.model || "gpt-3.5-turbo",
-      messages: messages,
-      temperature: temperature,
-      max_tokens: maxTokens,
-    };
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + k,
-      },
-      body: JSON.stringify(body),
-    });
-    const rawText = await resp.text();
-    if (!resp.ok) {
-      throw new Error(
-        "API 请求失败 (" + resp.status + "): " + (rawText.slice(0, 280) || resp.statusText || "")
-      );
-    }
-    let data;
+    const isGem = apiModelLooksGemini(cfg.model);
+    const alreadyRetried = !!(opts && opts.geminiMergedRetry);
+    const genExtras = resolveGenCallExtras(opts);
+    beginGlobalGenPawOverlay(genExtras.pawContext);
+    let ok = false;
     try {
-      data = JSON.parse(rawText);
-    } catch (e2) {
-      throw new Error("无法解析 API 响应 JSON");
+      try {
+        const result = await callChatCompletionOnce(cfg, messages, temperature, maxTokens);
+        ok = true;
+        return result;
+      } catch (firstErr) {
+        const raw = String((firstErr && firstErr.rawBody) || (firstErr && firstErr.message) || "").toLowerCase();
+        const isEmpty =
+          (firstErr && firstErr.code === "empty_response") ||
+          raw.indexOf("empty_response") >= 0 ||
+          raw.indexOf("empty response") >= 0;
+        if (!isGem || alreadyRetried || !isEmpty) throw firstErr;
+        const merged = mergeSystemIntoUserMessages(messages);
+        const retryMax = Math.min(maxTokens, Math.max(1024, Math.round(maxTokens * 0.88)));
+        try {
+          const result = await callChatCompletionOnce(cfg, merged, Math.min(temperature, 0.62), retryMax);
+          ok = true;
+          return result;
+        } catch (retryErr) {
+          throw firstErr;
+        }
+      }
+    } finally {
+      endGlobalGenPawOverlay();
+      if (ok && genExtras.genReady && !(opts && opts.skipGenReady)) showGenReadyBanner(genExtras.genReady);
     }
-    const msg = data.choices && data.choices[0] && data.choices[0].message;
-    return msg && msg.content ? String(msg.content) : "";
+  }
+
+  /** 续写 user 提示过长时优先压缩「最近剧情」段，保留玩家指令与设定头部 */
+  function capStoryPlayUserPromptForApi(userPrompt) {
+    const maxC = STORY_PLAY_API_USER_MAX_CHARS;
+    let s = String(userPrompt || "");
+    if (charCountForApiPrompt(s) <= maxC) return s;
+    const marker = "\n\n最近剧情：\n";
+    const idx = s.indexOf(marker);
+    if (idx >= 0) {
+      const head = s.slice(0, idx + marker.length);
+      const tail = s.slice(idx + marker.length);
+      const headLen = charCountForApiPrompt(head);
+      const tailBudget = Math.max(800, maxC - headLen);
+      return head + truncateCharsWithEllipsis(tail, tailBudget);
+    }
+    return truncateCharsWithEllipsis(s, maxC);
+  }
+
+  function compactStoryPlayHistoryForApi(historyText) {
+    const raw = String(historyText || "").trim();
+    if (!raw) return "";
+    return raw
+      .split("\n")
+      .map(function (line) {
+        return truncateCharsWithEllipsis(line, STORY_PLAY_HISTORY_LINE_MAX_CHARS);
+      })
+      .join("\n");
   }
 
   /**
@@ -7216,16 +8185,18 @@
     oUn.value = PLOT_CATEGORY_UNASSIGNED;
     oUn.textContent = "不分类（仅「全部」）";
     sel.appendChild(oUn);
-    plotCategories.forEach((c) => {
+    plotUserAssignableCategories().forEach((c) => {
       const o = document.createElement("option");
       o.value = c.id;
       o.textContent = c.name;
       sel.appendChild(o);
     });
-    if (selectedId === PLOT_CATEGORY_UNASSIGNED || (selectedId != null && String(selectedId).trim() === "")) {
+    const norm = normalizePlotUserCategoryId(selectedId);
+    if (norm === PLOT_CATEGORY_UNASSIGNED) {
       sel.value = PLOT_CATEGORY_UNASSIGNED;
-    } else if (selectedId && plotCategories.some((x) => x.id === selectedId)) sel.value = selectedId;
-    else if (plotCategories[0]) sel.value = plotCategories[0].id;
+    } else {
+      sel.value = norm;
+    }
     enhanceCustomSelect(sel);
   }
 
@@ -7258,6 +8229,10 @@
       });
       if (wbFilter === removeId) wbFilter = "all";
     } else if (kind === "plot") {
+      if (isPlotBuiltinSealCategory(removeId)) {
+        alert("「进行中的故事」「归档」为系统分类（按封笔自动归类），不能删除。");
+        return false;
+      }
       plots.forEach((p) => {
         if (p.categoryId === removeId) p.categoryId = PLOT_CATEGORY_UNASSIGNED;
       });
@@ -7316,6 +8291,7 @@
     if (!plot.pendingPlayerTurnAction || typeof plot.pendingPlayerTurnAction !== "object") plot.pendingPlayerTurnAction = null;
     if (typeof plot.playChoicesRegenerateInFlight !== "boolean") plot.playChoicesRegenerateInFlight = false;
     if (typeof plot.playSealed !== "boolean") plot.playSealed = false;
+    if (typeof plot.phoneStoryDateKey !== "string") plot.phoneStoryDateKey = "";
   }
 
   function getPlotCharacterOverride(plot, characterId) {
@@ -7484,9 +8460,9 @@
       .sort(function (a, b) {
         return (b.createdAt || 0) - (a.createdAt || 0);
       })
-      .slice(0, PLAY_SUMMARY_REF_LIMIT)
+      .slice(0, PLAY_SUMMARY_PROMPT_REF_LIMIT)
       .map(function (it, idx) {
-        const txt = truncateCharsWithEllipsis(it && it.content, PLAY_SUMMARY_ITEM_MAX_CHARS);
+        const txt = truncateCharsWithEllipsis(it && it.content, PLAY_SUMMARY_PROMPT_ITEM_MAX_CHARS);
         if (!txt) return "";
         return "[总结 " + (idx + 1) + "]\n" + txt;
       })
@@ -7616,6 +8592,21 @@
   }
 
   function setTab(tab) {
+    if (LEGACY_OVERVIEW_SUB_TAB_IDS[tab]) {
+      openOverviewSubView(LEGACY_OVERVIEW_SUB_TAB_IDS[tab]);
+      return;
+    }
+    if (!MAIN_TAB_IDS.includes(tab)) return;
+    const layer = els.layerStory();
+    if (layer && !layer.hidden) {
+      closeStoryLayer(tab);
+      return;
+    }
+    if (tab !== "overview") {
+      overviewSubView = null;
+    } else if (activeTab === "overview" && overviewSubView) {
+      overviewSubView = null;
+    }
     activeTab = tab;
     els.views().forEach((v) => {
       v.classList.toggle("view--active", v.dataset.view === tab);
@@ -7628,12 +8619,50 @@
     }
     syncMainScrollMode();
     renderDynamic();
+    syncGlobalGenPawOverlay();
   }
 
   function syncMainScrollMode() {
     const main = els.mainScroll();
     if (!main) return;
-    main.classList.toggle("main-scroll--assistant", activeTab === "overview");
+    const inOverviewSubFeature = activeTab === "overview" && !!overviewSubView;
+    main.classList.toggle("main-scroll--assistant", activeTab === "overview" && !overviewSubView);
+    main.classList.toggle("main-scroll--phone", inOverviewSubFeature);
+  }
+
+  function syncOverviewSubViewUi() {
+    const hub = els.overviewHub();
+    const phoneSub = els.overviewSubPhone();
+    const fanSub = els.overviewSubFanwork();
+    const showPhone = overviewSubView === "phone";
+    const showFan = overviewSubView === "fanwork";
+    if (hub) hub.hidden = showPhone || showFan;
+    if (phoneSub) phoneSub.hidden = !showPhone;
+    if (fanSub) fanSub.hidden = !showFan;
+    syncMainScrollMode();
+    syncGlobalGenPawOverlay();
+  }
+
+  function openOverviewSubView(view) {
+    const v = view === "fanwork" ? "fanwork" : view === "phone" ? "phone" : null;
+    if (!v) return;
+    overviewSubView = v;
+    if (activeTab !== "overview") {
+      activeTab = "overview";
+      els.views().forEach(function (viewEl) {
+        viewEl.classList.toggle("view--active", viewEl.dataset.view === "overview");
+      });
+      els.navItems().forEach(function (btn) {
+        btn.classList.toggle("is-active", btn.dataset.tab === "overview");
+      });
+      if (!location.hash.startsWith("#/story")) {
+        location.hash = "#/tab/overview";
+      }
+    }
+    syncOverviewSubViewUi();
+    if (v === "phone") renderPhoneScreen(els.phoneContentSlot());
+    else renderFanworkScreen(els.fanworkContentSlot());
+    syncGlobalGenPawOverlay();
   }
 
   async function openPlotSheet() {
@@ -7647,16 +8676,17 @@
     sheetSupportingIds = new Set();
     sheetWbIds = new Set();
     sheetWbCandSig = "";
+    sheetProtagonistZCounter = 0;
+    Object.keys(sheetProtagonistZRank).forEach(function (k) {
+      delete sheetProtagonistZRank[k];
+    });
     sheetSupportingZCounter = 0;
     Object.keys(sheetSupportingZRank).forEach(function (k) {
       delete sheetSupportingZRank[k];
     });
-    sheetPlotCategoryId =
-      plotFilter !== "all" && plotCategories.some((c) => c.id === plotFilter)
-        ? plotFilter
-        : plotCategories[0]
-          ? plotCategories[0].id
-          : "pc-main";
+    sheetPlotCategoryId = resolveNewPlotCategoryId(
+      plotFilter !== "all" && !isPlotBuiltinSealCategory(plotFilter) ? plotFilter : ""
+    );
     els.sheetPlot().hidden = false;
     renderPlotSheetInner();
   }
@@ -7682,7 +8712,11 @@
         av.className = "avatar";
         b.appendChild(av);
         fillAvatarElement(av, c);
+        const pzr = sheetProtagonistZRank[c.id];
+        b.style.zIndex = pzr ? String(10 + pzr) : "1";
         b.addEventListener("click", () => {
+          sheetProtagonistZCounter += 1;
+          sheetProtagonistZRank[c.id] = sheetProtagonistZCounter;
           sheetProtagonistId = sheetProtagonistId === c.id ? null : c.id;
           renderPlotSheetInner();
         });
@@ -7760,7 +8794,7 @@
     const catPick = els.sheetPlotCatPick();
     if (catPick) {
       catPick.innerHTML = "";
-      plotCategories.forEach((c) => {
+      plotUserAssignableCategories().forEach((c) => {
         const b = document.createElement("button");
         b.type = "button";
         b.className = "chip" + (c.id === sheetPlotCategoryId ? " is-on" : "");
@@ -8284,6 +9318,11 @@
     return activeApiId;
   }
 
+  /** 点星 AI 工具：使用设置中的当前模型，不注入助手人设 */
+  function getWorkbenchApiId() {
+    return activeApiId;
+  }
+
   function getAssistantModalApiTarget() {
     if (assistantProfileModalMode === "create") return assistantCreateDraft;
     return assistantState;
@@ -8391,25 +9430,11 @@
   }
 
   function renderAssistantHeader() {
-    const avatar = els.assistantAvatar();
-    const deco = document.getElementById("assistant-avatar-deco");
-    const nameEl = els.assistantName();
     if (!assistantState) syncAssistantStatePointer();
-    if (nameEl) nameEl.textContent = assistantNameForDisplay(assistantState.name);
-    if (avatar) {
-      fillAvatarElement(avatar, {
-        name: assistantNameForDisplay(assistantState.name),
-        avatarUrl: assistantState.avatarUrl || "",
-      });
-    }
-    if (deco) {
-      const showDeco = assistantDirectory.assistants.length > 1;
-      deco.hidden = !showDeco;
-    }
   }
 
   function scrollAssistantChatToBottom() {
-    const list = els.assistantChatList();
+    const list = document.getElementById("assistant-chat-list");
     if (!list) return;
     requestAnimationFrame(function () {
       list.scrollTop = list.scrollHeight;
@@ -8429,7 +9454,7 @@
     assistantChatSelectMode = false;
     assistantChatSelectedIndices = new Set();
     syncAssistantChatSelectBar();
-    const list = els.assistantChatList();
+    const list = document.getElementById("assistant-chat-list");
     if (list) {
       list.classList.remove("assistant-chat-list--selecting");
       list.removeAttribute("aria-multiselectable");
@@ -8465,7 +9490,7 @@
     }
     assistantChatSuppressClickUntil = Date.now() + 380;
     syncAssistantChatSelectBar();
-    const list = els.assistantChatList();
+    const list = document.getElementById("assistant-chat-list");
     if (list) {
       list.classList.add("assistant-chat-list--selecting");
       list.setAttribute("aria-multiselectable", "true");
@@ -8492,7 +9517,7 @@
   }
 
   function renderAssistantChatList() {
-    const list = els.assistantChatList();
+    const list = document.getElementById("assistant-chat-list");
     if (!list) return;
     list.innerHTML = "";
     if (!assistantState.messages.length) {
@@ -8648,7 +9673,9 @@
 
   function renderAssistantView() {
     renderAssistantHeader();
-    renderAssistantChatList();
+    syncOverviewSubViewUi();
+    if (overviewSubView === "phone") renderPhoneScreen(els.phoneContentSlot());
+    else if (overviewSubView === "fanwork") renderFanworkScreen(els.fanworkContentSlot());
     if (els.modalAssistantProfile() && !els.modalAssistantProfile().hidden) {
       renderAssistantProfileModal();
     }
@@ -8981,10 +10008,8 @@
       showToast("请先粘贴要改写的人设内容。", "info");
       return;
     }
-    const persona = String(assistantState.persona || "").trim();
     const systemMsg =
-      (persona ? persona + "\n\n" : "") +
-      "你是角色设定结构化助手。你只能输出一个 JSON 对象，不允许输出额外文本、Markdown、注释或代码块。";
+      "你是角色设定结构化助手。你只能输出一个 JSON 对象，不允许输出额外文本、Markdown、注释或代码块。语气客观、表述清晰，专注完成任务。";
     const userMsg = buildAssistantRewriteUserPrompt(source, direction);
     const btn = document.getElementById("assistant-rewrite-generate");
     assistantRewriteGenerating = true;
@@ -9000,7 +10025,7 @@
         ],
         0.6,
         1800,
-        { apiConfigId: getAssistantResolvedApiId() }
+        { apiConfigId: getWorkbenchApiId() }
       );
       const parsed = normalizeAssistantRewriteDraft(parseAssistantJsonObject(raw));
       closeAssistantRewriteModal();
@@ -9173,10 +10198,8 @@
       showToast("请先输入世界书需求。", "info");
       return;
     }
-    const persona = String(assistantState.persona || "").trim();
     const systemMsg =
-      (persona ? persona + "\n\n" : "") +
-      "你是世界书设计助手。你只能输出一个 JSON 对象，不允许输出额外文本、Markdown、注释或代码块。";
+      "你是世界书设计助手。你只能输出一个 JSON 对象，不允许输出额外文本、Markdown、注释或代码块。语气客观、表述清晰，专注完成任务。";
     const userMsg = buildAssistantGenWbUserPrompt(demand);
     const btn = document.getElementById("assistant-gen-wb-submit");
     assistantGenWbGenerating = true;
@@ -9192,7 +10215,7 @@
         ],
         0.62,
         1700,
-        { apiConfigId: getAssistantResolvedApiId() }
+        { apiConfigId: getWorkbenchApiId() }
       );
       const draft = normalizeAssistantGenWbDraft(parseAssistantJsonObject(raw));
       closeAssistantGenWbModal();
@@ -9381,25 +10404,54 @@
     return out.slice(0, 1);
   }
 
+  function resetAssistantInspirationModalSteps() {
+    assistantInspirationPendingResult = null;
+    const form = document.getElementById("assistant-inspiration-step-form");
+    const result = document.getElementById("assistant-inspiration-step-result");
+    const title = document.getElementById("assistant-inspiration-modal-title");
+    if (form) form.hidden = false;
+    if (result) result.hidden = true;
+    if (title) title.textContent = "灵感汲取";
+    const btn = document.getElementById("assistant-inspiration-generate");
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "生成方案";
+    }
+  }
+
   function openAssistantInspirationModal() {
+    resetAssistantInspirationModalSteps();
     const modal = document.getElementById("modal-assistant-inspiration");
     if (modal) modal.hidden = false;
     const input = document.getElementById("assistant-inspiration-demand");
     if (input) input.value = "";
-    const btn = document.getElementById("assistant-inspiration-generate");
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = "确认";
-    }
   }
 
   function closeAssistantInspirationModal() {
     const modal = document.getElementById("modal-assistant-inspiration");
     if (modal) modal.hidden = true;
-    const btn = document.getElementById("assistant-inspiration-generate");
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = "确认";
+    resetAssistantInspirationModalSteps();
+  }
+
+  function showAssistantInspirationResult(displayBody, options) {
+    const opts = Array.isArray(options) ? options : [];
+    assistantInspirationPendingResult = { options: opts };
+    const form = document.getElementById("assistant-inspiration-step-form");
+    const result = document.getElementById("assistant-inspiration-step-result");
+    const body = document.getElementById("assistant-inspiration-result-body");
+    const hint = document.getElementById("assistant-inspiration-result-hint");
+    const accept = document.getElementById("assistant-inspiration-result-accept");
+    const title = document.getElementById("assistant-inspiration-modal-title");
+    if (form) form.hidden = true;
+    if (result) result.hidden = false;
+    if (title) title.textContent = "灵感方案";
+    if (body) body.textContent = String(displayBody || "");
+    const canAccept = opts.length > 0;
+    if (accept) accept.hidden = !canAccept;
+    if (hint) {
+      hint.textContent = canAccept
+        ? "点「确认创建」将依次引导新建角色，全部完成后再进入新建剧情。"
+        : "结构化数据未解析成功时可参考上文手动创建。";
     }
   }
 
@@ -9463,7 +10515,7 @@
     await acceptAssistantInspirationPlan(option);
   }
 
-  async function submitAssistantInspirationToChat() {
+  async function submitAssistantInspiration() {
     if (assistantReplying) return;
     const demandEl = document.getElementById("assistant-inspiration-demand");
     const demand = demandEl && demandEl.value ? demandEl.value.trim() : "";
@@ -9471,22 +10523,20 @@
       showToast("请先填写灵感方向（或随便写几个字也行）。", "info");
       return;
     }
-    closeAssistantInspirationModal();
-    assistantState.messages.push({ role: "user", content: "灵感汲取：" + demand });
-    markAssistantChatRealExchangeStarted();
-    assistantState.messages = normalizeAssistantMessages(assistantState.messages);
-    persistAssistantState();
+    const btn = document.getElementById("assistant-inspiration-generate");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "生成中…";
+    }
 
-    const persona = String(assistantState.persona || "").trim();
     const systemMsg =
-      (persona ? persona + "\n\n" : "") +
       "你是互动叙事创意助手。\n" +
       "遵守用户消息里的输出格式：先可读中文摘要，再单独一行 <<<INSPIRATION_JSON>>>，再输出唯一 JSON。\n" +
-      "不要用 Markdown 代码围栏包裹 JSON。";
+      "不要用 Markdown 代码围栏包裹 JSON。\n" +
+      "语气客观、中规中矩，专注给出可落地方案，不要使用角色扮演或陪聊口吻。";
     const userMsg = buildAssistantInspirationUserPrompt(demand);
 
     assistantReplying = true;
-    renderAssistantChatList();
     try {
       const raw = await callChatCompletion(
         [
@@ -9495,7 +10545,7 @@
         ],
         0.82,
         2800,
-        { apiConfigId: getAssistantResolvedApiId() }
+        { apiConfigId: getWorkbenchApiId() }
       );
       const split = splitAssistantInspirationResponse(raw);
       let options = [];
@@ -9511,32 +10561,32 @@
       let displayBody = String(split.display || "").trim();
       if (!displayBody && options.length) displayBody = formatInspirationBubbleFallback(options);
       if (!displayBody) displayBody = String(raw || "").trim().slice(0, 1200) || "（未收到可读内容）";
-      const footer = options.length
-        ? "\n\n────────\n点「确认创建」将先依次打开「新建角色」表单（主角与配角需分别保存），全部完成后再进入「新建剧情」。"
-        : "\n\n（若未出现「确认创建」，说明结构化数据未解析成功，可先参考上文手动创建。仍可点「取消」关闭本条操作。）";
-      assistantState.messages.push({
-        role: "assistant",
-        content: displayBody + footer,
-        kind: "inspiration_assistant",
-        inspirationOptions: options,
-        inspirationResolved: false,
-      });
-      assistantState.messages = normalizeAssistantMessages(assistantState.messages);
-      persistAssistantState();
-      showToast(options.length ? "灵感已显示在对话中" : "已显示灵感摘要（结构化解析未成功时可手动创建）", options.length ? "success" : "info");
+      showAssistantInspirationResult(displayBody, options);
+      showToast(options.length ? "灵感方案已生成" : "已生成摘要（结构化解析未成功时可手动创建）", options.length ? "success" : "info");
     } catch (err) {
       const msg = (err && err.message) || "";
       showToast(msg || "灵感汲取失败，请检查 API。", "error", 4200);
-      assistantState.messages.push({
-        role: "assistant",
-        content: "灵感汲取请求失败：" + (msg || "请检查网络与 API 设置后重试。"),
-      });
-      assistantState.messages = normalizeAssistantMessages(assistantState.messages);
-      persistAssistantState();
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "生成方案";
+      }
     } finally {
       assistantReplying = false;
-      renderAssistantChatList();
     }
+  }
+
+  async function acceptAssistantInspirationFromModal() {
+    const opts =
+      assistantInspirationPendingResult && Array.isArray(assistantInspirationPendingResult.options)
+        ? assistantInspirationPendingResult.options
+        : [];
+    const option = opts[0];
+    if (!option) {
+      showToast("没有可自动采纳的结构化方案，请参考上文手动创建。", "info");
+      return;
+    }
+    closeAssistantInspirationModal();
+    await acceptAssistantInspirationPlan(option);
   }
 
   function commitNewPlotFromAssistantWizard(protagonistId, supportingIdsSet, themeText, opts) {
@@ -9563,14 +10613,7 @@
       (theme ? theme.slice(0, 48) + (theme.length > 48 ? "…" : "") : "") || "新的叙事篇章就此展开…";
     const titleFromTheme = theme ? theme.slice(0, 18) + (theme.length > 18 ? "…" : "") : "";
     const wordLimitNum = DEFAULT_STORY_WORD_LIMIT;
-    const categoryId =
-      plotFilter !== "all" && plotCategories.some(function (c) {
-        return c.id === plotFilter;
-      })
-        ? plotFilter
-        : plotCategories[0]
-          ? plotCategories[0].id
-          : "pc-main";
+    const categoryId = resolveNewPlotCategoryId(plotFilter !== "all" ? plotFilter : "");
     const newPlot = {
       id: uid("p"),
       title:
@@ -9647,7 +10690,11 @@
         av.className = "avatar";
         b.appendChild(av);
         fillAvatarElement(av, c);
+        const pzr = assistantThemeProtZRank[c.id];
+        b.style.zIndex = pzr ? String(10 + pzr) : "1";
         b.addEventListener("click", function () {
+          assistantThemeProtZCounter += 1;
+          assistantThemeProtZRank[c.id] = assistantThemeProtZCounter;
           assistantThemeProtagonistId = assistantThemeProtagonistId === c.id ? null : c.id;
           renderAssistantThemeModalPicks();
         });
@@ -9808,6 +10855,10 @@
     if (!(await ensurePlotCreatePrerequisites())) return;
     assistantThemeProtagonistId = null;
     assistantThemeSupportingIds = new Set();
+    assistantThemeProtZCounter = 0;
+    Object.keys(assistantThemeProtZRank).forEach(function (k) {
+      delete assistantThemeProtZRank[k];
+    });
     assistantThemeSupZCounter = 0;
     Object.keys(assistantThemeSupZRank).forEach(function (k) {
       delete assistantThemeSupZRank[k];
@@ -9843,13 +10894,10 @@
         return getCharById(cid);
       })
       .filter(Boolean);
-    const persona = String(assistantState.persona || "").trim();
     const systemSuggest =
-      (persona ? persona + "\n\n" : "") +
-      "你是专业的互动叙事策划助手。只输出简短题材建议正文，不要附加多余寒暄。";
+      "你是专业的互动叙事策划助手。只输出简短题材建议正文，语气客观、中规中矩，不要附加寒暄或角色扮演。";
     const systemExpand =
-      (persona ? persona + "\n\n" : "") +
-      "你是专业的互动叙事策划助手。只输出扩写后的题材方向正文（含场景、开端、冲突点小节），不要附加多余寒暄。";
+      "你是专业的互动叙事策划助手。只输出扩写后的题材方向正文（含场景、开端、冲突点小节），语气客观、中规中矩，不要附加寒暄或角色扮演。";
     const genBtn = document.getElementById("assistant-theme-generate");
     assistantThemeGenerating = true;
     if (genBtn) {
@@ -9866,7 +10914,7 @@
           ],
           0.78,
           800,
-          { apiConfigId: getAssistantResolvedApiId() }
+          { apiConfigId: getWorkbenchApiId() }
         );
         const rawSuggest = String(suggested || "").trim();
         const firstLine =
@@ -9891,7 +10939,7 @@
         ],
         0.72,
         2200,
-        { apiConfigId: getAssistantResolvedApiId() }
+        { apiConfigId: getWorkbenchApiId() }
       );
       const out = String(raw || "").trim();
       if (!out) {
@@ -9986,6 +11034,14 @@
     }
     if (id === "inspiration") {
       openAssistantInspirationModal();
+      return;
+    }
+    if (id === "phone") {
+      openOverviewSubView("phone");
+      return;
+    }
+    if (id === "fanwork") {
+      openOverviewSubView("fanwork");
       return;
     }
     const labelMap = {};
@@ -10233,11 +11289,39 @@
     markAssistantChatRealExchangeStarted();
     assistantState.messages = normalizeAssistantMessages(assistantState.messages);
     persistAssistantState();
+    overviewSubView = null;
     setTab("overview");
     renderAssistantView();
-    scrollAssistantChatToBottom();
     showToast("已发送剧情卡片，正在请助手回复…", "info");
+    assistantPlotShareReplyModalPending = true;
     await requestAssistantReplyPenpalStyle();
+  }
+
+  function openAssistantPlotShareReplyModal(segments) {
+    const modal = document.getElementById("modal-assistant-plot-reply");
+    const list = document.getElementById("assistant-plot-reply-list");
+    if (!modal || !list) return;
+    list.innerHTML = "";
+    const segs = Array.isArray(segments) ? segments : [];
+    if (!segs.length) {
+      const empty = document.createElement("p");
+      empty.className = "field__hint";
+      empty.textContent = "助手暂时没有生成回复。";
+      list.appendChild(empty);
+    } else {
+      segs.forEach(function (seg) {
+        const bubble = document.createElement("div");
+        bubble.className = "bubble bubble--ai";
+        bubble.textContent = String(seg || "").trim();
+        list.appendChild(bubble);
+      });
+    }
+    modal.hidden = false;
+  }
+
+  function closeAssistantPlotShareReplyModal() {
+    const modal = document.getElementById("modal-assistant-plot-reply");
+    if (modal) modal.hidden = true;
   }
 
   /** 剧情分享后：按 <<<BUBBLE>>> 拆成多条助手气泡，模拟笔友连发 */
@@ -10258,7 +11342,7 @@
 
   async function requestAssistantReplyPenpalStyle() {
     assistantReplying = true;
-    renderAssistantChatList();
+    const replyStartIndex = assistantState.messages.length;
     try {
       const resolvedApiId = getAssistantResolvedApiId();
       const penpalDirective =
@@ -10278,11 +11362,22 @@
       });
       assistantState.messages = normalizeAssistantMessages(assistantState.messages);
       persistAssistantState();
+      if (assistantPlotShareReplyModalPending) {
+        const newSegs = assistantState.messages
+          .slice(replyStartIndex)
+          .filter(function (m) {
+            return m && m.role === "assistant" && String(m.content || "").trim();
+          })
+          .map(function (m) {
+            return m.content;
+          });
+        openAssistantPlotShareReplyModal(newSegs);
+      }
     } catch (err) {
       showToast((err && err.message) || "助手回复失败，请检查 API 设置。", "error", 4200);
     } finally {
+      assistantPlotShareReplyModalPending = false;
       assistantReplying = false;
-      renderAssistantChatList();
     }
   }
 
@@ -10294,9 +11389,9 @@
     return !!(last && last.role === "user" && String(last.content || "").trim());
   }
 
-  /** 纸飞机：仅把输入写入聊天记录，不调用模型 */
+  /** 纸飞机：仅把输入写入聊天记录，不调用模型（点星已移除聊天 UI，保留供兼容） */
   function submitAssistantUserMessage() {
-    const input = els.assistantInput();
+    const input = document.getElementById("assistant-input");
     if (!input || assistantReplying) return;
     const text = String(input.value || "").trim();
     if (!text) return;
@@ -10480,7 +11575,10 @@
   }
 
   function filteredPlots() {
-    const base = plotFilter === "all" ? plots : plots.filter((p) => p.categoryId === plotFilter);
+    const base =
+      plotFilter === "all" ? plots.slice() : plots.filter(function (p) {
+        return plotMatchesFilter(p, plotFilter);
+      });
     return sortPlotsByLastGeneratedDesc(base);
   }
 
@@ -10589,6 +11687,20 @@
             const rid = id;
             const rname = getCharById(rid)?.name;
             characters = characters.filter((c) => c.id !== rid);
+            if (phoneHolderCharId === rid) phoneHolderCharId = null;
+            if (phoneWallpapers[rid]) delete phoneWallpapers[rid];
+            purgePhoneWechatDataForChar(rid);
+            purgePhoneMomentsDataForChar(rid);
+            purgePhoneMusicDataForChar(rid);
+            purgePhoneAlbumDataForChar(rid);
+            purgePhoneForumDataForChar(rid);
+            purgePhoneBrowserDataForChar(rid);
+            purgePhoneMemoDataForChar(rid);
+            purgePhoneDiaryDataForChar(rid);
+            purgePhoneBillDataForChar(rid);
+            purgePhoneWereadDataForChar(rid);
+            purgePhoneJjwxcDataForChar(rid);
+            sanitizePhoneHolderState();
             worldBooks.forEach((w) => {
               if (rname && w.scopeName === rname) {
                 w.scope = "global";
@@ -10623,6 +11735,21 @@
           }
           if (act === "del" && await showConfirm("确定删除该剧情？")) {
             plots = plots.filter((x) => x.id !== id);
+            if (phoneHolderPlotId === id) {
+              phoneHolderPlotId = null;
+              phoneHolderCharId = null;
+            }
+            purgePhoneWechatDataForPlot(id);
+            purgePhoneMomentsDataForPlot(id);
+            purgePhoneMusicDataForPlot(id);
+            purgePhoneAlbumDataForPlot(id);
+            purgePhoneForumDataForPlot(id);
+            purgePhoneBrowserDataForPlot(id);
+            purgePhoneMemoDataForPlot(id);
+            purgePhoneDiaryDataForPlot(id);
+            purgePhoneBillDataForPlot(id);
+            purgePhoneWereadDataForPlot(id);
+            purgePhoneJjwxcDataForPlot(id);
             if (lastStoryPlotId === id) lastStoryPlotId = null;
             renderDynamic();
           }
@@ -10744,18 +11871,18 @@
       const nameSpan = document.createElement("span");
       nameSpan.className = "cat-manage-row__name";
       nameSpan.textContent = item.name;
-      if (catManageKind === "char" && item.fixed) {
-        const badge = document.createElement("span");
-        badge.className = "cat-manage-row__badge";
-        badge.textContent = "（系统固定，不可改名或删除）";
-        nameSpan.appendChild(badge);
-      }
       li.appendChild(nameSpan);
-      if (catManageKind === "char" && item.fixed) {
+      const act = document.createElement("div");
+      if ((catManageKind === "char" || catManageKind === "plot") && item.fixed) {
+        act.className = "cat-manage-row__actions cat-manage-row__actions--reserve";
+        act.setAttribute("aria-hidden", "true");
+        act.innerHTML =
+          '<span class="cat-manage-icon-btn cat-manage-icon-btn--ghost"></span>' +
+          '<span class="cat-manage-icon-btn cat-manage-icon-btn--ghost"></span>';
+        li.appendChild(act);
         list.appendChild(li);
         return;
       }
-      const act = document.createElement("div");
       act.className = "cat-manage-row__actions";
       const bRename = document.createElement("button");
       bRename.type = "button";
@@ -11181,6 +12308,15209 @@
     const modal = els.modalStorySearch();
     if (!modal) return;
     modal.hidden = true;
+  }
+
+  function syncStoryPlaySideBtnActive() {
+    const phoneBtn = els.storyPhoneBtn();
+    const fanBtn = els.storyFanworkBtn();
+    const phoneModal = els.modalStoryPhone();
+    const fanModal = els.modalStoryFanwork();
+    if (phoneBtn) {
+      phoneBtn.classList.toggle("is-active", !!(phoneModal && !phoneModal.hidden));
+    }
+    if (fanBtn) {
+      fanBtn.classList.toggle("is-active", !!(fanModal && !fanModal.hidden));
+    }
+  }
+
+  const PHONE_HOME_APPS = [
+    { id: "wechat", name: "微信" },
+    { id: "moments", name: "朋友圈" },
+    { id: "music", name: "音乐" },
+    { id: "album", name: "相册" },
+    { id: "forum", name: "论坛" },
+    { id: "browser", name: "浏览器" },
+    { id: "memo", name: "备忘录" },
+    { id: "diary", name: "日记" },
+    { id: "jjwxc", name: "晋江" },
+    { id: "bill", name: "账单" },
+    { id: "weread", name: "微信读书" },
+    { id: "settings", name: "设置" },
+  ];
+
+  function getPlotParticipantCharIds(plot) {
+    if (!plot) return [];
+    const ids = [];
+    if (plot.protagonistId) ids.push(String(plot.protagonistId));
+    (Array.isArray(plot.supportingIds) ? plot.supportingIds : []).forEach(function (sid) {
+      const id = String(sid || "").trim();
+      if (id && ids.indexOf(id) < 0) ids.push(id);
+    });
+    return ids;
+  }
+
+  function getPhoneHolderCandidatesForPlot(plotId) {
+    const plot = plots.find(function (p) {
+      return p.id === plotId;
+    });
+    if (!plot) return [];
+    return getPlotParticipantCharIds(plot)
+      .map(function (id) {
+        return getCharById(id);
+      })
+      .filter(function (c) {
+        return c && c.categoryId !== CHAR_CATEGORY_SELF_ID;
+      });
+  }
+
+  function migratePhoneHolderPlotIdFromCharOnce() {
+    if (phoneHolderPlotId || !phoneHolderCharId) return;
+    const hit = plots.find(function (p) {
+      return getPhoneHolderCandidatesForPlot(p.id).some(function (c) {
+        return c.id === phoneHolderCharId;
+      });
+    });
+    if (hit) phoneHolderPlotId = hit.id;
+  }
+
+  function sanitizePhoneHolderState() {
+    migratePhoneHolderPlotIdFromCharOnce();
+    if (!phoneHolderPlotId || !plots.some(function (p) {
+      return p.id === phoneHolderPlotId;
+    })) {
+      phoneHolderPlotId = null;
+      phoneHolderCharId = null;
+      return;
+    }
+    const candidates = getPhoneHolderCandidatesForPlot(phoneHolderPlotId);
+    if (
+      !phoneHolderCharId ||
+      !candidates.some(function (c) {
+        return c.id === phoneHolderCharId;
+      })
+    ) {
+      phoneHolderCharId = null;
+    }
+  }
+
+  function getPhoneHolderCharacter() {
+    sanitizePhoneHolderState();
+    if (!phoneHolderCharId) return null;
+    const c = getCharById(phoneHolderCharId);
+    if (!c || c.categoryId === CHAR_CATEGORY_SELF_ID) return null;
+    return c;
+  }
+
+  function getPhoneHolderOwnerText() {
+    const c = getPhoneHolderCharacter();
+    if (!c) return "暂无角色";
+    const name = String(c.name || "").trim() || "未命名";
+    return name + "的手机";
+  }
+
+  function updatePhoneHomeOwnerLabels() {
+    const text = getPhoneHolderOwnerText();
+    document.querySelectorAll(".phone-home__owner").forEach(function (el) {
+      el.textContent = text;
+    });
+  }
+
+  function syncPhoneHolderModalChrome() {
+    const onCharStep = phoneHolderModalStep === "char";
+    const titleEl = els.phoneHolderTitle();
+    const hintEl = els.phoneHolderHint();
+    const backBtn = els.phoneHolderStepBack();
+    const plotList = els.phoneHolderPlotList();
+    const pick = els.phoneHolderPick();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderModalPlotId;
+    });
+    if (titleEl) titleEl.textContent = onCharStep ? "选择持有者" : "选择剧情";
+    if (hintEl) {
+      hintEl.textContent = onCharStep
+        ? plot
+          ? "《" + (plot.title || "未命名剧情") + "》· 点选一名参与角色（不含「我的形象」）"
+          : "点选参与角色（不含「我的形象」）"
+        : "点选要查看手机的剧情";
+    }
+    if (backBtn) backBtn.hidden = !onCharStep;
+    if (plotList) plotList.hidden = onCharStep;
+    if (pick) pick.hidden = !onCharStep;
+  }
+
+  function renderPhoneHolderPlotList() {
+    const listEl = els.phoneHolderPlotList();
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    if (!plots.length) {
+      const ph = document.createElement("p");
+      ph.className = "field__hint phone-holder-empty";
+      ph.textContent = "暂无剧情，请先在「剧情」中创建。";
+      listEl.appendChild(ph);
+      return;
+    }
+    plots.forEach(function (p) {
+      const candidates = getPhoneHolderCandidatesForPlot(p.id);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className =
+        "phone-holder-plot-row" + (phoneHolderPlotId === p.id ? " is-current" : "");
+      btn.dataset.plotId = p.id;
+      const title = document.createElement("span");
+      title.className = "phone-holder-plot-row__title";
+      title.textContent = p.title || "未命名剧情";
+      const meta = document.createElement("span");
+      meta.className = "phone-holder-plot-row__meta";
+      meta.textContent =
+        candidates.length > 0
+          ? candidates.length + " 名可查看角色"
+          : "暂无可查看角色";
+      btn.appendChild(title);
+      btn.appendChild(meta);
+      btn.addEventListener("click", function () {
+        if (!candidates.length) {
+          showToast("该剧情下没有除「我的形象」以外的参与角色。", "warning");
+          return;
+        }
+        phoneHolderModalPlotId = p.id;
+        phoneHolderModalStep = "char";
+        renderPhoneHolderModal();
+      });
+      listEl.appendChild(btn);
+    });
+  }
+
+  function renderPhoneHolderCharPick() {
+    const pick = els.phoneHolderPick();
+    if (!pick) return;
+    pick.innerHTML = "";
+    const list = getPhoneHolderCandidatesForPlot(phoneHolderModalPlotId);
+    const current = getPhoneHolderCharacter();
+    if (!list.length) {
+      const ph = document.createElement("p");
+      ph.className = "field__hint phone-holder-empty";
+      ph.textContent = "该剧情下没有除「我的形象」以外的参与角色。";
+      pick.appendChild(ph);
+      return;
+    }
+    list.forEach(function (c) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className =
+        "char-pick-avatar" +
+        (current &&
+        c.id === current.id &&
+        phoneHolderPlotId === phoneHolderModalPlotId
+          ? " is-selected"
+          : "");
+      b.dataset.id = c.id;
+      b.title = c.name || "未命名";
+      b.setAttribute("aria-label", c.name || "未命名");
+      const av = document.createElement("div");
+      av.className = "avatar";
+      b.appendChild(av);
+      fillAvatarElement(av, c);
+      b.addEventListener("click", function () {
+        phoneHolderPlotId = phoneHolderModalPlotId;
+        phoneHolderCharId = c.id;
+        sanitizePhoneHolderState();
+        updatePhoneHomeOwnerLabels();
+        applyPhoneWallpaperStyles();
+        schedulePersistNarrative();
+        closePhoneHolderModal();
+        showToast("已切换为「" + (c.name || "未命名") + "的手机」", "success");
+        document.querySelectorAll("#phone-content-slot, #story-phone-slot").forEach(function (slot) {
+          if (getPhoneNav(slot).screen !== "home") renderPhoneScreen(slot);
+        });
+      });
+      pick.appendChild(b);
+    });
+  }
+
+  function renderPhoneHolderModal() {
+    syncPhoneHolderModalChrome();
+    if (phoneHolderModalStep === "char") {
+      renderPhoneHolderCharPick();
+      return;
+    }
+    renderPhoneHolderPlotList();
+  }
+
+  function openPhoneHolderModal() {
+    const modal = els.modalPhoneHolder();
+    if (!modal) return;
+    phoneHolderModalStep = "plot";
+    phoneHolderModalPlotId = phoneHolderPlotId;
+    renderPhoneHolderModal();
+    modal.hidden = false;
+  }
+
+  function phoneHolderModalBackToPlot() {
+    phoneHolderModalStep = "plot";
+    renderPhoneHolderModal();
+  }
+
+  function closePhoneHolderModal() {
+    const modal = els.modalPhoneHolder();
+    if (!modal) return;
+    modal.hidden = true;
+    phoneHolderModalStep = "plot";
+    phoneHolderModalPlotId = null;
+  }
+
+  function getPhoneWallpaperUrlForChar(charId) {
+    if (!charId) return "";
+    return String(phoneWallpapers[charId] || "").trim();
+  }
+
+  function getPhoneWallpaperUrl() {
+    const c = getPhoneHolderCharacter();
+    return c ? getPhoneWallpaperUrlForChar(c.id) : "";
+  }
+
+  function fillPhoneWallpaperPreview(el, url) {
+    if (!el) return;
+    const u = String(url || "").trim();
+    if (!u) {
+      el.style.backgroundImage = "";
+      el.classList.remove("story-play-bg-preview--has");
+      el.textContent = "暂无图片";
+      return;
+    }
+    el.textContent = "";
+    el.classList.add("story-play-bg-preview--has");
+    el.style.backgroundImage = "url('" + u.replace(/'/g, "\\'") + "')";
+  }
+
+  function applyPhoneWallpaperStyles() {
+    const url = getPhoneWallpaperUrl();
+    document.querySelectorAll(".phone-home").forEach(function (home) {
+      const wp = home.querySelector(".phone-home__wallpaper");
+      if (!wp) return;
+      if (url) {
+        home.classList.add("phone-home--has-wallpaper");
+        wp.style.backgroundImage = "url('" + url.replace(/'/g, "\\'") + "')";
+      } else {
+        home.classList.remove("phone-home--has-wallpaper");
+        wp.style.backgroundImage = "";
+      }
+    });
+  }
+
+  function syncPhoneWallpaperModal() {
+    const c = getPhoneHolderCharacter();
+    const hint = els.phoneWallpaperHint();
+    if (hint) {
+      hint.textContent = c
+        ? "为「" + (c.name || "未命名") + "」的手机设置壁纸"
+        : "请先选择手机持有者";
+    }
+    fillPhoneWallpaperPreview(els.phoneWallpaperPreview(), c ? getPhoneWallpaperUrlForChar(c.id) : "");
+  }
+
+  function openPhoneWallpaperModal() {
+    const c = getPhoneHolderCharacter();
+    if (!c) {
+      showToast("请先在设置中选择手机持有者。", "warning");
+      return;
+    }
+    const modal = els.modalPhoneWallpaper();
+    if (!modal) return;
+    syncPhoneWallpaperModal();
+    modal.hidden = false;
+  }
+
+  function closePhoneWallpaperModal() {
+    const modal = els.modalPhoneWallpaper();
+    if (modal) modal.hidden = true;
+  }
+
+  function bindPhoneWallpaperModal() {
+    const modal = els.modalPhoneWallpaper();
+    const closeBtn = els.phoneWallpaperClose();
+    const fileInput = els.phoneWallpaperFile();
+    const clearBtn = els.phoneWallpaperClear();
+    if (modal) {
+      modal.addEventListener("click", function (e) {
+        if (e.target.id === "modal-phone-wallpaper") closePhoneWallpaperModal();
+      });
+    }
+    if (closeBtn) closeBtn.addEventListener("click", closePhoneWallpaperModal);
+    if (fileInput) {
+      fileInput.addEventListener("change", async function (e) {
+        const f = e.target.files && e.target.files[0];
+        const c = getPhoneHolderCharacter();
+        if (!f || !c) return;
+        try {
+          const url = await readImageAsCompressedDataURL(f, 1440, 900000);
+          phoneWallpapers[c.id] = url;
+          syncPhoneWallpaperModal();
+          applyPhoneWallpaperStyles();
+          schedulePersistNarrative();
+          showToast("已保存手机壁纸", "success");
+        } catch (_err) {
+          showToast("图片处理失败，请换一张较小的图片重试。", "error");
+        }
+        e.target.value = "";
+      });
+    }
+    if (clearBtn) {
+      clearBtn.addEventListener("click", function () {
+        const c = getPhoneHolderCharacter();
+        if (!c) return;
+        if (phoneWallpapers[c.id]) delete phoneWallpapers[c.id];
+        syncPhoneWallpaperModal();
+        applyPhoneWallpaperStyles();
+        schedulePersistNarrative();
+        showToast("已清除壁纸", "success");
+      });
+    }
+  }
+
+  function handlePhoneHomeAppClick(appId, slot) {
+    if (appId === "settings") {
+      openPhoneHolderModal();
+      return;
+    }
+    touchPhoneStoryDateForCurrentPlot();
+    if (appId === "wechat") {
+      openPhoneWechatList(slot);
+      return;
+    }
+    if (appId === "moments") {
+      openPhoneMoments(slot);
+      return;
+    }
+    if (appId === "music") {
+      openPhoneMusic(slot);
+      return;
+    }
+    if (appId === "album") {
+      openPhoneAlbum(slot);
+      return;
+    }
+    if (appId === "forum") {
+      openPhoneForum(slot);
+      return;
+    }
+    if (appId === "browser") {
+      openPhoneBrowser(slot);
+      return;
+    }
+    if (appId === "memo") {
+      openPhoneMemo(slot);
+      return;
+    }
+    if (appId === "diary") {
+      openPhoneDiary(slot);
+      return;
+    }
+    if (appId === "bill") {
+      openPhoneBill(slot);
+      return;
+    }
+    if (appId === "weread") {
+      openPhoneWeread(slot);
+      return;
+    }
+    if (appId === "jjwxc") {
+      openPhoneJjwxc(slot);
+    }
+  }
+
+  const PHONE_WECHAT_MSG_HISTORY_REF = 10;
+  const PHONE_WECHAT_MAX_MSGS_PER_CHAT = 48;
+
+  const PHONE_WECHAT_PLACEHOLDER_CHATS = [1, 2, 3, 4].map(function (i) {
+    return { id: "wx-ph-" + i, name: "…", preview: "…", time: "…", messages: null };
+  });
+
+  function phoneWechatStorageKey(plotId, charId) {
+    return String(plotId || "").trim() + "\u001e" + String(charId || "").trim();
+  }
+
+  function getPhoneWechatStorageKeyForCurrentHolder() {
+    sanitizePhoneHolderState();
+    if (!phoneHolderPlotId || !phoneHolderCharId) return "";
+    return phoneWechatStorageKey(phoneHolderPlotId, phoneHolderCharId);
+  }
+
+  function purgePhoneWechatDataForPlot(plotId) {
+    const pid = String(plotId || "").trim();
+    if (!pid) return;
+    Object.keys(phoneWechatData).forEach(function (k) {
+      if (k.indexOf(pid + "\u001e") === 0) delete phoneWechatData[k];
+    });
+  }
+
+  function purgePhoneWechatDataForChar(charId) {
+    const cid = String(charId || "").trim();
+    if (!cid) return;
+    const suffix = "\u001e" + cid;
+    Object.keys(phoneWechatData).forEach(function (k) {
+      if (k.slice(-suffix.length) === suffix) delete phoneWechatData[k];
+    });
+  }
+
+  function getPhoneWechatBundleRecord() {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key) return null;
+    const rec = phoneWechatData[key];
+    if (!rec || !Array.isArray(rec.chats) || !rec.chats.length) return null;
+    return rec;
+  }
+
+  function hasPhoneWechatGenerated() {
+    return !!getPhoneWechatBundleRecord();
+  }
+
+  function getPhoneWechatChats() {
+    const rec = getPhoneWechatBundleRecord();
+    if (rec && rec.chats.length) return rec.chats;
+    return PHONE_WECHAT_PLACEHOLDER_CHATS.slice();
+  }
+
+  function getPhoneWechatChat(chatId) {
+    const id = String(chatId || "").trim();
+    if (!id) return null;
+    return (
+      getPhoneWechatChats().find(function (c) {
+        return c.id === id;
+      }) || null
+    );
+  }
+
+  function normalizePhoneSocialAvatarOverrides(raw) {
+    if (!raw || typeof raw !== "object") return { holder: "", byKey: {} };
+    const byKey = {};
+    if (raw.byKey && typeof raw.byKey === "object") {
+      Object.keys(raw.byKey).forEach(function (k) {
+        const v = String(raw.byKey[k] || "").trim();
+        if (v) byKey[String(k).trim()] = v;
+      });
+    }
+    if (raw.contacts && typeof raw.contacts === "object") {
+      Object.keys(raw.contacts).forEach(function (k) {
+        const v = String(raw.contacts[k] || "").trim();
+        if (v) byKey[String(k).trim()] = v;
+      });
+    }
+    if (raw.authors && typeof raw.authors === "object") {
+      Object.keys(raw.authors).forEach(function (k) {
+        const v = String(raw.authors[k] || "").trim();
+        if (v) byKey[String(k).trim()] = v;
+      });
+    }
+    return { holder: String(raw.holder || "").trim(), byKey: byKey };
+  }
+
+  function preservePhoneSocialAvatarOverrides(nextBundle, prevBundle) {
+    if (!nextBundle) return nextBundle;
+    const prev =
+      prevBundle && prevBundle.avatarOverrides
+        ? normalizePhoneSocialAvatarOverrides(prevBundle.avatarOverrides)
+        : null;
+    if (prev && (prev.holder || Object.keys(prev.byKey).length)) {
+      nextBundle.avatarOverrides = prev;
+    }
+    return nextBundle;
+  }
+
+  function ensurePhoneWechatAvatarOverrides(bundle) {
+    if (!bundle) return { holder: "", byKey: {} };
+    if (!bundle.avatarOverrides) bundle.avatarOverrides = { holder: "", byKey: {} };
+    bundle.avatarOverrides = normalizePhoneSocialAvatarOverrides(bundle.avatarOverrides);
+    return bundle.avatarOverrides;
+  }
+
+  function getPhoneWechatAvatarOverrides() {
+    const rec = getPhoneWechatBundleRecord();
+    if (!rec) return { holder: "", byKey: {} };
+    return ensurePhoneWechatAvatarOverrides(rec);
+  }
+
+  function getPhoneWechatHolderAvatarUrl() {
+    const ov = getPhoneWechatAvatarOverrides();
+    if (ov.holder) return ov.holder;
+    const holder = getPhoneHolderCharacter();
+    if (holder && holder.avatarUrl) return String(holder.avatarUrl).trim();
+    return "";
+  }
+
+  function getPhoneWechatContactAvatarUrl(chatId) {
+    const id = String(chatId || "").trim();
+    const ov = getPhoneWechatAvatarOverrides();
+    if (id && ov.byKey[id]) return ov.byKey[id];
+    return "";
+  }
+
+  function setPhoneWechatAvatarOverride(kind, keyOpt, url) {
+    const rec = getPhoneWechatBundleForMutation();
+    if (!rec) return false;
+    const ov = ensurePhoneWechatAvatarOverrides(rec.bundle);
+    const nextUrl = String(url || "").trim();
+    if (kind === "holder") {
+      ov.holder = nextUrl;
+    } else {
+      const k = String(keyOpt || "").trim();
+      if (!k) return false;
+      if (nextUrl) ov.byKey[k] = nextUrl;
+      else delete ov.byKey[k];
+    }
+    rec.bundle.avatarOverrides = ov;
+    persistPhoneWechatBundle(rec.bundle);
+    return true;
+  }
+
+  function getPhoneMomentsBundleForMutation() {
+    const key = getPhoneMomentsStorageKeyForCurrentHolder();
+    if (!key) return null;
+    const bundle = phoneMomentsData[key];
+    if (!bundle || !Array.isArray(bundle.posts)) return null;
+    return { key: key, bundle: bundle };
+  }
+
+  function ensurePhoneMomentsAvatarOverrides(bundle) {
+    if (!bundle) return { holder: "", byKey: {} };
+    if (!bundle.avatarOverrides) bundle.avatarOverrides = { holder: "", byKey: {} };
+    bundle.avatarOverrides = normalizePhoneSocialAvatarOverrides(bundle.avatarOverrides);
+    return bundle.avatarOverrides;
+  }
+
+  function getPhoneMomentsAvatarOverrides() {
+    const rec = getPhoneMomentsBundleRecord();
+    if (!rec) return { holder: "", byKey: {} };
+    return ensurePhoneMomentsAvatarOverrides(rec);
+  }
+
+  function getPhoneMomentsProfileAvatarUrl() {
+    const ov = getPhoneMomentsAvatarOverrides();
+    if (ov.holder) return ov.holder;
+    const holder = getPhoneHolderCharacter();
+    if (holder && holder.avatarUrl) return String(holder.avatarUrl).trim();
+    return "";
+  }
+
+  function resolvePhoneMomentsAuthorAvatarUrl(authorName) {
+    const name = String(authorName || "").trim();
+    const ov = getPhoneMomentsAvatarOverrides();
+    if (name && ov.byKey[name]) return ov.byKey[name];
+    const holder = getPhoneHolderCharacter();
+    const holderName = holder ? String(holder.name || "").trim() : "";
+    if (holderName && name === holderName && ov.holder) return ov.holder;
+    if (holderName && name === holderName && holder.avatarUrl) return String(holder.avatarUrl).trim();
+    return "";
+  }
+
+  function setPhoneMomentsAvatarOverride(kind, authorKey, url) {
+    const rec = getPhoneMomentsBundleForMutation();
+    if (!rec) return false;
+    const ov = ensurePhoneMomentsAvatarOverrides(rec.bundle);
+    const nextUrl = String(url || "").trim();
+    if (kind === "holder") {
+      ov.holder = nextUrl;
+    } else {
+      const k = String(authorKey || "").trim();
+      if (!k) return false;
+      if (nextUrl) ov.byKey[k] = nextUrl;
+      else delete ov.byKey[k];
+    }
+    rec.bundle.avatarOverrides = ov;
+    persistPhoneMomentsBundle(rec.bundle);
+    return true;
+  }
+
+  function buildPhoneSocialAvatarHtml(className, opts) {
+    opts = opts && typeof opts === "object" ? opts : {};
+    const name = String(opts.name || "").trim() || "未";
+    const url = String(opts.avatarUrl || "").trim();
+    const scope = String(opts.scope || "").trim();
+    const uploadKind = String(opts.uploadKind || "").trim();
+    const uploadKey = String(opts.uploadKey || "").trim();
+    const clickable = !!(opts.clickable && scope && uploadKind);
+    const ariaLabel = String(opts.ariaLabel || "").trim() || "更换「" + name + "」的头像";
+    const inner = url
+      ? '<img src="' + escapeHtml(url) + '" alt="" />'
+      : escapeHtml(name.slice(0, 1));
+    let attrs = ' class="' + className + (url ? " phone-social-avatar--has-image" : "") + '"';
+    if (clickable) {
+      attrs +=
+        ' role="button" tabindex="0" data-phone-social-avatar-upload data-phone-avatar-scope="' +
+        escapeHtml(scope) +
+        '" data-phone-avatar-kind="' +
+        escapeHtml(uploadKind) +
+        '"';
+      if (uploadKey) attrs += ' data-phone-avatar-key="' + escapeHtml(uploadKey) + '"';
+      attrs += ' aria-label="' + escapeHtml(ariaLabel) + '" title="' + escapeHtml(ariaLabel) + '"';
+    } else {
+      attrs += ' aria-hidden="true"';
+    }
+    return "<span" + attrs + ">" + inner + "</span>";
+  }
+
+  function buildPhoneWechatLatestMemoriesBlock(plot) {
+    ensurePlotExtendedState(plot);
+    return (plot.memories || [])
+      .slice()
+      .sort(function (a, b) {
+        return (b.updatedAt || 0) - (a.updatedAt || 0);
+      })
+      .slice(0, STORY_PLAY_REF_TURN_LIMIT)
+      .map(function (it) {
+        return "- " + truncateCharsWithEllipsis(it && it.content, PLOT_MEMORY_PROMPT_ITEM_MAX_CHARS);
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  function buildPhoneHolderProfileBlock(holder, plot) {
+    if (!holder) return "未设定";
+    const parts = [];
+    if (holder.name) parts.push("姓名：" + String(holder.name).trim());
+    if (holder.style) parts.push("外貌及性格：" + String(holder.style).trim());
+    if (holder.bg) parts.push("背景设定：" + String(holder.bg).trim());
+    if (holder.relationships) parts.push("人物关系：" + String(holder.relationships).trim());
+    const ov = (plot && plot.characterOverrides ? plot.characterOverrides : []).find(function (it) {
+      return it && it.characterId === holder.id && it.profile;
+    });
+    if (ov && ov.profile) parts.push("剧情内形象覆盖：" + String(ov.profile).trim());
+    return parts.length ? parts.join("\n") : "未设定";
+  }
+
+  function normalizePhoneWechatMessages(msgsIn, allowEmpty) {
+    const messages = [];
+    (Array.isArray(msgsIn) ? msgsIn : []).forEach(function (m) {
+      if (!m || typeof m !== "object") return;
+      const side = String(m.side || "").trim().toLowerCase() === "out" ? "out" : "in";
+      const text = truncateCharsWithEllipsis(String(m.text || "").trim(), 80);
+      if (!text) return;
+      messages.push({ side: side, text: text });
+    });
+    if (!messages.length && allowEmpty) {
+      messages.push({ side: "in", text: "…" });
+      messages.push({ side: "out", text: "…" });
+    }
+    return messages;
+  }
+
+  function syncPhoneWechatChatPreview(chat) {
+    if (!chat) return;
+    if (chat.messages && chat.messages.length) {
+      chat.preview = truncateCharsWithEllipsis(
+        chat.messages[chat.messages.length - 1].text,
+        24
+      );
+    }
+  }
+
+  function findPhoneWechatProtagonistChat(chats) {
+    return (
+      (chats || []).find(function (c) {
+        return c && c.isProtagonistChat;
+      }) || null
+    );
+  }
+
+  function normalizePhoneWechatChatItem(item, plot, idx, seenIds) {
+    const protagonist = getCharById(plot.protagonistId);
+    const protagName = protagonist && protagonist.name ? String(protagonist.name).trim() : "";
+    if (!item || typeof item !== "object") return null;
+    let id = String(item.id || "").trim() || "wx-" + String((idx || 0) + 1);
+    while (seenIds && seenIds.has(id)) id = id + "-d";
+    if (seenIds) seenIds.add(id);
+    const name = String(item.name || "").trim() || "未命名";
+    const time = String(item.time || "").trim() || "刚刚";
+    const messages = normalizePhoneWechatMessages(item.messages, false);
+    if (!messages.length) return null;
+    const isProtag =
+      !!item.isProtagonistChat ||
+      (protagName && (name === protagName || String(item.realName || "").trim() === protagName));
+    const chat = {
+      id: id,
+      name: name,
+      preview: truncateCharsWithEllipsis(String(item.preview || "").trim(), 24),
+      time: time,
+      messages: messages.slice(0, PHONE_WECHAT_MAX_MSGS_PER_CHAT),
+      isProtagonistChat: isProtag,
+    };
+    syncPhoneWechatChatPreview(chat);
+    return chat;
+  }
+
+  function formatPhoneWechatMessagesForPrompt(messages, limit) {
+    return (messages || [])
+      .slice(-(limit || PHONE_WECHAT_MSG_HISTORY_REF))
+      .map(function (m) {
+        const who = m.side === "out" ? "持有者" : "对方";
+        return who + "：" + String(m.text || "").trim();
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  function buildPhoneWechatPlotContextBlocks(plot, holder) {
+    const protagonist = getCharById(plot.protagonistId);
+    const identityBlocks = getEffectiveIdentityBlocks(plot);
+    const recentTurns = (plot.playTurns || []).slice(-STORY_PLAY_REF_TURN_LIMIT);
+    const history = compactStoryPlayHistoryForApi(
+      recentTurns
+        .map(function (turn) {
+          return (turn.lines || [])
+            .map(function (line) {
+              return storyLineHistoryPrefix(line) + (line.text || "");
+            })
+            .join("\n");
+        })
+        .join("\n\n")
+    );
+    const summaryBlock = buildPlotSummariesPromptBlock(plot);
+    const memoryBlock = buildPhoneWechatLatestMemoriesBlock(plot);
+    const holderBlock = buildPhoneHolderProfileBlock(holder, plot);
+    const protagName = protagonist && protagonist.name ? protagonist.name : "主角";
+    const lines = [];
+    lines.push("【手机持有者（当前查看手机的人，不是「我的形象」主角）】");
+    lines.push(holderBlock);
+    lines.push("");
+    lines.push(buildPhoneStoryDatePromptBlock(plot));
+    lines.push("");
+    lines.push("【所在剧情 · 我的形象（主视角主角）真名：" + protagName + "】");
+    lines.push(identityBlocks.identitySelfBlock || "未设定");
+    lines.push("");
+    lines.push("【剧情 · 其他角色设定摘要】");
+    lines.push(identityBlocks.identityOthersBlock || "未设定");
+    if (summaryBlock) {
+      lines.push("");
+      lines.push("【最新 " + STORY_PLAY_REF_TURN_LIMIT + " 条阶段总结】");
+      lines.push(summaryBlock);
+    }
+    if (memoryBlock) {
+      lines.push("");
+      lines.push("【最新 " + STORY_PLAY_REF_TURN_LIMIT + " 条记忆】");
+      lines.push(memoryBlock);
+    }
+    lines.push("");
+    lines.push("【最近 " + STORY_PLAY_REF_TURN_LIMIT + " 轮剧情】");
+    lines.push(history || "故事刚开始。");
+    return { lines: lines, protagName: protagName };
+  }
+
+  function buildPhoneWechatPrompt(plot, holder) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const lines = ["请为「查手机·微信」生成完整 JSON 数据。", ""];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push(
+      "生成要求：\n" +
+        "1. 输出唯一 JSON 对象：{\"chats\":[...]}。\n" +
+        "2. chats 至少 4 条：必须含与「我的形象」主角的私聊（list 的 name 可为持有者对 TA 的微信备注/昵称，可不同于真名 " +
+        ctx.protagName +
+        "）；另至少 3 条与当前剧情相关、或与持有者有交际/间接关系的其他人物（参与角色、群聊、订阅号等均可）。\n" +
+        "3. 每条 chat 字段：id（英文短 id，唯一）、name（列表显示名）、preview（列表预览≤24字）、time（如 14:20、昨天）、messages（4～12 条；side 为 in 或 out，in=对方发来，out=持有者发出）；与「我的形象」主角的私聊请加 \"isProtagonistChat\": true。\n" +
+        "4. 对白像真实微信，口语化，可带 emoji；单条 messages.text ≤80 字。\n" +
+        "5. 须与上文剧情、人设、记忆、总结一致；头像由界面取 name 首字，无需额外字段。"
+    );
+    return lines.join("\n");
+  }
+
+  function buildPhoneWechatRegeneratePrompt(plot, holder, existing) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const chats = (existing && existing.chats) || [];
+    const protagChat = findPhoneWechatProtagonistChat(chats);
+    const lines = [
+      "请根据最新剧情，在「已有微信数据」基础上增量更新；不要删除或覆盖已有聊天记录，只追加新内容。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【当前已有微信会话（请勿删除）】");
+    chats.forEach(function (c) {
+      lines.push(
+        "- id=" +
+          c.id +
+          "，name=" +
+          c.name +
+          (c.isProtagonistChat ? "（与「我的形象」主角的私聊）" : "") +
+          "，preview=" +
+          (c.preview || "") +
+          "，time=" +
+          (c.time || "")
+      );
+      const hist = formatPhoneWechatMessagesForPrompt(c.messages, PHONE_WECHAT_MSG_HISTORY_REF);
+      if (hist) {
+        lines.push("  最近 " + PHONE_WECHAT_MSG_HISTORY_REF + " 条：");
+        lines.push(hist);
+      }
+    });
+    lines.push("");
+    lines.push(
+      "输出唯一 JSON 对象，格式：\n" +
+        '{"appendToChats":[{"id":"已有会话id","messages":[仅新增消息],"preview":"可选更新","time":"可选更新"}],"newChats":[{"id":"新英文id","name":"...","preview":"...","time":"...","messages":[...],"isProtagonistChat":false}]}\n\n' +
+        "规则：\n" +
+        "1. appendToChats：在已有会话末尾追加 messages（只含新消息，不要重复旧内容）。与「我的形象」主角的私聊" +
+        (protagChat ? "（id=" + protagChat.id + "）" : "") +
+        "必须在 appendToChats 中出现，且新消息须自然衔接该会话最近 " +
+        PHONE_WECHAT_MSG_HISTORY_REF +
+        " 条。\n" +
+        "2. newChats：仅当最新剧情需要新对话对象时使用；每条含完整首段 messages（4～12 条）。\n" +
+        "3. 其他已有会话：视剧情决定是在 appendToChats 追加，或保持不动；不要删除任何已有 id。\n" +
+        "4. 若某会话无需更新，可不写入 appendToChats。preview/time 可随最新消息更新。\n" +
+        "5. 对白口语化像微信，单条 text ≤80 字；须与最新剧情、人设、记忆、总结一致。"
+    );
+    return lines.join("\n");
+  }
+
+  function normalizePhoneWechatBundle(raw, plot, holder) {
+    const protagonist = getCharById(plot.protagonistId);
+    const protagName = protagonist && protagonist.name ? String(protagonist.name).trim() : "";
+    const chatsIn = raw && Array.isArray(raw.chats) ? raw.chats : [];
+    const out = [];
+    const seenIds = new Set();
+    chatsIn.forEach(function (item, idx) {
+      const chat = normalizePhoneWechatChatItem(item, plot, idx, seenIds);
+      if (chat) out.push(chat);
+    });
+    if (
+      !out.some(function (c) {
+        return c.isProtagonistChat;
+      })
+    ) {
+      out.unshift({
+        id: "wx-protagonist",
+        name: protagName || "主角",
+        preview: "在吗？",
+        time: "刚刚",
+        isProtagonistChat: true,
+        messages: [
+          { side: "in", text: "在吗？" },
+          { side: "out", text: "嗯，怎么了？" },
+        ],
+      });
+    }
+    while (out.length < 4) {
+      out.push({
+        id: "wx-extra-" + out.length,
+        name: "…",
+        preview: "…",
+        time: "…",
+        messages: [
+          { side: "in", text: "…" },
+          { side: "out", text: "…" },
+        ],
+      });
+    }
+    out.forEach(syncPhoneWechatChatPreview);
+    return { chats: out, generatedAt: Date.now() };
+  }
+
+  function mergePhoneWechatIncrement(existing, raw, plot, holder) {
+    const base = (existing && existing.chats ? existing.chats : []).map(function (c) {
+      return {
+        id: c.id,
+        name: c.name,
+        preview: c.preview,
+        time: c.time,
+        isProtagonistChat: !!c.isProtagonistChat,
+        messages: (c.messages || []).slice(),
+      };
+    });
+    const byId = {};
+    base.forEach(function (c) {
+      byId[c.id] = c;
+    });
+
+    (raw && Array.isArray(raw.appendToChats) ? raw.appendToChats : []).forEach(function (upd) {
+      if (!upd || typeof upd !== "object") return;
+      const id = String(upd.id || "").trim();
+      const chat = byId[id];
+      if (!chat) return;
+      const append = normalizePhoneWechatMessages(upd.messages, false);
+      if (append.length) {
+        chat.messages = chat.messages.concat(append).slice(-PHONE_WECHAT_MAX_MSGS_PER_CHAT);
+      }
+      if (upd.preview) chat.preview = truncateCharsWithEllipsis(String(upd.preview).trim(), 24);
+      if (upd.time) chat.time = String(upd.time).trim();
+      syncPhoneWechatChatPreview(chat);
+    });
+
+    const seenIds = new Set(Object.keys(byId));
+    (raw && Array.isArray(raw.newChats) ? raw.newChats : []).forEach(function (item, idx) {
+      const chat = normalizePhoneWechatChatItem(item, plot, idx, seenIds);
+      if (!chat) return;
+      base.push(chat);
+      byId[chat.id] = chat;
+    });
+
+    if (!Object.keys(byId).length && raw && Array.isArray(raw.chats) && raw.chats.length) {
+      return preservePhoneSocialAvatarOverrides(normalizePhoneWechatBundle(raw, plot, holder), existing);
+    }
+
+    base.forEach(syncPhoneWechatChatPreview);
+    return preservePhoneSocialAvatarOverrides({ chats: base, generatedAt: Date.now() }, existing);
+  }
+
+  const PHONE_MOMENTS_MIN_POSTS = 5;
+  const PHONE_MOMENTS_MAX_POSTS = 64;
+  const PHONE_MOMENTS_REF_POST_LIMIT = 8;
+  const PHONE_MOMENTS_TEXT_MAX = 280;
+  const PHONE_MOMENTS_IMAGE_CAPTION_MAX = 72;
+  const PHONE_MOMENTS_COMMENT_MAX = 120;
+  const PHONE_MOMENTS_MAX_IMAGES = 9;
+
+  const PHONE_MOMENTS_PLACEHOLDER_POSTS = [
+    { id: "mp-ph-1", layout: "text" },
+    { id: "mp-ph-2", layout: "grid3" },
+    { id: "mp-ph-3", layout: "single" },
+  ];
+
+  function phoneMomentsStorageKey(plotId, charId) {
+    return phoneWechatStorageKey(plotId, charId);
+  }
+
+  function getPhoneMomentsStorageKeyForCurrentHolder() {
+    return getPhoneWechatStorageKeyForCurrentHolder();
+  }
+
+  function purgePhoneMomentsDataForPlot(plotId) {
+    const pid = String(plotId || "").trim();
+    if (!pid) return;
+    Object.keys(phoneMomentsData).forEach(function (k) {
+      if (k.indexOf(pid + "\u001e") === 0) delete phoneMomentsData[k];
+    });
+    Object.keys(phoneMomentsCovers).forEach(function (k) {
+      if (k.indexOf(pid + "\u001e") === 0) delete phoneMomentsCovers[k];
+    });
+  }
+
+  function purgePhoneMomentsDataForChar(charId) {
+    const cid = String(charId || "").trim();
+    if (!cid) return;
+    const suffix = "\u001e" + cid;
+    Object.keys(phoneMomentsData).forEach(function (k) {
+      if (k.slice(-suffix.length) === suffix) delete phoneMomentsData[k];
+    });
+    Object.keys(phoneMomentsCovers).forEach(function (k) {
+      if (k.slice(-suffix.length) === suffix) delete phoneMomentsCovers[k];
+    });
+  }
+
+  function getPhoneMomentsCoverUrl() {
+    const key = getPhoneMomentsStorageKeyForCurrentHolder();
+    if (!key) return "";
+    return String(phoneMomentsCovers[key] || "").trim();
+  }
+
+  function buildPhoneMomentsCoverStyleAttr(url) {
+    const u = String(url || "").trim();
+    if (!u) return "";
+    return ' style="background-image:url(\'' + u.replace(/'/g, "\\'") + '\')"';
+  }
+
+  function getPhoneMomentsBundleRecord() {
+    const key = getPhoneMomentsStorageKeyForCurrentHolder();
+    if (!key) return null;
+    const rec = phoneMomentsData[key];
+    if (!rec || !Array.isArray(rec.posts) || !rec.posts.length) return null;
+    return rec;
+  }
+
+  function hasPhoneMomentsGenerated() {
+    return !!getPhoneMomentsBundleRecord();
+  }
+
+  function getPhoneMomentsPosts() {
+    const rec = getPhoneMomentsBundleRecord();
+    if (rec && rec.posts.length) return rec.posts;
+    return null;
+  }
+
+  function persistPhoneMomentsBundle(bundle) {
+    const key = getPhoneMomentsStorageKeyForCurrentHolder();
+    if (!key || !bundle) return;
+    phoneMomentsData[key] = bundle;
+    schedulePersistNarrative();
+  }
+
+  function deletePhoneMomentsPost(postId) {
+    const key = getPhoneMomentsStorageKeyForCurrentHolder();
+    if (!key) return false;
+    const bundle = phoneMomentsData[key];
+    if (!bundle || !Array.isArray(bundle.posts)) return false;
+    const id = String(postId || "").trim();
+    if (!id) return false;
+    bundle.posts = bundle.posts.filter(function (p) {
+      return p && p.id !== id;
+    });
+    persistPhoneMomentsBundle(bundle);
+    return true;
+  }
+
+  async function handlePhoneMomentsDeletePost(slot, postId) {
+    if (!hasPhoneMomentsGenerated()) return;
+    const id = String(postId || "").trim();
+    if (!id) return;
+    const posts = getPhoneMomentsPosts() || [];
+    const post = posts.find(function (p) {
+      return p && p.id === id;
+    });
+    const label = post && post.authorName ? post.authorName : "该条";
+    const ok = await showConfirm("确定删除「" + label + "」的这条朋友圈吗？", "删除朋友圈");
+    if (!ok) return;
+    if (!deletePhoneMomentsPost(id)) {
+      showToast("删除失败", "error");
+      return;
+    }
+    showToast("已删除朋友圈", "success");
+    if (slot) renderPhoneScreen(slot);
+  }
+
+  function normalizePhoneMomentsImages(imagesIn) {
+    const out = [];
+    (Array.isArray(imagesIn) ? imagesIn : []).forEach(function (img) {
+      if (!img) return;
+      let caption = "";
+      if (typeof img === "string") caption = img;
+      else if (typeof img === "object") caption = String(img.caption || img.text || img.desc || "").trim();
+      caption = truncateCharsWithEllipsis(caption, PHONE_MOMENTS_IMAGE_CAPTION_MAX);
+      if (!caption) return;
+      out.push({ caption: caption });
+    });
+    return out.slice(0, PHONE_MOMENTS_MAX_IMAGES);
+  }
+
+  function normalizePhoneMomentsComments(commentsIn) {
+    const out = [];
+    (Array.isArray(commentsIn) ? commentsIn : []).forEach(function (c) {
+      if (!c || typeof c !== "object") return;
+      const author = truncateCharsWithEllipsis(String(c.author || c.name || "").trim(), 24);
+      const text = truncateCharsWithEllipsis(String(c.text || c.content || "").trim(), PHONE_MOMENTS_COMMENT_MAX);
+      if (!author || !text) return;
+      const replyTo = truncateCharsWithEllipsis(String(c.replyTo || c.replyToName || "").trim(), 24);
+      const item = { author: author, text: text };
+      if (replyTo) item.replyTo = replyTo;
+      out.push(item);
+    });
+    return out;
+  }
+
+  function normalizePhoneMomentsLikes(likesIn) {
+    const out = [];
+    const seen = new Set();
+    (Array.isArray(likesIn) ? likesIn : []).forEach(function (name) {
+      const n = truncateCharsWithEllipsis(String(name || "").trim(), 24);
+      if (!n || seen.has(n)) return;
+      seen.add(n);
+      out.push(n);
+    });
+    return out;
+  }
+
+  function normalizePhoneMomentsPostItem(item, plot, holder, idx, seenIds) {
+    if (!item || typeof item !== "object") return null;
+    const protagonist = getCharById(plot.protagonistId);
+    const protagName = protagonist && protagonist.name ? String(protagonist.name).trim() : "";
+    const holderName = holder && holder.name ? String(holder.name).trim() : "";
+    let id = String(item.id || "").trim() || "mp-" + String((idx || 0) + 1);
+    while (seenIds && seenIds.has(id)) id = id + "-d";
+    if (seenIds) seenIds.add(id);
+    const authorName = String(item.authorName || item.name || item.author || "").trim();
+    if (!authorName) return null;
+    const text = truncateCharsWithEllipsis(String(item.text || item.content || "").trim(), PHONE_MOMENTS_TEXT_MAX);
+    if (!text) return null;
+    const time = String(item.time || "").trim() || "刚刚";
+    const isHolder = !!item.isHolder || (holderName && authorName === holderName);
+    const isProtagonist =
+      !!item.isProtagonist ||
+      (protagName && (authorName === protagName || String(item.realName || "").trim() === protagName));
+    return {
+      id: id,
+      authorName: authorName,
+      isHolder: isHolder,
+      isProtagonist: isProtagonist,
+      text: text,
+      images: normalizePhoneMomentsImages(item.images),
+      time: time,
+      likes: normalizePhoneMomentsLikes(item.likes),
+      comments: normalizePhoneMomentsComments(item.comments),
+    };
+  }
+
+  function normalizePhoneMomentsBundle(raw, plot, holder) {
+    const postsIn = raw && Array.isArray(raw.posts) ? raw.posts : [];
+    const out = [];
+    const seenIds = new Set();
+    postsIn.forEach(function (item, idx) {
+      const post = normalizePhoneMomentsPostItem(item, plot, holder, idx, seenIds);
+      if (post) out.push(post);
+    });
+    return { posts: out.slice(0, PHONE_MOMENTS_MAX_POSTS), generatedAt: Date.now() };
+  }
+
+  function mergePhoneMomentsIncrement(existing, raw, plot, holder) {
+    const base = (existing && existing.posts ? existing.posts : []).map(function (p) {
+      return {
+        id: p.id,
+        authorName: p.authorName,
+        isHolder: !!p.isHolder,
+        isProtagonist: !!p.isProtagonist,
+        text: p.text,
+        images: (p.images || []).slice(),
+        time: p.time,
+        likes: (p.likes || []).slice(),
+        comments: (p.comments || []).slice(),
+      };
+    });
+    const seenIds = new Set(
+      base.map(function (p) {
+        return p.id;
+      })
+    );
+    const appendIn =
+      raw && Array.isArray(raw.newPosts) ? raw.newPosts : raw && Array.isArray(raw.posts) ? raw.posts : [];
+    const newPosts = [];
+    appendIn.forEach(function (item, idx) {
+      const post = normalizePhoneMomentsPostItem(item, plot, holder, idx, seenIds);
+      if (post) newPosts.push(post);
+    });
+    if (!base.length && raw && Array.isArray(raw.posts) && raw.posts.length) {
+      return preservePhoneSocialAvatarOverrides(normalizePhoneMomentsBundle(raw, plot, holder), existing);
+    }
+    return preservePhoneSocialAvatarOverrides(
+      { posts: newPosts.concat(base).slice(0, PHONE_MOMENTS_MAX_POSTS), generatedAt: Date.now() },
+      existing
+    );
+  }
+
+  function formatPhoneMomentsPostForPrompt(post) {
+    if (!post) return "";
+    const lines = [];
+    lines.push(
+      "- id=" +
+        post.id +
+        "，作者=" +
+        post.authorName +
+        (post.isHolder ? "（手机持有者）" : "") +
+        (post.isProtagonist ? "（我的形象）" : "") +
+        "，time=" +
+        (post.time || "")
+    );
+    lines.push("  正文：" + String(post.text || "").trim());
+    if (post.images && post.images.length) {
+      lines.push(
+        "  配图：" +
+          post.images
+            .map(function (img) {
+              return img.caption || "";
+            })
+            .filter(Boolean)
+            .join("；")
+      );
+    }
+    if (post.likes && post.likes.length) lines.push("  点赞：" + post.likes.join("、"));
+    if (post.comments && post.comments.length) {
+      lines.push(
+        "  评论：" +
+          post.comments
+            .map(function (c) {
+              return c.replyTo
+                ? c.author + " 回复 " + c.replyTo + "：" + c.text
+                : c.author + "：" + c.text;
+            })
+            .join(" | ")
+      );
+    }
+    return lines.join("\n");
+  }
+
+  function buildPhoneWechatContactsBlockForMoments() {
+    if (!hasPhoneWechatGenerated()) {
+      return "（微信联系人尚未生成，请依据剧情参与角色与持有者交际关系推断可能出现在朋友圈的人物。）";
+    }
+    return getPhoneWechatChats()
+      .map(function (c) {
+        return "- " + c.name + (c.isProtagonistChat ? "（与「我的形象」主角相关）" : "");
+      })
+      .join("\n");
+  }
+
+  function buildPhoneMomentsPrompt(plot, holder) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const lines = ["请为「查手机·朋友圈」生成完整 JSON 数据。当前视角：持有者「" + holderName + "」正在刷朋友圈。", ""];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【微信联系人参考（朋友圈作者应优先覆盖这些人物，亦可补充剧情相关路人/同事等）】");
+    lines.push(buildPhoneWechatContactsBlockForMoments());
+    lines.push("");
+    lines.push(
+      "生成要求：\n" +
+        "1. 输出唯一 JSON：{\"posts\":[...]}，posts 至少 " +
+        PHONE_MOMENTS_MIN_POSTS +
+        " 条，按时间倒序（最新在前）。\n" +
+        "2. 必须包含：手机持有者「" +
+        holderName +
+        "」本人至少 1 条（isHolder:true）；「我的形象」主角「" +
+        ctx.protagName +
+        "」至少 1 条（isProtagonist:true）；微信联系人/剧情相关其他人物若干条。\n" +
+        "3. 每条 post 字段：id（英文短 id 唯一）、authorName（显示名）、text（正文≤" +
+        PHONE_MOMENTS_TEXT_MAX +
+        " 字）、time（如 刚刚、3小时前、昨天）、images（可选数组，0～9 项；每项 {\"caption\":\"一句话描述图片内容\"}，无图则 [] 或省略）、likes（点赞者姓名数组，可空）、comments（可选，项含 author、text，回复加 replyTo）、isHolder/isProtagonist 按需。\n" +
+        "4. 点赞与评论须符合各人物性格与彼此关系；评论可互相回复，口语化像真实朋友圈。\n" +
+        "5. 严格贴合剧情、人设、记忆、总结，禁止 OOC；勿编造与上文矛盾的重大情节。\n" +
+        "6. 界面会用灰色方块展示 caption 作为配图，无需真实图片链接。"
+    );
+    return lines.join("\n");
+  }
+
+  function buildPhoneMomentsRegeneratePrompt(plot, holder, existing) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const posts = (existing && existing.posts) || [];
+    const recent = posts.slice(0, PHONE_MOMENTS_REF_POST_LIMIT);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const lines = [
+      "请根据最新剧情，在「已有朋友圈」基础上增量追加；不要删除或覆盖已有动态，只追加新 post。",
+      "当前视角：持有者「" + holderName + "」正在刷朋友圈。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【微信联系人参考】");
+    lines.push(buildPhoneWechatContactsBlockForMoments());
+    lines.push("");
+    lines.push("【已有朋友圈（最近 " + recent.length + " 条，请勿重复）】");
+    if (recent.length) {
+      recent.forEach(function (p) {
+        lines.push(formatPhoneMomentsPostForPrompt(p));
+      });
+    } else {
+      lines.push("（无）");
+    }
+    lines.push("");
+    lines.push(
+      "输出唯一 JSON：{\"newPosts\":[...]}，newPosts 至少 " +
+        PHONE_MOMENTS_MIN_POSTS +
+        " 条，按时间倒序（最新在前）。\n" +
+        "规则：\n" +
+        "1. 只输出新增 post，不要重复已有 id 或实质重复内容；须自然衔接最新剧情。\n" +
+        "2. 仍须覆盖持有者、我的形象主角、微信/剧情相关人物，按最新情况决定谁发新动态。\n" +
+        "3. 字段同首次生成；images 可选；likes/comments 须合理且符合人设，禁止 OOC。\n" +
+        "4. 配图仍用 images[].caption 一句话描述。"
+    );
+    return lines.join("\n");
+  }
+
+  async function generatePhoneMomentsContent(slot) {
+    if (phoneMomentsGenerating || phoneWechatGenerating || phoneAlbumGenerating || phoneForumGenerating || phoneBrowserGenerating) return;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const holder = getPhoneHolderCharacter();
+    if (!plot || !holder) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    preparePhoneStoryDateForGeneration(plot);
+    const key = phoneMomentsStorageKey(plot.id, holder.id);
+    const existing = phoneMomentsData[key] || null;
+    const isRegenerate = !!(existing && existing.posts && existing.posts.length);
+    phoneMomentsGenerating = true;
+    if (slot && getPhoneNav(slot).screen === "moments") renderPhoneScreen(slot);
+    try {
+      showToast(isRegenerate ? "正在追加朋友圈…" : "正在生成朋友圈…", "info");
+      setGenCallContext(buildGenCallOpts("phone-moments", { slot: slot }));
+      const systemPrompt = isRegenerate
+        ? "你是中文互动叙事助手。根据剧情与已有朋友圈数据，增量追加朋友圈 JSON。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          '格式：{"newPosts":[{"id":"唯一英文id","authorName":"...","text":"...","time":"...","images":[{"caption":"..."}],"likes":["..."],"comments":[{"author":"...","text":"...","replyTo":"可选"}],"isHolder":false,"isProtagonist":false}]}'
+        : "你是中文互动叙事助手。根据剧情、人设、记忆与总结，生成「查手机·朋友圈」JSON。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          '格式：{"posts":[{"id":"唯一英文id","authorName":"...","text":"...","time":"...","images":[{"caption":"..."}],"likes":["..."],"comments":[{"author":"...","text":"..."}],"isHolder":false,"isProtagonist":false}]}';
+      const userPrompt = isRegenerate
+        ? buildPhoneMomentsRegeneratePrompt(plot, holder, existing)
+        : buildPhoneMomentsPrompt(plot, holder);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.78,
+        8192
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const bundle = isRegenerate
+        ? mergePhoneMomentsIncrement(existing, parsed, plot, holder)
+        : normalizePhoneMomentsBundle(parsed, plot, holder);
+      if (!bundle.posts || !bundle.posts.length) {
+        throw new Error("未能解析有效的朋友圈内容");
+      }
+      phoneMomentsData[key] = preservePhoneSocialAvatarOverrides(bundle, existing);
+      schedulePersistNarrative();
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) renderPhoneScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      phoneMomentsGenerating = false;
+      if (slot && getPhoneNav(slot).screen === "moments") renderPhoneScreen(slot);
+    }
+  }
+
+  function phoneMomentsMediaGridClass(count) {
+    if (count <= 1) return "single";
+    if (count === 2) return "grid2";
+    if (count === 3) return "grid3";
+    if (count === 4) return "grid4";
+    return "grid9";
+  }
+
+  function formatPhoneMomentsImageCaption(caption) {
+    const text = String(caption || "").trim();
+    if (!text) return "";
+    return "[" + text + "]";
+  }
+
+  function phoneMomentsCaptionFontClass(caption, gridCls) {
+    const len = formatPhoneMomentsImageCaption(caption).length;
+    if (gridCls === "grid9" || gridCls === "grid3") {
+      if (len <= 8) return "phone-moments-post__media-caption--tiny-lg";
+      if (len <= 14) return "phone-moments-post__media-caption--tiny-md";
+      return "phone-moments-post__media-caption--tiny-sm";
+    }
+    if (gridCls === "grid4" || gridCls === "grid2") {
+      if (len <= 10) return "phone-moments-post__media-caption--compact-lg";
+      if (len <= 18) return "phone-moments-post__media-caption--compact-md";
+      return "phone-moments-post__media-caption--compact-sm";
+    }
+    if (len <= 12) return "phone-moments-post__media-caption--single-lg";
+    if (len <= 22) return "phone-moments-post__media-caption--single-md";
+    return "phone-moments-post__media-caption--single-sm";
+  }
+
+  function buildPhoneMomentsPostDeleteBtnHtml(postId) {
+    return (
+      '<button type="button" class="phone-moments-post__delete" data-phone-moments-delete-post="' +
+      escapeHtml(String(postId || "")) +
+      '" aria-label="删除该条朋友圈" title="删除">' +
+      '<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>' +
+      "</button>"
+    );
+  }
+
+  function buildPhoneMomentsPostMediaHtmlFromImages(images) {
+    const imgs = Array.isArray(images) ? images : [];
+    if (!imgs.length) return "";
+    const gridCls = phoneMomentsMediaGridClass(imgs.length);
+    const cells = imgs
+      .map(function (img) {
+        const raw = String((img && img.caption) || "").trim();
+        const display = formatPhoneMomentsImageCaption(raw);
+        const cap = escapeHtml(display);
+        const sizeCls = phoneMomentsCaptionFontClass(raw, gridCls);
+        return (
+          '<span class="phone-moments-post__media-cell phone-moments-post__media-cell--caption">' +
+          '<span class="phone-moments-post__media-caption ' +
+          sizeCls +
+          '">' +
+          cap +
+          "</span></span>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="phone-moments-post__media phone-moments-post__media--' +
+      gridCls +
+      '">' +
+      cells +
+      "</div>"
+    );
+  }
+
+  function buildPhoneMomentsPostPlaceholderMediaHtml(layout) {
+    if (layout === "grid3") {
+      return (
+        '<div class="phone-moments-post__media phone-moments-post__media--grid3" aria-hidden="true">' +
+        '<span class="phone-moments-post__media-cell phone-moments-post__media-cell--placeholder">…</span>' +
+        '<span class="phone-moments-post__media-cell phone-moments-post__media-cell--placeholder">…</span>' +
+        '<span class="phone-moments-post__media-cell phone-moments-post__media-cell--placeholder">…</span>' +
+        "</div>"
+      );
+    }
+    if (layout === "single") {
+      return (
+        '<div class="phone-moments-post__media phone-moments-post__media--single" aria-hidden="true">' +
+        '<span class="phone-moments-post__media-cell phone-moments-post__media-cell--placeholder">…</span>' +
+        "</div>"
+      );
+    }
+    return "";
+  }
+
+  function buildPhoneMomentsSocialHtml(post) {
+    const likes = post && Array.isArray(post.likes) ? post.likes : [];
+    const comments = post && Array.isArray(post.comments) ? post.comments : [];
+    if (!likes.length && !comments.length) return "";
+    let html = '<div class="phone-moments-post__social">';
+    if (likes.length) {
+      html +=
+        '<div class="phone-moments-post__likes">' +
+        '<span class="phone-moments-post__likes-icon" aria-hidden="true">♥</span>' +
+        escapeHtml(likes.join("，")) +
+        "</div>";
+    }
+    if (comments.length) {
+      html +=
+        '<div class="phone-moments-post__comments">' +
+        comments
+          .map(function (c) {
+            const author = escapeHtml(String(c.author || "").trim());
+            const text = escapeHtml(String(c.text || "").trim());
+            const replyTo = String(c.replyTo || "").trim();
+            if (replyTo) {
+              return (
+                '<div class="phone-moments-post__comment">' +
+                '<span class="phone-moments-post__comment-author">' +
+                author +
+                '</span> 回复 <span class="phone-moments-post__comment-author">' +
+                escapeHtml(replyTo) +
+                '</span>：<span class="phone-moments-post__comment-text">' +
+                text +
+                "</span></div>"
+              );
+            }
+            return (
+              '<div class="phone-moments-post__comment">' +
+              '<span class="phone-moments-post__comment-author">' +
+              author +
+              '</span>：<span class="phone-moments-post__comment-text">' +
+              text +
+              "</span></div>"
+            );
+          })
+          .join("") +
+        "</div>";
+    }
+    html += "</div>";
+    return html;
+  }
+
+  function buildPhoneMomentsPostHtml(post, placeholder) {
+    if (placeholder) {
+      return (
+        '<article class="phone-moments-post phone-moments-post--placeholder">' +
+        '<div class="phone-moments-post__head">' +
+        '<span class="phone-moments-post__avatar" aria-hidden="true">…</span>' +
+        '<span class="phone-moments-post__name">…</span>' +
+        "</div>" +
+        '<p class="phone-moments-post__text">…</p>' +
+        buildPhoneMomentsPostPlaceholderMediaHtml(post && post.layout) +
+        '<div class="phone-moments-post__foot">' +
+        '<span class="phone-moments-post__time">…</span>' +
+        '<span class="phone-moments-post__actions" aria-hidden="true">…</span>' +
+        "</div>" +
+        "</article>"
+      );
+    }
+    const name = String(post.authorName || "未命名").trim();
+    return (
+      '<article class="phone-moments-post" data-moments-post-id="' +
+      escapeHtml(String(post.id || "")) +
+      '">' +
+      '<div class="phone-moments-post__head">' +
+      buildPhoneSocialAvatarHtml("phone-moments-post__avatar", {
+        name: name,
+        avatarUrl: resolvePhoneMomentsAuthorAvatarUrl(name),
+        scope: "moments",
+        uploadKind: "author",
+        uploadKey: name,
+        clickable: true,
+      }) +
+      '<span class="phone-moments-post__name">' +
+      escapeHtml(name) +
+      "</span>" +
+      "</div>" +
+      '<p class="phone-moments-post__text phone-moments-post__text--filled">' +
+      escapeHtml(String(post.text || "")) +
+      "</p>" +
+      buildPhoneMomentsPostMediaHtmlFromImages(post.images) +
+      '<div class="phone-moments-post__foot">' +
+      '<span class="phone-moments-post__time">' +
+      escapeHtml(String(post.time || "")) +
+      "</span>" +
+      buildPhoneMomentsPostDeleteBtnHtml(post.id) +
+      "</div>" +
+      buildPhoneMomentsSocialHtml(post) +
+      "</article>"
+    );
+  }
+
+  function buildPhoneMomentsBarHtml() {
+    const loadingCls = phoneMomentsGenerating ? " phone-wechat-gen-btn--loading" : "";
+    return (
+      '<header class="phone-app__bar phone-app__bar--wechat-list">' +
+      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<h2 class="phone-app__title phone-app__title--left">朋友圈</h2>' +
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      loadingCls +
+      '" data-phone-moments-generate aria-label="AI 生成朋友圈内容" title="AI 生成朋友圈内容"' +
+      (phoneMomentsGenerating || phoneWechatGenerating || phoneAlbumGenerating || phoneForumGenerating || phoneBrowserGenerating ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>" +
+      "</header>"
+    );
+  }
+
+  function buildPhoneMomentsHtml() {
+    const placeholder = !hasPhoneMomentsGenerated();
+    const holder = getPhoneHolderCharacter();
+    const coverUrl = getPhoneMomentsCoverUrl();
+    let profileName = "…";
+    let profileInitial = "…";
+    if (holder && (!placeholder || coverUrl)) {
+      profileName = String(holder.name || "").trim() || "未命名";
+      profileInitial = escapeHtml(profileName.slice(0, 1));
+    }
+    const profileAvatarUrl = !placeholder ? getPhoneMomentsProfileAvatarUrl() : "";
+    const posts = placeholder
+      ? PHONE_MOMENTS_PLACEHOLDER_POSTS.map(function (p) {
+          return buildPhoneMomentsPostHtml(p, true);
+        }).join("")
+      : (getPhoneMomentsPosts() || [])
+          .map(function (p) {
+            return buildPhoneMomentsPostHtml(p, false);
+          })
+          .join("");
+    const coverCls =
+      "phone-moments__cover" + (coverUrl ? " phone-moments__cover--has-image" : "");
+    return (
+      '<div class="phone-app phone-moments" aria-label="朋友圈">' +
+      buildPhoneMomentsBarHtml() +
+      '<div class="phone-moments__scroll">' +
+      '<div class="phone-moments__hero">' +
+      '<button type="button" class="' +
+      coverCls +
+      '" data-phone-moments-cover-upload aria-label="点击更换朋友圈封面" title="点击更换朋友圈封面"' +
+      buildPhoneMomentsCoverStyleAttr(coverUrl) +
+      ">" +
+      '<span class="phone-moments__cover-hint">' +
+      (coverUrl ? "点击更换封面" : "点击上传封面") +
+      "</span>" +
+      "</button>" +
+      '<div class="phone-moments__profile">' +
+      '<span class="phone-moments__profile-name' +
+      (placeholder && !coverUrl ? " phone-moments__profile-name--ellipsis" : "") +
+      '">' +
+      escapeHtml(profileName) +
+      "</span>" +
+      (!placeholder
+        ? buildPhoneSocialAvatarHtml("phone-moments__profile-avatar", {
+            name: profileName,
+            avatarUrl: profileAvatarUrl,
+            scope: "moments",
+            uploadKind: "holder",
+            clickable: true,
+            ariaLabel: "更换朋友圈头像",
+          })
+        : '<span class="phone-moments__profile-avatar" aria-hidden="true">' + profileInitial + "</span>") +
+      "</div>" +
+      "</div>" +
+      '<div class="phone-moments__feed">' +
+      posts +
+      "</div>" +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function openPhoneMoments(slot) {
+    const nav = getPhoneNav(slot);
+    nav.screen = "moments";
+    nav.chatId = null;
+    renderPhoneScreen(slot);
+  }
+
+  let phoneMomentsCoverPickSlot = null;
+
+  function openPhoneMomentsCoverPicker(slot) {
+    sanitizePhoneHolderState();
+    const holder = getPhoneHolderCharacter();
+    if (!holder) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    phoneMomentsCoverPickSlot = slot || null;
+    const input = document.getElementById("phone-moments-cover-file");
+    if (input) input.click();
+  }
+
+  let phoneSocialAvatarPick = null;
+
+  function openPhoneSocialAvatarPicker(slot, scope, kind, key) {
+    scope = String(scope || "").trim();
+    kind = String(kind || "").trim();
+    if (scope === "wechat" && !hasPhoneWechatGenerated()) return;
+    if (scope === "moments" && !hasPhoneMomentsGenerated()) return;
+    sanitizePhoneHolderState();
+    const holder = getPhoneHolderCharacter();
+    if (!holder) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    phoneSocialAvatarPick = {
+      slot: slot || null,
+      scope: scope,
+      kind: kind,
+      key: String(key || "").trim(),
+    };
+    const input = document.getElementById("phone-social-avatar-file");
+    if (input) input.click();
+  }
+
+  function bindPhoneSocialAvatarUpload() {
+    let input = document.getElementById("phone-social-avatar-file");
+    if (!input) {
+      input = document.createElement("input");
+      input.type = "file";
+      input.id = "phone-social-avatar-file";
+      input.className = "sr-only";
+      input.accept = "image/*";
+      document.body.appendChild(input);
+    }
+    input.addEventListener("change", async function (e) {
+      const f = e.target.files && e.target.files[0];
+      const pick = phoneSocialAvatarPick;
+      phoneSocialAvatarPick = null;
+      if (!f || !pick) return;
+      try {
+        const url = await readImageAsCompressedDataURL(f, 256, 380000);
+        let ok = false;
+        if (pick.scope === "wechat") {
+          ok = setPhoneWechatAvatarOverride(pick.kind, pick.key, url);
+        } else if (pick.scope === "moments") {
+          ok = setPhoneMomentsAvatarOverride(pick.kind, pick.key, url);
+        }
+        if (!ok) {
+          showToast("头像保存失败", "error");
+          return;
+        }
+        showToast("头像已保存", "success");
+        if (pick.slot) renderPhoneScreen(pick.slot);
+      } catch (_err) {
+        showToast("图片处理失败，请换一张较小的图片重试。", "error");
+      }
+      e.target.value = "";
+    });
+  }
+
+  function bindPhoneMomentsCoverUpload() {
+    let input = document.getElementById("phone-moments-cover-file");
+    if (!input) {
+      input = document.createElement("input");
+      input.type = "file";
+      input.id = "phone-moments-cover-file";
+      input.className = "sr-only";
+      input.accept = "image/*";
+      document.body.appendChild(input);
+    }
+    input.addEventListener("change", async function (e) {
+      const f = e.target.files && e.target.files[0];
+      const slot = phoneMomentsCoverPickSlot;
+      phoneMomentsCoverPickSlot = null;
+      sanitizePhoneHolderState();
+      const plot = plots.find(function (p) {
+        return p.id === phoneHolderPlotId;
+      });
+      const holder = getPhoneHolderCharacter();
+      if (!f || !plot || !holder) return;
+      try {
+        const url = await readImageAsCompressedDataURL(f, 1440, 900000);
+        const key = phoneMomentsStorageKey(plot.id, holder.id);
+        phoneMomentsCovers[key] = url;
+        schedulePersistNarrative();
+        showToast("朋友圈封面已保存", "success");
+        if (slot) renderPhoneScreen(slot);
+      } catch (_err) {
+        showToast("图片处理失败，请换一张较小的图片重试。", "error");
+      }
+      e.target.value = "";
+    });
+  }
+
+  const PHONE_MUSIC_MIN_ITEMS = 8;
+  const PHONE_MUSIC_MAX_RECENT = 64;
+  const PHONE_MUSIC_REF_LIMIT = 12;
+  const PHONE_MUSIC_TITLE_MAX = 48;
+  const PHONE_MUSIC_ARTIST_MAX = 32;
+  const PHONE_MUSIC_LYRIC_MAX = 120;
+
+  const PHONE_MUSIC_PLACEHOLDER_RECENT = [1, 2, 3, 4, 5, 6, 7, 8].map(function (i) {
+    return { id: "mu-ph-" + i };
+  });
+
+  function phoneMusicStorageKey(plotId, charId) {
+    return phoneWechatStorageKey(plotId, charId);
+  }
+
+  function getPhoneMusicStorageKeyForCurrentHolder() {
+    return getPhoneWechatStorageKeyForCurrentHolder();
+  }
+
+  function purgePhoneMusicDataForPlot(plotId) {
+    const pid = String(plotId || "").trim();
+    if (!pid) return;
+    Object.keys(phoneMusicData).forEach(function (k) {
+      if (k.indexOf(pid + "\u001e") === 0) delete phoneMusicData[k];
+    });
+  }
+
+  function purgePhoneMusicDataForChar(charId) {
+    const cid = String(charId || "").trim();
+    if (!cid) return;
+    const suffix = "\u001e" + cid;
+    Object.keys(phoneMusicData).forEach(function (k) {
+      if (k.slice(-suffix.length) === suffix) delete phoneMusicData[k];
+    });
+  }
+
+  function getPhoneMusicBundleRecord() {
+    const key = getPhoneMusicStorageKeyForCurrentHolder();
+    if (!key) return null;
+    const rec = phoneMusicData[key];
+    if (!rec || !Array.isArray(rec.recent) || !rec.recent.length) return null;
+    return rec;
+  }
+
+  function hasPhoneMusicGenerated() {
+    return !!getPhoneMusicBundleRecord();
+  }
+
+  function getPhoneMusicRecentTracks() {
+    const rec = getPhoneMusicBundleRecord();
+    if (rec && rec.recent.length) return rec.recent;
+    return null;
+  }
+
+  function persistPhoneMusicBundle(bundle) {
+    const key = getPhoneMusicStorageKeyForCurrentHolder();
+    if (!key || !bundle) return;
+    phoneMusicData[key] = bundle;
+    schedulePersistNarrative();
+  }
+
+  function syncPhoneMusicNowPlayingId(bundle) {
+    if (!bundle || !Array.isArray(bundle.recent)) return;
+    if (!bundle.recent.length) {
+      bundle.nowPlayingId = null;
+      return;
+    }
+    const id = String(bundle.nowPlayingId || "").trim();
+    if (!id || !bundle.recent.some(function (t) { return t && t.id === id; })) {
+      bundle.nowPlayingId = bundle.recent[0].id;
+    }
+  }
+
+  function getPhoneMusicNowPlayingTrack(bundle) {
+    const rec = bundle || getPhoneMusicBundleRecord();
+    if (!rec || !rec.recent || !rec.recent.length) return null;
+    const id = String(rec.nowPlayingId || "").trim();
+    if (id) {
+      const hit = rec.recent.find(function (t) {
+        return t && t.id === id;
+      });
+      if (hit) return hit;
+    }
+    return rec.recent[0];
+  }
+
+  function normalizePhoneMusicPlayCount(n) {
+    const v = Math.round(Number(n));
+    if (!Number.isFinite(v) || v < 1) return 1;
+    return Math.min(v, 99999);
+  }
+
+  function normalizePhoneMusicTrackItem(item, idx, seenIds) {
+    if (!item || typeof item !== "object") return null;
+    let id = String(item.id || "").trim() || "mu-" + String((idx || 0) + 1);
+    while (seenIds && seenIds.has(id)) id = id + "-d";
+    if (seenIds) seenIds.add(id);
+    const title = truncateCharsWithEllipsis(String(item.title || item.name || "").trim(), PHONE_MUSIC_TITLE_MAX);
+    const artist = truncateCharsWithEllipsis(String(item.artist || item.singer || "").trim(), PHONE_MUSIC_ARTIST_MAX);
+    const lyricSnippet = truncateCharsWithEllipsis(
+      String(item.lyricSnippet || item.lyrics || item.lyric || "").trim(),
+      PHONE_MUSIC_LYRIC_MAX
+    );
+    if (!title || !artist || !lyricSnippet) return null;
+    return {
+      id: id,
+      title: title,
+      artist: artist,
+      lyricSnippet: lyricSnippet,
+      playCount: normalizePhoneMusicPlayCount(item.playCount != null ? item.playCount : item.count),
+      liked: !!item.liked,
+    };
+  }
+
+  function normalizePhoneMusicBundle(raw) {
+    const recentIn = raw && Array.isArray(raw.recent) ? raw.recent : [];
+    const out = [];
+    const seenIds = new Set();
+    recentIn.forEach(function (item, idx) {
+      const track = normalizePhoneMusicTrackItem(item, idx, seenIds);
+      if (track) out.push(track);
+    });
+    const bundle = {
+      recent: out.slice(0, PHONE_MUSIC_MAX_RECENT),
+      nowPlayingId: String(raw && raw.nowPlayingId ? raw.nowPlayingId : "").trim() || null,
+      generatedAt: Date.now(),
+    };
+    syncPhoneMusicNowPlayingId(bundle);
+    return bundle;
+  }
+
+  function mergePhoneMusicIncrement(existing, raw) {
+    const base = (existing && existing.recent ? existing.recent : []).map(function (t) {
+      return {
+        id: t.id,
+        title: t.title,
+        artist: t.artist,
+        lyricSnippet: t.lyricSnippet,
+        playCount: t.playCount,
+        liked: !!t.liked,
+      };
+    });
+    const seenIds = new Set(
+      base.map(function (t) {
+        return t.id;
+      })
+    );
+    const appendIn =
+      raw && Array.isArray(raw.newRecent) ? raw.newRecent : raw && Array.isArray(raw.recent) ? raw.recent : [];
+    const newTracks = [];
+    appendIn.forEach(function (item, idx) {
+      const track = normalizePhoneMusicTrackItem(item, idx, seenIds);
+      if (track) newTracks.push(track);
+    });
+    if (!base.length && raw && Array.isArray(raw.recent) && raw.recent.length) {
+      return normalizePhoneMusicBundle(raw);
+    }
+    const bundle = {
+      recent: newTracks.concat(base).slice(0, PHONE_MUSIC_MAX_RECENT),
+      nowPlayingId:
+        raw && raw.nowPlayingId
+          ? String(raw.nowPlayingId).trim()
+          : existing && existing.nowPlayingId
+            ? existing.nowPlayingId
+            : null,
+      generatedAt: Date.now(),
+    };
+    syncPhoneMusicNowPlayingId(bundle);
+    return bundle;
+  }
+
+  function formatPhoneMusicTrackForPrompt(track) {
+    if (!track) return "";
+    return (
+      "- id=" +
+      track.id +
+      "，《" +
+      track.title +
+      "》-" +
+      track.artist +
+      "，播放" +
+      track.playCount +
+      "次，liked=" +
+      (track.liked ? "true" : "false") +
+      "，歌词片段：" +
+      track.lyricSnippet
+    );
+  }
+
+  function buildPhoneMusicPrompt(plot, holder) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const lines = [
+      "请为「查手机·音乐」生成手机持有者「" + holderName + "」的最近播放记录 JSON。",
+      "视角：持有者本人手机里的听歌记录与正在播放状态。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push(
+      "生成要求：\n" +
+        "1. 输出唯一 JSON：{\"recent\":[...],\"nowPlayingId\":\"当前正在播放的歌曲id\"}，recent 至少 " +
+        PHONE_MUSIC_MIN_ITEMS +
+        " 首，按最近播放时间倒序（最新在前）。\n" +
+        "2. 【重要】每首歌必须是现实生活中真实存在、可在音乐平台查到的作品；title（歌名）与 artist（歌手/乐队）须准确，不得虚构不存在的歌曲或歌手。\n" +
+        "3. lyricSnippet 必须是该首歌真实歌词中的连续片段（1～2 句），不得编造与歌曲无关的文字。\n" +
+        "4. 每条字段：id（英文短 id 唯一）、title、artist、lyricSnippet、playCount（正整数，反映播放次数）、liked（boolean，持有者是否喜欢/收藏，须符合其性格与当前剧情情绪）。\n" +
+        "5. 选曲须贴合持有者人设、剧情氛围、记忆与总结；可含不同语种，但须真实可查。\n" +
+        "6. nowPlayingId 指向 recent 中当前正在播放的一首（通常为最新播放）。\n" +
+        "7. 严格禁止 OOC；不要编造与上文矛盾的听歌动机。"
+    );
+    return lines.join("\n");
+  }
+
+  function buildPhoneMusicRegeneratePrompt(plot, holder, existing) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const recent = (existing && existing.recent) || [];
+    const ref = recent.slice(0, PHONE_MUSIC_REF_LIMIT);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const lines = [
+      "请根据最新剧情，在「已有音乐播放记录」基础上增量追加；不要修改或删除已有条目，只追加新歌曲记录。",
+      "视角：持有者「" + holderName + "」本人手机。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【已有最近播放（请勿重复同一首歌）】");
+    if (ref.length) {
+      ref.forEach(function (t) {
+        lines.push(formatPhoneMusicTrackForPrompt(t));
+      });
+    } else {
+      lines.push("（无）");
+    }
+    lines.push("");
+    lines.push(
+      "输出唯一 JSON：{\"newRecent\":[...],\"nowPlayingId\":\"可选，更新当前播放id\"}，newRecent 至少 " +
+        PHONE_MUSIC_MIN_ITEMS +
+        " 首，按最近播放倒序。\n" +
+        "规则：\n" +
+        "1. 仅追加新歌曲，不要重复已有 id 或同一 title+artist；须自然衔接最新剧情。\n" +
+        "2. 歌曲、歌手、歌词片段必须真实可查，不得虚构。\n" +
+        "3. liked/playCount 须合理；nowPlayingId 可更新为本次正在播放的新歌 id。\n" +
+        "4. 禁止 OOC。"
+    );
+    return lines.join("\n");
+  }
+
+  async function generatePhoneMusicContent(slot) {
+    if (phoneMusicGenerating || phoneWechatGenerating || phoneMomentsGenerating || phoneAlbumGenerating || phoneForumGenerating || phoneBrowserGenerating) return;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const holder = getPhoneHolderCharacter();
+    if (!plot || !holder) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    preparePhoneStoryDateForGeneration(plot);
+    const key = phoneMusicStorageKey(plot.id, holder.id);
+    const existing = phoneMusicData[key] || null;
+    const isRegenerate = !!(existing && existing.recent && existing.recent.length);
+    phoneMusicGenerating = true;
+    if (slot && getPhoneNav(slot).screen === "music") renderPhoneScreen(slot);
+    try {
+      showToast(isRegenerate ? "正在追加音乐记录…" : "正在生成音乐记录…", "info");
+      setGenCallContext(buildGenCallOpts("phone-music", { slot: slot }));
+      const systemPrompt = isRegenerate
+        ? "你是中文互动叙事助手。根据剧情与已有音乐播放数据，增量追加真实歌曲记录 JSON。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          "歌曲必须是真实存在的，歌词片段必须来自该歌真实歌词。\n" +
+          '格式：{"newRecent":[{"id":"唯一id","title":"歌名","artist":"歌手","lyricSnippet":"真实歌词片段","playCount":12,"liked":true}],"nowPlayingId":"可选"}'
+        : "你是中文互动叙事助手。根据剧情与人设，生成「查手机·音乐」真实歌曲播放记录 JSON。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          "歌曲必须是真实存在的，歌词片段必须来自该歌真实歌词。\n" +
+          '格式：{"recent":[{"id":"唯一id","title":"歌名","artist":"歌手","lyricSnippet":"真实歌词片段","playCount":12,"liked":false}],"nowPlayingId":"当前播放id"}';
+      const userPrompt = isRegenerate
+        ? buildPhoneMusicRegeneratePrompt(plot, holder, existing)
+        : buildPhoneMusicPrompt(plot, holder);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.72,
+        8192
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const bundle = isRegenerate
+        ? mergePhoneMusicIncrement(existing, parsed)
+        : normalizePhoneMusicBundle(parsed);
+      if (!bundle.recent || !bundle.recent.length) {
+        throw new Error("未能解析有效的音乐记录");
+      }
+      phoneMusicData[key] = bundle;
+      schedulePersistNarrative();
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) renderPhoneScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      phoneMusicGenerating = false;
+      if (slot && getPhoneNav(slot).screen === "music") renderPhoneScreen(slot);
+    }
+  }
+
+  function deletePhoneMusicTracks(trackIds) {
+    const key = getPhoneMusicStorageKeyForCurrentHolder();
+    if (!key) return false;
+    const bundle = phoneMusicData[key];
+    if (!bundle || !Array.isArray(bundle.recent)) return false;
+    const remove = {};
+    (trackIds || []).forEach(function (id) {
+      const s = String(id || "").trim();
+      if (s) remove[s] = true;
+    });
+    if (!Object.keys(remove).length) return false;
+    const before = bundle.recent.length;
+    bundle.recent = bundle.recent.filter(function (t) {
+      return t && !remove[t.id];
+    });
+    if (bundle.recent.length === before) return false;
+    syncPhoneMusicNowPlayingId(bundle);
+    persistPhoneMusicBundle(bundle);
+    return true;
+  }
+
+  function deletePhoneMusicTrack(trackId) {
+    return deletePhoneMusicTracks([trackId]);
+  }
+
+  async function handlePhoneMusicDeleteTrack(slot, trackId) {
+    if (!hasPhoneMusicGenerated()) return;
+    const id = String(trackId || "").trim();
+    if (!id) return;
+    const tracks = getPhoneMusicRecentTracks() || [];
+    const track = tracks.find(function (t) {
+      return t && t.id === id;
+    });
+    const label = track ? "《" + track.title + "》" : "该歌曲";
+    closePhoneRowSwipe(slot);
+    const ok = await showConfirm("确定从最近播放中删除" + label + "吗？", "删除记录");
+    if (!ok) return;
+    if (!deletePhoneMusicTrack(id)) {
+      showToast("删除失败", "error");
+      return;
+    }
+    showToast("已删除播放记录", "success");
+    if (slot) renderPhoneScreen(slot);
+  }
+
+  function buildPhoneMusicBarHtml() {
+    const loadingCls = phoneMusicGenerating ? " phone-wechat-gen-btn--loading" : "";
+    return (
+      '<header class="phone-app__bar phone-app__bar--wechat-list">' +
+      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<h2 class="phone-app__title phone-app__title--left">音乐</h2>' +
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      loadingCls +
+      '" data-phone-music-generate aria-label="AI 生成音乐数据" title="AI 生成音乐数据"' +
+      (phoneMusicGenerating || phoneWechatGenerating || phoneMomentsGenerating || phoneAlbumGenerating || phoneForumGenerating || phoneBrowserGenerating ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>" +
+      "</header>"
+    );
+  }
+
+  function buildPhoneMusicHeartHtml(liked) {
+    const cls =
+      "phone-music-row__like" + (liked ? " phone-music-row__like--active" : "");
+    if (liked) {
+      return (
+        '<span class="' +
+        cls +
+        '" aria-hidden="true">' +
+        '<svg class="icon-linear" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>' +
+        "</span>"
+      );
+    }
+    return (
+      '<span class="' +
+      cls +
+      '" aria-hidden="true">' +
+      '<svg class="icon-linear" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>' +
+      "</span>"
+    );
+  }
+
+  function buildPhoneMusicNowPlayingHtml(track, placeholder) {
+    const title = placeholder ? "…" : escapeHtml(String((track && track.title) || "未知歌曲"));
+    const sub = placeholder
+      ? "…"
+      : escapeHtml(String((track && track.lyricSnippet) || (track && track.artist) || ""));
+    const subCls = placeholder ? "" : " phone-music-player__artist--lyric";
+    return (
+      '<footer class="phone-music-player" aria-label="正在播放">' +
+      '<span class="phone-music-player__cover" aria-hidden="true">' +
+      '<svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="16" r="2"/></svg>' +
+      "</span>" +
+      '<span class="phone-music-player__body">' +
+      '<span class="phone-music-player__title">' +
+      title +
+      "</span>" +
+      '<span class="phone-music-player__artist' +
+      subCls +
+      '">' +
+      sub +
+      "</span>" +
+      "</span>" +
+      '<span class="phone-music-player__controls" aria-hidden="true">' +
+      '<span class="phone-music-player__eq">' +
+      '<span></span><span></span><span></span>' +
+      "</span>" +
+      '<span class="phone-music-player__play">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>' +
+      "</span>" +
+      "</span>" +
+      "</footer>"
+    );
+  }
+
+  function buildPhoneMusicRowInnerHtml(track, placeholder) {
+    if (placeholder) {
+      return (
+        '<div class="phone-music-row">' +
+        '<span class="phone-music-row__cover" aria-hidden="true">' +
+        '<svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="16" r="2"/></svg>' +
+        "</span>" +
+        '<span class="phone-music-row__body">' +
+        '<span class="phone-music-row__title">…</span>' +
+        '<span class="phone-music-row__artist">…</span>' +
+        "</span>" +
+        '<span class="phone-music-row__meta">' +
+        buildPhoneMusicHeartHtml(false) +
+        '<span class="phone-music-row__count">…次</span>' +
+        "</span>" +
+        "</div>"
+      );
+    }
+    return (
+      '<div class="phone-music-row">' +
+      '<span class="phone-music-row__cover" aria-hidden="true">' +
+      '<svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="16" r="2"/></svg>' +
+      "</span>" +
+      '<span class="phone-music-row__body">' +
+      '<span class="phone-music-row__title phone-music-row__title--filled">' +
+      escapeHtml(String(track.title || "")) +
+      "</span>" +
+      '<span class="phone-music-row__artist phone-music-row__artist--filled">' +
+      escapeHtml(String(track.artist || "")) +
+      "</span>" +
+      "</span>" +
+      '<span class="phone-music-row__meta">' +
+      buildPhoneMusicHeartHtml(!!track.liked) +
+      '<span class="phone-music-row__count">' +
+      escapeHtml(String(track.playCount || 1)) +
+      "次</span>" +
+      "</span>" +
+      "</div>"
+    );
+  }
+
+  function buildPhoneMusicRowHtml(track, placeholder) {
+    if (placeholder) {
+      return buildPhoneMusicRowInnerHtml(track, true);
+    }
+    return (
+      '<div class="phone-music-row-wrap">' +
+      '<button type="button" class="phone-music-row__delete" data-phone-music-delete-track="' +
+      escapeHtml(String(track.id || "")) +
+      '" aria-label="删除播放记录">删除</button>' +
+      '<div class="phone-music-row__slide">' +
+      buildPhoneMusicRowInnerHtml(track, false) +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function buildPhoneMusicHtml() {
+    const placeholder = !hasPhoneMusicGenerated();
+    const tracks = placeholder ? PHONE_MUSIC_PLACEHOLDER_RECENT : getPhoneMusicRecentTracks() || [];
+    const rows = tracks
+      .map(function (t) {
+        return buildPhoneMusicRowHtml(t, placeholder);
+      })
+      .join("");
+    const nowPlaying = placeholder ? null : getPhoneMusicNowPlayingTrack();
+    return (
+      '<div class="phone-app phone-music" aria-label="音乐">' +
+      buildPhoneMusicBarHtml() +
+      '<div class="phone-music__scroll">' +
+      '<div class="phone-music__section">' +
+      '<h3 class="phone-music__section-title">最近播放</h3>' +
+      '<div class="phone-music__list">' +
+      rows +
+      "</div>" +
+      "</div>" +
+      "</div>" +
+      buildPhoneMusicNowPlayingHtml(nowPlaying, placeholder) +
+      "</div>"
+    );
+  }
+
+  function openPhoneMusic(slot) {
+    const nav = getPhoneNav(slot);
+    nav.screen = "music";
+    nav.chatId = null;
+    renderPhoneScreen(slot);
+  }
+
+  const PHONE_ALBUM_CATEGORIES = [
+    { id: "camera", label: "拍摄" },
+    { id: "screenshot", label: "截图" },
+    { id: "download", label: "下载" },
+    { id: "file", label: "文件" },
+    { id: "video", label: "视频" },
+    { id: "favorite", label: "收藏" },
+    { id: "hidden", label: "隐藏" },
+  ];
+
+  const PHONE_ALBUM_MIN_PER_CATEGORY = 5;
+  const PHONE_ALBUM_MAX_PER_CATEGORY = 80;
+  const PHONE_ALBUM_CAPTION_MAX = 5;
+  const PHONE_ALBUM_DESC_MAX = 50;
+  const PHONE_ALBUM_REF_PER_CATEGORY = 4;
+  const PHONE_ALBUM_PLACEHOLDER_COUNT = 12;
+
+  function phoneAlbumStorageKey(plotId, charId) {
+    return phoneWechatStorageKey(plotId, charId);
+  }
+
+  function getPhoneAlbumStorageKeyForCurrentHolder() {
+    return getPhoneWechatStorageKeyForCurrentHolder();
+  }
+
+  function purgePhoneAlbumDataForPlot(plotId) {
+    const pid = String(plotId || "").trim();
+    if (!pid) return;
+    Object.keys(phoneAlbumData).forEach(function (k) {
+      if (k.indexOf(pid + "\u001e") === 0) delete phoneAlbumData[k];
+    });
+  }
+
+  function purgePhoneAlbumDataForChar(charId) {
+    const cid = String(charId || "").trim();
+    if (!cid) return;
+    const suffix = "\u001e" + cid;
+    Object.keys(phoneAlbumData).forEach(function (k) {
+      if (k.slice(-suffix.length) === suffix) delete phoneAlbumData[k];
+    });
+  }
+
+  function createEmptyPhoneAlbumByCategory() {
+    const out = Object.create(null);
+    PHONE_ALBUM_CATEGORIES.forEach(function (c) {
+      out[c.id] = [];
+    });
+    return out;
+  }
+
+  function clonePhoneAlbumByCategory(byCategory) {
+    const out = createEmptyPhoneAlbumByCategory();
+    PHONE_ALBUM_CATEGORIES.forEach(function (c) {
+      out[c.id] = (byCategory && byCategory[c.id] ? byCategory[c.id] : []).map(function (p) {
+        return {
+          id: p.id,
+          categoryId: p.categoryId,
+          emoji: p.emoji || "",
+          caption: p.caption || "",
+          description: p.description || "",
+          personName: p.personName || "",
+        };
+      });
+    });
+    return out;
+  }
+
+  function collectPhoneAlbumSeenIds(byCategory) {
+    const seen = new Set();
+    PHONE_ALBUM_CATEGORIES.forEach(function (c) {
+      (byCategory[c.id] || []).forEach(function (p) {
+        if (p && p.id) seen.add(p.id);
+      });
+    });
+    return seen;
+  }
+
+  function normalizePhoneAlbumCategoryId(raw) {
+    const id = String(raw || "").trim();
+    if (PHONE_ALBUM_CATEGORIES.some(function (c) {
+      return c.id === id;
+    })) {
+      return id;
+    }
+    const hit = PHONE_ALBUM_CATEGORIES.find(function (c) {
+      return c.label === id;
+    });
+    return hit ? hit.id : null;
+  }
+
+  function normalizePhoneAlbumPhotoItem(item, idx, seenIds) {
+    if (!item || typeof item !== "object") return null;
+    const categoryId = normalizePhoneAlbumCategoryId(item.category || item.categoryId);
+    if (!categoryId) return null;
+    let id = String(item.id || "").trim() || "alb-" + String((idx || 0) + 1);
+    while (seenIds && seenIds.has(id)) id = id + "-d";
+    if (seenIds) seenIds.add(id);
+    const caption = truncateCharsWithEllipsis(String(item.caption || item.summary || "").trim(), PHONE_ALBUM_CAPTION_MAX);
+    const description = truncateCharsWithEllipsis(
+      String(item.description || item.desc || item.detail || "").trim(),
+      PHONE_ALBUM_DESC_MAX
+    );
+    const personName = String(item.personName || item.person || item.characterName || "").trim();
+    let emoji = String(item.emoji || "").trim();
+    if (personName) {
+      emoji = "";
+    } else if (!emoji) {
+      emoji = "🖼";
+    }
+    if (!caption || !description) return null;
+    return {
+      id: id,
+      categoryId: categoryId,
+      emoji: emoji,
+      caption: caption,
+      description: description,
+      personName: personName,
+    };
+  }
+
+  function assertPhoneAlbumMinPerCategory(byCategory, labelPrefix) {
+    PHONE_ALBUM_CATEGORIES.forEach(function (c) {
+      const n = (byCategory[c.id] || []).length;
+      if (n < PHONE_ALBUM_MIN_PER_CATEGORY) {
+        throw new Error(
+          (labelPrefix || "") + "分类「" + c.label + "」照片不足 " + PHONE_ALBUM_MIN_PER_CATEGORY + " 张"
+        );
+      }
+    });
+  }
+
+  function normalizePhoneAlbumBundle(raw) {
+    const byCategory = createEmptyPhoneAlbumByCategory();
+    const seenIds = new Set();
+    const photosIn = raw && Array.isArray(raw.photos) ? raw.photos : [];
+    photosIn.forEach(function (item, idx) {
+      const photo = normalizePhoneAlbumPhotoItem(item, idx, seenIds);
+      if (photo && byCategory[photo.categoryId]) byCategory[photo.categoryId].push(photo);
+    });
+    assertPhoneAlbumMinPerCategory(byCategory, "");
+    PHONE_ALBUM_CATEGORIES.forEach(function (c) {
+      byCategory[c.id] = byCategory[c.id].slice(0, PHONE_ALBUM_MAX_PER_CATEGORY);
+    });
+    return { byCategory: byCategory, generatedAt: Date.now() };
+  }
+
+  function mergePhoneAlbumIncrement(existing, raw) {
+    const base = clonePhoneAlbumByCategory(existing && existing.byCategory ? existing.byCategory : null);
+    const seenIds = collectPhoneAlbumSeenIds(base);
+    const appendIn =
+      raw && Array.isArray(raw.newPhotos)
+        ? raw.newPhotos
+        : raw && Array.isArray(raw.photos)
+          ? raw.photos
+          : [];
+    const addedByCategory = createEmptyPhoneAlbumByCategory();
+    appendIn.forEach(function (item, idx) {
+      const photo = normalizePhoneAlbumPhotoItem(item, idx, seenIds);
+      if (!photo) return;
+      base[photo.categoryId].push(photo);
+      addedByCategory[photo.categoryId].push(photo);
+    });
+    const hadExisting =
+      existing &&
+      existing.byCategory &&
+      PHONE_ALBUM_CATEGORIES.some(function (c) {
+        return existing.byCategory[c.id] && existing.byCategory[c.id].length;
+      });
+    if (!hadExisting && raw && Array.isArray(raw.photos) && raw.photos.length) {
+      return normalizePhoneAlbumBundle(raw);
+    }
+    PHONE_ALBUM_CATEGORIES.forEach(function (c) {
+      if ((addedByCategory[c.id] || []).length < PHONE_ALBUM_MIN_PER_CATEGORY) {
+        throw new Error("追加后分类「" + c.label + "」新增照片不足 " + PHONE_ALBUM_MIN_PER_CATEGORY + " 张");
+      }
+      base[c.id] = base[c.id].slice(0, PHONE_ALBUM_MAX_PER_CATEGORY);
+    });
+    return { byCategory: base, generatedAt: Date.now() };
+  }
+
+  function getPhoneAlbumBundleRecord() {
+    const key = getPhoneAlbumStorageKeyForCurrentHolder();
+    if (!key) return null;
+    const rec = phoneAlbumData[key];
+    if (!rec || !rec.byCategory || typeof rec.byCategory !== "object") return null;
+    const hasAny = PHONE_ALBUM_CATEGORIES.some(function (c) {
+      return rec.byCategory[c.id] && rec.byCategory[c.id].length;
+    });
+    if (!hasAny) return null;
+    return rec;
+  }
+
+  function hasPhoneAlbumGenerated() {
+    return !!getPhoneAlbumBundleRecord();
+  }
+
+  function getPhoneAlbumPhotos(categoryId) {
+    const rec = getPhoneAlbumBundleRecord();
+    if (!rec) return null;
+    const list = rec.byCategory[categoryId];
+    return list && list.length ? list : null;
+  }
+
+  function findPhoneAlbumPhoto(photoId) {
+    const rec = getPhoneAlbumBundleRecord();
+    const id = String(photoId || "").trim();
+    if (!rec || !id) return null;
+    for (let i = 0; i < PHONE_ALBUM_CATEGORIES.length; i++) {
+      const catId = PHONE_ALBUM_CATEGORIES[i].id;
+      const list = rec.byCategory[catId] || [];
+      const hit = list.find(function (p) {
+        return p && p.id === id;
+      });
+      if (hit) return { photo: hit, categoryId: catId, bundle: rec };
+    }
+    return null;
+  }
+
+  function persistPhoneAlbumBundle(bundle) {
+    const key = getPhoneAlbumStorageKeyForCurrentHolder();
+    if (!key || !bundle) return;
+    phoneAlbumData[key] = bundle;
+    schedulePersistNarrative();
+  }
+
+  function formatPhoneAlbumPhotoForPrompt(photo) {
+    if (!photo) return "";
+    const cat = PHONE_ALBUM_CATEGORIES.find(function (c) {
+      return c.id === photo.categoryId;
+    });
+    return (
+      "- id=" +
+      photo.id +
+      "，分类=" +
+      (cat ? cat.label : photo.categoryId) +
+      "，概括=" +
+      photo.caption +
+      "，描述=" +
+      photo.description +
+      (photo.personName ? "，人物=" + photo.personName : photo.emoji ? "，emoji=" + photo.emoji : "")
+    );
+  }
+
+  function buildPhoneAlbumPrompt(plot, holder) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const catList = PHONE_ALBUM_CATEGORIES.map(function (c) {
+      return c.id + "（" + c.label + "）";
+    }).join("、");
+    const lines = [
+      "请为「查手机·相册」生成手机持有者「" + holderName + "」相册 JSON。",
+      "视角：持有者本人手机里保存/拍摄/收藏的照片与视频缩略图记录。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push(
+      "生成要求：\n" +
+        "1. 输出唯一 JSON：{\"photos\":[...]}，photos 须覆盖全部 7 个分类：" +
+        catList +
+        "；每个分类至少 " +
+        PHONE_ALBUM_MIN_PER_CATEGORY +
+        " 张。\n" +
+        "2. 每条字段：id（英文短 id 唯一）、category（分类 id，取 camera/screenshot/download/file/video/favorite/hidden）、caption（≤" +
+        PHONE_ALBUM_CAPTION_MAX +
+        " 字，网格下方短概括）、description（≤" +
+        PHONE_ALBUM_DESC_MAX +
+        " 字，点开后的简要介绍）。\n" +
+        "3. 若照片含剧情人物出镜：填 personName（人物真名/常用名），此时不要填 emoji；界面缩略图统一显示 📷。\n" +
+        "4. 若无人物出镜：填 emoji（单个 emoji 表示画面主题，如 🌸🍜🐱），不要填 personName。\n" +
+        "5. 分类含义：camera=相机拍摄；screenshot=屏幕截图；download=下载保存；file=聊天/传输文件图；video=视频缩略；favorite=收藏；hidden=隐藏/私密。\n" +
+        "6. 内容须贴合持有者人设、剧情、记忆与总结；禁止 OOC；描述像真实手机相册里的回忆片段。"
+    );
+    return lines.join("\n");
+  }
+
+  function buildPhoneAlbumRegeneratePrompt(plot, holder, existing) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const byCategory = (existing && existing.byCategory) || createEmptyPhoneAlbumByCategory();
+    const lines = [
+      "请根据最新剧情，在「已有相册数据」基础上增量追加；不要修改或删除已有照片，只追加新条目。",
+      "视角：持有者「" + holderName + "」本人手机相册。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【已有相册摘要（请勿重复 id 或相同概括+描述）】");
+    PHONE_ALBUM_CATEGORIES.forEach(function (c) {
+      const list = (byCategory[c.id] || []).slice(0, PHONE_ALBUM_REF_PER_CATEGORY);
+      lines.push("- " + c.label + "（" + (byCategory[c.id] || []).length + " 张）");
+      if (list.length) {
+        list.forEach(function (p) {
+          lines.push("  " + formatPhoneAlbumPhotoForPrompt(Object.assign({}, p, { categoryId: c.id })));
+        });
+      } else {
+        lines.push("  （无）");
+      }
+    });
+    lines.push("");
+    lines.push(
+      "输出唯一 JSON：{\"newPhotos\":[...]}，newPhotos 须覆盖全部 7 个分类，每个分类至少新增 " +
+        PHONE_ALBUM_MIN_PER_CATEGORY +
+        " 张。\n" +
+        "规则：\n" +
+        "1. 仅追加新照片，不要重复已有 id；须自然衔接最新剧情。\n" +
+        "2. 字段同首次生成：category、caption（≤" +
+        PHONE_ALBUM_CAPTION_MAX +
+        " 字）、description（≤" +
+        PHONE_ALBUM_DESC_MAX +
+        " 字）、personName 或 emoji。\n" +
+        "3. 禁止 OOC。"
+    );
+    return lines.join("\n");
+  }
+
+  async function generatePhoneAlbumContent(slot) {
+    if (phoneAlbumGenerating || phoneWechatGenerating || phoneMomentsGenerating || phoneMusicGenerating || phoneForumGenerating || phoneBrowserGenerating) return;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const holder = getPhoneHolderCharacter();
+    if (!plot || !holder) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    preparePhoneStoryDateForGeneration(plot);
+    const key = phoneAlbumStorageKey(plot.id, holder.id);
+    const existing = phoneAlbumData[key] || null;
+    const isRegenerate = !!(existing && existing.byCategory && PHONE_ALBUM_CATEGORIES.some(function (c) {
+      return existing.byCategory[c.id] && existing.byCategory[c.id].length;
+    }));
+    phoneAlbumGenerating = true;
+    if (slot && getPhoneNav(slot).screen === "album") renderPhoneScreen(slot);
+    try {
+      showToast(isRegenerate ? "正在追加相册…" : "正在生成相册…", "info");
+      setGenCallContext(buildGenCallOpts("phone-album", { slot: slot }));
+      const systemPrompt = isRegenerate
+        ? "你是中文互动叙事助手。根据剧情与已有相册数据，增量追加相册 JSON。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          '格式：{"newPhotos":[{"id":"唯一id","category":"camera|screenshot|download|file|video|favorite|hidden","caption":"≤5字","description":"≤50字","emoji":"可选","personName":"可选"}]}'
+        : "你是中文互动叙事助手。根据剧情与人设，生成「查手机·相册」JSON。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          '格式：{"photos":[{"id":"唯一id","category":"camera|screenshot|download|file|video|favorite|hidden","caption":"≤5字","description":"≤50字","emoji":"可选","personName":"可选"}]}';
+      const userPrompt = isRegenerate
+        ? buildPhoneAlbumRegeneratePrompt(plot, holder, existing)
+        : buildPhoneAlbumPrompt(plot, holder);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.76,
+        16384
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const bundle = isRegenerate
+        ? mergePhoneAlbumIncrement(existing, parsed)
+        : normalizePhoneAlbumBundle(parsed);
+      phoneAlbumData[key] = bundle;
+      schedulePersistNarrative();
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) renderPhoneScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      phoneAlbumGenerating = false;
+      if (slot && getPhoneNav(slot).screen === "album") renderPhoneScreen(slot);
+    }
+  }
+
+  function getPhoneAlbumActiveCategory(nav) {
+    const id = String((nav && nav.albumCategory) || "").trim();
+    if (PHONE_ALBUM_CATEGORIES.some(function (c) {
+      return c.id === id;
+    })) {
+      return id;
+    }
+    return PHONE_ALBUM_CATEGORIES[0].id;
+  }
+
+  function buildPhoneAlbumThumbSymbolHtml(photo, placeholder) {
+    if (placeholder) {
+      return '<span class="phone-album__emoji">…</span>';
+    }
+    const personName = String(photo.personName || "").trim();
+    if (personName) {
+      return '<span class="phone-album__emoji">📷</span>';
+    }
+    const emoji = String(photo.emoji || "").trim() || "🖼";
+    return '<span class="phone-album__emoji">' + escapeHtml(emoji) + "</span>";
+  }
+
+  function buildPhoneAlbumBarHtml() {
+    const loadingCls = phoneAlbumGenerating ? " phone-wechat-gen-btn--loading" : "";
+    return (
+      '<header class="phone-app__bar phone-app__bar--wechat-list">' +
+      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<h2 class="phone-app__title phone-app__title--left">相册</h2>' +
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      loadingCls +
+      '" data-phone-album-generate aria-label="AI 生成相册内容" title="AI 生成相册内容"' +
+      (phoneAlbumGenerating || phoneWechatGenerating || phoneMomentsGenerating || phoneMusicGenerating || phoneForumGenerating || phoneBrowserGenerating ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>" +
+      "</header>"
+    );
+  }
+
+  function buildPhoneAlbumCategoryTabsHtml(activeCategoryId) {
+    return (
+      '<div class="phone-album__tabs-wrap" aria-label="相册分类">' +
+      '<div class="phone-album__tabs" role="tablist">' +
+      PHONE_ALBUM_CATEGORIES.map(function (cat) {
+        const active = cat.id === activeCategoryId;
+        return (
+          '<button type="button" class="phone-album__tab' +
+          (active ? " phone-album__tab--active" : "") +
+          '" role="tab" aria-selected="' +
+          (active ? "true" : "false") +
+          '" data-phone-album-category="' +
+          escapeHtml(cat.id) +
+          '">' +
+          escapeHtml(cat.label) +
+          "</button>"
+        );
+      }).join("") +
+      "</div></div>"
+    );
+  }
+
+  function buildPhoneAlbumPhotoCellHtml(photo, placeholder) {
+    if (placeholder) {
+      return (
+        '<div class="phone-album__item phone-album__item--placeholder">' +
+        '<div class="phone-album__thumb" aria-hidden="true">' +
+        '<span class="phone-album__emoji">…</span>' +
+        "</div>" +
+        '<p class="phone-album__caption">…</p>' +
+        "</div>"
+      );
+    }
+    return (
+      '<button type="button" class="phone-album__item" data-phone-album-photo="' +
+      escapeHtml(String(photo.id || "")) +
+      '" aria-label="查看照片：' +
+      escapeHtml(String(photo.caption || "")) +
+      '">' +
+      '<div class="phone-album__thumb" aria-hidden="true">' +
+      buildPhoneAlbumThumbSymbolHtml(photo, false) +
+      "</div>" +
+      '<p class="phone-album__caption phone-album__caption--filled">' +
+      escapeHtml(String(photo.caption || "")) +
+      "</p>" +
+      "</button>"
+    );
+  }
+
+  function buildPhoneAlbumGridHtml(categoryId, placeholder) {
+    const photos = placeholder ? null : getPhoneAlbumPhotos(categoryId);
+    let cells = "";
+    if (placeholder || !photos) {
+      for (let i = 0; i < PHONE_ALBUM_PLACEHOLDER_COUNT; i++) {
+        cells += buildPhoneAlbumPhotoCellHtml(null, true);
+      }
+    } else {
+      photos.forEach(function (p) {
+        cells += buildPhoneAlbumPhotoCellHtml(p, false);
+      });
+    }
+    return '<div class="phone-album__grid">' + cells + "</div>";
+  }
+
+  function buildPhoneAlbumDetailHtml(slot, nav) {
+    const photoId = String((nav && nav.albumPhotoId) || "").trim();
+    if (!photoId) return "";
+    const hit = findPhoneAlbumPhoto(photoId);
+    if (!hit) return "";
+    const photo = hit.photo;
+    const editing = !!(nav && nav.albumPhotoEdit);
+    const desc = String(photo.description || "").trim();
+    let bodyHtml = "";
+    if (editing) {
+      bodyHtml =
+        '<label class="phone-album-detail__edit-label">' +
+        '<span class="sr-only">编辑照片描述</span>' +
+        '<textarea class="phone-album-detail__edit" maxlength="' +
+        PHONE_ALBUM_DESC_MAX +
+        '" rows="3" data-phone-album-edit-input>' +
+        escapeHtml(desc) +
+        "</textarea>" +
+        "</label>" +
+        '<div class="phone-album-detail__edit-actions">' +
+        '<button type="button" class="btn btn--secondary btn--pill phone-album-detail__btn" data-phone-album-edit-cancel>取消</button>' +
+        '<button type="button" class="btn btn--primary btn--pill phone-album-detail__btn" data-phone-album-edit-save>保存</button>' +
+        "</div>";
+    } else {
+      bodyHtml =
+        '<blockquote class="phone-album-detail__quote">「' +
+        escapeHtml(desc) +
+        "」</blockquote>" +
+        '<div class="phone-album-detail__actions">' +
+        '<button type="button" class="btn btn--secondary btn--pill phone-album-detail__btn" data-phone-album-edit-desc>编辑描述</button>' +
+        '<button type="button" class="btn btn--danger btn--pill phone-album-detail__btn" data-phone-album-delete-photo>删除照片</button>' +
+        "</div>";
+    }
+    return (
+      '<div class="phone-album-detail" role="dialog" aria-modal="true" aria-label="照片详情">' +
+      '<button type="button" class="phone-album-detail__backdrop" data-phone-album-detail-close aria-label="关闭"></button>' +
+      '<div class="phone-album-detail__sheet">' +
+      '<button type="button" class="phone-album-detail__close" data-phone-album-detail-close aria-label="关闭">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      "</button>" +
+      '<div class="phone-album-detail__thumb">' +
+      buildPhoneAlbumThumbSymbolHtml(photo, false) +
+      "</div>" +
+      '<p class="phone-album-detail__caption">' +
+      escapeHtml(String(photo.caption || "")) +
+      "</p>" +
+      bodyHtml +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function buildPhoneAlbumHtml(slot) {
+    const nav = getPhoneNav(slot);
+    const activeCategoryId = getPhoneAlbumActiveCategory(nav);
+    const placeholder = !hasPhoneAlbumGenerated();
+    return (
+      '<div class="phone-app phone-album" aria-label="相册">' +
+      buildPhoneAlbumBarHtml() +
+      buildPhoneAlbumCategoryTabsHtml(activeCategoryId) +
+      '<div class="phone-album__scroll">' +
+      buildPhoneAlbumGridHtml(activeCategoryId, placeholder) +
+      "</div>" +
+      buildPhoneAlbumDetailHtml(slot, nav) +
+      "</div>"
+    );
+  }
+
+  function openPhoneAlbum(slot) {
+    const nav = getPhoneNav(slot);
+    nav.screen = "album";
+    nav.chatId = null;
+    if (!nav.albumCategory) nav.albumCategory = PHONE_ALBUM_CATEGORIES[0].id;
+    renderPhoneScreen(slot);
+  }
+
+  function switchPhoneAlbumCategory(slot, categoryId) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "album") return;
+    const id = String(categoryId || "").trim();
+    if (!PHONE_ALBUM_CATEGORIES.some(function (c) {
+      return c.id === id;
+    })) {
+      return;
+    }
+    nav.albumCategory = id;
+    nav.albumPhotoId = null;
+    nav.albumPhotoEdit = false;
+    renderPhoneScreen(slot);
+  }
+
+  function openPhoneAlbumPhotoDetail(slot, photoId) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "album" || !hasPhoneAlbumGenerated()) return;
+    const id = String(photoId || "").trim();
+    if (!id || !findPhoneAlbumPhoto(id)) return;
+    nav.albumPhotoId = id;
+    nav.albumPhotoEdit = false;
+    renderPhoneScreen(slot);
+  }
+
+  function closePhoneAlbumPhotoDetail(slot) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "album") return;
+    nav.albumPhotoId = null;
+    nav.albumPhotoEdit = false;
+    renderPhoneScreen(slot);
+  }
+
+  function togglePhoneAlbumPhotoEdit(slot, editing) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "album" || !nav.albumPhotoId) return;
+    nav.albumPhotoEdit = !!editing;
+    renderPhoneScreen(slot);
+    if (nav.albumPhotoEdit && slot) {
+      const input = slot.querySelector("[data-phone-album-edit-input]");
+      if (input) {
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
+    }
+  }
+
+  function savePhoneAlbumPhotoDescription(slot, text) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "album" || !nav.albumPhotoId) return;
+    const hit = findPhoneAlbumPhoto(nav.albumPhotoId);
+    if (!hit) return;
+    const next = truncateCharsWithEllipsis(String(text || "").trim(), PHONE_ALBUM_DESC_MAX);
+    if (!next) {
+      showToast("描述不能为空", "warning");
+      return;
+    }
+    hit.photo.description = next;
+    persistPhoneAlbumBundle(hit.bundle);
+    nav.albumPhotoEdit = false;
+    showToast("已保存描述", "success");
+    if (slot) renderPhoneScreen(slot);
+  }
+
+  function deletePhoneAlbumPhoto(photoId) {
+    const hit = findPhoneAlbumPhoto(photoId);
+    if (!hit) return false;
+    hit.bundle.byCategory[hit.categoryId] = (hit.bundle.byCategory[hit.categoryId] || []).filter(function (p) {
+      return p && p.id !== hit.photo.id;
+    });
+    persistPhoneAlbumBundle(hit.bundle);
+    return true;
+  }
+
+  async function handlePhoneAlbumDeletePhoto(slot) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "album" || !nav.albumPhotoId || !hasPhoneAlbumGenerated()) return;
+    const hit = findPhoneAlbumPhoto(nav.albumPhotoId);
+    if (!hit) return;
+    const label = hit.photo.caption ? "「" + hit.photo.caption + "」" : "该照片";
+    const ok = await showConfirm("确定删除" + label + "吗？", "删除照片");
+    if (!ok) return;
+    if (!deletePhoneAlbumPhoto(nav.albumPhotoId)) {
+      showToast("删除失败", "error");
+      return;
+    }
+    nav.albumPhotoId = null;
+    nav.albumPhotoEdit = false;
+    showToast("已删除照片", "success");
+    if (slot) renderPhoneScreen(slot);
+  }
+
+  const PHONE_FORUM_DEFAULT_SECTIONS = [
+    {
+      id: "help",
+      name: "求助",
+      description: "发帖寻求建议、方法或帮助；语气真诚具体，可带一点焦虑或期待，符合分区求助氛围。",
+    },
+    {
+      id: "treehole",
+      name: "树洞",
+      description: "倾诉秘密、心事与难以对熟人说的话；情感细腻克制，常匿名或使用小号，重在情绪共鸣。",
+    },
+    {
+      id: "rant",
+      name: "吐槽",
+      description: "宣泄日常不满、槽点与轻微怨气；语气直白带刺但不过度人身攻击，像真实论坛吐槽帖。",
+    },
+    {
+      id: "gossip",
+      name: "八卦",
+      description: "闲聊轶事、人脉动向与半真半假的传闻；围观吃瓜语气，可提问求证，避免写成正式新闻。",
+    },
+    {
+      id: "toilet",
+      name: "厕区",
+      description: "匿名发泄、黑话玩梗与不宜公开说的内容；多用马甲，语气更放飞，仍须符合角色与剧情逻辑。",
+    },
+  ];
+
+  const PHONE_FORUM_SECTION_NAME_MAX = 12;
+  const PHONE_FORUM_SECTION_DESC_MAX = 200;
+  const PHONE_FORUM_MIN_POSTS_PER_SECTION = 5;
+  const PHONE_FORUM_MIN_THREAD_MESSAGES = 25;
+  const PHONE_FORUM_TITLE_MAX = 15;
+  const PHONE_FORUM_PREVIEW_MAX = 56;
+  const PHONE_FORUM_CONTENT_MAX = 600;
+  const PHONE_FORUM_REPLY_MAX = 280;
+  const PHONE_FORUM_REF_POSTS = 4;
+  const PHONE_FORUM_REF_THREAD = 12;
+
+  function phoneForumStorageKey(plotId, charId) {
+    return phoneWechatStorageKey(plotId, charId);
+  }
+
+  function getPhoneForumStorageKeyForCurrentHolder() {
+    return getPhoneWechatStorageKeyForCurrentHolder();
+  }
+
+  function purgePhoneForumDataForPlot(plotId) {
+    const pid = String(plotId || "").trim();
+    if (!pid) return;
+    Object.keys(phoneForumData).forEach(function (k) {
+      if (k.indexOf(pid + "\u001e") === 0) delete phoneForumData[k];
+    });
+  }
+
+  function purgePhoneForumDataForChar(charId) {
+    const cid = String(charId || "").trim();
+    if (!cid) return;
+    const suffix = "\u001e" + cid;
+    Object.keys(phoneForumData).forEach(function (k) {
+      if (k.slice(-suffix.length) === suffix) delete phoneForumData[k];
+    });
+  }
+
+  function getPhoneForumDefaultSectionMeta(sectionId) {
+    return PHONE_FORUM_DEFAULT_SECTIONS.find(function (s) {
+      return s.id === sectionId;
+    });
+  }
+
+  function clonePhoneForumDefaultSections() {
+    return PHONE_FORUM_DEFAULT_SECTIONS.map(function (s) {
+      return { id: s.id, name: s.name, description: String(s.description || "") };
+    });
+  }
+
+  function mergePhoneForumSectionDescriptions(sections) {
+    return (sections || []).map(function (s) {
+      const def = getPhoneForumDefaultSectionMeta(s.id);
+      const desc = String(s.description || "").trim();
+      return {
+        id: String(s.id || ""),
+        name: String(s.name || ""),
+        description: desc || (def ? def.description : ""),
+      };
+    });
+  }
+
+  function clonePhoneForumSection(section) {
+    return {
+      id: String(section.id || ""),
+      name: String(section.name || ""),
+      description: String(section.description || ""),
+    };
+  }
+
+  function getPhoneForumBundleRecord() {
+    const key = getPhoneForumStorageKeyForCurrentHolder();
+    if (!key) return null;
+    const rec = phoneForumData[key];
+    if (!rec || !Array.isArray(rec.sections)) return null;
+    return rec;
+  }
+
+  function getPhoneForumSections() {
+    const rec = getPhoneForumBundleRecord();
+    if (rec && rec.sections.length) {
+      return mergePhoneForumSectionDescriptions(rec.sections);
+    }
+    return clonePhoneForumDefaultSections();
+  }
+
+  function getPhoneForumBundleMutable() {
+    const key = getPhoneForumStorageKeyForCurrentHolder();
+    if (!key) return null;
+    if (!phoneForumData[key] || !Array.isArray(phoneForumData[key].sections)) {
+      phoneForumData[key] = {
+        sections: clonePhoneForumDefaultSections(),
+        posts: [],
+      };
+    }
+    if (!Array.isArray(phoneForumData[key].posts)) phoneForumData[key].posts = [];
+    phoneForumData[key].sections = mergePhoneForumSectionDescriptions(phoneForumData[key].sections);
+    return { key: key, bundle: phoneForumData[key] };
+  }
+
+  function persistPhoneForumBundle(bundle) {
+    const key = getPhoneForumStorageKeyForCurrentHolder();
+    if (!key || !bundle) return;
+    phoneForumData[key] = bundle;
+    schedulePersistNarrative();
+  }
+
+  function hasPhoneForumGenerated() {
+    const rec = getPhoneForumBundleRecord();
+    return !!(rec && Array.isArray(rec.posts) && rec.posts.length);
+  }
+
+  function isAnyPhoneAiGenerating() {
+    return !!(
+      phoneWechatGenerating ||
+      phoneMomentsGenerating ||
+      phoneMusicGenerating ||
+      phoneAlbumGenerating ||
+      phoneForumGenerating ||
+      phoneForumPostGeneratingId ||
+      phoneBrowserGenerating ||
+      phoneMemoGenerating ||
+      phoneDiaryGenerating ||
+      phoneBillGenerating ||
+      phoneWereadGenerating ||
+      phoneJjwxcGenerating ||
+      phoneJjwxcNovelGeneratingId ||
+      phoneJjwxcChapterGeneratingId ||
+      fanworkJjwxcGenerating ||
+      fanworkJjwxcNovelGeneratingId ||
+      fanworkJjwxcChapterGeneratingId
+    );
+  }
+
+  function normalizePhoneForumSectionId(raw) {
+    const id = String(raw || "").trim();
+    const sections = getPhoneForumSections();
+    if (sections.some(function (s) {
+      return s.id === id;
+    })) {
+      return id;
+    }
+    const byName = sections.find(function (s) {
+      return s.name === id;
+    });
+    return byName ? byName.id : null;
+  }
+
+  function normalizePhoneForumPostItem(item, idx, seenIds) {
+    if (!item || typeof item !== "object") return null;
+    const sectionId = normalizePhoneForumSectionId(item.sectionId || item.section);
+    if (!sectionId) return null;
+    let id = String(item.id || "").trim() || "fp-" + String((idx || 0) + 1);
+    while (seenIds && seenIds.has(id)) id = id + "-d";
+    if (seenIds) seenIds.add(id);
+    const authorName = truncateCharsWithEllipsis(String(item.authorName || item.author || "匿名").trim(), 16);
+    const title = truncateCharsWithEllipsis(String(item.title || "").trim(), PHONE_FORUM_TITLE_MAX);
+    const preview = truncateCharsWithEllipsis(
+      String(item.preview || item.summary || item.content || "").trim(),
+      PHONE_FORUM_PREVIEW_MAX
+    );
+    const time = truncateCharsWithEllipsis(String(item.time || "刚刚").trim(), 16);
+    if (!authorName || !title || !preview) return null;
+    return {
+      id: id,
+      sectionId: sectionId,
+      authorName: authorName,
+      title: title,
+      preview: preview,
+      content: truncateCharsWithEllipsis(String(item.content || "").trim(), PHONE_FORUM_CONTENT_MAX),
+      time: time,
+      thread: Array.isArray(item.thread) ? item.thread.map(function (m, mi) {
+        return normalizePhoneForumThreadMessage(m, mi, null);
+      }).filter(Boolean) : [],
+    };
+  }
+
+  function normalizePhoneForumThreadMessage(item, idx, seenIds) {
+    if (!item || typeof item !== "object") return null;
+    let id = String(item.id || "").trim() || "fm-" + String((idx || 0) + 1);
+    while (seenIds && seenIds.has(id)) id = id + "-d";
+    if (seenIds) seenIds.add(id);
+    const authorName = truncateCharsWithEllipsis(String(item.authorName || item.author || "匿名").trim(), 16);
+    const content = truncateCharsWithEllipsis(String(item.content || item.text || "").trim(), PHONE_FORUM_REPLY_MAX);
+    const time = truncateCharsWithEllipsis(String(item.time || "").trim(), 16);
+    if (!authorName || !content) return null;
+    return {
+      id: id,
+      authorName: authorName,
+      content: content,
+      time: time || "刚刚",
+      isOp: !!item.isOp,
+    };
+  }
+
+  function syncPhoneForumPostPreview(post) {
+    if (!post) return;
+    const snippet = String(post.content || post.preview || "").trim();
+    if (snippet) post.preview = truncateCharsWithEllipsis(snippet, PHONE_FORUM_PREVIEW_MAX);
+  }
+
+  function countPhoneForumThreadMessages(post) {
+    if (!post) return 0;
+    let n = String(post.content || "").trim() ? 1 : 0;
+    n += Array.isArray(post.thread) ? post.thread.length : 0;
+    return n;
+  }
+
+  function phoneForumPostHasDetail(post) {
+    if (!post) return false;
+    return (post.thread || []).length >= PHONE_FORUM_MIN_THREAD_MESSAGES;
+  }
+
+  function collectPhoneForumPostSeenIds(posts) {
+    const seen = new Set();
+    (posts || []).forEach(function (p) {
+      if (p && p.id) seen.add(p.id);
+    });
+    return seen;
+  }
+
+  function assertPhoneForumMinPostsPerSection(bySection, labelPrefix) {
+    getPhoneForumSections().forEach(function (sec) {
+      const n = (bySection[sec.id] || []).length;
+      if (n < PHONE_FORUM_MIN_POSTS_PER_SECTION) {
+        throw new Error(
+          (labelPrefix || "") + "分区「" + sec.name + "」帖子不足 " + PHONE_FORUM_MIN_POSTS_PER_SECTION + " 条"
+        );
+      }
+    });
+  }
+
+  function normalizePhoneForumListBundle(raw) {
+    const postsIn = raw && Array.isArray(raw.posts) ? raw.posts : [];
+    const seenIds = new Set();
+    const posts = [];
+    postsIn.forEach(function (item, idx) {
+      const post = normalizePhoneForumPostItem(item, idx, seenIds);
+      if (post) posts.push(post);
+    });
+    const bySection = Object.create(null);
+    getPhoneForumSections().forEach(function (sec) {
+      bySection[sec.id] = posts.filter(function (p) {
+        return p.sectionId === sec.id;
+      });
+    });
+    assertPhoneForumMinPostsPerSection(bySection, "");
+    const rec = getPhoneForumBundleMutable();
+    return {
+      sections: (rec ? rec.bundle.sections : getPhoneForumSections()).map(clonePhoneForumSection),
+      posts: posts,
+      generatedAt: Date.now(),
+    };
+  }
+
+  function mergePhoneForumListIncrement(existing, raw) {
+    const base = (existing && existing.posts ? existing.posts : []).map(function (p) {
+      return {
+        id: p.id,
+        sectionId: p.sectionId,
+        authorName: p.authorName,
+        title: p.title,
+        preview: p.preview,
+        content: p.content || "",
+        time: p.time,
+        thread: Array.isArray(p.thread) ? p.thread.slice() : [],
+      };
+    });
+    const seenIds = collectPhoneForumPostSeenIds(base);
+    const appendIn =
+      raw && Array.isArray(raw.newPosts) ? raw.newPosts : raw && Array.isArray(raw.posts) ? raw.posts : [];
+    const addedBySection = Object.create(null);
+    getPhoneForumSections().forEach(function (sec) {
+      addedBySection[sec.id] = [];
+    });
+    appendIn.forEach(function (item, idx) {
+      const post = normalizePhoneForumPostItem(item, idx, seenIds);
+      if (!post) return;
+      base.unshift(post);
+      if (addedBySection[post.sectionId]) addedBySection[post.sectionId].push(post);
+    });
+    const hadExisting = !!(existing && existing.posts && existing.posts.length);
+    if (!hadExisting && raw && Array.isArray(raw.posts) && raw.posts.length) {
+      return normalizePhoneForumListBundle(raw);
+    }
+    getPhoneForumSections().forEach(function (sec) {
+      if ((addedBySection[sec.id] || []).length < PHONE_FORUM_MIN_POSTS_PER_SECTION) {
+        throw new Error("追加后分区「" + sec.name + "」新帖不足 " + PHONE_FORUM_MIN_POSTS_PER_SECTION + " 条");
+      }
+    });
+    return {
+      sections: mergePhoneForumSectionDescriptions((existing && existing.sections) || getPhoneForumSections()).map(
+        clonePhoneForumSection
+      ),
+      posts: base,
+      generatedAt: Date.now(),
+    };
+  }
+
+  function applyPhoneForumThreadToPost(post, parsed, incremental) {
+    const threadIn = incremental
+      ? Array.isArray(parsed.newThread)
+        ? parsed.newThread
+        : Array.isArray(parsed.thread)
+          ? parsed.thread
+          : []
+      : Array.isArray(parsed.thread)
+        ? parsed.thread
+        : [];
+    const seen = new Set((post.thread || []).map(function (m) {
+      return m.id;
+    }));
+    if (!incremental) {
+      if (parsed && parsed.content) {
+        post.content = truncateCharsWithEllipsis(String(parsed.content).trim(), PHONE_FORUM_CONTENT_MAX);
+      }
+      post.thread = [];
+      seen.clear();
+    }
+    const added = [];
+    threadIn.forEach(function (item, idx) {
+      const msg = normalizePhoneForumThreadMessage(item, idx, seen);
+      if (msg) {
+        post.thread.push(msg);
+        added.push(msg);
+      }
+    });
+    const got = incremental ? added.length : (post.thread || []).length;
+    if (got < PHONE_FORUM_MIN_THREAD_MESSAGES) {
+      throw new Error("帖子楼层不足 " + PHONE_FORUM_MIN_THREAD_MESSAGES + " 条");
+    }
+    syncPhoneForumPostPreview(post);
+  }
+
+  function findPhoneForumPost(postId) {
+    const rec = getPhoneForumBundleRecord();
+    const id = String(postId || "").trim();
+    if (!rec || !id) return null;
+    const post = (rec.posts || []).find(function (p) {
+      return p && p.id === id;
+    });
+    if (!post) return null;
+    return { post: post, bundle: rec };
+  }
+
+  function getPhoneForumPostMutable(postId) {
+    const rec = getPhoneForumBundleMutable();
+    if (!rec) return null;
+    const id = String(postId || "").trim();
+    const post = (rec.bundle.posts || []).find(function (p) {
+      return p && p.id === id;
+    });
+    if (!post) return null;
+    if (!Array.isArray(post.thread)) post.thread = [];
+    return { bundle: rec.bundle, post: post };
+  }
+
+  function formatPhoneForumPostForPrompt(post) {
+    if (!post) return "";
+    const sec = findPhoneForumSection(post.sectionId);
+    return (
+      "- id=" +
+      post.id +
+      "，分区=" +
+      (sec ? sec.name : post.sectionId) +
+      "，楼主=" +
+      post.authorName +
+      "，标题=" +
+      post.title +
+      "，预览=" +
+      post.preview
+    );
+  }
+
+  function formatPhoneForumThreadForPrompt(post, limit) {
+    const lines = [];
+    if (post.content) lines.push("【首帖】" + post.authorName + "：" + post.content);
+    (post.thread || []).slice(-limit).forEach(function (m) {
+      lines.push((m.isOp ? "【楼主】" : "【网友】") + m.authorName + "：" + m.content);
+    });
+    return lines.join("\n");
+  }
+
+  function buildPhoneForumSectionRulesBlock() {
+    return getPhoneForumSections()
+      .map(function (sec) {
+        return "- " + sec.name + "（id=" + sec.id + "）：" + (sec.description || "（无简介）");
+      })
+      .join("\n");
+  }
+
+  function buildPhoneForumListPrompt(plot, holder) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const lines = [
+      "请为「查手机·论坛」生成手机持有者「" + holderName + "」浏览的论坛帖子列表 JSON。",
+      "视角：持有者手机里论坛 App 的帖子列表（仅标题与列表预览，无需生成正文楼层）。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【论坛分区及生成规则（sectionId 必须使用下列 id）】");
+    lines.push(buildPhoneForumSectionRulesBlock());
+    lines.push("");
+    lines.push(
+      "生成要求：\n" +
+        "1. 输出唯一 JSON：{\"posts\":[...]}；须覆盖全部分区，每个分区至少 " +
+        PHONE_FORUM_MIN_POSTS_PER_SECTION +
+        " 条。\n" +
+        "2. 每条字段：id（英文短 id 唯一）、sectionId（分区 id）、authorName（网名，界面取首字作头像）、title（≤" +
+        PHONE_FORUM_TITLE_MAX +
+        " 字，务必简短）、preview（≤" +
+        PHONE_FORUM_PREVIEW_MAX +
+        " 字，列表摘要）、time（如 3小时前、昨天）。\n" +
+        "3. 发帖人可为：手机持有者本人、我的形象主角「" +
+        ctx.protagName +
+        "」、剧情相关其他人物或合理路人网友；按分区规则与人设选用网名风格。\n" +
+        "4. 不要生成 content/thread；须与剧情、记忆、总结一致，禁止 OOC。"
+    );
+    return lines.join("\n");
+  }
+
+  function buildPhoneForumListRegeneratePrompt(plot, holder, existing) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const lines = [
+      "请根据最新剧情，在「已有论坛帖子列表」基础上增量追加；不要修改或删除已有帖子。",
+      "视角：持有者「" + holderName + "」手机论坛。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【分区规则】");
+    lines.push(buildPhoneForumSectionRulesBlock());
+    lines.push("");
+    lines.push("【已有帖子摘要（请勿重复 id 或同标题）】");
+    (existing.posts || []).slice(0, PHONE_FORUM_REF_POSTS * getPhoneForumSections().length).forEach(function (p) {
+      lines.push(formatPhoneForumPostForPrompt(p));
+    });
+    lines.push("");
+    lines.push(
+      "输出唯一 JSON：{\"newPosts\":[...]}；须覆盖全部分区，每个分区至少新增 " +
+        PHONE_FORUM_MIN_POSTS_PER_SECTION +
+        " 条。\n" +
+        "字段同首次生成；仅追加新帖，禁止 OOC。"
+    );
+    return lines.join("\n");
+  }
+
+  function buildPhoneForumPostPrompt(plot, holder, post, incremental) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const sec = findPhoneForumSection(post.sectionId);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const lines = [
+      incremental
+        ? "请根据最新剧情，在「已有帖子楼层」基础上增量追加楼主新发言与网友回复。"
+        : "请为「查手机·论坛」以下帖子生成完整正文与楼层讨论 JSON。",
+      "视角：持有者「" + holderName + "」浏览该帖时的完整内容。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【所在分区】" + (sec ? sec.name : post.sectionId));
+    if (sec && sec.description) lines.push("【分区生成规则】" + sec.description);
+    lines.push("");
+    lines.push("【帖子信息】");
+    lines.push(formatPhoneForumPostForPrompt(post));
+    if (incremental && phoneForumPostHasDetail(post)) {
+      lines.push("");
+      lines.push("【已有楼层（请勿重复或改写，只在末尾追加）】");
+      lines.push(formatPhoneForumThreadForPrompt(post, PHONE_FORUM_REF_THREAD));
+    }
+    lines.push("");
+    lines.push(
+      (incremental ? "输出 JSON：{\"newThread\":[...]}" : "输出 JSON：{\"content\":\"首帖正文\",\"thread\":[...]}") +
+        "；thread 中每条为楼主追帖或网友回复，合计至少 " +
+        PHONE_FORUM_MIN_THREAD_MESSAGES +
+        " 条" +
+        (incremental ? "（仅统计本次新增）" : "（含 thread 全部条目，content 为首帖正文）") +
+        "。\n" +
+        "字段：id、authorName（网名）、content（≤" +
+        PHONE_FORUM_REPLY_MAX +
+        " 字）、time、isOp（boolean，true 表示楼主发言）。\n" +
+        "发言者可为持有者、我的形象主角「" +
+        ctx.protagName +
+        "」、剧情相关人物或网友；对话须自然连贯，禁止 OOC。"
+    );
+    return lines.join("\n");
+  }
+
+  async function generatePhoneForumListContent(slot) {
+    if (isAnyPhoneAiGenerating()) return;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const holder = getPhoneHolderCharacter();
+    if (!plot || !holder) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    preparePhoneStoryDateForGeneration(plot);
+    const key = phoneForumStorageKey(plot.id, holder.id);
+    getPhoneForumBundleMutable();
+    const existing = phoneForumData[key] || null;
+    const isRegenerate = !!(existing && existing.posts && existing.posts.length);
+    phoneForumGenerating = true;
+    if (slot && getPhoneNav(slot).screen === "forum") renderPhoneScreen(slot);
+    try {
+      showToast(isRegenerate ? "正在追加论坛帖子…" : "正在生成论坛帖子…", "info");
+      setGenCallContext(buildGenCallOpts("phone-forum-list", { slot: slot }));
+      const systemPrompt = isRegenerate
+        ? "你是中文互动叙事助手。根据剧情与已有论坛帖子，增量追加列表 JSON。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          '格式：{"newPosts":[{"id":"唯一id","sectionId":"分区id","authorName":"网名","title":"...","preview":"...","time":"..."}]}'
+        : "你是中文互动叙事助手。根据剧情与人设，生成「查手机·论坛」帖子列表 JSON。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          '格式：{"posts":[{"id":"唯一id","sectionId":"分区id","authorName":"网名","title":"...","preview":"...","time":"..."}]}';
+      const userPrompt = isRegenerate
+        ? buildPhoneForumListRegeneratePrompt(plot, holder, existing)
+        : buildPhoneForumListPrompt(plot, holder);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.76,
+        16384
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const bundle = isRegenerate
+        ? mergePhoneForumListIncrement(existing, parsed)
+        : normalizePhoneForumListBundle(parsed);
+      phoneForumData[key] = bundle;
+      schedulePersistNarrative();
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) renderPhoneScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      phoneForumGenerating = false;
+      if (slot && getPhoneNav(slot).screen === "forum") renderPhoneScreen(slot);
+    }
+  }
+
+  async function generatePhoneForumPostContent(slot, postId, incremental) {
+    if (isAnyPhoneAiGenerating()) return;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const holder = getPhoneHolderCharacter();
+    if (!plot || !holder) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    preparePhoneStoryDateForGeneration(plot);
+    const target = getPhoneForumPostMutable(postId);
+    if (!target) {
+      showToast("帖子不存在", "warning");
+      return;
+    }
+    const post = target.post;
+    const isRegenerate = incremental && phoneForumPostHasDetail(post);
+    phoneForumPostGeneratingId = post.id;
+    if (slot && getPhoneNav(slot).screen === "forum-post") renderPhoneScreen(slot);
+    try {
+      showToast(isRegenerate ? "正在追加楼层…" : "正在生成帖子内容…", "info");
+      setGenCallContext(buildGenCallOpts("phone-forum-post", { slot: slot, postId: postId }));
+      const systemPrompt = isRegenerate
+        ? "你是中文互动叙事助手。根据剧情与已有帖子楼层，增量追加 JSON。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          '格式：{"newThread":[{"id":"唯一id","authorName":"网名","content":"...","time":"...","isOp":false}]}'
+        : "你是中文互动叙事助手。根据剧情与人设，生成论坛帖子正文与楼层 JSON。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          '格式：{"content":"首帖正文","thread":[{"id":"唯一id","authorName":"网名","content":"...","time":"...","isOp":false}]}';
+      const userPrompt = buildPhoneForumPostPrompt(plot, holder, post, isRegenerate);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.78,
+        16384
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      applyPhoneForumThreadToPost(post, parsed, isRegenerate);
+      persistPhoneForumBundle(target.bundle);
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) renderPhoneScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      phoneForumPostGeneratingId = null;
+      if (slot && getPhoneNav(slot).screen === "forum-post") renderPhoneScreen(slot);
+    }
+  }
+
+  const PHONE_FORUM_PLACEHOLDER_POSTS = [1, 2, 3, 4, 5, 6, 7, 8].map(function (i) {
+    return { id: "fp-ph-" + i };
+  });
+
+  function getPhoneForumActiveSectionId(nav) {
+    const sections = getPhoneForumSections();
+    const id = String((nav && nav.forumSectionId) || "").trim();
+    if (sections.some(function (s) {
+      return s.id === id;
+    })) {
+      return id;
+    }
+    return sections.length ? sections[0].id : "";
+  }
+
+  function findPhoneForumSection(sectionId) {
+    const id = String(sectionId || "").trim();
+    if (!id) return null;
+    return (
+      getPhoneForumSections().find(function (s) {
+        return s.id === id;
+      }) || null
+    );
+  }
+
+  function requirePhoneForumHolderForEdit() {
+    sanitizePhoneHolderState();
+    if (!getPhoneForumStorageKeyForCurrentHolder()) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return false;
+    }
+    return true;
+  }
+
+  function buildPhoneForumBarHtml(options) {
+    const opts = options || {};
+    const nav = opts.nav;
+    const title = opts.title || "论坛";
+    const genAttr = opts.generateAttr || "data-phone-forum-generate";
+    const genLabel = opts.generateLabel || "AI 生成论坛内容";
+    const postGen =
+      genAttr === "data-phone-forum-post-generate" &&
+      nav &&
+      phoneForumPostGeneratingId &&
+      phoneForumPostGeneratingId === nav.forumPostId;
+    const loadingCls = phoneForumGenerating || postGen ? " phone-wechat-gen-btn--loading" : "";
+    const disabled = isAnyPhoneAiGenerating();
+    return (
+      '<header class="phone-app__bar phone-app__bar--wechat-list">' +
+      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<h2 class="phone-app__title phone-app__title--left">' +
+      escapeHtml(title) +
+      "</h2>" +
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      loadingCls +
+      '" ' +
+      genAttr +
+      ' aria-label="' +
+      escapeHtml(genLabel) +
+      '" title="' +
+      escapeHtml(genLabel) +
+      '"' +
+      (disabled ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>" +
+      "</header>"
+    );
+  }
+
+  function buildPhoneForumSectionTabsHtml(activeSectionId) {
+    const sections = getPhoneForumSections();
+    const tabs = sections
+      .map(function (sec) {
+        const active = sec.id === activeSectionId;
+        return (
+          '<button type="button" class="filter-pill phone-forum__pill' +
+          (active ? " is-active" : "") +
+          '" data-phone-forum-section="' +
+          escapeHtml(sec.id) +
+          '">' +
+          escapeHtml(sec.name) +
+          "</button>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="pill-row-wrap phone-forum__pill-wrap" aria-label="论坛分区">' +
+      '<div class="pill-row phone-forum__pill-row">' +
+      tabs +
+      '<button type="button" class="filter-pill filter-pill--manage phone-forum__pill-manage" data-phone-forum-manage-open>管理分类</button>' +
+      "</div></div>"
+    );
+  }
+
+  function buildPhoneForumAvatarHtml(name, placeholder) {
+    const initial = placeholder ? "…" : escapeHtml(String(name || "匿").trim().slice(0, 1) || "匿");
+    return '<span class="phone-forum__avatar" aria-hidden="true">' + initial + "</span>";
+  }
+
+  function buildPhoneForumRoleTagHtml(isOp) {
+    if (isOp) {
+      return '<span class="phone-forum__role-tag phone-forum__role-tag--op">楼主</span>';
+    }
+    return '<span class="phone-forum__role-tag phone-forum__role-tag--user">网友</span>';
+  }
+
+  const PHONE_FORUM_CORNER_ICON_EDIT =
+    '<svg class="icon-linear" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+  const PHONE_FORUM_CORNER_ICON_DELETE =
+    '<svg class="icon-linear" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+
+  function buildPhoneForumCornerActionsHtml(editAttrs, deleteAttrs) {
+    return (
+      '<div class="phone-forum-row-corner">' +
+      '<button type="button" class="phone-forum-row-corner__btn phone-forum-row-corner__btn--edit"' +
+      editAttrs +
+      ' aria-label="编辑">' +
+      PHONE_FORUM_CORNER_ICON_EDIT +
+      "</button>" +
+      '<button type="button" class="phone-forum-row-corner__btn phone-forum-row-corner__btn--delete"' +
+      deleteAttrs +
+      ' aria-label="删除">' +
+      PHONE_FORUM_CORNER_ICON_DELETE +
+      "</button>" +
+      "</div>"
+    );
+  }
+
+  function buildPhoneForumAuthorLineHtml(name, isOp, placeholder) {
+    if (placeholder) {
+      return '<span class="phone-forum__author-line"><span class="phone-forum-post-row__author">…</span></span>';
+    }
+    return (
+      '<span class="phone-forum__author-line">' +
+      '<span class="phone-forum-post-row__author">' +
+      escapeHtml(String(name || "匿名").trim()) +
+      "</span>" +
+      buildPhoneForumRoleTagHtml(!!isOp) +
+      "</span>"
+    );
+  }
+
+  function buildPhoneForumPostRowInnerHtml(post, placeholder, nav) {
+    if (placeholder) {
+      return (
+        '<div class="phone-forum-post-row phone-forum-post-row--placeholder">' +
+        buildPhoneForumAvatarHtml("", true) +
+        '<span class="phone-forum-post-row__body">' +
+        '<span class="phone-forum-post-row__title">…</span>' +
+        '<span class="phone-forum-post-row__preview">…</span>' +
+        '<span class="phone-forum-post-row__meta">' +
+        '<span class="phone-forum-post-row__author">…</span>' +
+        '<span class="phone-forum-post-row__stat">…回复 · …</span>' +
+        "</span>" +
+        "</span>" +
+        "</div>"
+      );
+    }
+    const author = String(post.authorName || "匿名").trim();
+    const editKey = "list:" + post.id;
+    const editing = nav && nav.forumInlineEdit === editKey;
+    const titleCls = "phone-forum-post-row__title phone-forum-post-row__title--filled";
+    const previewCls = "phone-forum-post-row__preview phone-forum-post-row__preview--filled";
+    const titleHtml = editing
+      ? '<span class="' +
+        titleCls +
+        ' phone-forum__editable" contenteditable="true" data-phone-forum-inline-field="title" data-phone-forum-inline-key="' +
+        escapeHtml(editKey) +
+        '">' +
+        escapeHtml(String(post.title || "")) +
+        "</span>"
+      : '<span class="' + titleCls + '">' + escapeHtml(String(post.title || "")) + "</span>";
+    const previewHtml = editing
+      ? '<span class="' +
+        previewCls +
+        ' phone-forum__editable" contenteditable="true" data-phone-forum-inline-field="preview" data-phone-forum-inline-key="' +
+        escapeHtml(editKey) +
+        '">' +
+        escapeHtml(String(post.preview || "")) +
+        "</span>"
+      : '<span class="' + previewCls + '">' + escapeHtml(String(post.preview || "")) + "</span>";
+    const replyCount = countPhoneForumThreadMessages(post);
+    return (
+      '<button type="button" class="phone-forum-post-row" data-phone-forum-post="' +
+      escapeHtml(String(post.id || "")) +
+      '">' +
+      buildPhoneForumAvatarHtml(author, false) +
+      '<span class="phone-forum-post-row__body">' +
+      titleHtml +
+      previewHtml +
+      '<span class="phone-forum-post-row__meta">' +
+      buildPhoneForumAuthorLineHtml(author, true, false) +
+      '<span class="phone-forum-post-row__stat">' +
+      escapeHtml(String(replyCount)) +
+      "回复 · " +
+      escapeHtml(String(post.time || "")) +
+      "</span>" +
+      "</span>" +
+      "</button>"
+    );
+  }
+
+  function buildPhoneForumPostRowHtml(post, placeholder, nav) {
+    if (placeholder) return buildPhoneForumPostRowInnerHtml(post, true, nav);
+    const id = escapeHtml(String(post.id || ""));
+    const inner = buildPhoneForumPostRowInnerHtml(post, false, nav);
+    return (
+      '<div class="phone-forum-post-row-item">' +
+      inner +
+      buildPhoneForumCornerActionsHtml(
+        ' data-phone-forum-post-text-edit="' + id + '"',
+        ' data-phone-forum-post-delete="' + id + '"'
+      ) +
+      "</div>"
+    );
+  }
+
+  function buildPhoneForumPostListHtml(sectionId, nav) {
+    const placeholder = !hasPhoneForumGenerated();
+    let rows = "";
+    if (placeholder) {
+      PHONE_FORUM_PLACEHOLDER_POSTS.forEach(function (p) {
+        rows += buildPhoneForumPostRowInnerHtml(p, true, nav);
+      });
+    } else {
+      const rec = getPhoneForumBundleRecord();
+      const posts = (rec.posts || []).filter(function (p) {
+        return p && p.sectionId === sectionId;
+      });
+      if (!posts.length) {
+        rows = '<div class="phone-forum__empty"><p class="phone-forum__empty-text">暂无帖子，点击右上角生成</p></div>';
+      } else {
+        posts.forEach(function (p) {
+          rows += buildPhoneForumPostRowHtml(p, false, nav);
+        });
+      }
+    }
+    return '<div class="phone-forum__list">' + rows + "</div>";
+  }
+
+  function buildPhoneForumManageListHtml() {
+    const sections = getPhoneForumSections();
+    const rows = sections
+      .map(function (sec) {
+        const desc = String(sec.description || "").trim();
+        const descHtml = desc
+          ? escapeHtml(truncateCharsWithEllipsis(desc, 48))
+          : '<span class="phone-forum-manage__desc-placeholder">…</span>';
+        return (
+          '<div class="phone-forum-manage__row">' +
+          '<div class="phone-forum-manage__info">' +
+          '<span class="phone-forum-manage__name">' +
+          escapeHtml(sec.name) +
+          "</span>" +
+          '<span class="phone-forum-manage__desc">' +
+          descHtml +
+          "</span>" +
+          "</div>" +
+          '<div class="phone-forum-manage__actions">' +
+          '<button type="button" class="phone-forum-manage__action" data-phone-forum-section-edit="' +
+          escapeHtml(sec.id) +
+          '" aria-label="编辑分区">编辑</button>' +
+          '<button type="button" class="phone-forum-manage__action phone-forum-manage__action--danger" data-phone-forum-section-delete="' +
+          escapeHtml(sec.id) +
+          '" aria-label="删除分区">删除</button>' +
+          "</div>" +
+          "</div>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="phone-forum-manage__panel">' +
+      '<div class="phone-forum-manage__head">' +
+      '<h3 class="phone-forum-manage__title">管理分区</h3>' +
+      '<button type="button" class="phone-forum-manage__close" data-phone-forum-manage-close aria-label="关闭">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      "</button>" +
+      "</div>" +
+      '<p class="phone-forum-manage__hint">分区简介将作为后续 AI 生成该分类内容的规则。</p>' +
+      '<div class="phone-forum-manage__list">' +
+      rows +
+      "</div>" +
+      '<button type="button" class="btn btn--secondary btn--pill phone-forum-manage__add" data-phone-forum-section-add>添加分区</button>' +
+      "</div>"
+    );
+  }
+
+  function buildPhoneForumSectionFormHtml(nav) {
+    const formId = String((nav && nav.forumSectionFormId) || "").trim();
+    if (!formId) return "";
+    const isNew = formId === "new";
+    let nameVal = "";
+    let descVal = "";
+    if (!isNew) {
+      const sec = findPhoneForumSection(formId);
+      if (sec) {
+        nameVal = sec.name;
+        descVal = sec.description;
+      }
+    }
+    return (
+      '<div class="phone-forum-manage__panel phone-forum-manage__panel--form">' +
+      '<div class="phone-forum-manage__head">' +
+      '<h3 class="phone-forum-manage__title">' +
+      (isNew ? "添加分区" : "编辑分区") +
+      "</h3>" +
+      '<button type="button" class="phone-forum-manage__close" data-phone-forum-section-form-cancel aria-label="取消">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      "</button>" +
+      "</div>" +
+      '<label class="phone-forum-manage__field">' +
+      '<span class="phone-forum-manage__label">分区名称</span>' +
+      '<input type="text" class="phone-forum-manage__input" data-phone-forum-section-name-input maxlength="' +
+      PHONE_FORUM_SECTION_NAME_MAX +
+      '" value="' +
+      escapeHtml(nameVal) +
+      '" placeholder="最多' +
+      PHONE_FORUM_SECTION_NAME_MAX +
+      '字" />' +
+      "</label>" +
+      '<label class="phone-forum-manage__field">' +
+      '<span class="phone-forum-manage__label">分区简介（生成规则）</span>' +
+      '<textarea class="phone-forum-manage__textarea" data-phone-forum-section-desc-input maxlength="' +
+      PHONE_FORUM_SECTION_DESC_MAX +
+      '" rows="4" placeholder="描述该分区的发帖风格与内容方向，供 AI 生成时使用">' +
+      escapeHtml(descVal) +
+      "</textarea>" +
+      "</label>" +
+      '<button type="button" class="btn btn--primary btn--pill phone-forum-manage__save" data-phone-forum-section-save>保存</button>' +
+      "</div>"
+    );
+  }
+
+  function buildPhoneForumManageOverlayHtml(nav) {
+    if (!nav || !nav.forumManageOpen) return "";
+    const formHtml = nav.forumSectionFormId ? buildPhoneForumSectionFormHtml(nav) : buildPhoneForumManageListHtml();
+    return (
+      '<div class="phone-forum-manage" role="dialog" aria-modal="true" aria-label="管理论坛分区">' +
+      '<button type="button" class="phone-forum-manage__backdrop" data-phone-forum-manage-close aria-label="关闭"></button>' +
+      formHtml +
+      "</div>"
+    );
+  }
+
+  function buildPhoneForumHtml(slot) {
+    const nav = getPhoneNav(slot);
+    const activeSectionId = getPhoneForumActiveSectionId(nav);
+    return (
+      '<div class="phone-app phone-forum" aria-label="论坛">' +
+      buildPhoneForumBarHtml() +
+      buildPhoneForumSectionTabsHtml(activeSectionId) +
+      '<div class="phone-forum__scroll">' +
+      buildPhoneForumPostListHtml(activeSectionId, nav) +
+      "</div>" +
+      buildPhoneForumManageOverlayHtml(nav) +
+      "</div>"
+    );
+  }
+
+  function buildPhoneForumThreadBlockHtml(post, nav) {
+    const author = String(post.authorName || "匿名").trim();
+    const editKey = "op:" + post.id;
+    const editing = nav && nav.forumInlineEdit === editKey;
+    const loading = phoneForumPostGeneratingId === post.id;
+    const titleHtml = editing
+      ? '<h3 class="phone-forum-thread__title phone-forum-thread__title--filled phone-forum__editable" contenteditable="true" data-phone-forum-inline-field="title" data-phone-forum-inline-key="' +
+        escapeHtml(editKey) +
+        '">' +
+        escapeHtml(String(post.title || "")) +
+        "</h3>"
+      : '<h3 class="phone-forum-thread__title phone-forum-thread__title--filled">' +
+        escapeHtml(String(post.title || "")) +
+        "</h3>";
+    const contentText = loading && !String(post.content || "").trim() ? "生成中…" : String(post.content || "");
+    const contentHtml = editing
+      ? '<p class="phone-forum-thread__content phone-forum-thread__content--filled phone-forum__editable" contenteditable="true" data-phone-forum-inline-field="content" data-phone-forum-inline-key="' +
+        escapeHtml(editKey) +
+        '">' +
+        escapeHtml(contentText) +
+        "</p>"
+      : '<p class="phone-forum-thread__content phone-forum-thread__content--filled">' + escapeHtml(contentText) + "</p>";
+    const inner =
+      '<article class="phone-forum-thread">' +
+      buildPhoneForumAvatarHtml(author, false) +
+      '<div class="phone-forum-thread__body">' +
+      buildPhoneForumAuthorLineHtml(author, true, false) +
+      titleHtml +
+      contentHtml +
+      '<span class="phone-forum-thread__time">' +
+      escapeHtml(String(post.time || "")) +
+      "</span>" +
+      "</div></article>";
+    const id = escapeHtml(String(post.id || ""));
+    return (
+      '<div class="phone-forum-thread-item">' +
+      inner +
+      buildPhoneForumCornerActionsHtml(
+        ' data-phone-forum-op-text-edit="' + id + '"',
+        ' data-phone-forum-post-delete="' + id + '"'
+      ) +
+      "</div>"
+    );
+  }
+
+  function buildPhoneForumReplyWrapHtml(postId, reply, nav) {
+    const author = String(reply.authorName || "匿名").trim();
+    const editKey = "msg:" + postId + ":" + reply.id;
+    const editing = nav && nav.forumInlineEdit === editKey;
+    const textHtml = editing
+      ? '<p class="phone-forum-reply__text phone-forum-reply__text--filled phone-forum__editable" contenteditable="true" data-phone-forum-inline-field="content" data-phone-forum-inline-key="' +
+        escapeHtml(editKey) +
+        '">' +
+        escapeHtml(String(reply.content || "")) +
+        "</p>"
+      : '<p class="phone-forum-reply__text phone-forum-reply__text--filled">' +
+        escapeHtml(String(reply.content || "")) +
+        "</p>";
+    const inner =
+      '<article class="phone-forum-reply">' +
+      buildPhoneForumAvatarHtml(author, false) +
+      '<div class="phone-forum-reply__body">' +
+      buildPhoneForumAuthorLineHtml(author, !!reply.isOp, false) +
+      textHtml +
+      '<span class="phone-forum-reply__time">' +
+      escapeHtml(String(reply.time || "")) +
+      "</span>" +
+      "</div></article>";
+    const pid = escapeHtml(String(postId || ""));
+    const rid = escapeHtml(String(reply.id || ""));
+    return (
+      '<div class="phone-forum-reply-item">' +
+      inner +
+      buildPhoneForumCornerActionsHtml(
+        ' data-phone-forum-msg-text-edit="' + pid + '" data-phone-forum-msg-id="' + rid + '"',
+        ' data-phone-forum-msg-delete="' + pid + '" data-phone-forum-msg-id="' + rid + '"'
+      ) +
+      "</div>"
+    );
+  }
+
+  function buildPhoneForumPostDetailHtml(slot) {
+    const nav = getPhoneNav(slot);
+    const postId = String((nav && nav.forumPostId) || "").trim();
+    let opHtml = "";
+    let repliesHtml = "";
+    const hit = findPhoneForumPost(postId);
+    if (!hit) {
+      opHtml = '<div class="phone-forum__empty"><p class="phone-forum__empty-text">帖子不存在</p></div>';
+    } else {
+      opHtml = buildPhoneForumThreadBlockHtml(hit.post, nav);
+      (hit.post.thread || []).forEach(function (r) {
+        repliesHtml += buildPhoneForumReplyWrapHtml(hit.post.id, r, nav);
+      });
+      if (!phoneForumPostHasDetail(hit.post) && phoneForumPostGeneratingId !== hit.post.id) {
+        repliesHtml +=
+          '<div class="phone-forum__empty phone-forum__empty--compact"><p class="phone-forum__empty-text">暂无楼层，正在准备生成…</p></div>';
+      }
+    }
+    return (
+      '<div class="phone-app phone-forum phone-forum--post" aria-label="帖子详情">' +
+      buildPhoneForumBarHtml({
+        title: "帖子",
+        nav: nav,
+        generateAttr: "data-phone-forum-post-generate",
+        generateLabel: "AI 生成帖子内容",
+      }) +
+      '<div class="phone-forum__scroll phone-forum__scroll--post">' +
+      opHtml +
+      '<div class="phone-forum__replies" aria-label="回复">' +
+      repliesHtml +
+      "</div></div></div>"
+    );
+  }
+
+  function openPhoneForum(slot) {
+    const nav = getPhoneNav(slot);
+    nav.screen = "forum";
+    nav.chatId = null;
+    nav.forumPostId = null;
+    if (!nav.forumSectionId) {
+      const sections = getPhoneForumSections();
+      nav.forumSectionId = sections.length ? sections[0].id : "";
+    }
+    renderPhoneScreen(slot);
+  }
+
+  async function openPhoneForumPost(slot, postId) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "forum" && nav.screen !== "forum-post") return;
+    const id = String(postId || "").trim();
+    if (!id || id.indexOf("fp-ph-") === 0) return;
+    nav.forumPostId = id;
+    nav.screen = "forum-post";
+    nav.forumManageOpen = false;
+    nav.forumSectionFormId = null;
+    nav.forumInlineEdit = null;
+    renderPhoneScreen(slot);
+    const hit = findPhoneForumPost(id);
+    if (hit && !phoneForumPostHasDetail(hit.post) && !isAnyPhoneAiGenerating()) {
+      await generatePhoneForumPostContent(slot, id, false);
+    }
+  }
+
+  function startPhoneForumInlineEdit(slot, editKey) {
+    const nav = getPhoneNav(slot);
+    nav.forumInlineEdit = String(editKey || "");
+    closePhoneRowSwipe(slot);
+    renderPhoneScreen(slot);
+  }
+
+  function commitPhoneForumInlineEdit(slot) {
+    const nav = getPhoneNav(slot);
+    const key = String((nav && nav.forumInlineEdit) || "").trim();
+    if (!key || !slot) return false;
+    const fields = slot.querySelectorAll('[data-phone-forum-inline-key="' + key + '"]');
+    if (!fields.length) {
+      nav.forumInlineEdit = null;
+      return false;
+    }
+    let changed = false;
+    if (key.indexOf("list:") === 0) {
+      const postId = key.slice(5);
+      const target = getPhoneForumPostMutable(postId);
+      if (!target) return false;
+      fields.forEach(function (el) {
+        const field = el.getAttribute("data-phone-forum-inline-field");
+        const val = String(el.textContent || "").trim();
+        if (field === "title") {
+          const next = truncateCharsWithEllipsis(val, PHONE_FORUM_TITLE_MAX);
+          if (next && next !== target.post.title) {
+            target.post.title = next;
+            changed = true;
+          }
+        } else if (field === "preview") {
+          const next = truncateCharsWithEllipsis(val, PHONE_FORUM_PREVIEW_MAX);
+          if (next && next !== target.post.preview) {
+            target.post.preview = next;
+            changed = true;
+          }
+        }
+      });
+      if (changed) persistPhoneForumBundle(target.bundle);
+    } else if (key.indexOf("op:") === 0) {
+      const postId = key.slice(3);
+      const target = getPhoneForumPostMutable(postId);
+      if (!target) return false;
+      fields.forEach(function (el) {
+        const field = el.getAttribute("data-phone-forum-inline-field");
+        const val = String(el.textContent || "").trim();
+        if (field === "title") {
+          const next = truncateCharsWithEllipsis(val, PHONE_FORUM_TITLE_MAX);
+          if (next && next !== target.post.title) {
+            target.post.title = next;
+            changed = true;
+          }
+        } else if (field === "content") {
+          const next = truncateCharsWithEllipsis(val, PHONE_FORUM_CONTENT_MAX);
+          if (next && next !== target.post.content) {
+            target.post.content = next;
+            changed = true;
+          }
+        }
+      });
+      if (changed) {
+        syncPhoneForumPostPreview(target.post);
+        persistPhoneForumBundle(target.bundle);
+      }
+    } else if (key.indexOf("msg:") === 0) {
+      const parts = key.split(":");
+      const postId = parts[1];
+      const msgId = parts.slice(2).join(":");
+      const target = getPhoneForumPostMutable(postId);
+      if (!target) return false;
+      const msg = (target.post.thread || []).find(function (m) {
+        return m && m.id === msgId;
+      });
+      if (!msg) return false;
+      fields.forEach(function (el) {
+        const val = truncateCharsWithEllipsis(String(el.textContent || "").trim(), PHONE_FORUM_REPLY_MAX);
+        if (val && val !== msg.content) {
+          msg.content = val;
+          changed = true;
+        }
+      });
+      if (changed) persistPhoneForumBundle(target.bundle);
+    }
+    nav.forumInlineEdit = null;
+    if (changed) showToast("已保存", "success");
+    renderPhoneScreen(slot);
+    return changed;
+  }
+
+  async function handlePhoneForumDeletePost(slot, postId) {
+    const rec = getPhoneForumBundleMutable();
+    if (!rec) return;
+    const id = String(postId || "").trim();
+    const post = (rec.bundle.posts || []).find(function (p) {
+      return p && p.id === id;
+    });
+    if (!post) return;
+    closePhoneRowSwipe(slot);
+    const ok = await showConfirm("确定删除帖子「" + post.title + "」吗？", "删除帖子");
+    if (!ok) return;
+    rec.bundle.posts = rec.bundle.posts.filter(function (p) {
+      return p && p.id !== id;
+    });
+    persistPhoneForumBundle(rec.bundle);
+    const nav = getPhoneNav(slot);
+    if (nav.screen === "forum-post" && nav.forumPostId === id) {
+      nav.screen = "forum";
+      nav.forumPostId = null;
+    }
+    nav.forumInlineEdit = null;
+    showToast("已删除帖子", "success");
+    renderPhoneScreen(slot);
+  }
+
+  async function handlePhoneForumDeleteMessage(slot, postId, msgId) {
+    const target = getPhoneForumPostMutable(postId);
+    if (!target) return;
+    const mid = String(msgId || "").trim();
+    closePhoneRowSwipe(slot);
+    const ok = await showConfirm("确定删除该条回复吗？", "删除回复");
+    if (!ok) return;
+    target.post.thread = (target.post.thread || []).filter(function (m) {
+      return m && m.id !== mid;
+    });
+    persistPhoneForumBundle(target.bundle);
+    showToast("已删除回复", "success");
+    renderPhoneScreen(slot);
+  }
+
+  function switchPhoneForumSection(slot, sectionId) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "forum") return;
+    const id = String(sectionId || "").trim();
+    if (!findPhoneForumSection(id)) return;
+    nav.forumSectionId = id;
+    renderPhoneScreen(slot);
+  }
+
+  function openPhoneForumManage(slot) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "forum") return;
+    nav.forumManageOpen = true;
+    nav.forumSectionFormId = null;
+    renderPhoneScreen(slot);
+  }
+
+  function closePhoneForumManage(slot) {
+    const nav = getPhoneNav(slot);
+    nav.forumManageOpen = false;
+    nav.forumSectionFormId = null;
+    renderPhoneScreen(slot);
+  }
+
+  function openPhoneForumSectionForm(slot, sectionIdOrNew) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "forum") return;
+    nav.forumManageOpen = true;
+    nav.forumSectionFormId = String(sectionIdOrNew || "new");
+    renderPhoneScreen(slot);
+    if (slot) {
+      const input = slot.querySelector("[data-phone-forum-section-name-input]");
+      if (input) input.focus();
+    }
+  }
+
+  function cancelPhoneForumSectionForm(slot) {
+    const nav = getPhoneNav(slot);
+    nav.forumSectionFormId = null;
+    renderPhoneScreen(slot);
+  }
+
+  function savePhoneForumSectionForm(slot) {
+    if (!requirePhoneForumHolderForEdit()) return;
+    const rec = getPhoneForumBundleMutable();
+    if (!rec) return;
+    const nav = getPhoneNav(slot);
+    const nameInput = slot && slot.querySelector("[data-phone-forum-section-name-input]");
+    const descInput = slot && slot.querySelector("[data-phone-forum-section-desc-input]");
+    const name = truncateCharsWithEllipsis(String((nameInput && nameInput.value) || "").trim(), PHONE_FORUM_SECTION_NAME_MAX);
+    const description = truncateCharsWithEllipsis(
+      String((descInput && descInput.value) || "").trim(),
+      PHONE_FORUM_SECTION_DESC_MAX
+    );
+    if (!name) {
+      showToast("分区名称不能为空", "warning");
+      return;
+    }
+    const formId = String(nav.forumSectionFormId || "").trim();
+    if (formId === "new") {
+      const newId = uid("forum-sec");
+      rec.bundle.sections.push({ id: newId, name: name, description: description });
+      nav.forumSectionId = newId;
+    } else {
+      const sec = rec.bundle.sections.find(function (s) {
+        return s && s.id === formId;
+      });
+      if (!sec) {
+        showToast("分区不存在", "error");
+        return;
+      }
+      sec.name = name;
+      sec.description = description;
+    }
+    persistPhoneForumBundle(rec.bundle);
+    nav.forumSectionFormId = null;
+    showToast("已保存分区", "success");
+    renderPhoneScreen(slot);
+  }
+
+  async function handlePhoneForumSectionDelete(slot, sectionId) {
+    if (!requirePhoneForumHolderForEdit()) return;
+    const rec = getPhoneForumBundleMutable();
+    if (!rec) return;
+    const id = String(sectionId || "").trim();
+    const sec = rec.bundle.sections.find(function (s) {
+      return s && s.id === id;
+    });
+    if (!sec) return;
+    const ok = await showConfirm("确定删除分区「" + sec.name + "」吗？", "删除分区");
+    if (!ok) return;
+    rec.bundle.sections = rec.bundle.sections.filter(function (s) {
+      return s && s.id !== id;
+    });
+    rec.bundle.posts = (rec.bundle.posts || []).filter(function (p) {
+      return p && p.sectionId !== id;
+    });
+    persistPhoneForumBundle(rec.bundle);
+    const nav = getPhoneNav(slot);
+    if (nav.forumSectionId === id) {
+      nav.forumSectionId = rec.bundle.sections.length ? rec.bundle.sections[0].id : "";
+    }
+    nav.forumSectionFormId = null;
+    if (!rec.bundle.sections.length) nav.forumManageOpen = false;
+    showToast("已删除分区", "success");
+    renderPhoneScreen(slot);
+  }
+
+  const PHONE_BROWSER_DEFAULT_SECTIONS = [
+    {
+      id: "web",
+      name: "网页",
+      description:
+        "日常浏览的网页与资讯：新闻、百科、购物、工具站等一般性访问记录；标题与来源应贴近真实站点风格。",
+    },
+    {
+      id: "favorite",
+      name: "收藏",
+      description:
+        "反复回访或已收藏的页面：书签、长期关注的专题、深度长文与资料页；可体现持有者的兴趣偏好。",
+    },
+    {
+      id: "video",
+      name: "视频",
+      description:
+        "视频与流媒体平台的观看记录：含标题、站点、时长与停留时间；可带剧集、UP 主或频道名。",
+    },
+    {
+      id: "hidden",
+      name: "隐藏",
+      description:
+        "私密或不宜示人的浏览：无痕模式、敏感搜索与隐秘兴趣；语气含蓄，须符合角色与剧情逻辑。",
+    },
+  ];
+
+  const PHONE_BROWSER_SECTION_NAME_MAX = 12;
+  const PHONE_BROWSER_SECTION_DESC_MAX = 200;
+  const PHONE_BROWSER_MIN_ENTRIES_PER_SECTION = 5;
+  const PHONE_BROWSER_MAX_ENTRIES = 200;
+  const PHONE_BROWSER_REF_ENTRIES_PER_SECTION = 5;
+  const PHONE_BROWSER_TITLE_MAX = 48;
+  const PHONE_BROWSER_SOURCE_MAX = 24;
+  const PHONE_BROWSER_TAG_MAX = 8;
+  const PHONE_BROWSER_DURATION_MAX = 12;
+  const PHONE_BROWSER_DETAIL_MAX = 320;
+
+  function purgePhoneBrowserDataForPlot(plotId) {
+    const pid = String(plotId || "").trim();
+    if (!pid) return;
+    Object.keys(phoneBrowserData).forEach(function (k) {
+      if (k.indexOf(pid + "\u001e") === 0) delete phoneBrowserData[k];
+    });
+  }
+
+  function purgePhoneBrowserDataForChar(charId) {
+    const cid = String(charId || "").trim();
+    if (!cid) return;
+    const suffix = "\u001e" + cid;
+    Object.keys(phoneBrowserData).forEach(function (k) {
+      if (k.slice(-suffix.length) === suffix) delete phoneBrowserData[k];
+    });
+  }
+
+  function normalizePhoneBrowserSectionId(raw) {
+    const id = String(raw || "").trim();
+    if (PHONE_BROWSER_DEFAULT_SECTIONS.some(function (s) {
+      return s.id === id;
+    })) {
+      return id;
+    }
+    const byName = getPhoneBrowserSections().find(function (s) {
+      return s.name === id;
+    });
+    return byName ? byName.id : null;
+  }
+
+  function normalizePhoneBrowserDateKey(raw) {
+    const s = String(raw || "").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return clampPhoneStoryDateKey(s);
+    const m = s.match(/^(\d{4})[./年](\d{1,2})[./月](\d{1,2})/);
+    if (m) {
+      return clampPhoneStoryDateKey(
+        m[1] +
+          "-" +
+          String(Number(m[2])).padStart(2, "0") +
+          "-" +
+          String(Number(m[3])).padStart(2, "0")
+      );
+    }
+    return getPhoneStoryTodayKey();
+  }
+
+  function normalizePhoneBrowserVisitTime(raw) {
+    const s = String(raw || "").trim();
+    const m = s.match(/^(\d{1,2}):(\d{2})/);
+    if (m) return String(Number(m[1])).padStart(2, "0") + ":" + m[2];
+    return "12:00";
+  }
+
+  function parsePhoneBrowserVisitTimeSortValue(timeStr) {
+    const m = String(timeStr || "").match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return 0;
+    return Number(m[1]) * 60 + Number(m[2]);
+  }
+
+  function normalizePhoneBrowserEntryItem(item, idx, seenIds) {
+    if (!item || typeof item !== "object") return null;
+    const sectionId = normalizePhoneBrowserSectionId(item.sectionId || item.category || item.categoryId);
+    if (!sectionId) return null;
+    let id = String(item.id || "").trim() || "bh-" + String((idx || 0) + 1);
+    while (seenIds && seenIds.has(id)) id = id + "-d";
+    if (seenIds) seenIds.add(id);
+    const title = truncateCharsWithEllipsis(String(item.title || "").trim(), PHONE_BROWSER_TITLE_MAX);
+    if (!title) return null;
+    const source = truncateCharsWithEllipsis(
+      String(item.source || item.site || item.domain || "").trim(),
+      PHONE_BROWSER_SOURCE_MAX
+    );
+    if (!source) return null;
+    const tag = truncateCharsWithEllipsis(String(item.tag || item.categoryLabel || "").trim(), PHONE_BROWSER_TAG_MAX);
+    const duration = truncateCharsWithEllipsis(
+      String(item.duration || item.stay || item.stayDuration || "").trim(),
+      PHONE_BROWSER_DURATION_MAX
+    );
+    const detail = truncateCharsWithEllipsis(
+      String(item.detail || item.content || item.description || "").trim(),
+      PHONE_BROWSER_DETAIL_MAX
+    );
+    if (!detail) return null;
+    let emoji = String(item.emoji || item.icon || "").trim();
+    if (emoji.length > 4) emoji = emoji.slice(0, 4);
+    if (!emoji && tag) emoji = tag.slice(0, 1);
+    if (!emoji) emoji = "🌐";
+    return {
+      id: id,
+      sectionId: sectionId,
+      dateKey: normalizePhoneBrowserDateKey(item.dateKey || item.visitedDate || item.date),
+      visitTime: normalizePhoneBrowserVisitTime(item.visitTime || item.time),
+      title: title,
+      source: source,
+      tag: tag || "…",
+      duration: duration || "1m",
+      emoji: emoji,
+      detail: detail,
+    };
+  }
+
+  function hasPhoneBrowserGenerated() {
+    return !!getPhoneBrowserBundleRecord();
+  }
+
+  function getPhoneBrowserEntries() {
+    const rec = getPhoneBrowserBundleRecord();
+    if (rec && rec.entries.length) return rec.entries.slice();
+    return null;
+  }
+
+  function sortPhoneBrowserEntries(entries) {
+    return (entries || []).slice().sort(function (a, b) {
+      const dk = String(b.dateKey || "").localeCompare(String(a.dateKey || ""));
+      if (dk !== 0) return dk;
+      return (
+        parsePhoneBrowserVisitTimeSortValue(b.visitTime) - parsePhoneBrowserVisitTimeSortValue(a.visitTime)
+      );
+    });
+  }
+
+  function assertPhoneBrowserMinEntriesPerSection(bySection, labelPrefix) {
+    getPhoneBrowserSections().forEach(function (sec) {
+      const n = (bySection[sec.id] || []).length;
+      if (n < PHONE_BROWSER_MIN_ENTRIES_PER_SECTION) {
+        throw new Error(
+          (labelPrefix || "") +
+            "分类「" +
+            sec.name +
+            "」浏览记录不足 " +
+            PHONE_BROWSER_MIN_ENTRIES_PER_SECTION +
+            " 条"
+        );
+      }
+    });
+  }
+
+  function normalizePhoneBrowserBundle(raw) {
+    const entriesIn = raw && Array.isArray(raw.entries) ? raw.entries : raw && Array.isArray(raw.history) ? raw.history : [];
+    const seenIds = new Set();
+    const entries = [];
+    entriesIn.forEach(function (item, idx) {
+      const entry = normalizePhoneBrowserEntryItem(item, idx, seenIds);
+      if (entry) entries.push(entry);
+    });
+    const bySection = Object.create(null);
+    getPhoneBrowserSections().forEach(function (sec) {
+      bySection[sec.id] = entries.filter(function (e) {
+        return e.sectionId === sec.id;
+      });
+    });
+    assertPhoneBrowserMinEntriesPerSection(bySection, "");
+    const rec = getPhoneBrowserBundleMutable();
+    return {
+      sections: (rec ? rec.bundle.sections : getPhoneBrowserSections()).map(function (s) {
+        return { id: s.id, name: s.name, description: s.description };
+      }),
+      entries: sortPhoneBrowserEntries(entries).slice(0, PHONE_BROWSER_MAX_ENTRIES),
+      generatedAt: Date.now(),
+    };
+  }
+
+  function mergePhoneBrowserIncrement(existing, raw) {
+    const base = (existing && existing.entries ? existing.entries : []).map(function (e) {
+      return {
+        id: e.id,
+        sectionId: e.sectionId,
+        dateKey: e.dateKey,
+        visitTime: e.visitTime,
+        title: e.title,
+        source: e.source,
+        tag: e.tag,
+        duration: e.duration,
+        emoji: e.emoji,
+        detail: e.detail,
+      };
+    });
+    const seenIds = new Set(
+      base.map(function (e) {
+        return e.id;
+      })
+    );
+    const appendIn =
+      raw && Array.isArray(raw.newEntries)
+        ? raw.newEntries
+        : raw && Array.isArray(raw.entries)
+          ? raw.entries
+          : raw && Array.isArray(raw.history)
+            ? raw.history
+            : [];
+    const addedBySection = Object.create(null);
+    getPhoneBrowserSections().forEach(function (sec) {
+      addedBySection[sec.id] = [];
+    });
+    appendIn.forEach(function (item, idx) {
+      const entry = normalizePhoneBrowserEntryItem(item, idx, seenIds);
+      if (!entry) return;
+      base.unshift(entry);
+      if (addedBySection[entry.sectionId]) addedBySection[entry.sectionId].push(entry);
+    });
+    const hadExisting = !!(existing && existing.entries && existing.entries.length);
+    if (!hadExisting && raw && ((raw.entries && raw.entries.length) || (raw.history && raw.history.length))) {
+      return normalizePhoneBrowserBundle(raw);
+    }
+    getPhoneBrowserSections().forEach(function (sec) {
+      if ((addedBySection[sec.id] || []).length < PHONE_BROWSER_MIN_ENTRIES_PER_SECTION) {
+        throw new Error(
+          "追加后分类「" + sec.name + "」新记录不足 " + PHONE_BROWSER_MIN_ENTRIES_PER_SECTION + " 条"
+        );
+      }
+    });
+    return {
+      sections: mergePhoneBrowserSectionDescriptions((existing && existing.sections) || getPhoneBrowserSections()).map(
+        function (s) {
+          return { id: s.id, name: s.name, description: s.description };
+        }
+      ),
+      entries: sortPhoneBrowserEntries(base).slice(0, PHONE_BROWSER_MAX_ENTRIES),
+      generatedAt: Date.now(),
+    };
+  }
+
+  function buildPhoneBrowserSectionRulesBlock() {
+    return getPhoneBrowserSections()
+      .map(function (sec) {
+        return "- " + sec.name + "（id=" + sec.id + "）：" + (sec.description || "（无简介）");
+      })
+      .join("\n");
+  }
+
+  function formatPhoneBrowserEntryForPrompt(entry) {
+    if (!entry) return "";
+    const sec = findPhoneBrowserSection(entry.sectionId);
+    return (
+      "- id=" +
+      entry.id +
+      "，分类=" +
+      (sec ? sec.name : entry.sectionId) +
+      "，dateKey=" +
+      entry.dateKey +
+      "，visitTime=" +
+      entry.visitTime +
+      "，title=" +
+      entry.title +
+      "，source=" +
+      entry.source
+    );
+  }
+
+  function buildPhoneBrowserPrompt(plot, holder) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const todayKey = getPhoneStoryTodayKey();
+    const lines = [
+      "请为「查手机·浏览器」生成手机持有者「" +
+        holderName +
+        "」的浏览历史 JSON。",
+      "视角：以设置中选定的手机持有者「" +
+        holderName +
+        "」为第一视角，生成其浏览器中的访问记录（含标题、站点、停留时长与详情摘要）。",
+      "今天日期：" +
+        todayKey +
+        "（dateKey 请使用 YYYY-MM-DD；须包含今天、昨天及更早若干天的记录）。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【浏览记录分类及生成规则（sectionId 必须使用下列 id）】");
+    lines.push(buildPhoneBrowserSectionRulesBlock());
+    lines.push("");
+    lines.push(
+      "生成要求：\n" +
+        "1. 输出唯一 JSON：{\"entries\":[...]}；须覆盖全部分类，每个分类至少 " +
+        PHONE_BROWSER_MIN_ENTRIES_PER_SECTION +
+        " 条。\n" +
+        "2. 每条字段：id（英文短 id 唯一）、sectionId（分类 id）、dateKey（YYYY-MM-DD）、visitTime（HH:mm 24小时制）、title（≤" +
+        PHONE_BROWSER_TITLE_MAX +
+        " 字）、source（站点/平台名≤" +
+        PHONE_BROWSER_SOURCE_MAX +
+        " 字）、tag（内容标签≤" +
+        PHONE_BROWSER_TAG_MAX +
+        " 字，如健康/八卦/美食）、duration（停留时长如 2m、3m20s）、emoji（单 emoji 作列表图标）、detail（该页浏览内容摘要≤" +
+        PHONE_BROWSER_DETAIL_MAX +
+        " 字，像读者回顾当时看了什么）。\n" +
+        "3. 记录须贴合持有者「" +
+        holderName +
+        "」的人设、兴趣与当前剧情；hidden 分类可更私密含蓄。\n" +
+        "4. 须与剧情、记忆、总结一致，禁止 OOC；不要输出真实可访问 URL。"
+    );
+    return lines.join("\n");
+  }
+
+  function buildPhoneBrowserRegeneratePrompt(plot, holder, existing) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const todayKey = getPhoneStoryTodayKey();
+    const entries = (existing && existing.entries) || [];
+    const lines = [
+      "请根据最新剧情，在「已有浏览历史」基础上增量追加；不要修改或删除已有记录，只追加新 entries。",
+      "视角：手机持有者「" + holderName + "」的浏览器浏览历史。",
+      "今天日期：" + todayKey + "。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【分类规则】");
+    lines.push(buildPhoneBrowserSectionRulesBlock());
+    lines.push("");
+    lines.push("【已有记录摘要（请勿重复 id 或实质重复标题）】");
+    getPhoneBrowserSections().forEach(function (sec) {
+      const recent = entries
+        .filter(function (e) {
+          return e.sectionId === sec.id;
+        })
+        .slice(0, PHONE_BROWSER_REF_ENTRIES_PER_SECTION);
+      lines.push("【" + sec.name + "】");
+      if (recent.length) {
+        recent.forEach(function (e) {
+          lines.push(formatPhoneBrowserEntryForPrompt(e));
+        });
+      } else {
+        lines.push("（无）");
+      }
+    });
+    lines.push("");
+    lines.push(
+      "输出唯一 JSON：{\"newEntries\":[...]}；须覆盖全部分类，每个分类至少新增 " +
+        PHONE_BROWSER_MIN_ENTRIES_PER_SECTION +
+        " 条。\n" +
+        "字段同首次生成；仅追加新记录，禁止 OOC。"
+    );
+    return lines.join("\n");
+  }
+
+  function getPhoneBrowserEntryMutable(entryId) {
+    const rec = getPhoneBrowserBundleMutable();
+    if (!rec) return null;
+    const id = String(entryId || "").trim();
+    const entry = (rec.bundle.entries || []).find(function (e) {
+      return e && e.id === id;
+    });
+    if (!entry) return null;
+    return { bundle: rec.bundle, entry: entry };
+  }
+
+  function deletePhoneBrowserEntry(entryId) {
+    const rec = getPhoneBrowserBundleMutable();
+    if (!rec) return false;
+    const id = String(entryId || "").trim();
+    if (!id) return false;
+    rec.bundle.entries = (rec.bundle.entries || []).filter(function (e) {
+      return e && e.id !== id;
+    });
+    persistPhoneBrowserBundle(rec.bundle);
+    return true;
+  }
+
+  function clonePhoneBrowserDefaultSections() {
+    return PHONE_BROWSER_DEFAULT_SECTIONS.map(function (s) {
+      return { id: s.id, name: s.name, description: String(s.description || "") };
+    });
+  }
+
+  function getPhoneBrowserDefaultSectionMeta(sectionId) {
+    return PHONE_BROWSER_DEFAULT_SECTIONS.find(function (s) {
+      return s.id === sectionId;
+    });
+  }
+
+  function mergePhoneBrowserSectionDescriptions(sections) {
+    return (sections || []).map(function (s) {
+      const def = getPhoneBrowserDefaultSectionMeta(s.id);
+      const desc = String(s.description || "").trim();
+      return {
+        id: String(s.id || ""),
+        name: String(s.name || (def ? def.name : "")),
+        description: desc || (def ? def.description : ""),
+      };
+    });
+  }
+
+  function getPhoneBrowserBundleRecord() {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key) return null;
+    const rec = phoneBrowserData[key];
+    if (!rec || !Array.isArray(rec.entries) || !rec.entries.length) return null;
+    return rec;
+  }
+
+  function getPhoneBrowserSections() {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    const rec = key ? phoneBrowserData[key] : null;
+    if (rec && Array.isArray(rec.sections) && rec.sections.length) {
+      return mergePhoneBrowserSectionDescriptions(rec.sections);
+    }
+    return clonePhoneBrowserDefaultSections();
+  }
+
+  function getPhoneBrowserBundleMutable() {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key) return null;
+    if (!phoneBrowserData[key]) {
+      phoneBrowserData[key] = { sections: clonePhoneBrowserDefaultSections(), entries: [] };
+    }
+    if (!Array.isArray(phoneBrowserData[key].sections)) {
+      phoneBrowserData[key].sections = clonePhoneBrowserDefaultSections();
+    }
+    if (!Array.isArray(phoneBrowserData[key].entries)) {
+      phoneBrowserData[key].entries = [];
+    }
+    return { key: key, bundle: phoneBrowserData[key] };
+  }
+
+  function persistPhoneBrowserBundle(bundle) {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key || !bundle) return;
+    if (Array.isArray(bundle.entries)) {
+      bundle.entries = sortPhoneBrowserEntries(bundle.entries);
+    }
+    phoneBrowserData[key] = bundle;
+    schedulePersistNarrative();
+  }
+
+  function findPhoneBrowserSection(sectionId) {
+    const id = String(sectionId || "").trim();
+    if (!id) return null;
+    return (
+      getPhoneBrowserSections().find(function (s) {
+        return s.id === id;
+      }) || null
+    );
+  }
+
+  function getPhoneBrowserActiveSectionId(nav) {
+    const sections = getPhoneBrowserSections();
+    const id = String((nav && nav.browserSectionId) || "").trim();
+    if (sections.some(function (s) {
+      return s.id === id;
+    })) {
+      return id;
+    }
+    return sections.length ? sections[0].id : "";
+  }
+
+  function toPhoneBrowserDateKey(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return y + "-" + m + "-" + d;
+  }
+
+  function isValidPhoneDateKey(key) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(key || ""));
+  }
+
+  function comparePhoneDateKeys(a, b) {
+    return String(a || "").localeCompare(String(b || ""));
+  }
+
+  function maxPhoneDateKey() {
+    let max = "";
+    for (let i = 0; i < arguments.length; i++) {
+      const k = arguments[i];
+      if (isValidPhoneDateKey(k) && (!max || comparePhoneDateKeys(k, max) > 0)) max = k;
+    }
+    return max;
+  }
+
+  function shiftPhoneDateKey(dateKey, deltaDays) {
+    const parts = String(dateKey || "").split("-");
+    if (parts.length !== 3 || !isValidPhoneDateKey(dateKey)) return String(dateKey || "");
+    const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    d.setDate(d.getDate() + Number(deltaDays || 0));
+    return toPhoneBrowserDateKey(d);
+  }
+
+  function parsePhoneDateKeyParts(dateKey) {
+    const parts = String(dateKey || "").split("-");
+    if (parts.length !== 3) return null;
+    return {
+      y: Number(parts[0]),
+      m: Number(parts[1]),
+      d: Number(parts[2]),
+    };
+  }
+
+  function collectPlotNarrativeTextChunks(plot) {
+    if (!plot) return [];
+    const chunks = [];
+    if (plot.eraBackground) chunks.push(String(plot.eraBackground));
+    if (plot.storyStart) chunks.push(String(plot.storyStart));
+    if (plot.playIntro && typeof plot.playIntro === "object") {
+      if (plot.playIntro.era) chunks.push(String(plot.playIntro.era));
+      if (plot.playIntro.opening) chunks.push(String(plot.playIntro.opening));
+    }
+    (plot.summaries || []).slice(-10).forEach(function (s) {
+      if (s && s.content) chunks.push(String(s.content));
+    });
+    (plot.memories || []).slice(-10).forEach(function (m) {
+      if (m && (m.content || m.text)) chunks.push(String(m.content || m.text));
+    });
+    (plot.playTurns || []).forEach(function (turn) {
+      (turn.lines || []).forEach(function (line) {
+        if (line && line.text) chunks.push(String(line.text));
+      });
+    });
+    return chunks;
+  }
+
+  function inferBaseYearFromPlotText(chunks) {
+    const blob = (chunks || []).join("\n");
+    const m = blob.match(/(?:^|[^\d])(20\d{2}|19\d{2})年/);
+    if (m) return Number(m[1]);
+    return new Date().getFullYear();
+  }
+
+  function parseDateKeysFromStoryText(text, baseYear) {
+    const found = [];
+    const s = String(text || "");
+    if (!s) return found;
+    let m;
+    const reIso = /(\d{4})[-./年](\d{1,2})[-./月](\d{1,2})/g;
+    while ((m = reIso.exec(s))) {
+      found.push(
+        m[1] +
+          "-" +
+          String(Number(m[2])).padStart(2, "0") +
+          "-" +
+          String(Number(m[3])).padStart(2, "0")
+      );
+    }
+    const year = Number(baseYear) || new Date().getFullYear();
+    const reMd = /(?:^|[^\d])(\d{1,2})月(\d{1,2})日/g;
+    while ((m = reMd.exec(s))) {
+      found.push(
+        String(year) +
+          "-" +
+          String(Number(m[1])).padStart(2, "0") +
+          "-" +
+          String(Number(m[2])).padStart(2, "0")
+      );
+    }
+    return found.filter(isValidPhoneDateKey);
+  }
+
+  function countStoryDayAdvancements(text) {
+    const s = String(text || "");
+    let days = 0;
+    days += (s.match(/第二天|次日|翌日|隔天|又一天|另一天/g) || []).length;
+    let m;
+    const reDays = /(?:过(?:了)?|(?:再)?等)([\d一二三四五六七八九十两]+)天/g;
+    while ((m = reDays.exec(s))) {
+      const raw = m[1];
+      const map = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+      if (/^\d+$/.test(raw)) days += Number(raw);
+      else if (map[raw]) days += map[raw];
+    }
+    if (/一周(?:后|之后)|七天后/.test(s)) days += 7;
+    return days;
+  }
+
+  function inferSeasonalDefaultDateKey(baseYear, text) {
+    const s = String(text || "");
+    const y = String(baseYear || new Date().getFullYear());
+    if (/深冬|隆冬|寒冬|零下|大雪|飘雪|雪夜/.test(s)) return y + "-01-18";
+    if (/初春|早春|花开|回暖/.test(s)) return y + "-03-28";
+    if (/春|桃李|清明/.test(s)) return y + "-04-12";
+    if (/盛夏|酷暑|蝉鸣|三伏/.test(s)) return y + "-07-26";
+    if (/夏/.test(s)) return y + "-06-18";
+    if (/金秋|深秋|落叶|桂香/.test(s)) return y + "-10-08";
+    if (/秋/.test(s)) return y + "-09-20";
+    if (/冬/.test(s)) return y + "-12-06";
+    const monthHint = s.match(/(?:^|[^\d])(\d{1,2})月(?:份)?(?:里|中|初|末|底)?/);
+    if (monthHint) {
+      const mo = Math.max(1, Math.min(12, Number(monthHint[1])));
+      return y + "-" + String(mo).padStart(2, "0") + "-15";
+    }
+    return "";
+  }
+
+  function extractLatestExplicitStoryDateKey(plot) {
+    const chunks = collectPlotNarrativeTextChunks(plot);
+    const baseYear = inferBaseYearFromPlotText(chunks);
+    const keys = [];
+    chunks.forEach(function (chunk) {
+      parseDateKeysFromStoryText(chunk, baseYear).forEach(function (k) {
+        keys.push(k);
+      });
+    });
+    const anchor = plot && plot.phoneStoryDateKey ? plot.phoneStoryDateKey : "";
+    const recent = chunks.slice(-8).join("\n");
+    if (anchor && /今天|今日|当晚|今夜|此刻|这日/.test(recent)) keys.push(anchor);
+    if (anchor && /昨天|昨日|前晚|前夜/.test(recent)) keys.push(shiftPhoneDateKey(anchor, -1));
+    if (anchor && /明天|明日|翌晨|明早/.test(recent)) keys.push(shiftPhoneDateKey(anchor, 1));
+    return maxPhoneDateKey.apply(null, keys);
+  }
+
+  function inferStoryDateKeyFromPlotEnvironment(plot) {
+    const chunks = collectPlotNarrativeTextChunks(plot);
+    const full = chunks.join("\n");
+    const baseYear = inferBaseYearFromPlotText(chunks);
+    const seasonal = inferSeasonalDefaultDateKey(baseYear, full);
+    const anchor = plot && plot.phoneStoryDateKey ? plot.phoneStoryDateKey : "";
+    let base = maxPhoneDateKey(parseDateKeysFromStoryText(plot.storyStart || "", baseYear)[0], seasonal, anchor);
+    if (!base) {
+      const opening = plot && plot.playIntro && plot.playIntro.opening ? plot.playIntro.opening : "";
+      base = maxPhoneDateKey(parseDateKeysFromStoryText(opening, baseYear)[0], seasonal);
+    }
+    if (!base) base = seasonal || anchor || baseYear + "-06-06";
+    const recent = chunks.slice(-6).join("\n");
+    const advance = countStoryDayAdvancements(recent);
+    if (advance > 0) return shiftPhoneDateKey(base, advance);
+    return base;
+  }
+
+  function getMaxPhoneDateKeyForPlot(plotId) {
+    const prefix = String(plotId || "").trim() + "\u001e";
+    if (!String(plotId || "").trim()) return "";
+    const keys = [];
+    function scan(map, fn) {
+      Object.keys(map || {}).forEach(function (k) {
+        if (k.indexOf(prefix) !== 0) return;
+        fn(map[k]);
+      });
+    }
+    scan(phoneBrowserData, function (b) {
+      (b.entries || []).forEach(function (e) {
+        if (e && e.dateKey) keys.push(e.dateKey);
+      });
+    });
+    scan(phoneMemoData, function (b) {
+      (b.notes || []).forEach(function (n) {
+        if (n && n.dateKey) keys.push(n.dateKey);
+      });
+    });
+    scan(phoneDiaryData, function (b) {
+      (b.entries || []).forEach(function (e) {
+        if (e && e.dateKey) keys.push(e.dateKey);
+      });
+    });
+    scan(phoneBillData, function (b) {
+      (b.transactions || []).forEach(function (t) {
+        if (t && t.dateKey) keys.push(t.dateKey);
+      });
+    });
+    scan(phoneWereadData, function (b) {
+      (b.books || []).forEach(function (book) {
+        if (book && book.lastReadKey) keys.push(book.lastReadKey);
+        (book.highlights || []).forEach(function (h) {
+          if (h && h.dateKey) keys.push(h.dateKey);
+        });
+      });
+    });
+    return maxPhoneDateKey.apply(null, keys);
+  }
+
+  function resolvePhoneStoryDateKey(plot) {
+    if (!plot) return "";
+    const explicit = extractLatestExplicitStoryDateKey(plot);
+    const inferred = inferStoryDateKeyFromPlotEnvironment(plot);
+    return maxPhoneDateKey(explicit, inferred);
+  }
+
+  function syncPhoneStoryDateAnchor(plot) {
+    if (!plot) return toPhoneBrowserDateKey(new Date());
+    ensurePlotExtendedState(plot);
+    const candidate = resolvePhoneStoryDateKey(plot);
+    const fromPhone = getMaxPhoneDateKeyForPlot(plot.id);
+    const prev = plot.phoneStoryDateKey || "";
+    let next = maxPhoneDateKey(candidate, prev, fromPhone);
+    if (!next) next = prev || toPhoneBrowserDateKey(new Date());
+    if (!prev || comparePhoneDateKeys(next, prev) >= 0) {
+      if (plot.phoneStoryDateKey !== next) {
+        plot.phoneStoryDateKey = next;
+        schedulePersistNarrative();
+      }
+    }
+    return plot.phoneStoryDateKey || next;
+  }
+
+  function getPhoneStoryTodayKey() {
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    if (!plot) return toPhoneBrowserDateKey(new Date());
+    ensurePlotExtendedState(plot);
+    if (plot.phoneStoryDateKey && isValidPhoneDateKey(plot.phoneStoryDateKey)) {
+      return plot.phoneStoryDateKey;
+    }
+    return syncPhoneStoryDateAnchor(plot);
+  }
+
+  function touchPhoneStoryDateForCurrentPlot() {
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    if (plot) syncPhoneStoryDateAnchor(plot);
+  }
+
+  function clampPhoneStoryDateKey(dateKey) {
+    let k = String(dateKey || "").trim();
+    if (!isValidPhoneDateKey(k)) return getPhoneStoryTodayKey();
+    const today = getPhoneStoryTodayKey();
+    const minPast = shiftPhoneDateKey(today, -730);
+    if (comparePhoneDateKeys(k, today) > 0) k = today;
+    if (comparePhoneDateKeys(k, minPast) < 0) k = minPast;
+    return k;
+  }
+
+  function preparePhoneStoryDateForGeneration(plot) {
+    if (!plot) return getPhoneStoryTodayKey();
+    return syncPhoneStoryDateAnchor(plot);
+  }
+
+  function finalizePhoneStoryDateAfterGeneration(plot) {
+    if (!plot) return;
+    syncPhoneStoryDateAnchor(plot);
+  }
+
+  function bumpPhoneStoryDateKeysForIncrement(items, field) {
+    if (!items || !items.length) return items;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const floor = maxPhoneDateKey((plot && plot.phoneStoryDateKey) || "", getMaxPhoneDateKeyForPlot(phoneHolderPlotId));
+    if (!floor) return items;
+    return items.map(function (item) {
+      if (!item || typeof item !== "object") return item;
+      const copy = Object.assign({}, item);
+      const k = normalizePhoneBrowserDateKey(copy[field]);
+      if (comparePhoneDateKeys(k, floor) < 0) copy[field] = floor;
+      return copy;
+    });
+  }
+
+  function formatPhoneStoryWeekdayLabel(dateKey) {
+    const p = parsePhoneDateKeyParts(dateKey);
+    if (!p) return "";
+    const d = new Date(p.y, p.m - 1, p.d);
+    return ["日", "一", "二", "三", "四", "五", "六"][d.getDay()] || "";
+  }
+
+  function buildPhoneStoryDatePromptBlock(plot) {
+    const todayKey = preparePhoneStoryDateForGeneration(plot);
+    const yesterdayKey = shiftPhoneDateKey(todayKey, -1);
+    const parts = parsePhoneDateKeyParts(todayKey);
+    const cnLabel =
+      parts && parts.y
+        ? parts.y + "年" + parts.m + "月" + parts.d + "日"
+        : getPhoneDiaryDateLabel(todayKey);
+    const weekday = formatPhoneStoryWeekdayLabel(todayKey);
+    return (
+      "【剧情当前日期（查手机统一时间轴）】\n" +
+      "今天 dateKey=" +
+      todayKey +
+      "（" +
+      cnLabel +
+      (weekday ? "，星期" + weekday : "") +
+      "）。\n" +
+      "昨天 dateKey=" +
+      yesterdayKey +
+      "。\n" +
+      "所有查手机界面的 dateKey、日记日期、消费/阅读/浏览记录时间，均须以该日期为「今天」，禁止使用真实世界当前日期。\n" +
+      "新生成记录的 dateKey 不得晚于今天，且不得早于该剧情已生成查手机数据中的最新日期（避免时间倒退）。"
+    );
+  }
+
+  function getPhoneBrowserDateGroupLabel(dateKey) {
+    const parts = String(dateKey || "").split("-");
+    if (parts.length !== 3) return "…";
+    const target = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    const todayParts = parsePhoneDateKeyParts(getPhoneStoryTodayKey());
+    const todayStart = todayParts
+      ? new Date(todayParts.y, todayParts.m - 1, todayParts.d)
+      : new Date();
+    const targetStart = new Date(target.getFullYear(), target.getMonth(), target.getDate());
+    const diffDays = Math.round((todayStart - targetStart) / 86400000);
+    if (diffDays === 0) return "今天";
+    if (diffDays === 1) return "昨天";
+    return target.getMonth() + 1 + "月" + target.getDate() + "日";
+  }
+
+  function buildPhoneBrowserPlaceholderEntries() {
+    const todayKey = getPhoneStoryTodayKey();
+    const todayParts = parsePhoneDateKeyParts(todayKey);
+    const today = todayParts
+      ? new Date(todayParts.y, todayParts.m - 1, todayParts.d)
+      : new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const older = new Date(today);
+    older.setDate(older.getDate() - 3);
+    const yesterdayKey = toPhoneBrowserDateKey(yesterday);
+    const olderKey = toPhoneBrowserDateKey(older);
+    const sectionIds = PHONE_BROWSER_DEFAULT_SECTIONS.map(function (s) {
+      return s.id;
+    });
+    const rows = [];
+    let idx = 0;
+    sectionIds.forEach(function (sectionId) {
+      [todayKey, yesterdayKey, olderKey].forEach(function (dateKey) {
+        idx += 1;
+        rows.push({ id: "bh-ph-" + idx, dateKey: dateKey, sectionId: sectionId });
+      });
+    });
+    return rows;
+  }
+
+  function getPhoneBrowserEntriesForSection(sectionId) {
+    if (hasPhoneBrowserGenerated()) {
+      return sortPhoneBrowserEntries(
+        getPhoneBrowserEntries().filter(function (e) {
+          return e.sectionId === sectionId;
+        })
+      );
+    }
+    return sortPhoneBrowserEntries(
+      buildPhoneBrowserPlaceholderEntries().filter(function (e) {
+        return e.sectionId === sectionId;
+      })
+    );
+  }
+
+  function groupPhoneBrowserEntriesByDate(entries) {
+    const groups = [];
+    const map = {};
+    (entries || []).forEach(function (entry) {
+      const key = String(entry.dateKey || "");
+      if (!map[key]) {
+        map[key] = { dateKey: key, items: [] };
+        groups.push(map[key]);
+      }
+      map[key].items.push(entry);
+    });
+    groups.sort(function (a, b) {
+      return b.dateKey.localeCompare(a.dateKey);
+    });
+    groups.forEach(function (group) {
+      group.items = sortPhoneBrowserEntries(group.items);
+    });
+    return groups;
+  }
+
+  function buildPhoneBrowserBarHtml(totalCount) {
+    const loadingCls = phoneBrowserGenerating ? " phone-wechat-gen-btn--loading" : "";
+    const disabled = isAnyPhoneAiGenerating();
+    return (
+      '<header class="phone-app__bar phone-app__bar--wechat-list phone-browser__bar">' +
+      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<div class="phone-browser__title-wrap">' +
+      '<h2 class="phone-app__title phone-app__title--left">浏览历史</h2>' +
+      '<span class="phone-browser__count">' +
+      escapeHtml(String(totalCount || 0)) +
+      " 条</span>" +
+      "</div>" +
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      loadingCls +
+      '" data-phone-browser-generate aria-label="AI 生成浏览记录" title="AI 生成浏览记录"' +
+      (disabled ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>" +
+      "</header>"
+    );
+  }
+
+  function buildPhoneBrowserSectionTabsHtml(activeSectionId) {
+    const sections = getPhoneBrowserSections();
+    const tabs = sections
+      .map(function (sec) {
+        const active = sec.id === activeSectionId;
+        return (
+          '<button type="button" class="filter-pill phone-browser__pill' +
+          (active ? " is-active" : "") +
+          '" data-phone-browser-section="' +
+          escapeHtml(sec.id) +
+          '">' +
+          escapeHtml(sec.name) +
+          "</button>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="pill-row-wrap phone-browser__pill-wrap" aria-label="浏览记录分类">' +
+      '<div class="pill-row phone-browser__pill-row">' +
+      tabs +
+      '<button type="button" class="filter-pill filter-pill--manage phone-browser__pill-manage" data-phone-browser-manage-open>管理分类</button>' +
+      "</div></div>"
+    );
+  }
+
+  function buildPhoneBrowserEntryInnerHtml(entry, nav, placeholder) {
+    const expanded = nav && nav.browserExpandedId === entry.id;
+    const editKey = "entry:" + entry.id;
+    const editing = nav && nav.browserInlineEdit === editKey;
+    const titleCls = "phone-browser__entry-title" + (placeholder ? "" : " phone-browser__entry-title--filled");
+    const titleHtml = editing
+      ? '<span class="' +
+        titleCls +
+        ' phone-forum__editable" contenteditable="true" data-phone-browser-inline-field="title" data-phone-browser-inline-key="' +
+        escapeHtml(editKey) +
+        '">' +
+        escapeHtml(String(entry.title || "")) +
+        "</span>"
+      : '<span class="' + titleCls + '">' + escapeHtml(String(placeholder ? "…" : entry.title || "")) + "</span>";
+    const timeHtml = editing
+      ? '<span class="phone-browser__entry-time phone-forum__editable" contenteditable="true" data-phone-browser-inline-field="visitTime" data-phone-browser-inline-key="' +
+        escapeHtml(editKey) +
+        '">' +
+        escapeHtml(String(entry.visitTime || "")) +
+        "</span>"
+      : '<span class="phone-browser__entry-time">' + escapeHtml(String(placeholder ? "…" : entry.visitTime || "")) + "</span>";
+    const sourceHtml = editing
+      ? '<span class="phone-browser__entry-source phone-forum__editable" contenteditable="true" data-phone-browser-inline-field="source" data-phone-browser-inline-key="' +
+        escapeHtml(editKey) +
+        '">' +
+        escapeHtml(String(entry.source || "")) +
+        "</span>"
+      : '<span class="phone-browser__entry-source">' + escapeHtml(String(placeholder ? "…" : entry.source || "")) + "</span>";
+    const tagHtml = editing
+      ? '<span class="phone-browser__entry-tag phone-forum__editable" contenteditable="true" data-phone-browser-inline-field="tag" data-phone-browser-inline-key="' +
+        escapeHtml(editKey) +
+        '">' +
+        escapeHtml(String(entry.tag || "")) +
+        "</span>"
+      : '<span class="phone-browser__entry-tag">' + escapeHtml(String(placeholder ? "…" : entry.tag || "")) + "</span>";
+    const durationHtml = editing
+      ? '<span class="phone-browser__entry-duration phone-forum__editable" contenteditable="true" data-phone-browser-inline-field="duration" data-phone-browser-inline-key="' +
+        escapeHtml(editKey) +
+        '">' +
+        escapeHtml(String(entry.duration || "")) +
+        "</span>"
+      : '<span class="phone-browser__entry-duration">' +
+        escapeHtml(String(placeholder ? "…" : entry.duration || "")) +
+        "</span>";
+    const detailText = placeholder ? "…".repeat(300) : String(entry.detail || "");
+    const detailHtml = editing
+      ? '<p class="phone-browser__entry-detail-text phone-browser__entry-detail-text--filled phone-forum__editable" contenteditable="true" data-phone-browser-inline-field="detail" data-phone-browser-inline-key="' +
+        escapeHtml(editKey) +
+        '">' +
+        escapeHtml(detailText) +
+        "</p>"
+      : '<p class="phone-browser__entry-detail-text' +
+        (placeholder ? "" : " phone-browser__entry-detail-text--filled") +
+        '">' +
+        escapeHtml(detailText) +
+        "</p>";
+    return (
+      '<div class="phone-browser__entry' +
+      (expanded ? " is-expanded" : "") +
+      '" data-phone-browser-entry="' +
+      escapeHtml(String(entry.id || "")) +
+      '">' +
+      '<div class="phone-browser__entry-head">' +
+      '<span class="phone-browser__entry-icon" aria-hidden="true">' +
+      escapeHtml(String(placeholder ? "…" : entry.emoji || "🌐")) +
+      "</span>" +
+      '<div class="phone-browser__entry-main">' +
+      '<div class="phone-browser__entry-top">' +
+      titleHtml +
+      '<button type="button" class="phone-browser__entry-toggle" data-phone-browser-entry-toggle="' +
+      escapeHtml(String(entry.id || "")) +
+      '" aria-expanded="' +
+      (expanded ? "true" : "false") +
+      '" aria-label="' +
+      (expanded ? "收起详情" : "展开详情") +
+      '">' +
+      '<svg class="icon-linear" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>' +
+      "</button>" +
+      "</div>" +
+      '<div class="phone-browser__entry-meta">' +
+      timeHtml +
+      '<span class="phone-browser__entry-sep">·</span>' +
+      sourceHtml +
+      tagHtml +
+      "</div>" +
+      "</div>" +
+      durationHtml +
+      "</div>" +
+      '<div class="phone-browser__entry-detail"' +
+      (expanded || editing ? "" : " hidden") +
+      ">" +
+      detailHtml +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function buildPhoneBrowserEntryHtml(entry, nav, placeholder) {
+    const inner = buildPhoneBrowserEntryInnerHtml(entry, nav, placeholder);
+    if (placeholder) return inner;
+    const id = escapeHtml(String(entry.id || ""));
+    return (
+      '<div class="phone-browser-entry-item">' +
+      inner +
+      buildPhoneForumCornerActionsHtml(
+        ' data-phone-browser-entry-edit="' + id + '"',
+        ' data-phone-browser-entry-delete="' + id + '"'
+      ) +
+      "</div>"
+    );
+  }
+
+  function buildPhoneBrowserHistoryListHtml(sectionId, nav) {
+    const placeholder = !hasPhoneBrowserGenerated();
+    const entries = getPhoneBrowserEntriesForSection(sectionId);
+    if (!entries.length) {
+      return (
+        '<div class="phone-browser__empty"><p class="phone-browser__empty-text">暂无记录，点击右上角生成</p></div>'
+      );
+    }
+    const groups = groupPhoneBrowserEntriesByDate(entries);
+    return groups
+      .map(function (group) {
+        const label = getPhoneBrowserDateGroupLabel(group.dateKey);
+        const rows = group.items
+          .map(function (entry) {
+            return buildPhoneBrowserEntryHtml(entry, nav, placeholder);
+          })
+          .join("");
+        return (
+          '<section class="phone-browser__group" aria-label="' +
+          escapeHtml(label) +
+          '">' +
+          '<h3 class="phone-browser__group-title">' +
+          escapeHtml(label) +
+          '<span class="phone-browser__group-count">· ' +
+          escapeHtml(String(group.items.length)) +
+          "</span></h3>" +
+          '<div class="phone-browser__group-card">' +
+          rows +
+          "</div></section>"
+        );
+      })
+      .join("");
+  }
+
+  function buildPhoneBrowserManageListHtml() {
+    const sections = getPhoneBrowserSections();
+    const rows = sections
+      .map(function (sec) {
+        const desc = String(sec.description || "").trim();
+        const descHtml = desc
+          ? escapeHtml(truncateCharsWithEllipsis(desc, 48))
+          : '<span class="phone-forum-manage__desc-placeholder">…</span>';
+        return (
+          '<div class="phone-forum-manage__row">' +
+          '<div class="phone-forum-manage__info">' +
+          '<span class="phone-forum-manage__name">' +
+          escapeHtml(sec.name) +
+          "</span>" +
+          '<span class="phone-forum-manage__desc">' +
+          descHtml +
+          "</span>" +
+          "</div>" +
+          '<div class="phone-forum-manage__actions">' +
+          '<button type="button" class="phone-forum-manage__action" data-phone-browser-section-edit="' +
+          escapeHtml(sec.id) +
+          '" aria-label="编辑分类">编辑</button>' +
+          "</div>" +
+          "</div>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="phone-forum-manage__panel">' +
+      '<div class="phone-forum-manage__head">' +
+      '<h3 class="phone-forum-manage__title">管理分类</h3>' +
+      '<button type="button" class="phone-forum-manage__close" data-phone-browser-manage-close aria-label="关闭">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      "</button>" +
+      "</div>" +
+      '<p class="phone-forum-manage__hint">分类简介将作为后续 AI 生成该分类浏览记录的规则。</p>' +
+      '<div class="phone-forum-manage__list">' +
+      rows +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function buildPhoneBrowserSectionFormHtml(nav) {
+    const formId = String((nav && nav.browserSectionFormId) || "").trim();
+    if (!formId) return "";
+    const sec = findPhoneBrowserSection(formId);
+    if (!sec) return "";
+    return (
+      '<div class="phone-forum-manage__panel phone-forum-manage__panel--form">' +
+      '<div class="phone-forum-manage__head">' +
+      '<h3 class="phone-forum-manage__title">编辑分类</h3>' +
+      '<button type="button" class="phone-forum-manage__close" data-phone-browser-section-form-cancel aria-label="取消">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      "</button>" +
+      "</div>" +
+      '<label class="phone-forum-manage__field">' +
+      '<span class="phone-forum-manage__label">分类名称</span>' +
+      '<input type="text" class="phone-forum-manage__input" data-phone-browser-section-name-input maxlength="' +
+      PHONE_BROWSER_SECTION_NAME_MAX +
+      '" value="' +
+      escapeHtml(sec.name) +
+      '" placeholder="最多' +
+      PHONE_BROWSER_SECTION_NAME_MAX +
+      '字" />' +
+      "</label>" +
+      '<label class="phone-forum-manage__field">' +
+      '<span class="phone-forum-manage__label">分类简介（生成规则）</span>' +
+      '<textarea class="phone-forum-manage__textarea" data-phone-browser-section-desc-input maxlength="' +
+      PHONE_BROWSER_SECTION_DESC_MAX +
+      '" rows="4" placeholder="描述该分类的浏览风格与内容方向，供 AI 生成时使用">' +
+      escapeHtml(sec.description) +
+      "</textarea>" +
+      "</label>" +
+      '<button type="button" class="btn btn--primary btn--pill phone-forum-manage__save" data-phone-browser-section-save>保存</button>' +
+      "</div>"
+    );
+  }
+
+  function buildPhoneBrowserManageOverlayHtml(nav) {
+    if (!nav || !nav.browserManageOpen) return "";
+    const formHtml = nav.browserSectionFormId
+      ? buildPhoneBrowserSectionFormHtml(nav)
+      : buildPhoneBrowserManageListHtml();
+    return (
+      '<div class="phone-forum-manage" role="dialog" aria-modal="true" aria-label="管理浏览记录分类">' +
+      '<button type="button" class="phone-forum-manage__backdrop" data-phone-browser-manage-close aria-label="关闭"></button>' +
+      formHtml +
+      "</div>"
+    );
+  }
+
+  function buildPhoneBrowserHtml(slot) {
+    const nav = getPhoneNav(slot);
+    const activeSectionId = getPhoneBrowserActiveSectionId(nav);
+    const totalCount = getPhoneBrowserEntriesForSection(activeSectionId).length;
+    return (
+      '<div class="phone-app phone-browser" aria-label="浏览历史">' +
+      buildPhoneBrowserBarHtml(totalCount) +
+      buildPhoneBrowserSectionTabsHtml(activeSectionId) +
+      '<div class="phone-browser__scroll">' +
+      buildPhoneBrowserHistoryListHtml(activeSectionId, nav) +
+      "</div>" +
+      buildPhoneBrowserManageOverlayHtml(nav) +
+      "</div>"
+    );
+  }
+
+  function openPhoneBrowser(slot) {
+    const nav = getPhoneNav(slot);
+    nav.screen = "browser";
+    nav.chatId = null;
+    if (!nav.browserSectionId) {
+      const sections = getPhoneBrowserSections();
+      nav.browserSectionId = sections.length ? sections[0].id : "";
+    }
+    renderPhoneScreen(slot);
+  }
+
+  function switchPhoneBrowserSection(slot, sectionId) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "browser") return;
+    const id = String(sectionId || "").trim();
+    if (!findPhoneBrowserSection(id)) return;
+    nav.browserSectionId = id;
+    nav.browserExpandedId = null;
+    renderPhoneScreen(slot);
+  }
+
+  function togglePhoneBrowserEntryExpand(slot, entryId) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "browser") return;
+    const id = String(entryId || "").trim();
+    nav.browserExpandedId = nav.browserExpandedId === id ? null : id;
+    renderPhoneScreen(slot);
+  }
+
+  function openPhoneBrowserManage(slot) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "browser") return;
+    nav.browserManageOpen = true;
+    nav.browserSectionFormId = null;
+    renderPhoneScreen(slot);
+  }
+
+  function closePhoneBrowserManage(slot) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "browser") return;
+    nav.browserManageOpen = false;
+    nav.browserSectionFormId = null;
+    renderPhoneScreen(slot);
+  }
+
+  function openPhoneBrowserSectionForm(slot, sectionId) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "browser") return;
+    nav.browserManageOpen = true;
+    nav.browserSectionFormId = String(sectionId || "").trim();
+    renderPhoneScreen(slot);
+  }
+
+  function cancelPhoneBrowserSectionForm(slot) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "browser") return;
+    nav.browserSectionFormId = null;
+    renderPhoneScreen(slot);
+  }
+
+  function savePhoneBrowserSectionForm(slot) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "browser" || !nav.browserSectionFormId) return;
+    const panel = slot && slot.querySelector(".phone-forum-manage__panel--form");
+    if (!panel) return;
+    const nameInput = panel.querySelector("[data-phone-browser-section-name-input]");
+    const descInput = panel.querySelector("[data-phone-browser-section-desc-input]");
+    const name = String((nameInput && nameInput.value) || "").trim();
+    const desc = String((descInput && descInput.value) || "").trim();
+    if (!name) {
+      showToast("分类名称不能为空", "warning");
+      return;
+    }
+    const rec = getPhoneBrowserBundleMutable();
+    if (!rec) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    const sec = rec.bundle.sections.find(function (s) {
+      return s && s.id === nav.browserSectionFormId;
+    });
+    if (!sec) return;
+    sec.name = truncateCharsWithEllipsis(name, PHONE_BROWSER_SECTION_NAME_MAX);
+    sec.description = truncateCharsWithEllipsis(desc, PHONE_BROWSER_SECTION_DESC_MAX);
+    persistPhoneBrowserBundle(rec.bundle);
+    nav.browserSectionFormId = null;
+    showToast("已保存分类", "success");
+    renderPhoneScreen(slot);
+  }
+
+  function requirePhoneBrowserHolderForEdit() {
+    sanitizePhoneHolderState();
+    if (!getPhoneWechatStorageKeyForCurrentHolder()) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return false;
+    }
+    return true;
+  }
+
+  async function generatePhoneBrowserContent(slot) {
+    if (isAnyPhoneAiGenerating()) return;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const holder = getPhoneHolderCharacter();
+    if (!plot || !holder) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    preparePhoneStoryDateForGeneration(plot);
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    getPhoneBrowserBundleMutable();
+    const existing = phoneBrowserData[key] || null;
+    const isRegenerate = !!(existing && existing.entries && existing.entries.length);
+    phoneBrowserGenerating = true;
+    if (slot && getPhoneNav(slot).screen === "browser") renderPhoneScreen(slot);
+    try {
+      showToast(isRegenerate ? "正在追加浏览记录…" : "正在生成浏览记录…", "info");
+      setGenCallContext(buildGenCallOpts("phone-browser", { slot: slot }));
+      const systemPrompt = isRegenerate
+        ? "你是中文互动叙事助手。根据剧情与已有浏览历史，增量追加浏览器记录 JSON。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          '格式：{"newEntries":[{"id":"唯一id","sectionId":"web|favorite|video|hidden","dateKey":"YYYY-MM-DD","visitTime":"HH:mm","title":"...","source":"...","tag":"...","duration":"...","emoji":"...","detail":"..."}]}'
+        : "你是中文互动叙事助手。根据剧情、人设、记忆与总结，生成「查手机·浏览器」浏览历史 JSON。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          '格式：{"entries":[{"id":"唯一id","sectionId":"web|favorite|video|hidden","dateKey":"YYYY-MM-DD","visitTime":"HH:mm","title":"...","source":"...","tag":"...","duration":"...","emoji":"...","detail":"..."}]}';
+      const userPrompt = isRegenerate
+        ? buildPhoneBrowserRegeneratePrompt(plot, holder, existing)
+        : buildPhoneBrowserPrompt(plot, holder);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.78,
+        16384
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      if (isRegenerate && parsed && parsed.newEntries) {
+        parsed.newEntries = bumpPhoneStoryDateKeysForIncrement(parsed.newEntries, "dateKey");
+      }
+      const bundle = isRegenerate
+        ? mergePhoneBrowserIncrement(existing, parsed)
+        : normalizePhoneBrowserBundle(parsed);
+      if (!bundle.entries || !bundle.entries.length) {
+        throw new Error("未能解析有效的浏览记录");
+      }
+      phoneBrowserData[key] = bundle;
+      schedulePersistNarrative();
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) renderPhoneScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      phoneBrowserGenerating = false;
+      if (slot && getPhoneNav(slot).screen === "browser") renderPhoneScreen(slot);
+    }
+  }
+
+  function startPhoneBrowserInlineEdit(slot, entryId) {
+    const nav = getPhoneNav(slot);
+    nav.browserInlineEdit = "entry:" + String(entryId || "");
+    nav.browserExpandedId = String(entryId || "");
+    closePhoneRowSwipe(slot);
+    renderPhoneScreen(slot);
+  }
+
+  function commitPhoneBrowserInlineEdit(slot) {
+    const nav = getPhoneNav(slot);
+    const key = String((nav && nav.browserInlineEdit) || "").trim();
+    if (!key || key.indexOf("entry:") !== 0 || !slot) return false;
+    const entryId = key.slice(6);
+    const target = getPhoneBrowserEntryMutable(entryId);
+    if (!target) {
+      nav.browserInlineEdit = null;
+      return false;
+    }
+    const fields = slot.querySelectorAll('[data-phone-browser-inline-key="' + key + '"]');
+    if (!fields.length) {
+      nav.browserInlineEdit = null;
+      return false;
+    }
+    let changed = false;
+    fields.forEach(function (el) {
+      const field = el.getAttribute("data-phone-browser-inline-field");
+      const val = String(el.textContent || "").trim();
+      if (field === "title") {
+        const next = truncateCharsWithEllipsis(val, PHONE_BROWSER_TITLE_MAX);
+        if (next && next !== target.entry.title) {
+          target.entry.title = next;
+          changed = true;
+        }
+      } else if (field === "source") {
+        const next = truncateCharsWithEllipsis(val, PHONE_BROWSER_SOURCE_MAX);
+        if (next && next !== target.entry.source) {
+          target.entry.source = next;
+          changed = true;
+        }
+      } else if (field === "tag") {
+        const next = truncateCharsWithEllipsis(val, PHONE_BROWSER_TAG_MAX);
+        if (next && next !== target.entry.tag) {
+          target.entry.tag = next;
+          changed = true;
+        }
+      } else if (field === "duration") {
+        const next = truncateCharsWithEllipsis(val, PHONE_BROWSER_DURATION_MAX);
+        if (next && next !== target.entry.duration) {
+          target.entry.duration = next;
+          changed = true;
+        }
+      } else if (field === "visitTime") {
+        const next = normalizePhoneBrowserVisitTime(val);
+        if (next && next !== target.entry.visitTime) {
+          target.entry.visitTime = next;
+          changed = true;
+        }
+      } else if (field === "detail") {
+        const next = truncateCharsWithEllipsis(val, PHONE_BROWSER_DETAIL_MAX);
+        if (next && next !== target.entry.detail) {
+          target.entry.detail = next;
+          changed = true;
+        }
+      }
+    });
+    nav.browserInlineEdit = null;
+    if (changed) {
+      persistPhoneBrowserBundle(target.bundle);
+      showToast("已保存", "success");
+    }
+    renderPhoneScreen(slot);
+    return changed;
+  }
+
+  async function handlePhoneBrowserDeleteEntry(slot, entryId) {
+    if (!hasPhoneBrowserGenerated()) return;
+    const id = String(entryId || "").trim();
+    if (!id) return;
+    const entries = getPhoneBrowserEntries() || [];
+    const entry = entries.find(function (e) {
+      return e && e.id === id;
+    });
+    const label = entry && entry.title ? entry.title : "该条";
+    closePhoneRowSwipe(slot);
+    const ok = await showConfirm("确定删除浏览记录「" + label + "」吗？", "删除记录");
+    if (!ok) return;
+    if (!deletePhoneBrowserEntry(id)) {
+      showToast("删除失败", "error");
+      return;
+    }
+    const nav = getPhoneNav(slot);
+    if (nav.browserExpandedId === id) nav.browserExpandedId = null;
+    if (nav.browserInlineEdit === "entry:" + id) nav.browserInlineEdit = null;
+    showToast("已删除浏览记录", "success");
+    if (slot) renderPhoneScreen(slot);
+  }
+
+  const PHONE_MEMO_DEFAULT_SECTIONS = [
+    {
+      id: "daily",
+      name: "日常",
+      description: "随手记下的生活片段、琐事与见闻；语气自然随意，像真实备忘录里的日常记录。",
+    },
+    {
+      id: "todo",
+      name: "待办",
+      description: "待完成事项、提醒与计划清单；可含截止时间感，简洁 actionable，符合持有者当前处境。",
+    },
+    {
+      id: "idea",
+      name: "灵感",
+      description: "突发的想法、创作灵感与碎片构思；可跳跃、不完整，体现角色的思维习惯。",
+    },
+    {
+      id: "private",
+      name: "私密",
+      description: "不便示人的秘密、心绪与隐秘记录；语气更私人，须符合角色与剧情逻辑。",
+    },
+  ];
+
+  const PHONE_MEMO_SECTION_NAME_MAX = 12;
+  const PHONE_MEMO_SECTION_DESC_MAX = 200;
+  const PHONE_MEMO_TITLE_MAX = 48;
+  const PHONE_MEMO_PREVIEW_MAX = 80;
+  const PHONE_MEMO_BODY_MAX = 600;
+  const PHONE_MEMO_TIME_MAX = 16;
+  const PHONE_MEMO_MIN_NOTES_PER_SECTION = 5;
+  const PHONE_MEMO_MAX_NOTES = 200;
+  const PHONE_MEMO_REF_NOTES_PER_SECTION = 5;
+  const PHONE_MEMO_KINDS = ["text", "photo", "audio", "receipt", "checklist", "link", "location"];
+  const PHONE_MEMO_KIND_CYCLE = ["text", "photo", "audio", "receipt", "checklist", "link", "location"];
+  const PHONE_MEMO_KIND_LABELS = {
+    text: "文字",
+    photo: "照片",
+    audio: "录音",
+    receipt: "收据",
+    checklist: "清单",
+    link: "链接",
+    location: "地点",
+  };
+  const PHONE_MEMO_META_SCENE_MAX = 80;
+  const PHONE_MEMO_META_DURATION_MAX = 8;
+  const PHONE_MEMO_META_MERCHANT_MAX = 24;
+  const PHONE_MEMO_META_AMOUNT_MAX = 16;
+  const PHONE_MEMO_META_LINES_MAX = 200;
+  const PHONE_MEMO_META_URL_MAX = 72;
+  const PHONE_MEMO_META_SITE_MAX = 16;
+  const PHONE_MEMO_META_ADDRESS_MAX = 48;
+  const PHONE_MEMO_META_PLACE_MAX = 24;
+  const PHONE_MEMO_CHECKLIST_MAX_ITEMS = 12;
+  const PHONE_MEMO_CHECKLIST_ITEM_MAX = 32;
+
+  const PHONE_MEMO_PLACEHOLDER_NOTES = [1, 2, 3, 4, 5, 6].map(function (i) {
+    return { id: "mm-ph-" + i };
+  });
+
+  function purgePhoneMemoDataForPlot(plotId) {
+    const pid = String(plotId || "").trim();
+    if (!pid) return;
+    Object.keys(phoneMemoData).forEach(function (k) {
+      if (k.indexOf(pid + "\u001e") === 0) delete phoneMemoData[k];
+    });
+  }
+
+  function purgePhoneMemoDataForChar(charId) {
+    const cid = String(charId || "").trim();
+    if (!cid) return;
+    const suffix = "\u001e" + cid;
+    Object.keys(phoneMemoData).forEach(function (k) {
+      if (k.slice(-suffix.length) === suffix) delete phoneMemoData[k];
+    });
+  }
+
+  function clonePhoneMemoDefaultSections() {
+    return PHONE_MEMO_DEFAULT_SECTIONS.map(function (s) {
+      return { id: s.id, name: s.name, description: String(s.description || "") };
+    });
+  }
+
+  function getPhoneMemoDefaultSectionMeta(sectionId) {
+    return PHONE_MEMO_DEFAULT_SECTIONS.find(function (s) {
+      return s.id === sectionId;
+    });
+  }
+
+  function mergePhoneMemoSectionDescriptions(sections) {
+    return (sections || []).map(function (s) {
+      const def = getPhoneMemoDefaultSectionMeta(s.id);
+      const desc = String(s.description || "").trim();
+      return {
+        id: String(s.id || ""),
+        name: String(s.name || (def ? def.name : "")),
+        description: desc || (def ? def.description : ""),
+      };
+    });
+  }
+
+  function getPhoneMemoBundleRecord() {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key) return null;
+    const rec = phoneMemoData[key];
+    if (!rec || !Array.isArray(rec.notes) || !rec.notes.length) return null;
+    return rec;
+  }
+
+  function hasPhoneMemoGenerated() {
+    return !!getPhoneMemoBundleRecord();
+  }
+
+  function getPhoneMemoSections() {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    const rec = key ? phoneMemoData[key] : null;
+    if (rec && Array.isArray(rec.sections) && rec.sections.length) {
+      return mergePhoneMemoSectionDescriptions(rec.sections);
+    }
+    return clonePhoneMemoDefaultSections();
+  }
+
+  function getPhoneMemoBundleMutable() {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key) return null;
+    if (!phoneMemoData[key]) {
+      phoneMemoData[key] = { sections: clonePhoneMemoDefaultSections(), notes: [] };
+    }
+    if (!Array.isArray(phoneMemoData[key].sections)) {
+      phoneMemoData[key].sections = clonePhoneMemoDefaultSections();
+    }
+    if (!Array.isArray(phoneMemoData[key].notes)) {
+      phoneMemoData[key].notes = [];
+    }
+    return { key: key, bundle: phoneMemoData[key] };
+  }
+
+  function persistPhoneMemoBundle(bundle) {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key || !bundle) return;
+    if (Array.isArray(bundle.notes)) {
+      bundle.notes = sortPhoneMemoNotes(bundle.notes);
+    }
+    phoneMemoData[key] = bundle;
+    schedulePersistNarrative();
+  }
+
+  function findPhoneMemoSection(sectionId) {
+    const id = String(sectionId || "").trim();
+    if (!id) return null;
+    return (
+      getPhoneMemoSections().find(function (s) {
+        return s.id === id;
+      }) || null
+    );
+  }
+
+  function getPhoneMemoActiveSectionId(nav) {
+    const sections = getPhoneMemoSections();
+    const id = String((nav && nav.memoSectionId) || "").trim();
+    if (sections.some(function (s) {
+      return s.id === id;
+    })) {
+      return id;
+    }
+    return sections.length ? sections[0].id : "";
+  }
+
+  function getPhoneMemoNotes() {
+    const rec = getPhoneMemoBundleRecord();
+    if (rec && rec.notes.length) return sortPhoneMemoNotes(rec.notes.slice());
+    return null;
+  }
+
+  function parsePhoneMemoTimeLabel(raw, now) {
+    const todayKey = getPhoneStoryTodayKey();
+    const todayParts = parsePhoneDateKeyParts(todayKey);
+    now = now || new Date();
+    const s = String(raw || "").trim();
+    let visitTime = "12:00";
+    const tm = s.match(/(\d{1,2}):(\d{2})/);
+    if (tm) visitTime = normalizePhoneBrowserVisitTime(tm[0]);
+    if (!s || s === "刚刚") {
+      visitTime = normalizePhoneBrowserVisitTime(now.getHours() + ":" + now.getMinutes());
+      return { dateKey: todayKey, visitTime: visitTime };
+    }
+    if (s.indexOf("今天") >= 0 || /^\d{1,2}:\d{2}$/.test(s)) {
+      return { dateKey: todayKey, visitTime: visitTime };
+    }
+    if (s.indexOf("昨天") >= 0) {
+      return { dateKey: shiftPhoneDateKey(todayKey, -1), visitTime: visitTime };
+    }
+    const md = s.match(/(\d{1,2})月(\d{1,2})日/);
+    if (md) {
+      const y = todayParts ? todayParts.y : now.getFullYear();
+      const d = new Date(y, Number(md[1]) - 1, Number(md[2]));
+      return { dateKey: toPhoneBrowserDateKey(d), visitTime: visitTime };
+    }
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+      return { dateKey: normalizePhoneBrowserDateKey(s), visitTime: visitTime };
+    }
+    return { dateKey: todayKey, visitTime: visitTime };
+  }
+
+  function ensurePhoneMemoNoteTimeFields(note) {
+    if (!note || typeof note !== "object") return note;
+    if (note.dateKey && note.visitTime) return note;
+    const parsed = parsePhoneMemoTimeLabel(note.time || "刚刚");
+    note.dateKey = parsed.dateKey;
+    note.visitTime = parsed.visitTime;
+    return note;
+  }
+
+  function formatPhoneMemoDisplayTime(note) {
+    if (!note) return "";
+    ensurePhoneMemoNoteTimeFields(note);
+    const label = getPhoneBrowserDateGroupLabel(note.dateKey);
+    const vt = note.visitTime || "12:00";
+    if (label === "今天") return vt;
+    if (label === "昨天") return "昨天 " + vt;
+    return label + " " + vt;
+  }
+
+  function sortPhoneMemoNotes(notes) {
+    return (notes || [])
+      .slice()
+      .map(function (n) {
+        const copy = Object.assign({}, n);
+        ensurePhoneMemoNoteTimeFields(copy);
+        return copy;
+      })
+      .sort(function (a, b) {
+        const dk = String(b.dateKey || "").localeCompare(String(a.dateKey || ""));
+        if (dk !== 0) return dk;
+        return (
+          parsePhoneBrowserVisitTimeSortValue(b.visitTime) - parsePhoneBrowserVisitTimeSortValue(a.visitTime)
+        );
+      });
+  }
+
+  function getPhoneMemoNotesForSection(sectionId) {
+    if (hasPhoneMemoGenerated()) {
+      return sortPhoneMemoNotes(
+        (getPhoneMemoBundleRecord().notes || []).filter(function (n) {
+          return n.sectionId === sectionId;
+        })
+      );
+    }
+    const todayKey = getPhoneStoryTodayKey();
+    return PHONE_MEMO_PLACEHOLDER_NOTES.map(function (n, idx) {
+      return {
+        id: n.id,
+        sectionId: sectionId,
+        _phIdx: idx,
+        dateKey: shiftPhoneDateKey(todayKey, -idx),
+        visitTime: normalizePhoneBrowserVisitTime(12 - idx + ":00"),
+      };
+    });
+  }
+
+  function getPhoneMemoNoteMutable(noteId) {
+    const rec = getPhoneMemoBundleMutable();
+    if (!rec) return null;
+    const id = String(noteId || "").trim();
+    const note = (rec.bundle.notes || []).find(function (n) {
+      return n && n.id === id;
+    });
+    if (!note) return null;
+    return { bundle: rec.bundle, note: note };
+  }
+
+  function deletePhoneMemoNote(noteId) {
+    const rec = getPhoneMemoBundleMutable();
+    if (!rec) return false;
+    const id = String(noteId || "").trim();
+    if (!id) return false;
+    rec.bundle.notes = (rec.bundle.notes || []).filter(function (n) {
+      return n && n.id !== id;
+    });
+    persistPhoneMemoBundle(rec.bundle);
+    return true;
+  }
+
+  function normalizePhoneMemoSectionId(raw) {
+    const id = String(raw || "").trim();
+    if (
+      PHONE_MEMO_DEFAULT_SECTIONS.some(function (s) {
+        return s.id === id;
+      })
+    ) {
+      return id;
+    }
+    const byName = getPhoneMemoSections().find(function (s) {
+      return s.name === id;
+    });
+    if (byName) return byName.id;
+    if (
+      getPhoneMemoSections().some(function (s) {
+        return s.id === id;
+      })
+    ) {
+      return id;
+    }
+    return null;
+  }
+
+  function syncPhoneMemoNotePreview(note) {
+    if (!note) return;
+    if (!String(note.preview || "").trim()) {
+      note.preview = buildPhoneMemoPreviewFromNote(note);
+    }
+  }
+
+  function normalizePhoneMemoKind(raw) {
+    const k = String(raw || "text").trim().toLowerCase();
+    if (PHONE_MEMO_KINDS.indexOf(k) >= 0) return k;
+    if (k === "voice" || k === "recording") return "audio";
+    if (k === "image" || k === "picture") return "photo";
+    if (k === "todo" || k === "list") return "checklist";
+    if (k === "place" || k === "map") return "location";
+    return "text";
+  }
+
+  function normalizePhoneMemoMeta(kind, item, body, title) {
+    const src = item && item.meta && typeof item.meta === "object" ? item.meta : item || {};
+    const out = {};
+    if (kind === "photo") {
+      out.scene = truncateCharsWithEllipsis(
+        String(src.scene || src.caption || item.caption || body || "").trim(),
+        PHONE_MEMO_META_SCENE_MAX
+      );
+    } else if (kind === "audio") {
+      const dur = String(src.duration || item.duration || "0:30").trim();
+      out.duration = truncateCharsWithEllipsis(dur.match(/^\d{1,2}:\d{2}$/) ? dur : "0:30", PHONE_MEMO_META_DURATION_MAX);
+      out.wave = String(src.wave || item.wave || "▁▃▅▇▆▅▃▁▂▄▆▇▅▃▁▃▅▇").slice(0, 28);
+    } else if (kind === "receipt") {
+      out.merchant = truncateCharsWithEllipsis(
+        String(src.merchant || src.shop || item.merchant || item.shop || title || "").trim(),
+        PHONE_MEMO_META_MERCHANT_MAX
+      );
+      out.amount = truncateCharsWithEllipsis(String(src.amount || item.amount || "").trim(), PHONE_MEMO_META_AMOUNT_MAX);
+      let lines = src.lines || item.lines || item.receiptLines;
+      if (Array.isArray(lines)) lines = lines.join("\n");
+      else lines = String(lines || "").trim();
+      if (!lines && body) lines = body;
+      out.lines = truncateCharsWithEllipsis(lines, PHONE_MEMO_META_LINES_MAX);
+    } else if (kind === "checklist") {
+      let items = src.items || item.items;
+      if (typeof items === "string") {
+        items = items.split(/[\n,，;；]/);
+      }
+      if (!Array.isArray(items) && body) {
+        items = body.split("\n");
+      }
+      if (!Array.isArray(items)) items = [];
+      out.items = items
+        .map(function (s) {
+          return truncateCharsWithEllipsis(String(s || "").replace(/^[\s☐☑✓✔-]+/, "").trim(), PHONE_MEMO_CHECKLIST_ITEM_MAX);
+        })
+        .filter(Boolean)
+        .slice(0, PHONE_MEMO_CHECKLIST_MAX_ITEMS);
+    } else if (kind === "link") {
+      out.url = truncateCharsWithEllipsis(String(src.url || item.url || "").trim(), PHONE_MEMO_META_URL_MAX);
+      out.site = truncateCharsWithEllipsis(String(src.site || item.site || "").trim(), PHONE_MEMO_META_SITE_MAX);
+    } else if (kind === "location") {
+      out.address = truncateCharsWithEllipsis(
+        String(src.address || item.address || body || "").trim(),
+        PHONE_MEMO_META_ADDRESS_MAX
+      );
+      out.label = truncateCharsWithEllipsis(String(src.label || src.place || item.place || title || "").trim(), PHONE_MEMO_META_PLACE_MAX);
+    }
+    return out;
+  }
+
+  function buildPhoneMemoPreviewFromNote(note) {
+    if (!note) return "";
+    const kind = normalizePhoneMemoKind(note.kind);
+    const meta = note.meta && typeof note.meta === "object" ? note.meta : {};
+    const body = String(note.body || "").trim();
+    const title = String(note.title || "").trim();
+    if (kind === "photo") {
+      return truncateCharsWithEllipsis(meta.scene || body || title, PHONE_MEMO_PREVIEW_MAX);
+    }
+    if (kind === "audio") {
+      return truncateCharsWithEllipsis("语音 " + (meta.duration || "0:30") + (body ? " · " + body : ""), PHONE_MEMO_PREVIEW_MAX);
+    }
+    if (kind === "receipt") {
+      return truncateCharsWithEllipsis((meta.merchant || title) + " · " + (meta.amount || ""), PHONE_MEMO_PREVIEW_MAX);
+    }
+    if (kind === "checklist") {
+      const items = Array.isArray(meta.items) ? meta.items : [];
+      return truncateCharsWithEllipsis(items.length ? "清单 " + items.length + " 项 · " + items[0] : title, PHONE_MEMO_PREVIEW_MAX);
+    }
+    if (kind === "link") {
+      return truncateCharsWithEllipsis((meta.site || "链接") + (meta.url ? " · " + meta.url : ""), PHONE_MEMO_PREVIEW_MAX);
+    }
+    if (kind === "location") {
+      return truncateCharsWithEllipsis(meta.label || meta.address || title, PHONE_MEMO_PREVIEW_MAX);
+    }
+    return truncateCharsWithEllipsis(body || title, PHONE_MEMO_PREVIEW_MAX);
+  }
+
+  function phoneMemoNoteHasContent(kind, body, meta) {
+    if (kind === "text") return !!String(body || "").trim();
+    if (kind === "photo") return !!(meta.scene || body);
+    if (kind === "audio") return !!(meta.duration && body);
+    if (kind === "receipt") return !!(meta.merchant && meta.amount && meta.lines);
+    if (kind === "checklist") return !!(meta.items && meta.items.length);
+    if (kind === "link") return !!meta.url;
+    if (kind === "location") return !!meta.address;
+    return !!body;
+  }
+
+  function buildPhoneMemoPlaceholderMeta(kind) {
+    if (kind === "photo") return { scene: "…".repeat(18) };
+    if (kind === "audio") return { duration: "…:…", wave: "▁▃▅▇▅▃▁▃▅▇▅▃▁" };
+    if (kind === "receipt") return { merchant: "……", amount: "¥…", lines: "……\n……" };
+    if (kind === "checklist") return { items: ["……", "……", "……"] };
+    if (kind === "link") return { site: "……", url: "https://…" };
+    if (kind === "location") return { label: "……", address: "……" };
+    return {};
+  }
+
+  function buildPhoneMemoKindBadgeHtml(kind, placeholder) {
+    const k = normalizePhoneMemoKind(kind);
+    const label = placeholder ? "…" : PHONE_MEMO_KIND_LABELS[k] || "文字";
+    return (
+      '<span class="phone-memo-row__kind phone-memo-row__kind--' +
+      escapeHtml(k) +
+      '">' +
+      escapeHtml(label) +
+      "</span>"
+    );
+  }
+
+  function buildPhoneMemoEditableBlock(tag, cls, field, editKey, editing, text) {
+    if (editing) {
+      return (
+        "<" +
+        tag +
+        ' class="' +
+        cls +
+        ' phone-forum__editable" contenteditable="true" data-phone-memo-inline-field="' +
+        field +
+        '" data-phone-memo-inline-key="' +
+        escapeHtml(editKey) +
+        '">' +
+        escapeHtml(String(text || "")) +
+        "</" +
+        tag +
+        ">"
+      );
+    }
+    return "<" + tag + ' class="' + cls + '">' + escapeHtml(String(text || "")) + "</" + tag + ">";
+  }
+
+  function buildPhoneMemoTypedContentHtml(note, editing, editKey, placeholder) {
+    const kind = normalizePhoneMemoKind(note.kind);
+    const meta = note.meta && typeof note.meta === "object" ? note.meta : normalizePhoneMemoMeta(kind, note, note.body, note.title);
+    const body = String(note.body || "");
+    const ph = !!placeholder;
+
+    if (kind === "photo") {
+      const scene = ph ? "…".repeat(24) : body || meta.scene || "";
+      const caption = ph ? "" : meta.scene && body && body !== meta.scene ? body : "";
+      return (
+        '<div class="phone-memo-card phone-memo-card--photo">' +
+        '<div class="phone-memo-card__polaroid">' +
+        '<div class="phone-memo-card__photo-frame">' +
+        '<svg class="phone-memo-card__photo-icon icon-linear" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 16l-5.5-5.5L5 18"/></svg>' +
+        (editing
+          ? '<p class="phone-memo-card__photo-scene phone-forum__editable" contenteditable="true" data-phone-memo-inline-field="body" data-phone-memo-inline-key="' +
+            escapeHtml(editKey) +
+            '">' +
+            escapeHtml(scene) +
+            "</p>"
+          : '<p class="phone-memo-card__photo-scene">' + escapeHtml(scene) + "</p>") +
+        "</div>" +
+        "</div>" +
+        (caption
+          ? buildPhoneMemoEditableBlock("p", "phone-memo-card__photo-caption", "body", editKey, editing, caption)
+          : "") +
+        "</div>"
+      );
+    }
+
+    if (kind === "audio") {
+      const duration = ph ? "…:…" : meta.duration || "0:30";
+      const wave = ph ? "▁▃▅▇▅▃▁▃▅▇▅▃▁▃▅▇" : meta.wave || "▁▃▅▇▆▅▃▁▂▄▆▇▅▃▁▃▅▇";
+      const transcript = ph ? "…".repeat(80) : body;
+      return (
+        '<div class="phone-memo-card phone-memo-card--audio">' +
+        '<div class="phone-memo-card__player">' +
+        '<span class="phone-memo-card__play" aria-hidden="true">▶</span>' +
+        '<span class="phone-memo-card__wave" aria-hidden="true">' +
+        escapeHtml(wave) +
+        "</span>" +
+        '<span class="phone-memo-card__duration">' +
+        escapeHtml(duration) +
+        "</span>" +
+        "</div>" +
+        (transcript
+          ? buildPhoneMemoEditableBlock(
+              "p",
+              "phone-memo-card__transcript",
+              "body",
+              editKey,
+              editing,
+              transcript
+            )
+          : "") +
+        "</div>"
+      );
+    }
+
+    if (kind === "receipt") {
+      const merchant = ph ? "……" : meta.merchant || "";
+      const amount = ph ? "¥……" : meta.amount || "";
+      const linesRaw = ph ? "……\n……\n……" : meta.lines || "";
+      const lineHtml = String(linesRaw)
+        .split("\n")
+        .filter(Boolean)
+        .map(function (line) {
+          return '<div class="phone-memo-card__receipt-line">' + escapeHtml(line) + "</div>";
+        })
+        .join("");
+      return (
+        '<div class="phone-memo-card phone-memo-card--receipt">' +
+        '<div class="phone-memo-card__receipt-paper">' +
+        '<div class="phone-memo-card__receipt-head">' +
+        escapeHtml(merchant) +
+        "</div>" +
+        '<div class="phone-memo-card__receipt-body">' +
+        lineHtml +
+        "</div>" +
+        '<div class="phone-memo-card__receipt-total">合计 ' +
+        escapeHtml(amount) +
+        "</div>" +
+        "</div>" +
+        "</div>"
+      );
+    }
+
+    if (kind === "checklist") {
+      const items = ph ? ["……", "……", "……"] : Array.isArray(meta.items) ? meta.items : [];
+      const listHtml = items
+        .map(function (item, idx) {
+          const checked = !ph && idx === 0 && items.length > 1;
+          return (
+            '<li class="phone-memo-card__check-item' +
+            (checked ? " is-done" : "") +
+            '">' +
+            '<span class="phone-memo-card__check-box" aria-hidden="true">' +
+            (checked ? "☑" : "☐") +
+            "</span>" +
+            "<span>" +
+            escapeHtml(String(item || "")) +
+            "</span>" +
+            "</li>"
+          );
+        })
+        .join("");
+      return (
+        '<div class="phone-memo-card phone-memo-card--checklist">' +
+        '<ul class="phone-memo-card__checklist">' +
+        listHtml +
+        "</ul>" +
+        "</div>"
+      );
+    }
+
+    if (kind === "link") {
+      const site = ph ? "……" : meta.site || "网页";
+      const url = ph ? "https://……" : meta.url || "";
+      const excerpt = ph ? "" : body;
+      return (
+        '<div class="phone-memo-card phone-memo-card--link">' +
+        '<div class="phone-memo-card__link-card">' +
+        '<svg class="phone-memo-card__link-icon icon-linear" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>' +
+        '<div class="phone-memo-card__link-main">' +
+        '<span class="phone-memo-card__link-site">' +
+        escapeHtml(site) +
+        "</span>" +
+        '<span class="phone-memo-card__link-url">' +
+        escapeHtml(url) +
+        "</span>" +
+        "</div>" +
+        "</div>" +
+        (excerpt
+          ? buildPhoneMemoEditableBlock("p", "phone-memo-card__link-note", "body", editKey, editing, excerpt)
+          : "") +
+        "</div>"
+      );
+    }
+
+    if (kind === "location") {
+      const label = ph ? "……" : meta.label || "";
+      const address = ph ? "……" : meta.address || "";
+      return (
+        '<div class="phone-memo-card phone-memo-card--location">' +
+        '<div class="phone-memo-card__loc-card">' +
+        '<svg class="phone-memo-card__loc-icon icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s7-4.5 7-10a7 7 0 10-14 0c0 5.5 7 10 7 10z"/><circle cx="12" cy="11" r="2.5"/></svg>' +
+        '<div class="phone-memo-card__loc-main">' +
+        (label ? '<span class="phone-memo-card__loc-label">' + escapeHtml(label) + "</span>" : "") +
+        (editing
+          ? '<span class="phone-memo-card__loc-address phone-forum__editable" contenteditable="true" data-phone-memo-inline-field="body" data-phone-memo-inline-key="' +
+            escapeHtml(editKey) +
+            '">' +
+            escapeHtml(address) +
+            "</span>"
+          : '<span class="phone-memo-card__loc-address">' + escapeHtml(address) + "</span>") +
+        "</div>" +
+        "</div>" +
+        "</div>"
+      );
+    }
+
+    const bodyCls = "phone-memo-row__body phone-memo-row__body--filled phone-memo-row__body--full";
+    return (
+      '<div class="phone-memo-card phone-memo-card--text">' +
+      buildPhoneMemoEditableBlock("p", bodyCls, "body", editKey, editing, ph ? "…".repeat(80) : body) +
+      "</div>"
+    );
+  }
+
+  function normalizePhoneMemoNoteItem(item, idx, seenIds) {
+    if (!item || typeof item !== "object") return null;
+    const sectionId = normalizePhoneMemoSectionId(item.sectionId || item.category || item.categoryId);
+    if (!sectionId) return null;
+    let id = String(item.id || "").trim() || "mn-" + String((idx || 0) + 1);
+    while (seenIds && seenIds.has(id)) id = id + "-d";
+    if (seenIds) seenIds.add(id);
+    const title = truncateCharsWithEllipsis(String(item.title || "").trim(), PHONE_MEMO_TITLE_MAX);
+    if (!title) return null;
+    const kind = normalizePhoneMemoKind(item.kind || item.type);
+    let body = truncateCharsWithEllipsis(
+      String(item.body || item.content || item.text || "").trim(),
+      PHONE_MEMO_BODY_MAX
+    );
+    const meta = normalizePhoneMemoMeta(kind, item, body, title);
+    if (!phoneMemoNoteHasContent(kind, body, meta)) return null;
+    if (kind === "photo" && !body) body = meta.scene || "";
+    if (kind === "location" && !body) body = meta.address || "";
+    let preview = truncateCharsWithEllipsis(
+      String(item.preview || item.summary || "").trim(),
+      PHONE_MEMO_PREVIEW_MAX
+    );
+    if (!preview) {
+      preview = buildPhoneMemoPreviewFromNote({ kind: kind, title: title, body: body, meta: meta });
+    }
+    let dateKey = item.dateKey ? normalizePhoneBrowserDateKey(item.dateKey) : "";
+    let visitTime = item.visitTime ? normalizePhoneBrowserVisitTime(item.visitTime) : "";
+    if (!dateKey || !visitTime) {
+      const parsed = parsePhoneMemoTimeLabel(item.time || "刚刚");
+      dateKey = parsed.dateKey;
+      visitTime = parsed.visitTime;
+    }
+    const time = truncateCharsWithEllipsis(
+      formatPhoneMemoDisplayTime({ dateKey: dateKey, visitTime: visitTime }),
+      PHONE_MEMO_TIME_MAX
+    );
+    return {
+      id: id,
+      sectionId: sectionId,
+      kind: kind,
+      title: title,
+      preview: preview,
+      body: body,
+      meta: meta,
+      time: time,
+      dateKey: dateKey,
+      visitTime: visitTime,
+    };
+  }
+
+  function assertPhoneMemoMinNotesPerSection(bySection, labelPrefix) {
+    getPhoneMemoSections().forEach(function (sec) {
+      const n = (bySection[sec.id] || []).length;
+      if (n < PHONE_MEMO_MIN_NOTES_PER_SECTION) {
+        throw new Error(
+          (labelPrefix || "") +
+            "分类「" +
+            sec.name +
+            "」备忘录不足 " +
+            PHONE_MEMO_MIN_NOTES_PER_SECTION +
+            " 条"
+        );
+      }
+    });
+  }
+
+  function normalizePhoneMemoBundle(raw) {
+    const notesIn = raw && Array.isArray(raw.notes) ? raw.notes : [];
+    const seenIds = new Set();
+    const notes = [];
+    notesIn.forEach(function (item, idx) {
+      const note = normalizePhoneMemoNoteItem(item, idx, seenIds);
+      if (note) notes.push(note);
+    });
+    const bySection = Object.create(null);
+    getPhoneMemoSections().forEach(function (sec) {
+      bySection[sec.id] = notes.filter(function (n) {
+        return n.sectionId === sec.id;
+      });
+    });
+    assertPhoneMemoMinNotesPerSection(bySection, "");
+    const rec = getPhoneMemoBundleMutable();
+    return {
+      sections: (rec ? rec.bundle.sections : getPhoneMemoSections()).map(function (s) {
+        return { id: s.id, name: s.name, description: s.description };
+      }),
+      notes: sortPhoneMemoNotes(notes).slice(0, PHONE_MEMO_MAX_NOTES),
+      generatedAt: Date.now(),
+    };
+  }
+
+  function mergePhoneMemoIncrement(existing, raw) {
+    const base = (existing && existing.notes ? existing.notes : []).map(function (n) {
+      return {
+        id: n.id,
+        sectionId: n.sectionId,
+        kind: n.kind || "text",
+        title: n.title,
+        preview: n.preview,
+        body: n.body,
+        meta: n.meta || {},
+        time: n.time,
+        dateKey: n.dateKey,
+        visitTime: n.visitTime,
+      };
+    });
+    const seenIds = new Set(
+      base.map(function (n) {
+        return n.id;
+      })
+    );
+    const appendIn =
+      raw && Array.isArray(raw.newNotes)
+        ? raw.newNotes
+        : raw && Array.isArray(raw.notes)
+          ? raw.notes
+          : [];
+    const addedBySection = Object.create(null);
+    getPhoneMemoSections().forEach(function (sec) {
+      addedBySection[sec.id] = [];
+    });
+    appendIn.forEach(function (item, idx) {
+      const note = normalizePhoneMemoNoteItem(item, idx, seenIds);
+      if (!note) return;
+      base.unshift(note);
+      if (addedBySection[note.sectionId]) addedBySection[note.sectionId].push(note);
+    });
+    const hadExisting = !!(existing && existing.notes && existing.notes.length);
+    if (!hadExisting && raw && raw.notes && raw.notes.length) {
+      return normalizePhoneMemoBundle(raw);
+    }
+    getPhoneMemoSections().forEach(function (sec) {
+      if ((addedBySection[sec.id] || []).length < PHONE_MEMO_MIN_NOTES_PER_SECTION) {
+        throw new Error(
+          "追加后分类「" + sec.name + "」新备忘录不足 " + PHONE_MEMO_MIN_NOTES_PER_SECTION + " 条"
+        );
+      }
+    });
+    return {
+      sections: mergePhoneMemoSectionDescriptions((existing && existing.sections) || getPhoneMemoSections()).map(
+        function (s) {
+          return { id: s.id, name: s.name, description: s.description };
+        }
+      ),
+      notes: sortPhoneMemoNotes(base).slice(0, PHONE_MEMO_MAX_NOTES),
+      generatedAt: Date.now(),
+    };
+  }
+
+  function buildPhoneMemoSectionRulesBlock() {
+    return getPhoneMemoSections()
+      .map(function (sec) {
+        return "- " + sec.name + "（id=" + sec.id + "）：" + (sec.description || "（无简介）");
+      })
+      .join("\n");
+  }
+
+  function formatPhoneMemoNoteForPrompt(note) {
+    if (!note) return "";
+    ensurePhoneMemoNoteTimeFields(note);
+    const sec = findPhoneMemoSection(note.sectionId);
+    return (
+      "- id=" +
+      note.id +
+      "，kind=" +
+      normalizePhoneMemoKind(note.kind) +
+      "，分类=" +
+      (sec ? sec.name : note.sectionId) +
+      "，dateKey=" +
+      note.dateKey +
+      "，visitTime=" +
+      note.visitTime +
+      "，title=" +
+      note.title
+    );
+  }
+
+  function buildPhoneMemoKindRulesBlock() {
+    return (
+      "备忘录类型 kind（每条必选其一，每个分类至少包含 3 种不同 kind）：\n" +
+      "- text：普通文字备忘，body 为正文\n" +
+      "- photo：照片备忘，meta.scene 为画面描述（文字模拟照片内容，如「雨夜窗边的咖啡杯」），body 可为补充说明\n" +
+      "- audio：录音备忘，meta.duration 如 0:32，body 为语音转写全文\n" +
+      "- receipt：收据/小票，meta.merchant 商户名，meta.amount 如 ¥38.50，meta.lines 明细（换行分隔，如「牛肉面 28\\n加蛋 3」）\n" +
+      "- checklist：待办清单，meta.items 为字符串数组（如 [\"买牛奶\",\"交报告\"]）\n" +
+      "- link：链接收藏，meta.url、meta.site，body 可为摘录或备注\n" +
+      "- location：地点.pin，meta.label 地点名，meta.address 地址"
+    );
+  }
+
+  function buildPhoneMemoPrompt(plot, holder) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const todayKey = getPhoneStoryTodayKey();
+    const lines = [
+      "请为「查手机·备忘录」生成手机持有者「" + holderName + "」的备忘录 JSON。",
+      "视角：以设置中选定的手机持有者「" +
+        holderName +
+        "」为第一视角，生成其手机备忘录中的记录（标题与正文均由持有者本人撰写）。",
+      "今天日期：" +
+        todayKey +
+        "（dateKey 请使用 YYYY-MM-DD；须包含今天、昨天及更早若干天的记录，visitTime 为 HH:mm 24 小时制）。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【备忘录分类及生成规则（sectionId 必须使用下列 id）】");
+    lines.push(buildPhoneMemoSectionRulesBlock());
+    lines.push("");
+    lines.push("【备忘录类型】");
+    lines.push(buildPhoneMemoKindRulesBlock());
+    lines.push("");
+    lines.push(
+      "生成要求：\n" +
+        "1. 输出唯一 JSON：{\"notes\":[...]}；须覆盖全部分类，每个分类至少 " +
+        PHONE_MEMO_MIN_NOTES_PER_SECTION +
+        " 条。\n" +
+        "2. 每条公共字段：id、sectionId、kind、dateKey（YYYY-MM-DD）、visitTime（HH:mm）、title（≤" +
+        PHONE_MEMO_TITLE_MAX +
+        " 字）、preview（列表摘要≤" +
+        PHONE_MEMO_PREVIEW_MAX +
+        " 字）、body（≤" +
+        PHONE_MEMO_BODY_MAX +
+        " 字，按 kind 要求填写）、meta（对象，按 kind 填写对应字段）。\n" +
+        "3. 内容须多样化：同批生成中 photo/audio/receipt/checklist/link/location 与 text 合理混排，贴合持有者真实手机备忘录习惯。\n" +
+        "4. 备忘录由持有者本人创建，须贴合其人设、口吻与当前剧情；private 分类可更私密。\n" +
+        "5. 须与剧情、记忆、总结一致，禁止 OOC；各类内容须写完整，不可用省略号敷衍。"
+    );
+    return lines.join("\n");
+  }
+
+  function buildPhoneMemoRegeneratePrompt(plot, holder, existing) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const todayKey = getPhoneStoryTodayKey();
+    const notes = (existing && existing.notes) || [];
+    const lines = [
+      "请根据最新剧情，在「已有备忘录」基础上增量追加；不要修改或删除已有记录，只追加新 notes。",
+      "视角：手机持有者「" + holderName + "」的备忘录。",
+      "今天日期：" + todayKey + "。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【分类规则】");
+    lines.push(buildPhoneMemoSectionRulesBlock());
+    lines.push("");
+    lines.push("【已有备忘录摘要（请勿重复 id 或实质重复标题）】");
+    getPhoneMemoSections().forEach(function (sec) {
+      const recent = sortPhoneMemoNotes(
+        notes.filter(function (n) {
+          return n.sectionId === sec.id;
+        })
+      ).slice(0, PHONE_MEMO_REF_NOTES_PER_SECTION);
+      lines.push("【" + sec.name + "】");
+      if (recent.length) {
+        recent.forEach(function (n) {
+          lines.push(formatPhoneMemoNoteForPrompt(n));
+        });
+      } else {
+        lines.push("（无）");
+      }
+    });
+    lines.push("");
+    lines.push("【备忘录类型】");
+    lines.push(buildPhoneMemoKindRulesBlock());
+    lines.push("");
+    lines.push(
+      "输出唯一 JSON：{\"newNotes\":[...]}；须覆盖全部分类，每个分类至少新增 " +
+        PHONE_MEMO_MIN_NOTES_PER_SECTION +
+        " 条。\n" +
+        "字段同首次生成；仅追加新备忘录，内容须完整且 kind 多样化，禁止 OOC。"
+    );
+    return lines.join("\n");
+  }
+
+  function requirePhoneMemoHolderForEdit() {
+    sanitizePhoneHolderState();
+    if (!getPhoneWechatStorageKeyForCurrentHolder()) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return false;
+    }
+    return true;
+  }
+
+  function buildPhoneMemoBarHtml(totalCount) {
+    const loadingCls = phoneMemoGenerating ? " phone-wechat-gen-btn--loading" : "";
+    const disabled = isAnyPhoneAiGenerating();
+    return (
+      '<header class="phone-app__bar phone-app__bar--wechat-list phone-memo__bar">' +
+      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<div class="phone-memo__title-wrap">' +
+      '<h2 class="phone-app__title phone-app__title--left">备忘录</h2>' +
+      '<span class="phone-memo__count">' +
+      escapeHtml(String(totalCount || 0)) +
+      " 条</span>" +
+      "</div>" +
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      loadingCls +
+      '" data-phone-memo-generate aria-label="AI 生成备忘录" title="AI 生成备忘录"' +
+      (disabled ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>" +
+      "</header>"
+    );
+  }
+
+  function buildPhoneMemoSectionTabsHtml(activeSectionId) {
+    const sections = getPhoneMemoSections();
+    const tabs = sections
+      .map(function (sec) {
+        const active = sec.id === activeSectionId;
+        return (
+          '<button type="button" class="filter-pill phone-memo__pill' +
+          (active ? " is-active" : "") +
+          '" data-phone-memo-section="' +
+          escapeHtml(sec.id) +
+          '">' +
+          escapeHtml(sec.name) +
+          "</button>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="pill-row-wrap phone-memo__pill-wrap" aria-label="备忘录分类">' +
+      '<div class="pill-row phone-memo__pill-row">' +
+      tabs +
+      '<button type="button" class="filter-pill filter-pill--manage phone-memo__pill-manage" data-phone-memo-manage-open>管理分类</button>' +
+      "</div></div>"
+    );
+  }
+
+  function buildPhoneMemoNoteActionBtnsHtml(noteId, placeholder) {
+    if (placeholder) {
+      return (
+        '<div class="phone-memo-row__actions" aria-hidden="true">' +
+        '<span class="phone-memo-row__action phone-memo-row__action--ghost">…</span>' +
+        '<span class="phone-memo-row__action phone-memo-row__action--ghost">…</span>' +
+        "</div>"
+      );
+    }
+    return (
+      '<div class="phone-memo-row__actions">' +
+      '<button type="button" class="phone-memo-row__action" data-phone-memo-note-edit="' +
+      escapeHtml(String(noteId || "")) +
+      '" aria-label="编辑备忘录" title="编辑">' +
+      '<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>' +
+      "</button>" +
+      '<button type="button" class="phone-memo-row__action phone-memo-row__action--delete" data-phone-memo-note-delete="' +
+      escapeHtml(String(noteId || "")) +
+      '" aria-label="删除备忘录" title="删除">' +
+      '<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>' +
+      "</button>" +
+      "</div>"
+    );
+  }
+
+  function buildPhoneMemoNoteInnerHtml(note, nav, placeholder) {
+    const editKey = "note:" + note.id;
+    const editing = nav && nav.memoInlineEdit === editKey;
+    const kind = placeholder
+      ? PHONE_MEMO_KIND_CYCLE[(note._phIdx || 0) % PHONE_MEMO_KIND_CYCLE.length]
+      : normalizePhoneMemoKind(note.kind);
+    const timeHtml = editing
+      ? '<span class="phone-memo-row__time phone-forum__editable" contenteditable="true" data-phone-memo-inline-field="time" data-phone-memo-inline-key="' +
+        escapeHtml(editKey) +
+        '">' +
+        escapeHtml(String(placeholder ? "…" : formatPhoneMemoDisplayTime(note))) +
+        "</span>"
+      : '<span class="phone-memo-row__time">' +
+        escapeHtml(String(placeholder ? "…" : formatPhoneMemoDisplayTime(note))) +
+        "</span>";
+
+    const displayNote = placeholder
+      ? { kind: kind, title: "…", body: "…", meta: buildPhoneMemoPlaceholderMeta(kind) }
+      : note;
+    const titleCls = "phone-memo-row__title" + (placeholder ? "" : " phone-memo-row__title--filled phone-memo-row__title--full");
+    const titleHtml = editing
+      ? '<span class="' +
+        titleCls +
+        ' phone-forum__editable" contenteditable="true" data-phone-memo-inline-field="title" data-phone-memo-inline-key="' +
+        escapeHtml(editKey) +
+        '">' +
+        escapeHtml(String(displayNote.title || "")) +
+        "</span>"
+      : '<span class="' + titleCls + '">' + escapeHtml(String(displayNote.title || "")) + "</span>";
+    const contentHtml = buildPhoneMemoTypedContentHtml(displayNote, editing, editKey, placeholder);
+    const rowCls =
+      "phone-memo-row phone-memo-row--full phone-memo-row--kind-" + escapeHtml(normalizePhoneMemoKind(displayNote.kind));
+
+    if (!placeholder) {
+      return (
+        '<div class="' +
+        rowCls +
+        '" data-phone-memo-note="' +
+        escapeHtml(String(note.id || "")) +
+        '">' +
+        '<div class="phone-memo-row__head">' +
+        '<div class="phone-memo-row__main">' +
+        '<div class="phone-memo-row__topline">' +
+        buildPhoneMemoKindBadgeHtml(displayNote.kind, false) +
+        titleHtml +
+        "</div>" +
+        contentHtml +
+        '<div class="phone-memo-row__footer">' +
+        timeHtml +
+        buildPhoneMemoNoteActionBtnsHtml(note.id, false) +
+        "</div>" +
+        "</div></div></div>"
+      );
+    }
+
+    const expanded = nav && nav.memoExpandedId === note.id;
+    return (
+      '<div class="phone-memo-row' +
+      (expanded ? " is-expanded" : "") +
+      " phone-memo-row--kind-" +
+      escapeHtml(kind) +
+      '" data-phone-memo-note="' +
+      escapeHtml(String(note.id || "")) +
+      '">' +
+      '<div class="phone-memo-row__head">' +
+      '<div class="phone-memo-row__main">' +
+      '<div class="phone-memo-row__topline">' +
+      buildPhoneMemoKindBadgeHtml(kind, true) +
+      titleHtml +
+      "</div>" +
+      contentHtml +
+      '<div class="phone-memo-row__footer">' +
+      timeHtml +
+      buildPhoneMemoNoteActionBtnsHtml(note.id, true) +
+      "</div>" +
+      "</div>" +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function buildPhoneMemoNoteHtml(note, nav, placeholder) {
+    return buildPhoneMemoNoteInnerHtml(note, nav, placeholder);
+  }
+
+  function buildPhoneMemoNoteListHtml(sectionId, nav) {
+    const placeholder = !hasPhoneMemoGenerated();
+    const notes = getPhoneMemoNotesForSection(sectionId);
+    if (!notes.length) {
+      return '<div class="phone-memo__empty"><p class="phone-memo__empty-text">暂无备忘录，点击右上角生成</p></div>';
+    }
+    const rows = notes
+      .map(function (note) {
+        return (
+          '<div class="phone-memo__list-card">' + buildPhoneMemoNoteHtml(note, nav, placeholder) + "</div>"
+        );
+      })
+      .join("");
+    return rows;
+  }
+
+  function buildPhoneMemoManageListHtml() {
+    const sections = getPhoneMemoSections();
+    const rows = sections
+      .map(function (sec) {
+        const desc = String(sec.description || "").trim();
+        const descHtml = desc
+          ? escapeHtml(truncateCharsWithEllipsis(desc, 48))
+          : '<span class="phone-forum-manage__desc-placeholder">…</span>';
+        return (
+          '<div class="phone-forum-manage__row">' +
+          '<div class="phone-forum-manage__info">' +
+          '<span class="phone-forum-manage__name">' +
+          escapeHtml(sec.name) +
+          "</span>" +
+          '<span class="phone-forum-manage__desc">' +
+          descHtml +
+          "</span>" +
+          "</div>" +
+          '<div class="phone-forum-manage__actions">' +
+          '<button type="button" class="phone-forum-manage__action" data-phone-memo-section-edit="' +
+          escapeHtml(sec.id) +
+          '" aria-label="编辑分类">编辑</button>' +
+          '<button type="button" class="phone-forum-manage__action phone-forum-manage__action--danger" data-phone-memo-section-delete="' +
+          escapeHtml(sec.id) +
+          '" aria-label="删除分类">删除</button>' +
+          "</div>" +
+          "</div>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="phone-forum-manage__panel">' +
+      '<div class="phone-forum-manage__head">' +
+      '<h3 class="phone-forum-manage__title">管理分类</h3>' +
+      '<button type="button" class="phone-forum-manage__close" data-phone-memo-manage-close aria-label="关闭">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      "</button>" +
+      "</div>" +
+      '<p class="phone-forum-manage__hint">分类简介将作为后续 AI 生成该分类备忘录内容的规则。</p>' +
+      '<div class="phone-forum-manage__list">' +
+      rows +
+      "</div>" +
+      '<button type="button" class="btn btn--secondary btn--pill phone-forum-manage__add" data-phone-memo-section-add>添加分类</button>' +
+      "</div>"
+    );
+  }
+
+  function buildPhoneMemoSectionFormHtml(nav) {
+    const formId = String((nav && nav.memoSectionFormId) || "").trim();
+    if (!formId) return "";
+    const isNew = formId === "new";
+    let nameVal = "";
+    let descVal = "";
+    if (!isNew) {
+      const sec = findPhoneMemoSection(formId);
+      if (sec) {
+        nameVal = sec.name;
+        descVal = sec.description;
+      }
+    }
+    return (
+      '<div class="phone-forum-manage__panel phone-forum-manage__panel--form">' +
+      '<div class="phone-forum-manage__head">' +
+      '<h3 class="phone-forum-manage__title">' +
+      (isNew ? "添加分类" : "编辑分类") +
+      "</h3>" +
+      '<button type="button" class="phone-forum-manage__close" data-phone-memo-section-form-cancel aria-label="取消">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      "</button>" +
+      "</div>" +
+      '<label class="phone-forum-manage__field">' +
+      '<span class="phone-forum-manage__label">分类名称</span>' +
+      '<input type="text" class="phone-forum-manage__input" data-phone-memo-section-name-input maxlength="' +
+      PHONE_MEMO_SECTION_NAME_MAX +
+      '" value="' +
+      escapeHtml(nameVal) +
+      '" placeholder="最多' +
+      PHONE_MEMO_SECTION_NAME_MAX +
+      '字" />' +
+      "</label>" +
+      '<label class="phone-forum-manage__field">' +
+      '<span class="phone-forum-manage__label">分类简介（生成规则）</span>' +
+      '<textarea class="phone-forum-manage__textarea" data-phone-memo-section-desc-input maxlength="' +
+      PHONE_MEMO_SECTION_DESC_MAX +
+      '" rows="4" placeholder="描述该分类的备忘录风格与内容方向，供 AI 生成时使用">' +
+      escapeHtml(descVal) +
+      "</textarea>" +
+      "</label>" +
+      '<button type="button" class="btn btn--primary btn--pill phone-forum-manage__save" data-phone-memo-section-save>保存</button>' +
+      "</div>"
+    );
+  }
+
+  function buildPhoneMemoManageOverlayHtml(nav) {
+    if (!nav || !nav.memoManageOpen) return "";
+    const formHtml = nav.memoSectionFormId ? buildPhoneMemoSectionFormHtml(nav) : buildPhoneMemoManageListHtml();
+    return (
+      '<div class="phone-forum-manage" role="dialog" aria-modal="true" aria-label="管理备忘录分类">' +
+      '<button type="button" class="phone-forum-manage__backdrop" data-phone-memo-manage-close aria-label="关闭"></button>' +
+      formHtml +
+      "</div>"
+    );
+  }
+
+  function buildPhoneMemoHtml(slot) {
+    const nav = getPhoneNav(slot);
+    const activeSectionId = getPhoneMemoActiveSectionId(nav);
+    const totalCount = getPhoneMemoNotesForSection(activeSectionId).length;
+    return (
+      '<div class="phone-app phone-memo" aria-label="备忘录">' +
+      buildPhoneMemoBarHtml(totalCount) +
+      buildPhoneMemoSectionTabsHtml(activeSectionId) +
+      '<div class="phone-memo__scroll">' +
+      buildPhoneMemoNoteListHtml(activeSectionId, nav) +
+      "</div>" +
+      buildPhoneMemoManageOverlayHtml(nav) +
+      "</div>"
+    );
+  }
+
+  function openPhoneMemo(slot) {
+    const nav = getPhoneNav(slot);
+    nav.screen = "memo";
+    nav.chatId = null;
+    if (!nav.memoSectionId) {
+      const sections = getPhoneMemoSections();
+      nav.memoSectionId = sections.length ? sections[0].id : "";
+    }
+    renderPhoneScreen(slot);
+  }
+
+  function switchPhoneMemoSection(slot, sectionId) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "memo") return;
+    const id = String(sectionId || "").trim();
+    if (!findPhoneMemoSection(id)) return;
+    nav.memoSectionId = id;
+    nav.memoExpandedId = null;
+    renderPhoneScreen(slot);
+  }
+
+  function togglePhoneMemoNoteExpand(slot, noteId) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "memo") return;
+    const id = String(noteId || "").trim();
+    nav.memoExpandedId = nav.memoExpandedId === id ? null : id;
+    renderPhoneScreen(slot);
+  }
+
+  function openPhoneMemoManage(slot) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "memo") return;
+    nav.memoManageOpen = true;
+    nav.memoSectionFormId = null;
+    renderPhoneScreen(slot);
+  }
+
+  function closePhoneMemoManage(slot) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "memo") return;
+    nav.memoManageOpen = false;
+    nav.memoSectionFormId = null;
+    renderPhoneScreen(slot);
+  }
+
+  function openPhoneMemoSectionForm(slot, sectionIdOrNew) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "memo") return;
+    nav.memoManageOpen = true;
+    nav.memoSectionFormId = String(sectionIdOrNew || "new");
+    renderPhoneScreen(slot);
+    if (slot) {
+      const input = slot.querySelector("[data-phone-memo-section-name-input]");
+      if (input) input.focus();
+    }
+  }
+
+  function cancelPhoneMemoSectionForm(slot) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "memo") return;
+    nav.memoSectionFormId = null;
+    renderPhoneScreen(slot);
+  }
+
+  function savePhoneMemoSectionForm(slot) {
+    if (!requirePhoneMemoHolderForEdit()) return;
+    const rec = getPhoneMemoBundleMutable();
+    if (!rec) return;
+    const nav = getPhoneNav(slot);
+    const nameInput = slot && slot.querySelector("[data-phone-memo-section-name-input]");
+    const descInput = slot && slot.querySelector("[data-phone-memo-section-desc-input]");
+    const name = truncateCharsWithEllipsis(String((nameInput && nameInput.value) || "").trim(), PHONE_MEMO_SECTION_NAME_MAX);
+    const description = truncateCharsWithEllipsis(
+      String((descInput && descInput.value) || "").trim(),
+      PHONE_MEMO_SECTION_DESC_MAX
+    );
+    if (!name) {
+      showToast("分类名称不能为空", "warning");
+      return;
+    }
+    const formId = String(nav.memoSectionFormId || "").trim();
+    if (formId === "new") {
+      const newId = uid("memo-sec");
+      rec.bundle.sections.push({ id: newId, name: name, description: description });
+      nav.memoSectionId = newId;
+    } else {
+      const sec = rec.bundle.sections.find(function (s) {
+        return s && s.id === formId;
+      });
+      if (!sec) {
+        showToast("分类不存在", "error");
+        return;
+      }
+      sec.name = name;
+      sec.description = description;
+    }
+    persistPhoneMemoBundle(rec.bundle);
+    nav.memoSectionFormId = null;
+    showToast("已保存分类", "success");
+    renderPhoneScreen(slot);
+  }
+
+  async function handlePhoneMemoSectionDelete(slot, sectionId) {
+    if (!requirePhoneMemoHolderForEdit()) return;
+    const rec = getPhoneMemoBundleMutable();
+    if (!rec) return;
+    const id = String(sectionId || "").trim();
+    const sec = rec.bundle.sections.find(function (s) {
+      return s && s.id === id;
+    });
+    if (!sec) return;
+    if (rec.bundle.sections.length <= 1) {
+      showToast("至少保留一个分类", "warning");
+      return;
+    }
+    const ok = await showConfirm("确定删除分类「" + sec.name + "」吗？", "删除分类");
+    if (!ok) return;
+    rec.bundle.sections = rec.bundle.sections.filter(function (s) {
+      return s && s.id !== id;
+    });
+    rec.bundle.notes = (rec.bundle.notes || []).filter(function (n) {
+      return n && n.sectionId !== id;
+    });
+    persistPhoneMemoBundle(rec.bundle);
+    const nav = getPhoneNav(slot);
+    if (nav.memoSectionId === id) {
+      nav.memoSectionId = rec.bundle.sections.length ? rec.bundle.sections[0].id : "";
+    }
+    nav.memoSectionFormId = null;
+    if (!rec.bundle.sections.length) nav.memoManageOpen = false;
+    showToast("已删除分类", "success");
+    renderPhoneScreen(slot);
+  }
+
+  async function generatePhoneMemoContent(slot) {
+    if (isAnyPhoneAiGenerating()) return;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const holder = getPhoneHolderCharacter();
+    if (!plot || !holder) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    preparePhoneStoryDateForGeneration(plot);
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    getPhoneMemoBundleMutable();
+    const existing = phoneMemoData[key] || null;
+    const isRegenerate = !!(existing && existing.notes && existing.notes.length);
+    phoneMemoGenerating = true;
+    if (slot && getPhoneNav(slot).screen === "memo") renderPhoneScreen(slot);
+    try {
+      showToast(isRegenerate ? "正在追加备忘录…" : "正在生成备忘录…", "info");
+      setGenCallContext(buildGenCallOpts("phone-memo", { slot: slot }));
+      const systemPrompt = isRegenerate
+        ? "你是中文互动叙事助手。根据剧情与已有备忘录，增量追加备忘录 JSON。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          '格式：{"newNotes":[{"id":"唯一id","sectionId":"分类id","kind":"text|photo|audio|receipt|checklist|link|location","dateKey":"YYYY-MM-DD","visitTime":"HH:mm","title":"...","preview":"...","body":"...","meta":{...}}]}'
+        : "你是中文互动叙事助手。根据剧情、人设、记忆与总结，生成「查手机·备忘录」JSON。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          '格式：{"notes":[{"id":"唯一id","sectionId":"分类id","kind":"text|photo|audio|receipt|checklist|link|location","dateKey":"YYYY-MM-DD","visitTime":"HH:mm","title":"...","preview":"...","body":"...","meta":{...}}]}';
+      const userPrompt = isRegenerate
+        ? buildPhoneMemoRegeneratePrompt(plot, holder, existing)
+        : buildPhoneMemoPrompt(plot, holder);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.78,
+        16384
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      if (isRegenerate && parsed && parsed.newNotes) {
+        parsed.newNotes = bumpPhoneStoryDateKeysForIncrement(parsed.newNotes, "dateKey");
+      }
+      const bundle = isRegenerate
+        ? mergePhoneMemoIncrement(existing, parsed)
+        : normalizePhoneMemoBundle(parsed);
+      if (!bundle.notes || !bundle.notes.length) {
+        throw new Error("未能解析有效的备忘录内容");
+      }
+      phoneMemoData[key] = bundle;
+      schedulePersistNarrative();
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) renderPhoneScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      phoneMemoGenerating = false;
+      if (slot && getPhoneNav(slot).screen === "memo") renderPhoneScreen(slot);
+    }
+  }
+
+  function startPhoneMemoInlineEdit(slot, noteId) {
+    const nav = getPhoneNav(slot);
+    nav.memoInlineEdit = "note:" + String(noteId || "");
+    nav.memoExpandedId = String(noteId || "");
+    closePhoneRowSwipe(slot);
+    renderPhoneScreen(slot);
+  }
+
+  function commitPhoneMemoInlineEdit(slot) {
+    const nav = getPhoneNav(slot);
+    const key = String((nav && nav.memoInlineEdit) || "").trim();
+    if (!key || key.indexOf("note:") !== 0 || !slot) return false;
+    const noteId = key.slice(5);
+    const target = getPhoneMemoNoteMutable(noteId);
+    if (!target) {
+      nav.memoInlineEdit = null;
+      return false;
+    }
+    const fields = slot.querySelectorAll('[data-phone-memo-inline-key="' + key + '"]');
+    if (!fields.length) {
+      nav.memoInlineEdit = null;
+      return false;
+    }
+    let changed = false;
+    fields.forEach(function (el) {
+      const field = el.getAttribute("data-phone-memo-inline-field");
+      const val = String(el.textContent || "").trim();
+      if (field === "title") {
+        const next = truncateCharsWithEllipsis(val, PHONE_MEMO_TITLE_MAX);
+        if (next && next !== target.note.title) {
+          target.note.title = next;
+          changed = true;
+        }
+      } else if (field === "preview") {
+        const next = truncateCharsWithEllipsis(val, PHONE_MEMO_PREVIEW_MAX);
+        if (next && next !== target.note.preview) {
+          target.note.preview = next;
+          changed = true;
+        }
+      } else if (field === "time") {
+        const next = truncateCharsWithEllipsis(val, PHONE_MEMO_TIME_MAX);
+        if (next) {
+          const parsed = parsePhoneMemoTimeLabel(next);
+          const display = formatPhoneMemoDisplayTime({ dateKey: parsed.dateKey, visitTime: parsed.visitTime });
+          if (
+            display !== target.note.time ||
+            parsed.dateKey !== target.note.dateKey ||
+            parsed.visitTime !== target.note.visitTime
+          ) {
+            target.note.time = display;
+            target.note.dateKey = parsed.dateKey;
+            target.note.visitTime = parsed.visitTime;
+            changed = true;
+          }
+        }
+      } else if (field === "body") {
+        const next = truncateCharsWithEllipsis(val, PHONE_MEMO_BODY_MAX);
+        if (next && next !== target.note.body) {
+          target.note.body = next;
+          const noteKind = normalizePhoneMemoKind(target.note.kind);
+          if (noteKind === "photo") {
+            if (!target.note.meta || typeof target.note.meta !== "object") target.note.meta = {};
+            target.note.meta.scene = truncateCharsWithEllipsis(next, PHONE_MEMO_META_SCENE_MAX);
+          } else if (noteKind === "location") {
+            if (!target.note.meta || typeof target.note.meta !== "object") target.note.meta = {};
+            target.note.meta.address = truncateCharsWithEllipsis(next, PHONE_MEMO_META_ADDRESS_MAX);
+          }
+          syncPhoneMemoNotePreview(target.note);
+          changed = true;
+        }
+      }
+    });
+    nav.memoInlineEdit = null;
+    if (changed) {
+      persistPhoneMemoBundle(target.bundle);
+      showToast("已保存", "success");
+    }
+    renderPhoneScreen(slot);
+    return changed;
+  }
+
+  async function handlePhoneMemoDeleteNote(slot, noteId) {
+    if (!hasPhoneMemoGenerated()) return;
+    const id = String(noteId || "").trim();
+    if (!id) return;
+    const notes = getPhoneMemoNotes() || [];
+    const note = notes.find(function (n) {
+      return n && n.id === id;
+    });
+    const label = note && note.title ? note.title : "该条";
+    closePhoneRowSwipe(slot);
+    const ok = await showConfirm("确定删除备忘录「" + label + "」吗？", "删除备忘录");
+    if (!ok) return;
+    if (!deletePhoneMemoNote(id)) {
+      showToast("删除失败", "error");
+      return;
+    }
+    const nav = getPhoneNav(slot);
+    if (nav.memoExpandedId === id) nav.memoExpandedId = null;
+    if (nav.memoInlineEdit === "note:" + id) nav.memoInlineEdit = null;
+    showToast("已删除备忘录", "success");
+    if (slot) renderPhoneScreen(slot);
+  }
+
+  const PHONE_DIARY_TITLE_MAX = 24;
+  const PHONE_DIARY_BODY_MAX = 520;
+  const PHONE_DIARY_BODY_TARGET = 450;
+  const PHONE_DIARY_WEATHER_MAX = 4;
+  const PHONE_DIARY_MOOD_MAX = 5;
+  const PHONE_DIARY_REF_ENTRIES = 3;
+  const PHONE_DIARY_SCRIBBLE_COLORS = {
+    blue: "#5b8fd4",
+    pink: "#e07a9a",
+    red: "#d9554a",
+    green: "#6aab6e",
+    orange: "#e8944a",
+    purple: "#9a72c4",
+    gold: "#c9a227",
+    teal: "#4aadac",
+    gray: "#9a9088",
+    yellow: "#dcc84a",
+  };
+  const PHONE_DIARY_SCRIBBLE_RE =
+    /\[\[(wave|line|star|heart|dots|highlight|circle|note|emph|check|cross|arrow):([a-z]+)(?::([^\]]*))?\]\]/gi;
+  const PHONE_DIARY_LINE_SCRIBBLE_KINDS = new Set(["wave", "line", "highlight", "circle", "emph"]);
+  let phoneDiaryFlipLock = false;
+
+  function sanitizePhoneDiaryScribbleColor(color) {
+    const c = String(color || "").toLowerCase();
+    return PHONE_DIARY_SCRIBBLE_COLORS[c] ? c : "gray";
+  }
+
+  function buildPhoneDiaryScribbleHtml(type, color, text) {
+    const kind = String(type || "").toLowerCase();
+    if (PHONE_DIARY_LINE_SCRIBBLE_KINDS.has(kind)) return "";
+    const c = sanitizePhoneDiaryScribbleColor(color);
+    const t = String(text || "").trim();
+    if (kind === "star") {
+      return (
+        '<span class="phone-diary__scribble phone-diary__scribble--star phone-diary__scribble--' +
+        c +
+        '" aria-hidden="true">✦</span>'
+      );
+    }
+    if (kind === "heart") {
+      return (
+        '<span class="phone-diary__scribble phone-diary__scribble--heart phone-diary__scribble--' +
+        c +
+        '" aria-hidden="true">♥</span>'
+      );
+    }
+    if (kind === "dots") {
+      return (
+        '<span class="phone-diary__scribble phone-diary__scribble--dots phone-diary__scribble--' +
+        c +
+        '" aria-hidden="true">· · ·</span>'
+      );
+    }
+    if (kind === "check") {
+      return (
+        '<span class="phone-diary__scribble phone-diary__scribble--check phone-diary__scribble--' +
+        c +
+        '" aria-hidden="true">✓</span>'
+      );
+    }
+    if (kind === "cross") {
+      return (
+        '<span class="phone-diary__scribble phone-diary__scribble--cross phone-diary__scribble--' +
+        c +
+        '" aria-hidden="true">✗</span>'
+      );
+    }
+    if (kind === "arrow") {
+      return (
+        '<span class="phone-diary__scribble phone-diary__scribble--arrow phone-diary__scribble--' +
+        c +
+        '" aria-hidden="true">→</span>'
+      );
+    }
+    if (!t) return "";
+    if (kind === "note") {
+      return (
+        '<span class="phone-diary__scribble phone-diary__scribble--note phone-diary__scribble--' +
+        c +
+        '">（' +
+        escapeHtml(t) +
+        "）</span>"
+      );
+    }
+    return "";
+  }
+
+  function formatPhoneDiaryPlainChunk(text) {
+    if (!text) return "";
+    return escapeHtml(text).replace(/\n/g, "<br>");
+  }
+
+  function buildPhoneDiaryBodyHtml(body) {
+    const raw = String(body || "");
+    if (!raw) return "";
+    if (!/\[\[/.test(raw)) return formatPhoneDiaryPlainChunk(raw);
+    let html = "";
+    let lastIndex = 0;
+    const re = new RegExp(PHONE_DIARY_SCRIBBLE_RE.source, "gi");
+    let match;
+    while ((match = re.exec(raw)) !== null) {
+      html += formatPhoneDiaryPlainChunk(raw.slice(lastIndex, match.index));
+      html += buildPhoneDiaryScribbleHtml(match[1], match[2], match[3]);
+      lastIndex = re.lastIndex;
+    }
+    html += formatPhoneDiaryPlainChunk(raw.slice(lastIndex));
+    return html;
+  }
+
+  function getPhoneDiaryPageDecorClass(entry) {
+    if (!entry) return "";
+    const seed = String(entry.id || entry.dateKey || "");
+    let h = 0;
+    for (let i = 0; i < seed.length; i++) h = (h + seed.charCodeAt(i) * (i + 1)) % 997;
+    const decors = [
+      "",
+      " phone-diary__page--corner-star",
+      " phone-diary__page--corner-heart",
+      " phone-diary__page--margin-flower",
+    ];
+    return decors[h % decors.length];
+  }
+
+  function purgePhoneDiaryDataForPlot(plotId) {
+    const pid = String(plotId || "").trim();
+    if (!pid) return;
+    Object.keys(phoneDiaryData).forEach(function (k) {
+      if (k.indexOf(pid + "\u001e") === 0) delete phoneDiaryData[k];
+    });
+  }
+
+  function purgePhoneDiaryDataForChar(charId) {
+    const cid = String(charId || "").trim();
+    if (!cid) return;
+    const suffix = "\u001e" + cid;
+    Object.keys(phoneDiaryData).forEach(function (k) {
+      if (k.slice(-suffix.length) === suffix) delete phoneDiaryData[k];
+    });
+  }
+
+  function getPhoneDiaryBundleRecord() {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key) return null;
+    const rec = phoneDiaryData[key];
+    if (!rec || !Array.isArray(rec.entries)) return null;
+    return rec;
+  }
+
+  function getPhoneDiaryBundleMutable() {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key) return null;
+    if (!phoneDiaryData[key]) {
+      phoneDiaryData[key] = { entries: [] };
+    }
+    if (!Array.isArray(phoneDiaryData[key].entries)) {
+      phoneDiaryData[key].entries = [];
+    }
+    return { key: key, bundle: phoneDiaryData[key] };
+  }
+
+  function persistPhoneDiaryBundle(bundle) {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key || !bundle) return;
+    if (Array.isArray(bundle.entries)) {
+      bundle.entries = dedupePhoneDiaryEntriesByDateKey(bundle.entries);
+    }
+    phoneDiaryData[key] = bundle;
+    schedulePersistNarrative();
+  }
+
+  function dedupePhoneDiaryEntriesByDateKey(entries) {
+    const map = {};
+    (entries || []).forEach(function (e) {
+      if (!e || !e.dateKey) return;
+      const k = normalizePhoneBrowserDateKey(e.dateKey);
+      if (!k) return;
+      const prev = map[k];
+      if (!prev || (e.generatedAt || 0) >= (prev.generatedAt || 0)) {
+        map[k] = Object.assign({}, e, { dateKey: k });
+      }
+    });
+    return Object.keys(map)
+      .map(function (k) {
+        return map[k];
+      })
+      .sort(function (a, b) {
+        return String(b.dateKey || "").localeCompare(String(a.dateKey || ""));
+      });
+  }
+
+  function getPhoneDiaryEntries() {
+    const rec = getPhoneDiaryBundleRecord();
+    if (!rec) return [];
+    return dedupePhoneDiaryEntriesByDateKey(rec.entries);
+  }
+
+  function getPhoneDiaryEntryByDateKey(dateKey) {
+    const key = String(dateKey || "").trim();
+    if (!key) return null;
+    return (
+      getPhoneDiaryEntries().find(function (e) {
+        return e && e.dateKey === key;
+      }) || null
+    );
+  }
+
+  function getPhoneDiaryActiveEntryIndex(nav) {
+    const entries = getPhoneDiaryEntries();
+    if (!entries.length) return -1;
+    const dk = String((nav && nav.diaryDateKey) || "").trim();
+    if (dk) {
+      const byDate = entries.findIndex(function (e) {
+        return e && e.dateKey === dk;
+      });
+      if (byDate >= 0) return byDate;
+    }
+    const raw = nav && nav.diaryEntryIndex;
+    if (typeof raw === "number" && raw >= 0 && raw < entries.length) return raw;
+    return 0;
+  }
+
+  function getPhoneDiaryActiveEntry(nav) {
+    const entries = getPhoneDiaryEntries();
+    const idx = getPhoneDiaryActiveEntryIndex(nav);
+    if (idx < 0 || idx >= entries.length) return null;
+    return entries[idx] || null;
+  }
+
+  function getPhoneDiaryGenerateDateKey() {
+    return getPhoneDiaryTodayKey();
+  }
+
+  function getPhoneDiaryViewDateKey(nav) {
+    const entry = getPhoneDiaryActiveEntry(nav);
+    if (entry && entry.dateKey) return entry.dateKey;
+    const dk = String((nav && nav.diaryDateKey) || "").trim();
+    if (dk && isValidPhoneDateKey(dk)) return normalizePhoneBrowserDateKey(dk);
+    return getPhoneDiaryTodayKey();
+  }
+
+  function resetPhoneDiaryBookTransform(slot) {
+    const book = slot && slot.querySelector(".phone-diary__book");
+    if (!book) return;
+    book.classList.remove("is-dragging");
+    book.style.transform = "";
+  }
+
+  function animatePhoneDiaryFlip(slot, delta) {
+    if (phoneDiaryFlipLock || !slot) return;
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "diary") return;
+    const entries = getPhoneDiaryEntries();
+    const idx = getPhoneDiaryActiveEntryIndex(nav);
+    const nextIdx = idx + delta;
+    if (nextIdx < 0 || nextIdx >= entries.length) {
+      resetPhoneDiaryBookTransform(slot);
+      return;
+    }
+    const book = slot.querySelector(".phone-diary__book");
+    if (!book) {
+      nav.diaryEntryIndex = nextIdx;
+      nav.diaryDateKey = entries[nextIdx].dateKey;
+      renderPhoneScreen(slot);
+      return;
+    }
+    phoneDiaryFlipLock = true;
+    book.classList.remove("is-dragging");
+    book.style.transform = "";
+    book.classList.add(delta > 0 ? "phone-diary__book--flip-to-older" : "phone-diary__book--flip-to-newer");
+    setTimeout(function () {
+      nav.diaryEntryIndex = nextIdx;
+      nav.diaryDateKey = entries[nextIdx].dateKey;
+      renderPhoneScreen(slot);
+      phoneDiaryFlipLock = false;
+      const newBook = slot.querySelector(".phone-diary__book");
+      if (!newBook) return;
+      const inClass =
+        delta > 0 ? "phone-diary__book--enter-from-older" : "phone-diary__book--enter-from-newer";
+      newBook.classList.add(inClass);
+      requestAnimationFrame(function () {
+        newBook.classList.add("phone-diary__book--enter-active");
+      });
+      setTimeout(function () {
+        newBook.classList.remove(inClass, "phone-diary__book--enter-active");
+      }, 460);
+    }, 400);
+  }
+
+  function switchPhoneDiaryEntry(slot, delta) {
+    animatePhoneDiaryFlip(slot, delta);
+  }
+
+  function getPhoneDiaryDateLabel(dateKey) {
+    const key = String(dateKey || "").trim();
+    const parts = key.split("-");
+    if (parts.length !== 3) return "";
+    const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    return d.getFullYear() + "年" + (d.getMonth() + 1) + "月" + d.getDate() + "日";
+  }
+
+  function resolvePhoneDiaryWeatherKind(weather) {
+    const w = String(weather || "").trim();
+    if (!w) return "";
+    if (/晴/.test(w)) return "sun";
+    if (/雨|雷/.test(w)) return "rain";
+    if (/雪/.test(w)) return "snow";
+    if (/风/.test(w)) return "wind";
+    if (/阴|云|雾/.test(w)) return "cloud";
+    return "cloud";
+  }
+
+  function buildPhoneDiaryWeatherIconHtml(weather) {
+    const kind = resolvePhoneDiaryWeatherKind(weather);
+    if (!kind) {
+      return '<span class="phone-diary__weather phone-diary__weather--empty" aria-hidden="true"></span>';
+    }
+    let svg = "";
+    if (kind === "sun") {
+      svg =
+        '<svg class="icon-linear phone-diary__weather-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>';
+    } else if (kind === "rain") {
+      svg =
+        '<svg class="icon-linear phone-diary__weather-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 10a4 4 0 00-3.8-5.3A5 5 0 006.2 9.7 4 4 0 006 14h12a4 4 0 004-4z"/><path d="M8 19v2M12 17v2M16 19v2"/></svg>';
+    } else if (kind === "snow") {
+      svg =
+        '<svg class="icon-linear phone-diary__weather-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M18 10a4 4 0 00-3.8-5.3A5 5 0 006.2 9.7 4 4 0 006 14h12a4 4 0 004-4z"/><path d="M8 15h.01M12 13h.01M16 15h.01M10 19h.01M14 19h.01"/></svg>';
+    } else if (kind === "wind") {
+      svg =
+        '<svg class="icon-linear phone-diary__weather-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.59 4.59A2 2 0 1111 8H2m10.59 11.41A2 2 0 1014 16H2m15.73-8.27A2.5 2.5 0 1119.5 12H2"/></svg>';
+    } else {
+      svg =
+        '<svg class="icon-linear phone-diary__weather-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 10a4 4 0 00-3.8-5.3A5 5 0 006.2 9.7 4 4 0 006 14h12a4 4 0 004-4z"/></svg>';
+    }
+    return (
+      '<span class="phone-diary__weather" aria-label="天气 ' +
+      escapeHtml(String(weather || "")) +
+      '" title="' +
+      escapeHtml(String(weather || "")) +
+      '">' +
+      svg +
+      "</span>"
+    );
+  }
+
+  function shiftPhoneDiaryDateKey(dateKey, delta) {
+    const shifted = shiftPhoneDateKey(dateKey, delta);
+    return isValidPhoneDateKey(shifted) ? shifted : getPhoneStoryTodayKey();
+  }
+
+  function getPhoneDiaryTodayKey() {
+    return getPhoneStoryTodayKey();
+  }
+
+  function normalizePhoneDiaryEntryItem(item, dateKeyFallback, idx, seenIds) {
+    if (!item || typeof item !== "object") return null;
+    const dateKey = normalizePhoneBrowserDateKey(item.dateKey || item.date || dateKeyFallback);
+    if (!dateKey) return null;
+    let id = String(item.id || "").trim() || "dr-" + dateKey.replace(/-/g, "");
+    while (seenIds && seenIds.has(id)) id = id + "-d";
+    if (seenIds) seenIds.add(id);
+    const mood = truncateCharsWithEllipsis(String(item.mood || "").trim(), PHONE_DIARY_MOOD_MAX);
+    const bodyRaw = truncateCharsWithEllipsis(
+      String(item.body || item.content || item.text || "").trim(),
+      PHONE_DIARY_BODY_MAX
+    );
+    if (!bodyRaw) return null;
+    const title = truncateCharsWithEllipsis(String(item.title || "").trim(), PHONE_DIARY_TITLE_MAX);
+    const weather = truncateCharsWithEllipsis(String(item.weather || "").trim(), PHONE_DIARY_WEATHER_MAX);
+    return {
+      id: id,
+      dateKey: dateKey,
+      title: title,
+      body: bodyRaw,
+      weather: weather,
+      mood: mood,
+      generatedAt: Date.now(),
+    };
+  }
+
+  function upsertPhoneDiaryEntry(bundle, entry) {
+    if (!bundle || !entry) return;
+    bundle.entries = (bundle.entries || []).filter(function (e) {
+      return e && e.dateKey !== entry.dateKey;
+    });
+    bundle.entries.push(entry);
+  }
+
+  function formatPhoneDiaryEntryForPrompt(entry) {
+    if (!entry) return "";
+    return (
+      "- dateKey=" +
+      entry.dateKey +
+      "，title=" +
+      (entry.title || "（无）") +
+      "，正文开头=" +
+      truncateCharsWithEllipsis(String(entry.body || ""), 48)
+    );
+  }
+
+  function buildPhoneDiaryPrompt(plot, holder, dateKey) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const entries = getPhoneDiaryEntries();
+    const lines = [
+      "请为「查手机·日记」生成手机持有者「" + holderName + "」的一天日记 JSON。",
+      "视角：以设置中选定的手机持有者「" +
+        holderName +
+        "」为第一人称撰写私人日记，记录当天经历、心绪与碎碎念。",
+      "目标日期 dateKey：" + dateKey + "（" + getPhoneDiaryDateLabel(dateKey) + "）。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    if (entries.length) {
+      lines.push("【近期已有日记（供语气与细节连贯参考，勿重复抄写）】");
+      entries.slice(0, PHONE_DIARY_REF_ENTRIES).forEach(function (e) {
+        lines.push(formatPhoneDiaryEntryForPrompt(e));
+      });
+      lines.push("");
+    }
+    lines.push(
+      "写作要求：\n" +
+        "1. 须像真实私人日记：语气自然私密，允许口语、停顿与跳跃。\n" +
+        "2. 须贴合持有者人设与当前剧情，禁止 OOC；可提及近期剧情中的人物与事件。\n" +
+        "3. entry.dateKey 必须严格等于目标日期 " +
+        dateKey +
+        "，不得写成其他日期；同一 dateKey 在数据里只保留一篇，重新生成即覆盖该日内容。\n" +
+        "4. weather 用一字或二字天气词（如 晴、阴、雨、雪、风、多云），供界面显示图标；mood 为完整心情词（≤" +
+        PHONE_DIARY_MOOD_MAX +
+        " 字，如 平静、有点累）；body 为正文，约 " +
+        PHONE_DIARY_BODY_TARGET +
+        " 字（允许 ±50 字，≤" +
+        PHONE_DIARY_BODY_MAX +
+        " 字，须完整，分段换行，不要用省略号代替）。\n" +
+        "5. body 中可穿插 1～4 处「手账式小标记码」，须稀疏自然、颜色混搭（blue/pink/red/green/orange/purple/gold/teal/gray/yellow）：\n" +
+        "   - [[star:gold]] / [[heart:pink]] / [[dots:gray]]：行内小符号点缀\n" +
+        "   - [[note:gray:旁注碎碎念]]：括号式小字旁注（≤12字）\n" +
+        "   - [[check:green]] / [[cross:red]] / [[arrow:blue]]：随手打勾、叉或箭头\n" +
+        "   标记码须写在正文里，勿破坏语句可读性；不要每段都加；禁止使用波浪线、划线、荧光笔、圈词等画线类标记。\n" +
+        "6. 输出唯一 JSON：{\"entry\":{\"dateKey\":\"" +
+        dateKey +
+        "\",\"weather\":\"...\",\"mood\":\"...\",\"body\":\"...\"}}（title 可省略）"
+    );
+    return lines.join("\n");
+  }
+
+  function buildPhoneDiaryBarHtml(dateKey) {
+    const loadingCls = phoneDiaryGenerating ? " phone-wechat-gen-btn--loading" : "";
+    const disabled = isAnyPhoneAiGenerating();
+    return (
+      '<header class="phone-app__bar phone-app__bar--wechat-list phone-diary__bar">' +
+      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<div class="phone-diary__title-wrap">' +
+      '<h2 class="phone-app__title phone-app__title--left">日记</h2>' +
+      "</div>" +
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      loadingCls +
+      '" data-phone-diary-generate data-phone-diary-date="' +
+      escapeHtml(String(dateKey || "")) +
+      '" aria-label="AI 生成日记" title="AI 生成日记"' +
+      (disabled ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>" +
+      "</header>"
+    );
+  }
+
+  function buildPhoneDiaryPageHtml(entry, dateKey) {
+    const moodHtml = entry.mood
+      ? '<span class="phone-diary__mood">' + escapeHtml(String(entry.mood)) + "</span>"
+      : '<span class="phone-diary__mood phone-diary__mood--empty"></span>';
+    return (
+      '<div class="phone-diary__page' +
+      getPhoneDiaryPageDecorClass(entry) +
+      '">' +
+      '<div class="phone-diary__page-head">' +
+      '<div class="phone-diary__date-row">' +
+      '<span class="phone-diary__date">' +
+      escapeHtml(getPhoneDiaryDateLabel(dateKey)) +
+      "</span>" +
+      '<span class="phone-diary__date-tag">' +
+      escapeHtml(getPhoneBrowserDateGroupLabel(dateKey)) +
+      "</span>" +
+      "</div>" +
+      '<div class="phone-diary__head-meta">' +
+      buildPhoneDiaryWeatherIconHtml(entry.weather) +
+      moodHtml +
+      "</div>" +
+      "</div>" +
+      '<div class="phone-diary__page-scroll">' +
+      '<div class="phone-diary__body">' +
+      buildPhoneDiaryBodyHtml(entry.body) +
+      "</div>" +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function buildPhoneDiaryBookHtml(nav) {
+    const entry = getPhoneDiaryActiveEntry(nav);
+    if (!entry) {
+      return '<div class="phone-diary__main phone-diary__main--empty"></div>';
+    }
+    const idx = getPhoneDiaryActiveEntryIndex(nav);
+    const entries = getPhoneDiaryEntries();
+    const canNewer = idx > 0;
+    const canOlder = idx >= 0 && idx + 1 < entries.length;
+    return (
+      '<div class="phone-diary__main">' +
+      '<div class="phone-diary__stage" data-phone-diary-stage data-phone-diary-index="' +
+      String(idx) +
+      '">' +
+      '<button type="button" class="phone-diary__tap-zone phone-diary__tap-zone--older"' +
+      ' data-phone-diary-page-older aria-label="前一日"' +
+      (canOlder ? "" : " disabled") +
+      "></button>" +
+      '<div class="phone-diary__book-wrap">' +
+      '<div class="phone-diary__book">' +
+      '<div class="phone-diary__spine" aria-hidden="true"></div>' +
+      '<div class="phone-diary__cover-edge" aria-hidden="true"></div>' +
+      buildPhoneDiaryPageHtml(entry, entry.dateKey) +
+      "</div>" +
+      "</div>" +
+      '<button type="button" class="phone-diary__tap-zone phone-diary__tap-zone--newer"' +
+      ' data-phone-diary-page-newer aria-label="后一日"' +
+      (canNewer ? "" : " disabled") +
+      "></button>" +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function buildPhoneDiaryHtml(slot) {
+    const nav = getPhoneNav(slot);
+    return (
+      '<div class="phone-app phone-diary" aria-label="日记">' +
+      buildPhoneDiaryBarHtml(getPhoneDiaryViewDateKey(nav)) +
+      buildPhoneDiaryBookHtml(nav) +
+      "</div>"
+    );
+  }
+
+  function openPhoneDiary(slot) {
+    touchPhoneStoryDateForCurrentPlot();
+    const nav = getPhoneNav(slot);
+    nav.screen = "diary";
+    nav.chatId = null;
+    const entries = getPhoneDiaryEntries();
+    if (entries.length) {
+      nav.diaryEntryIndex = 0;
+      nav.diaryDateKey = entries[0].dateKey;
+    } else {
+      nav.diaryEntryIndex = -1;
+      nav.diaryDateKey = null;
+    }
+    renderPhoneScreen(slot);
+  }
+
+  async function generatePhoneDiaryContent(slot, dateKeyOverride) {
+    if (isAnyPhoneAiGenerating()) return;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const holder = getPhoneHolderCharacter();
+    if (!plot || !holder) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    preparePhoneStoryDateForGeneration(plot);
+    const nav = getPhoneNav(slot);
+    const dateKey = clampPhoneStoryDateKey(
+      normalizePhoneBrowserDateKey(dateKeyOverride || getPhoneDiaryViewDateKey(nav))
+    );
+    if (dateKey > getPhoneDiaryTodayKey()) {
+      showToast("还不能为未来日期写日记。", "warning");
+      return;
+    }
+    const existingEntry = getPhoneDiaryEntryByDateKey(dateKey);
+    if (existingEntry) {
+      const ok = await showConfirm(
+        getPhoneDiaryDateLabel(dateKey) + " 已有日记，重新生成将覆盖原有内容。是否继续？",
+        "覆盖日记"
+      );
+      if (!ok) return;
+    }
+    const rec = getPhoneDiaryBundleMutable();
+    if (!rec) return;
+    phoneDiaryGenerating = true;
+    nav.diaryDateKey = dateKey;
+    if (slot && nav.screen === "diary") renderPhoneScreen(slot);
+    try {
+      showToast("正在生成日记…", "info");
+      setGenCallContext(buildGenCallOpts("phone-diary", { slot: slot }));
+      const systemPrompt =
+        "你是中文互动叙事助手。根据剧情与人设，以手机持有者的第一人称撰写私人日记 JSON。\n" +
+        "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+        '格式：{"entry":{"dateKey":"YYYY-MM-DD","weather":"晴","mood":"平静","body":"..."}}\n' +
+        "body 中可穿插少量手账标记码（如 [[note:gray:碎碎念]]、[[star:gold]]、[[heart:pink]]），模拟真实日记里的括号旁注与小符号，1～4 处即可，须自然稀疏；不要使用画线、波浪线、荧光笔、圈词类标记。";
+      const userPrompt = buildPhoneDiaryPrompt(plot, holder, dateKey);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.78,
+        16384
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const item = parsed && parsed.entry ? parsed.entry : parsed;
+      const seenIds = new Set(
+        (rec.bundle.entries || []).map(function (e) {
+          return e.id;
+        })
+      );
+      const entry = normalizePhoneDiaryEntryItem(item, dateKey, 0, seenIds);
+      if (!entry) throw new Error("未能解析有效的日记内容");
+      entry.dateKey = dateKey;
+      upsertPhoneDiaryEntry(rec.bundle, entry);
+      persistPhoneDiaryBundle(rec.bundle);
+      const sortedEntries = getPhoneDiaryEntries();
+      const newIdx = sortedEntries.findIndex(function (e) {
+        return e && e.dateKey === entry.dateKey;
+      });
+      nav.diaryEntryIndex = newIdx >= 0 ? newIdx : 0;
+      nav.diaryDateKey = entry.dateKey;
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) renderPhoneScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      phoneDiaryGenerating = false;
+      if (slot && getPhoneNav(slot).screen === "diary") renderPhoneScreen(slot);
+    }
+  }
+
+  const PHONE_BILL_LABEL_MAX = 12;
+  const PHONE_BILL_TITLE_MAX = 24;
+  const PHONE_BILL_NOTE_MAX = 80;
+  const PHONE_BILL_MIN_TRANSACTIONS = 8;
+  const PHONE_BILL_MIN_NEW_TRANSACTIONS = 5;
+  const PHONE_BILL_MAX_TRANSACTIONS = 60;
+  const PHONE_BILL_PLACEHOLDER_COUNT = 6;
+  const PHONE_BILL_CATEGORIES = ["game", "grocery", "mail", "music", "transport", "food", "gift", "other"];
+
+  function purgePhoneBillDataForPlot(plotId) {
+    const pid = String(plotId || "").trim();
+    if (!pid) return;
+    Object.keys(phoneBillData).forEach(function (k) {
+      if (k.indexOf(pid + "\u001e") === 0) delete phoneBillData[k];
+    });
+  }
+
+  function purgePhoneBillDataForChar(charId) {
+    const cid = String(charId || "").trim();
+    if (!cid) return;
+    const suffix = "\u001e" + cid;
+    Object.keys(phoneBillData).forEach(function (k) {
+      if (k.slice(-suffix.length) === suffix) delete phoneBillData[k];
+    });
+  }
+
+  function getPhoneBillBundleRecord() {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key) return null;
+    const rec = phoneBillData[key];
+    if (!rec || !Array.isArray(rec.transactions)) return null;
+    return rec;
+  }
+
+  function getPhoneBillBundleMutable() {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key) return null;
+    if (!phoneBillData[key]) {
+      phoneBillData[key] = { transactions: [] };
+    }
+    const bundle = phoneBillData[key];
+    if (!Array.isArray(bundle.transactions)) bundle.transactions = [];
+    return { key: key, bundle: bundle };
+  }
+
+  function persistPhoneBillBundle(bundle) {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key || !bundle) return;
+    phoneBillData[key] = bundle;
+    schedulePersistNarrative();
+  }
+
+  function hasPhoneBillGenerated() {
+    const rec = getPhoneBillBundleRecord();
+    return !!(rec && rec.transactions && rec.transactions.length);
+  }
+
+  function normalizePhoneBillCategory(raw) {
+    const s = String(raw || "").trim().toLowerCase();
+    if (PHONE_BILL_CATEGORIES.indexOf(s) >= 0) return s;
+    if (/游|game|王者|充值|steam/.test(s)) return "game";
+    if (/超市|grocer|market|waitrose|便利|mart/.test(s)) return "grocery";
+    if (/邮|mail|快递|parcel|顺丰/.test(s)) return "mail";
+    if (/音乐|music|唱片|vinyl|spotify/.test(s)) return "music";
+    if (/交通|出租|地铁|uber|transport|taxi|rail/.test(s)) return "transport";
+    if (/餐|food|咖啡|coffee|restaurant|外卖/.test(s)) return "food";
+    if (/礼|gift|花|jewel/.test(s)) return "gift";
+    return "other";
+  }
+
+  function normalizePhoneBillCurrency(raw) {
+    const s = String(raw || "CNY").trim().toUpperCase();
+    if (!s) return "CNY";
+    if (s === "RMB" || s === "¥" || s === "YUAN") return "CNY";
+    return s.slice(0, 6);
+  }
+
+  function normalizePhoneBillAmount(raw) {
+    const s = String(raw == null ? "" : raw).replace(/,/g, "").trim();
+    const m = s.match(/(\d+(?:\.\d+)?)/);
+    return m ? m[1] : "0";
+  }
+
+  function normalizePhoneBillAccount(item) {
+    if (!item || typeof item !== "object") return null;
+    const label = truncateCharsWithEllipsis(String(item.label || item.name || "主力借记卡").trim(), PHONE_BILL_LABEL_MAX);
+    const balance = normalizePhoneBillAmount(item.balance);
+    const currency = normalizePhoneBillCurrency(item.currency);
+    let cardTail = String(item.cardTail || item.tail || item.cardLast4 || "").replace(/\D/g, "");
+    if (cardTail.length > 4) cardTail = cardTail.slice(-4);
+    if (!cardTail) cardTail = "0000";
+    return { label: label || "主力借记卡", balance: balance, currency: currency, cardTail: cardTail };
+  }
+
+  function normalizePhoneBillTransactionItem(item, idx, seenIds) {
+    if (!item || typeof item !== "object") return null;
+    let id = String(item.id || "").trim() || "bill-tx-" + String((idx || 0) + 1);
+    while (seenIds && seenIds.has(id)) id = id + "-d";
+    if (seenIds) seenIds.add(id);
+    const title = truncateCharsWithEllipsis(String(item.title || item.merchant || item.name || "").trim(), PHONE_BILL_TITLE_MAX);
+    if (!title) return null;
+    const amount = normalizePhoneBillAmount(item.amount);
+    if (!amount || amount === "0") return null;
+    const type = String(item.type || "expense").toLowerCase() === "income" ? "income" : "expense";
+    const note = truncateCharsWithEllipsis(String(item.note || item.remark || item.memo || item.comment || "").trim(), PHONE_BILL_NOTE_MAX);
+    if (!note) return null;
+    return {
+      id: id,
+      dateKey: normalizePhoneBrowserDateKey(item.dateKey || item.date),
+      time: normalizePhoneBrowserVisitTime(item.time || item.visitTime),
+      title: title,
+      amount: amount,
+      currency: normalizePhoneBillCurrency(item.currency),
+      type: type,
+      category: normalizePhoneBillCategory(item.category || item.kind),
+      note: note,
+    };
+  }
+
+  function sortPhoneBillTransactions(transactions) {
+    return (transactions || []).slice().sort(function (a, b) {
+      const dk = String(b.dateKey || "").localeCompare(String(a.dateKey || ""));
+      if (dk !== 0) return dk;
+      return parsePhoneBrowserVisitTimeSortValue(b.time) - parsePhoneBrowserVisitTimeSortValue(a.time);
+    });
+  }
+
+  function normalizePhoneBillBundle(raw) {
+    const account = normalizePhoneBillAccount(raw && raw.account ? raw.account : null);
+    const txIn =
+      raw && Array.isArray(raw.transactions)
+        ? raw.transactions
+        : raw && Array.isArray(raw.items)
+          ? raw.items
+          : [];
+    const seenIds = new Set();
+    const transactions = [];
+    txIn.forEach(function (item, idx) {
+      const tx = normalizePhoneBillTransactionItem(item, idx, seenIds);
+      if (tx) transactions.push(tx);
+    });
+    if (transactions.length < PHONE_BILL_MIN_TRANSACTIONS) {
+      throw new Error("账单记录不足 " + PHONE_BILL_MIN_TRANSACTIONS + " 条");
+    }
+    if (!account) {
+      throw new Error("未能解析有效的账户信息");
+    }
+    return {
+      account: account,
+      transactions: sortPhoneBillTransactions(transactions).slice(0, PHONE_BILL_MAX_TRANSACTIONS),
+      generatedAt: Date.now(),
+    };
+  }
+
+  function mergePhoneBillIncrement(existing, raw) {
+    const baseAccount = (existing && existing.account) || null;
+    const accountOverride = raw && raw.account ? normalizePhoneBillAccount(raw.account) : null;
+    const base = (existing && existing.transactions ? existing.transactions : []).map(function (t) {
+      return {
+        id: t.id,
+        dateKey: t.dateKey,
+        time: t.time,
+        title: t.title,
+        amount: t.amount,
+        currency: t.currency,
+        type: t.type,
+        category: t.category,
+        note: t.note,
+      };
+    });
+    const seenIds = new Set(
+      base.map(function (t) {
+        return t.id;
+      })
+    );
+    const appendIn =
+      raw && Array.isArray(raw.newTransactions)
+        ? raw.newTransactions
+        : raw && Array.isArray(raw.transactions)
+          ? raw.transactions
+          : [];
+    const added = [];
+    appendIn.forEach(function (item, idx) {
+      const tx = normalizePhoneBillTransactionItem(item, idx, seenIds);
+      if (!tx) return;
+      base.unshift(tx);
+      added.push(tx);
+    });
+    const hadExisting = !!(existing && existing.transactions && existing.transactions.length);
+    if (!hadExisting && raw && raw.transactions && raw.transactions.length) {
+      return normalizePhoneBillBundle(raw);
+    }
+    if (added.length < PHONE_BILL_MIN_NEW_TRANSACTIONS) {
+      throw new Error("追加账单不足 " + PHONE_BILL_MIN_NEW_TRANSACTIONS + " 条");
+    }
+    return {
+      account: accountOverride || baseAccount || normalizePhoneBillAccount({}),
+      transactions: sortPhoneBillTransactions(base).slice(0, PHONE_BILL_MAX_TRANSACTIONS),
+      generatedAt: Date.now(),
+    };
+  }
+
+  function getPhoneBillTransactions() {
+    const rec = getPhoneBillBundleRecord();
+    if (!rec || !rec.transactions.length) return [];
+    return sortPhoneBillTransactions(rec.transactions);
+  }
+
+  function getPhoneBillCurrencySymbol(currency) {
+    const c = normalizePhoneBillCurrency(currency);
+    if (c === "CNY") return "¥";
+    if (c === "GBP") return "£";
+    if (c === "USD") return "$";
+    if (c === "EUR") return "€";
+    if (c === "JPY") return "¥";
+    return c + " ";
+  }
+
+  function formatPhoneBillBalanceDisplay(account) {
+    if (!account) return "¥ 0.00";
+    const num = parseFloat(String(account.balance || "0"));
+    const formatted = Number.isFinite(num)
+      ? num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : String(account.balance || "0");
+    return getPhoneBillCurrencySymbol(account.currency) + " " + formatted;
+  }
+
+  function formatPhoneBillAmountDisplay(amount, currency, type) {
+    const num = parseFloat(String(amount || "0"));
+    const formatted = Number.isFinite(num)
+      ? num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : String(amount || "0");
+    const prefix = type === "income" ? "+ " : "- ";
+    return prefix + getPhoneBillCurrencySymbol(currency) + " " + formatted;
+  }
+
+  function formatPhoneBillDisplayTime(tx) {
+    if (!tx) return "";
+    const label = getPhoneBrowserDateGroupLabel(tx.dateKey);
+    const vt = tx.time || "12:00";
+    const typeLabel = tx.type === "income" ? "收入" : "支出";
+    let timePart;
+    if (label === "今天") timePart = "今天 " + vt;
+    else if (label === "昨天") timePart = "昨天 " + vt;
+    else timePart = label + " " + vt;
+    return timePart + " · " + typeLabel;
+  }
+
+  function formatPhoneBillEntryForPrompt(tx) {
+    if (!tx) return "";
+    return (
+      "- id=" +
+      tx.id +
+      "，dateKey=" +
+      tx.dateKey +
+      " " +
+      tx.time +
+      "，title=" +
+      tx.title +
+      "，amount=" +
+      tx.amount +
+      " " +
+      tx.currency +
+      "，note=" +
+      tx.note
+    );
+  }
+
+  function buildPhoneBillPrompt(plot, holder) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const lines = [
+      "请为「查手机·账单」生成手机持有者「" + holderName + "」的账户与消费记录 JSON。",
+      "视角：以设置中选定的手机持有者「" + holderName + "」为第一人称，在 note 字段写私密记账备注（情感化、口语化、像只写给自己的碎碎念）。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push(
+      "写作要求：\n" +
+        "1. account：label（卡名≤" +
+        PHONE_BILL_LABEL_MAX +
+        " 字）、balance（数字字符串，与持有者经济水平自洽）、currency（主币种如 CNY）、cardTail（卡号后四位）。\n" +
+        "2. transactions：至少 " +
+        PHONE_BILL_MIN_TRANSACTIONS +
+        " 条，每条含 id、dateKey（YYYY-MM-DD，须含今天/昨天/更早）、time（HH:mm）、title（商户≤" +
+        PHONE_BILL_TITLE_MAX +
+        " 字）、amount、currency（可混用 CNY/GBP/USD 等）、type（expense 或 income）、category（game|grocery|mail|music|transport|food|gift|other）、note（个人备注≤" +
+        PHONE_BILL_NOTE_MAX +
+        " 字，第一人称，须像参考 Wallet 应用里的情感化备注）。\n" +
+        "3. 消费类型须多样化（游戏充值、超市、快递、唱片、咖啡、礼物等）；须贴合剧情与人设，可提及近期剧情人物与事件；禁止 OOC。\n" +
+        '4. 输出唯一 JSON：{"account":{...},"transactions":[...]}'
+    );
+    return lines.join("\n");
+  }
+
+  function buildPhoneBillRegeneratePrompt(plot, holder, existing) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const lines = [
+      "请为「查手机·账单」增量追加手机持有者「" + holderName + "」的新消费记录 JSON。",
+      "视角：note 字段须为第一人称私密记账备注，情感化、口语化。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    if (existing && existing.account) {
+      lines.push(
+        "【当前账户】label=" +
+          existing.account.label +
+          "，balance=" +
+          existing.account.balance +
+          " " +
+          existing.account.currency +
+          "，cardTail=" +
+          existing.account.cardTail
+      );
+      lines.push("");
+    }
+    const txs = sortPhoneBillTransactions(existing && existing.transactions ? existing.transactions : []);
+    if (txs.length) {
+      lines.push("【已有账单（勿重复相同商户+日期，勿抄写 note）】");
+      txs.slice(0, 12).forEach(function (t) {
+        lines.push(formatPhoneBillEntryForPrompt(t));
+      });
+      lines.push("");
+    }
+    lines.push(
+      "要求：\n" +
+        "1. 追加 newTransactions 至少 " +
+        PHONE_BILL_MIN_NEW_TRANSACTIONS +
+        " 条，字段同首次生成；dateKey 须有新日期。\n" +
+        "2. 可选 account 字段更新 balance（按新消费微调，须与已有记录自洽）。\n" +
+        '3. 只输出 JSON：{"newTransactions":[...]} 或 {"account":{...},"newTransactions":[...]}'
+    );
+    return lines.join("\n");
+  }
+
+  function buildPhoneBillCategoryIconHtml(category) {
+    const cat = normalizePhoneBillCategory(category);
+    let svg = "";
+    if (cat === "game") {
+      svg =
+        '<svg class="icon-linear phone-bill__tx-icon-svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="8" width="18" height="10" rx="3"/><path d="M8 13h.01M12 11v4M16 13h.01"/></svg>';
+    } else if (cat === "grocery") {
+      svg =
+        '<svg class="icon-linear phone-bill__tx-icon-svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="20" r="1"/><circle cx="17" cy="20" r="1"/><path d="M3 4h2l2.5 12h11l2-8H7"/></svg>';
+    } else if (cat === "mail") {
+      svg =
+        '<svg class="icon-linear phone-bill__tx-icon-svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16v10H4z"/><path d="M4 7l8 6 8-6"/></svg>';
+    } else if (cat === "music") {
+      svg =
+        '<svg class="icon-linear phone-bill__tx-icon-svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="17" r="3"/><circle cx="17" cy="14" r="3"/><path d="M11 17V6l8-2v11"/></svg>';
+    } else if (cat === "transport") {
+      svg =
+        '<svg class="icon-linear phone-bill__tx-icon-svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 17h14l-1.5-7H6.5L5 17z"/><circle cx="7.5" cy="18.5" r="1.5"/><circle cx="16.5" cy="18.5" r="1.5"/></svg>';
+    } else if (cat === "food") {
+      svg =
+        '<svg class="icon-linear phone-bill__tx-icon-svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v8a4 4 0 008 0V3"/><path d="M18 3v18"/></svg>';
+    } else if (cat === "gift") {
+      svg =
+        '<svg class="icon-linear phone-bill__tx-icon-svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="1"/><path d="M12 10V20M4 10h16M12 10c-2-2-4-3-4-5a2 2 0 114 0c0 2-2 3-4 5zM12 10c2-2 4-3 4-5a2 2 0 10-4 0c0 2 2 3 4 5z"/></svg>';
+    } else {
+      svg =
+        '<svg class="icon-linear phone-bill__tx-icon-svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6M9 13h6M9 17h4"/></svg>';
+    }
+    return (
+      '<span class="phone-bill__tx-icon phone-bill__tx-icon--' +
+      escapeHtml(cat) +
+      '" aria-hidden="true">' +
+      svg +
+      "</span>"
+    );
+  }
+
+  function buildPhoneBillAccountCardHtml(account, placeholder) {
+    const label = placeholder ? "…" : escapeHtml(String((account && account.label) || ""));
+    const balance = placeholder ? "¥ …" : escapeHtml(formatPhoneBillBalanceDisplay(account));
+    const tail = placeholder ? "**** …" : "**** " + escapeHtml(String((account && account.cardTail) || "0000"));
+    const phCls = placeholder ? " phone-bill__card--placeholder" : "";
+    return (
+      '<section class="phone-bill__card' +
+      phCls +
+      '" aria-label="账户余额">' +
+      '<div class="phone-bill__card-top">' +
+      '<span class="phone-bill__card-badge" aria-hidden="true">' +
+      '<svg class="icon-linear" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 4.8L20 8l-4 3.2L17.6 16 12 13.6 6.4 16 8 11.2 4 8l5.6-1.2L12 2z"/></svg>' +
+      "</span>" +
+      '<span class="phone-bill__card-label">' +
+      label +
+      "</span>" +
+      "</div>" +
+      '<p class="phone-bill__card-caption">总余额</p>' +
+      '<p class="phone-bill__card-balance">' +
+      balance +
+      "</p>" +
+      '<p class="phone-bill__card-tail">' +
+      tail +
+      "</p>" +
+      "</section>"
+    );
+  }
+
+  function deletePhoneBillTransactions(txIds) {
+    const rec = getPhoneBillBundleMutable();
+    if (!rec) return false;
+    const remove = {};
+    (txIds || []).forEach(function (id) {
+      const s = String(id || "").trim();
+      if (s) remove[s] = true;
+    });
+    if (!Object.keys(remove).length) return false;
+    const before = rec.bundle.transactions.length;
+    rec.bundle.transactions = rec.bundle.transactions.filter(function (tx) {
+      return tx && !remove[tx.id];
+    });
+    if (rec.bundle.transactions.length === before) return false;
+    persistPhoneBillBundle(rec.bundle);
+    return true;
+  }
+
+  function deletePhoneBillTransaction(txId) {
+    return deletePhoneBillTransactions([txId]);
+  }
+
+  function buildPhoneCardDeleteBtnHtml(extraCls, dataAttr, value, label) {
+    return (
+      '<button type="button" class="phone-card-delete' +
+      (extraCls ? " " + extraCls : "") +
+      '" ' +
+      dataAttr +
+      '="' +
+      escapeHtml(String(value || "")) +
+      '" aria-label="' +
+      escapeHtml(label || "删除") +
+      '" title="' +
+      escapeHtml(label || "删除") +
+      '">' +
+      '<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>' +
+      "</button>"
+    );
+  }
+
+  async function handlePhoneBillDeleteTransaction(slot, txId) {
+    if (!hasPhoneBillGenerated()) return;
+    const id = String(txId || "").trim();
+    if (!id) return;
+    const txs = getPhoneBillTransactions() || [];
+    const tx = txs.find(function (t) {
+      return t && t.id === id;
+    });
+    const label = tx ? String(tx.title || "").trim() || "该条账单" : "该条账单";
+    const ok = await showConfirm("确定删除「" + label + "」吗？", "删除账单");
+    if (!ok) return;
+    if (!deletePhoneBillTransaction(id)) {
+      showToast("删除失败", "error");
+      return;
+    }
+    showToast("已删除账单记录", "success");
+    if (slot) renderPhoneScreen(slot);
+  }
+
+  function buildPhoneBillTransactionRowHtml(tx, placeholder) {
+    const txId = tx && tx.id ? String(tx.id) : "";
+    const title = placeholder ? "…" : escapeHtml(String(tx.title || ""));
+    const meta = placeholder ? "…" : escapeHtml(formatPhoneBillDisplayTime(tx));
+    const amount = placeholder
+      ? "- ¥ …"
+      : escapeHtml(formatPhoneBillAmountDisplay(tx.amount, tx.currency, tx.type));
+    const amountCls =
+      "phone-bill__tx-amount" + (tx && tx.type === "income" ? " phone-bill__tx-amount--income" : "");
+    const iconHtml = placeholder
+      ? '<span class="phone-bill__tx-icon phone-bill__tx-icon--other phone-bill__tx-icon--ph" aria-hidden="true">…</span>'
+      : buildPhoneBillCategoryIconHtml(tx.category);
+    const noteHtml =
+      !placeholder && tx.note
+        ? '<div class="phone-bill__note"><span class="phone-bill__note-label">个人备注</span><p class="phone-bill__note-text">' +
+          escapeHtml(String(tx.note)) +
+          "</p></div>"
+        : "";
+    const deleteBtn = placeholder
+      ? ""
+      : buildPhoneCardDeleteBtnHtml("phone-bill__tx-delete", "data-phone-bill-delete-tx", txId, "删除该条账单");
+    return (
+      '<article class="phone-bill__tx' +
+      (placeholder ? " phone-bill__tx--placeholder" : "") +
+      '">' +
+      '<div class="phone-bill__tx-head">' +
+      iconHtml +
+      '<div class="phone-bill__tx-main">' +
+      '<div class="phone-bill__tx-topline">' +
+      '<h3 class="phone-bill__tx-title">' +
+      title +
+      "</h3>" +
+      '<span class="' +
+      amountCls +
+      '">' +
+      amount +
+      "</span>" +
+      "</div>" +
+      '<p class="phone-bill__tx-meta">' +
+      meta +
+      "</p>" +
+      "</div>" +
+      "</div>" +
+      noteHtml +
+      (placeholder ? "" : '<div class="phone-card-foot">' + deleteBtn + "</div>") +
+      "</article>"
+    );
+  }
+
+  function buildPhoneBillPlaceholderTransactions() {
+    const rows = [];
+    for (let i = 0; i < PHONE_BILL_PLACEHOLDER_COUNT; i++) {
+      rows.push({ id: "bill-ph-" + (i + 1) });
+    }
+    return rows;
+  }
+
+  function buildPhoneBillBarHtml() {
+    const loadingCls = phoneBillGenerating ? " phone-wechat-gen-btn--loading" : "";
+    const disabled = isAnyPhoneAiGenerating();
+    return (
+      '<header class="phone-app__bar phone-app__bar--wechat-list phone-bill__bar">' +
+      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<div class="phone-bill__title-wrap">' +
+      '<h2 class="phone-app__title phone-app__title--left">账单</h2>' +
+      "</div>" +
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      loadingCls +
+      '" data-phone-bill-generate aria-label="AI 生成账单" title="AI 生成账单"' +
+      (disabled ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>" +
+      "</header>"
+    );
+  }
+
+  function buildPhoneBillHtml(slot) {
+    const placeholder = !hasPhoneBillGenerated();
+    const rec = getPhoneBillBundleRecord();
+    const account = rec && rec.account ? rec.account : null;
+    const txs = placeholder ? buildPhoneBillPlaceholderTransactions() : getPhoneBillTransactions();
+    const listHtml = txs
+      .map(function (tx) {
+        return buildPhoneBillTransactionRowHtml(placeholder ? null : tx, placeholder);
+      })
+      .join("");
+    return (
+      '<div class="phone-app phone-bill" aria-label="账单">' +
+      buildPhoneBillBarHtml() +
+      '<div class="phone-bill__scroll">' +
+      buildPhoneBillAccountCardHtml(account, placeholder) +
+      '<h3 class="phone-bill__section-title">近期账单</h3>' +
+      '<div class="phone-bill__list">' +
+      listHtml +
+      "</div>" +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function openPhoneBill(slot) {
+    const nav = getPhoneNav(slot);
+    nav.screen = "bill";
+    nav.chatId = null;
+    renderPhoneScreen(slot);
+  }
+
+  async function generatePhoneBillContent(slot) {
+    if (isAnyPhoneAiGenerating()) return;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const holder = getPhoneHolderCharacter();
+    if (!plot || !holder) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    preparePhoneStoryDateForGeneration(plot);
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    getPhoneBillBundleMutable();
+    const existing = phoneBillData[key] || null;
+    const isRegenerate = !!(existing && existing.transactions && existing.transactions.length);
+    phoneBillGenerating = true;
+    if (slot && getPhoneNav(slot).screen === "bill") renderPhoneScreen(slot);
+    try {
+      showToast(isRegenerate ? "正在追加账单…" : "正在生成账单…", "info");
+      setGenCallContext(buildGenCallOpts("phone-bill", { slot: slot }));
+      const systemPrompt = isRegenerate
+        ? "你是中文互动叙事助手。根据剧情与已有账单，增量追加消费记录 JSON。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          '格式：{"newTransactions":[{"id":"唯一id","dateKey":"YYYY-MM-DD","time":"HH:mm","title":"...","amount":"...","currency":"CNY","type":"expense","category":"game","note":"..."}],"account":{"balance":"...","currency":"CNY"}}（account 可选）'
+        : "你是中文互动叙事助手。根据剧情与人设，生成「查手机·账单」JSON。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          '格式：{"account":{"label":"...","balance":"...","currency":"CNY","cardTail":"1103"},"transactions":[{"id":"唯一id","dateKey":"YYYY-MM-DD","time":"HH:mm","title":"...","amount":"...","currency":"CNY","type":"expense","category":"game","note":"..."}]}';
+      const userPrompt = isRegenerate
+        ? buildPhoneBillRegeneratePrompt(plot, holder, existing)
+        : buildPhoneBillPrompt(plot, holder);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.78,
+        16384
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      if (isRegenerate && parsed && parsed.newTransactions) {
+        parsed.newTransactions = bumpPhoneStoryDateKeysForIncrement(parsed.newTransactions, "dateKey");
+      }
+      const bundle = isRegenerate ? mergePhoneBillIncrement(existing, parsed) : normalizePhoneBillBundle(parsed);
+      if (!bundle.transactions || !bundle.transactions.length) {
+        throw new Error("未能解析有效的账单内容");
+      }
+      phoneBillData[key] = bundle;
+      schedulePersistNarrative();
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) renderPhoneScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      phoneBillGenerating = false;
+      if (slot && getPhoneNav(slot).screen === "bill") renderPhoneScreen(slot);
+    }
+  }
+
+  function bumpPhoneStoryWereadIncrement(parsed) {
+    if (!parsed || typeof parsed !== "object") return parsed;
+    const out = Object.assign({}, parsed);
+    if (Array.isArray(out.appendHighlights)) {
+      out.appendHighlights = bumpPhoneStoryDateKeysForIncrement(out.appendHighlights, "dateKey");
+    }
+    if (Array.isArray(out.newBooks)) {
+      out.newBooks = out.newBooks.map(function (book) {
+        if (!book || typeof book !== "object") return book;
+        const b = Object.assign({}, book);
+        if (b.lastReadKey) b.lastReadKey = clampPhoneStoryDateKey(normalizePhoneBrowserDateKey(b.lastReadKey));
+        if (Array.isArray(b.highlights)) {
+          b.highlights = bumpPhoneStoryDateKeysForIncrement(b.highlights, "dateKey");
+        }
+        return b;
+      });
+    }
+    return out;
+  }
+
+  const PHONE_WEREAD_TITLE_MAX = 32;
+  const PHONE_WEREAD_AUTHOR_MAX = 20;
+  const PHONE_WEREAD_QUOTE_MAX = 120;
+  const PHONE_WEREAD_NOTE_MAX = 80;
+  const PHONE_WEREAD_CHAPTER_MAX = 16;
+  const PHONE_WEREAD_MIN_BOOKS = 3;
+  const PHONE_WEREAD_MIN_HIGHLIGHTS = 4;
+  const PHONE_WEREAD_MIN_NEW_HIGHLIGHTS = 3;
+  const PHONE_WEREAD_MAX_BOOKS = 12;
+  const PHONE_WEREAD_MAX_HIGHLIGHTS_PER_BOOK = 8;
+  const PHONE_WEREAD_PLACEHOLDER_BOOKS = 3;
+  const PHONE_WEREAD_PLACEHOLDER_HLS = 4;
+
+  function purgePhoneWereadDataForPlot(plotId) {
+    const pid = String(plotId || "").trim();
+    if (!pid) return;
+    Object.keys(phoneWereadData).forEach(function (k) {
+      if (k.indexOf(pid + "\u001e") === 0) delete phoneWereadData[k];
+    });
+  }
+
+  function purgePhoneWereadDataForChar(charId) {
+    const cid = String(charId || "").trim();
+    if (!cid) return;
+    const suffix = "\u001e" + cid;
+    Object.keys(phoneWereadData).forEach(function (k) {
+      if (k.slice(-suffix.length) === suffix) delete phoneWereadData[k];
+    });
+  }
+
+  function getPhoneWereadBundleRecord() {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key) return null;
+    const rec = phoneWereadData[key];
+    if (!rec || !Array.isArray(rec.books)) return null;
+    return rec;
+  }
+
+  function getPhoneWereadBundleMutable() {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key) return null;
+    if (!phoneWereadData[key]) {
+      phoneWereadData[key] = { books: [] };
+    }
+    const bundle = phoneWereadData[key];
+    if (!Array.isArray(bundle.books)) bundle.books = [];
+    return { key: key, bundle: bundle };
+  }
+
+  function persistPhoneWereadBundle(bundle) {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key || !bundle) return;
+    phoneWereadData[key] = bundle;
+    schedulePersistNarrative();
+  }
+
+  function hasPhoneWereadGenerated() {
+    const rec = getPhoneWereadBundleRecord();
+    return !!(rec && rec.books && rec.books.length);
+  }
+
+  function hashPhoneWereadHue(seed) {
+    const s = String(seed || "book");
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return h % 360;
+  }
+
+  function normalizePhoneWereadStatus(raw) {
+    const s = String(raw || "").trim().toLowerCase();
+    if (s === "finished" || s === "done" || s === "已读完" || s === "读完") return "finished";
+    if (s === "paused" || s === "want" || s === "想读") return "paused";
+    return "reading";
+  }
+
+  function normalizePhoneWereadProgress(raw) {
+    let n = Number(raw);
+    if (!Number.isFinite(n)) {
+      const m = String(raw || "").match(/(\d+)/);
+      n = m ? Number(m[1]) : 0;
+    }
+    return Math.max(0, Math.min(100, Math.round(n)));
+  }
+
+  function normalizePhoneWereadHighlightItem(item, idx, seenIds) {
+    if (!item || typeof item !== "object") return null;
+    let id = String(item.id || "").trim() || "wr-hl-" + String((idx || 0) + 1);
+    while (seenIds && seenIds.has(id)) id = id + "-d";
+    if (seenIds) seenIds.add(id);
+    const quote = truncateCharsWithEllipsis(
+      String(item.quote || item.excerpt || item.text || "").trim(),
+      PHONE_WEREAD_QUOTE_MAX
+    );
+    if (!quote) return null;
+    const note = truncateCharsWithEllipsis(String(item.note || item.remark || item.comment || "").trim(), PHONE_WEREAD_NOTE_MAX);
+    const chapter = truncateCharsWithEllipsis(
+      String(item.chapter || item.location || item.page || "").trim(),
+      PHONE_WEREAD_CHAPTER_MAX
+    );
+    return {
+      id: id,
+      quote: quote,
+      chapter: chapter,
+      note: note,
+      dateKey: normalizePhoneBrowserDateKey(item.dateKey || item.date),
+    };
+  }
+
+  function normalizePhoneWereadBookItem(item, idx, seenBookIds, seenHlIds) {
+    if (!item || typeof item !== "object") return null;
+    let id = String(item.id || "").trim() || "wr-book-" + String((idx || 0) + 1);
+    while (seenBookIds && seenBookIds.has(id)) id = id + "-d";
+    if (seenBookIds) seenBookIds.add(id);
+    const title = truncateCharsWithEllipsis(String(item.title || item.name || "").trim(), PHONE_WEREAD_TITLE_MAX);
+    if (!title) return null;
+    const author = truncateCharsWithEllipsis(String(item.author || item.writer || "").trim(), PHONE_WEREAD_AUTHOR_MAX);
+    if (!author) return null;
+    let coverHue = Number(item.coverHue);
+    if (!Number.isFinite(coverHue)) coverHue = hashPhoneWereadHue(title + author);
+    const hlIn = Array.isArray(item.highlights) ? item.highlights : Array.isArray(item.marks) ? item.marks : [];
+    const highlights = [];
+    hlIn.forEach(function (h, hi) {
+      const hl = normalizePhoneWereadHighlightItem(h, hi, seenHlIds);
+      if (hl) highlights.push(hl);
+    });
+    highlights.sort(function (a, b) {
+      const dk = String(b.dateKey || "").localeCompare(String(a.dateKey || ""));
+      return dk;
+    });
+    return {
+      id: id,
+      title: title,
+      author: author,
+      coverHue: Math.max(0, Math.min(359, Math.round(coverHue))),
+      progress: normalizePhoneWereadProgress(item.progress),
+      status: normalizePhoneWereadStatus(item.status),
+      lastReadKey: normalizePhoneBrowserDateKey(item.lastReadKey || item.dateKey || item.lastRead),
+      highlights: highlights.slice(0, PHONE_WEREAD_MAX_HIGHLIGHTS_PER_BOOK),
+    };
+  }
+
+  function normalizePhoneWereadStats(raw) {
+    const s = raw && typeof raw === "object" ? raw : {};
+    let weekMinutes = Number(s.weekMinutes != null ? s.weekMinutes : s.weeklyMinutes);
+    if (!Number.isFinite(weekMinutes) || weekMinutes < 0) weekMinutes = 0;
+    let streakDays = Number(s.streakDays != null ? s.streakDays : s.streak);
+    if (!Number.isFinite(streakDays) || streakDays < 0) streakDays = 0;
+    let booksFinished = Number(s.booksFinished != null ? s.booksFinished : s.finishedCount);
+    if (!Number.isFinite(booksFinished) || booksFinished < 0) booksFinished = 0;
+    return {
+      weekMinutes: Math.round(weekMinutes),
+      streakDays: Math.round(streakDays),
+      booksFinished: Math.round(booksFinished),
+    };
+  }
+
+  function countPhoneWereadHighlights(books) {
+    let n = 0;
+    (books || []).forEach(function (b) {
+      n += (b && b.highlights ? b.highlights.length : 0);
+    });
+    return n;
+  }
+
+  function normalizePhoneWereadBundle(raw) {
+    const booksIn = raw && Array.isArray(raw.books) ? raw.books : [];
+    const seenBookIds = new Set();
+    const seenHlIds = new Set();
+    const books = [];
+    booksIn.forEach(function (item, idx) {
+      const book = normalizePhoneWereadBookItem(item, idx, seenBookIds, seenHlIds);
+      if (book) books.push(book);
+    });
+    if (books.length < PHONE_WEREAD_MIN_BOOKS) {
+      throw new Error("书架书籍不足 " + PHONE_WEREAD_MIN_BOOKS + " 本");
+    }
+    if (countPhoneWereadHighlights(books) < PHONE_WEREAD_MIN_HIGHLIGHTS) {
+      throw new Error("摘录与笔记不足 " + PHONE_WEREAD_MIN_HIGHLIGHTS + " 条");
+    }
+    return {
+      stats: normalizePhoneWereadStats(raw && raw.stats ? raw.stats : null),
+      books: books.slice(0, PHONE_WEREAD_MAX_BOOKS),
+      generatedAt: Date.now(),
+    };
+  }
+
+  function clonePhoneWereadBook(book) {
+    return {
+      id: book.id,
+      title: book.title,
+      author: book.author,
+      coverHue: book.coverHue,
+      progress: book.progress,
+      status: book.status,
+      lastReadKey: book.lastReadKey,
+      highlights: (book.highlights || []).map(function (h) {
+        return {
+          id: h.id,
+          quote: h.quote,
+          chapter: h.chapter,
+          note: h.note,
+          dateKey: h.dateKey,
+        };
+      }),
+    };
+  }
+
+  function mergePhoneWereadIncrement(existing, raw) {
+    const baseBooks = (existing && existing.books ? existing.books : []).map(clonePhoneWereadBook);
+    const bookById = Object.create(null);
+    baseBooks.forEach(function (b) {
+      bookById[b.id] = b;
+    });
+    const seenBookIds = new Set(
+      baseBooks.map(function (b) {
+        return b.id;
+      })
+    );
+    const seenHlIds = new Set();
+    baseBooks.forEach(function (b) {
+      (b.highlights || []).forEach(function (h) {
+        seenHlIds.add(h.id);
+      });
+    });
+    const newBooksIn = raw && Array.isArray(raw.newBooks) ? raw.newBooks : raw && Array.isArray(raw.books) ? raw.books : [];
+    let addedBooks = 0;
+    newBooksIn.forEach(function (item, idx) {
+      const book = normalizePhoneWereadBookItem(item, idx, seenBookIds, seenHlIds);
+      if (!book) return;
+      baseBooks.unshift(book);
+      bookById[book.id] = book;
+      addedBooks += 1;
+    });
+    const appendIn =
+      raw && Array.isArray(raw.appendHighlights)
+        ? raw.appendHighlights
+        : raw && Array.isArray(raw.newHighlights)
+          ? raw.newHighlights
+          : [];
+    let addedHl = 0;
+    appendIn.forEach(function (item, idx) {
+      if (!item || typeof item !== "object") return;
+      const bookId = String(item.bookId || item.book || "").trim();
+      const target = bookById[bookId];
+      if (!target) return;
+      const hl = normalizePhoneWereadHighlightItem(item.highlight || item, idx, seenHlIds);
+      if (!hl) return;
+      if (!Array.isArray(target.highlights)) target.highlights = [];
+      target.highlights.unshift(hl);
+      target.highlights = target.highlights.slice(0, PHONE_WEREAD_MAX_HIGHLIGHTS_PER_BOOK);
+      addedHl += 1;
+    });
+    newBooksIn.forEach(function (item) {
+      if (item && item.id && Array.isArray(item.highlights)) {
+        addedHl += item.highlights.length;
+      }
+    });
+    const hadExisting = !!(existing && existing.books && existing.books.length);
+    if (!hadExisting && raw && raw.books && raw.books.length) {
+      return normalizePhoneWereadBundle(raw);
+    }
+    if (addedHl < PHONE_WEREAD_MIN_NEW_HIGHLIGHTS && addedBooks === 0) {
+      throw new Error("追加摘录不足 " + PHONE_WEREAD_MIN_NEW_HIGHLIGHTS + " 条");
+    }
+    const statsOverride = raw && raw.stats ? normalizePhoneWereadStats(raw.stats) : null;
+    return {
+      stats: statsOverride || (existing && existing.stats ? existing.stats : normalizePhoneWereadStats(null)),
+      books: baseBooks.slice(0, PHONE_WEREAD_MAX_BOOKS),
+      generatedAt: Date.now(),
+    };
+  }
+
+  function getPhoneWereadBooks() {
+    const rec = getPhoneWereadBundleRecord();
+    if (!rec || !rec.books.length) return [];
+    return rec.books.slice();
+  }
+
+  function findPhoneWereadBook(bookId) {
+    const id = String(bookId || "").trim();
+    return (
+      getPhoneWereadBooks().find(function (b) {
+        return b && b.id === id;
+      }) || null
+    );
+  }
+
+  function getPhoneWereadReadingBook() {
+    const books = getPhoneWereadBooks();
+    return (
+      books.find(function (b) {
+        return b && b.status === "reading";
+      }) ||
+      books[0] ||
+      null
+    );
+  }
+
+  function getPhoneWereadAllHighlights() {
+    const rows = [];
+    getPhoneWereadBooks().forEach(function (book) {
+      (book.highlights || []).forEach(function (hl) {
+        rows.push({
+          bookId: book.id,
+          bookTitle: book.title,
+          bookAuthor: book.author,
+          coverHue: book.coverHue,
+          highlight: hl,
+        });
+      });
+    });
+    rows.sort(function (a, b) {
+      return String(b.highlight.dateKey || "").localeCompare(String(a.highlight.dateKey || ""));
+    });
+    return rows;
+  }
+
+  function formatPhoneWereadLastReadLabel(dateKey) {
+    const label = getPhoneBrowserDateGroupLabel(dateKey);
+    if (label === "今天") return "今天读过";
+    if (label === "昨天") return "昨天读过";
+    return label + "读过";
+  }
+
+  function formatPhoneWereadStatusLabel(status) {
+    if (status === "finished") return "已读完";
+    if (status === "paused") return "想读";
+    return "在读";
+  }
+
+  function buildPhoneWereadCoverHtml(book, placeholder, size) {
+    const cls = "phone-weread__cover" + (size === "sm" ? " phone-weread__cover--sm" : "") + (placeholder ? " phone-weread__cover--ph" : "");
+    const title = placeholder ? "…" : escapeHtml(String(book.title || ""));
+    const author = placeholder ? "" : escapeHtml(String(book.author || ""));
+    const hue = placeholder ? 200 : Number(book.coverHue || 0);
+    return (
+      '<div class="' +
+      cls +
+      '" style="--cover-hue:' +
+      hue +
+      '" aria-hidden="true">' +
+      '<span class="phone-weread__cover-title">' +
+      title +
+      "</span>" +
+      (author ? '<span class="phone-weread__cover-author">' + author + "</span>" : "") +
+      "</div>"
+    );
+  }
+
+  function makePhoneWereadHighlightKey(bookId, hlId) {
+    return String(bookId || "").trim() + "\u001e" + String(hlId || "").trim();
+  }
+
+  function deletePhoneWereadHighlights(keys) {
+    const rec = getPhoneWereadBundleMutable();
+    if (!rec) return false;
+    const remove = {};
+    (keys || []).forEach(function (key) {
+      const parts = String(key || "").split("\u001e");
+      const bookId = String(parts[0] || "").trim();
+      const hlId = String(parts[1] || "").trim();
+      if (bookId && hlId) remove[bookId + "\u001e" + hlId] = true;
+    });
+    if (!Object.keys(remove).length) return false;
+    let changed = false;
+    rec.bundle.books.forEach(function (book) {
+      if (!book || !Array.isArray(book.highlights)) return;
+      const before = book.highlights.length;
+      book.highlights = book.highlights.filter(function (hl) {
+        return hl && !remove[book.id + "\u001e" + hl.id];
+      });
+      if (book.highlights.length !== before) changed = true;
+    });
+    if (!changed) return false;
+    persistPhoneWereadBundle(rec.bundle);
+    return true;
+  }
+
+  function deletePhoneWereadHighlight(key) {
+    return deletePhoneWereadHighlights([key]);
+  }
+
+  async function handlePhoneWereadDeleteHighlight(slot, key) {
+    if (!hasPhoneWereadGenerated()) return;
+    const id = String(key || "").trim();
+    if (!id) return;
+    const ok = await showConfirm("确定删除该条摘录与笔记吗？", "删除摘录");
+    if (!ok) return;
+    if (!deletePhoneWereadHighlight(id)) {
+      showToast("删除失败", "error");
+      return;
+    }
+    showToast("已删除摘录", "success");
+    if (slot) renderPhoneScreen(slot);
+  }
+
+  function buildPhoneWereadHighlightCardHtml(row, placeholder) {
+    if (placeholder) {
+      return (
+        '<article class="phone-weread__hl phone-weread__hl--ph">' +
+        '<div class="phone-weread__hl-book"><span class="phone-weread__hl-dot">…</span><span class="phone-weread__hl-book-title">…</span></div>' +
+        '<blockquote class="phone-weread__hl-quote">…</blockquote>' +
+        '<p class="phone-weread__hl-meta">…</p>' +
+        "</article>"
+      );
+    }
+    const hl = row.highlight;
+    const itemKey = makePhoneWereadHighlightKey(row.bookId, hl.id);
+    const noteHtml = hl.note
+      ? '<div class="phone-weread__hl-note"><span class="phone-weread__hl-note-label">我的笔记</span><p class="phone-weread__hl-note-text">' +
+        escapeHtml(String(hl.note)) +
+        "</p></div>"
+      : "";
+    const chapterPart = hl.chapter ? escapeHtml(String(hl.chapter)) + " · " : "";
+    const dateLabel = getPhoneBrowserDateGroupLabel(hl.dateKey);
+    const deleteBtn = buildPhoneCardDeleteBtnHtml(
+      "phone-weread__hl-delete",
+      "data-phone-weread-delete-hl",
+      itemKey,
+      "删除该条摘录"
+    );
+    return (
+      '<article class="phone-weread__hl" data-phone-weread-hl="' +
+      escapeHtml(String(hl.id || "")) +
+      '">' +
+      '<button type="button" class="phone-weread__hl-book" data-phone-weread-open-book="' +
+      escapeHtml(String(row.bookId || "")) +
+      '">' +
+      '<span class="phone-weread__hl-dot" style="--cover-hue:' +
+      Number(row.coverHue || 0) +
+      '"></span>' +
+      '<span class="phone-weread__hl-book-title">' +
+      escapeHtml(String(row.bookTitle || "")) +
+      "</span></button>" +
+      '<blockquote class="phone-weread__hl-quote">' +
+      escapeHtml(String(hl.quote || "")) +
+      "</blockquote>" +
+      noteHtml +
+      '<div class="phone-card-foot">' +
+      '<p class="phone-weread__hl-meta">' +
+      chapterPart +
+      escapeHtml(String(dateLabel)) +
+      "</p>" +
+      deleteBtn +
+      "</div>" +
+      "</article>"
+    );
+  }
+
+  function buildPhoneWereadBarHtml(titleText) {
+    const loadingCls = phoneWereadGenerating ? " phone-wechat-gen-btn--loading" : "";
+    const disabled = isAnyPhoneAiGenerating();
+    const title = String(titleText || "微信读书").trim() || "微信读书";
+    return (
+      '<header class="phone-app__bar phone-app__bar--wechat-list phone-weread__bar">' +
+      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<div class="phone-weread__title-wrap">' +
+      '<h2 class="phone-app__title phone-app__title--left phone-weread__title">' +
+      escapeHtml(title) +
+      "</h2>" +
+      "</div>" +
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      loadingCls +
+      '" data-phone-weread-generate aria-label="AI 生成阅读记录" title="AI 生成阅读记录"' +
+      (disabled ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>" +
+      "</header>"
+    );
+  }
+
+  function buildPhoneWereadStatsHtml(stats, placeholder) {
+    if (placeholder) {
+      return (
+        '<div class="phone-weread__stats phone-weread__stats--ph">' +
+        '<div class="phone-weread__stat"><span class="phone-weread__stat-num">…</span><span class="phone-weread__stat-lbl">本周分钟</span></div>' +
+        '<div class="phone-weread__stat"><span class="phone-weread__stat-num">…</span><span class="phone-weread__stat-lbl">连续天</span></div>' +
+        '<div class="phone-weread__stat"><span class="phone-weread__stat-num">…</span><span class="phone-weread__stat-lbl">读完</span></div>' +
+        "</div>"
+      );
+    }
+    const s = stats || normalizePhoneWereadStats(null);
+    return (
+      '<div class="phone-weread__stats">' +
+      '<div class="phone-weread__stat"><span class="phone-weread__stat-num">' +
+      escapeHtml(String(s.weekMinutes || 0)) +
+      '</span><span class="phone-weread__stat-lbl">本周分钟</span></div>' +
+      '<div class="phone-weread__stat"><span class="phone-weread__stat-num">' +
+      escapeHtml(String(s.streakDays || 0)) +
+      '</span><span class="phone-weread__stat-lbl">连续天</span></div>' +
+      '<div class="phone-weread__stat"><span class="phone-weread__stat-num">' +
+      escapeHtml(String(s.booksFinished || 0)) +
+      '</span><span class="phone-weread__stat-lbl">读完</span></div>' +
+      "</div>"
+    );
+  }
+
+  function buildPhoneWereadHeroHtml(book, placeholder) {
+    if (placeholder) {
+      return (
+        '<section class="phone-weread__hero phone-weread__hero--ph">' +
+        buildPhoneWereadCoverHtml(null, true, "lg") +
+        '<div class="phone-weread__hero-body">' +
+        '<p class="phone-weread__hero-kicker">正在阅读</p>' +
+        '<h3 class="phone-weread__hero-title">…</h3>' +
+        '<p class="phone-weread__hero-author">…</p>' +
+        '<div class="phone-weread__progress"><div class="phone-weread__progress-bar" style="width:30%"></div></div>' +
+        '<p class="phone-weread__hero-meta">…</p>' +
+        "</div></section>"
+      );
+    }
+    const progress = Number(book.progress || 0);
+    return (
+      '<section class="phone-weread__hero">' +
+      '<button type="button" class="phone-weread__hero-open" data-phone-weread-open-book="' +
+      escapeHtml(String(book.id || "")) +
+      '">' +
+      buildPhoneWereadCoverHtml(book, false, "lg") +
+      '<div class="phone-weread__hero-body">' +
+      '<p class="phone-weread__hero-kicker">正在阅读</p>' +
+      '<h3 class="phone-weread__hero-title">' +
+      escapeHtml(String(book.title || "")) +
+      "</h3>" +
+      '<p class="phone-weread__hero-author">' +
+      escapeHtml(String(book.author || "")) +
+      "</p>" +
+      '<div class="phone-weread__progress" aria-label="阅读进度 ' +
+      progress +
+      '%"><div class="phone-weread__progress-bar" style="width:' +
+      progress +
+      '%"></div></div>' +
+      '<p class="phone-weread__hero-meta">' +
+      escapeHtml(formatPhoneWereadLastReadLabel(book.lastReadKey)) +
+      " · 已读 " +
+      progress +
+      "%</p>" +
+      "</div></button></section>"
+    );
+  }
+
+  function buildPhoneWereadShelfTileHtml(book, placeholder) {
+    if (placeholder) {
+      return (
+        '<div class="phone-weread__shelf-item phone-weread__shelf-item--ph">' +
+        buildPhoneWereadCoverHtml(null, true, "sm") +
+        '<p class="phone-weread__shelf-title">…</p>' +
+        '<p class="phone-weread__shelf-badge">…</p>' +
+        "</div>"
+      );
+    }
+    return (
+      '<button type="button" class="phone-weread__shelf-item" data-phone-weread-open-book="' +
+      escapeHtml(String(book.id || "")) +
+      '">' +
+      buildPhoneWereadCoverHtml(book, false, "sm") +
+      '<p class="phone-weread__shelf-title">' +
+      escapeHtml(String(book.title || "")) +
+      "</p>" +
+      '<p class="phone-weread__shelf-badge">' +
+      escapeHtml(formatPhoneWereadStatusLabel(book.status)) +
+      (book.status === "reading" ? " · " + Number(book.progress || 0) + "%" : "") +
+      "</p>" +
+      "</button>"
+    );
+  }
+
+  function buildPhoneWereadHtml(slot) {
+    const placeholder = !hasPhoneWereadGenerated();
+    const rec = getPhoneWereadBundleRecord();
+    const readingBook = placeholder ? null : getPhoneWereadReadingBook();
+    const books = placeholder ? [] : getPhoneWereadBooks();
+    const shelfBooks = placeholder
+      ? []
+      : books.filter(function (b) {
+          return !readingBook || b.id !== readingBook.id;
+        });
+    const shelfHtml = placeholder
+      ? Array.from({ length: PHONE_WEREAD_PLACEHOLDER_BOOKS })
+          .map(function () {
+            return buildPhoneWereadShelfTileHtml(null, true);
+          })
+          .join("")
+      : shelfBooks
+          .map(function (b) {
+            return buildPhoneWereadShelfTileHtml(b, false);
+          })
+          .join("");
+    const hlRows = placeholder
+      ? Array.from({ length: PHONE_WEREAD_PLACEHOLDER_HLS }).map(function () {
+          return null;
+        })
+      : getPhoneWereadAllHighlights();
+    const hlHtml = hlRows
+      .map(function (row) {
+        return buildPhoneWereadHighlightCardHtml(row, placeholder);
+      })
+      .join("");
+    return (
+      '<div class="phone-app phone-weread" aria-label="微信读书">' +
+      buildPhoneWereadBarHtml("微信读书") +
+      '<div class="phone-weread__scroll">' +
+      buildPhoneWereadStatsHtml(rec && rec.stats, placeholder) +
+      buildPhoneWereadHeroHtml(readingBook, placeholder) +
+      '<h3 class="phone-weread__section-title">书架</h3>' +
+      '<div class="phone-weread__shelf">' +
+      shelfHtml +
+      "</div>" +
+      '<h3 class="phone-weread__section-title">摘录与笔记</h3>' +
+      '<div class="phone-weread__hl-list">' +
+      hlHtml +
+      "</div>" +
+      "</div></div>"
+    );
+  }
+
+  function buildPhoneWereadBookDetailHtml(slot) {
+    const nav = getPhoneNav(slot);
+    const bookId = String(nav.wereadBookId || "").trim();
+    const book = findPhoneWereadBook(bookId);
+    const placeholder = !book;
+    const hlHtml = placeholder
+      ? Array.from({ length: 3 })
+          .map(function () {
+            return buildPhoneWereadHighlightCardHtml(null, true);
+          })
+          .join("")
+      : (book.highlights || [])
+          .map(function (hl) {
+            return buildPhoneWereadHighlightCardHtml(
+              {
+                bookId: book.id,
+                bookTitle: book.title,
+                bookAuthor: book.author,
+                coverHue: book.coverHue,
+                highlight: hl,
+              },
+              false
+            );
+          })
+          .join("");
+    const title = placeholder ? "…" : String(book.title || "");
+    const progress = placeholder ? 0 : Number(book.progress || 0);
+    return (
+      '<div class="phone-app phone-weread phone-weread--detail" aria-label="书籍详情">' +
+      buildPhoneWereadBarHtml(title) +
+      '<div class="phone-weread__scroll">' +
+      '<div class="phone-weread__detail-head">' +
+      buildPhoneWereadCoverHtml(book, placeholder, "md") +
+      '<div class="phone-weread__detail-meta">' +
+      '<h3 class="phone-weread__detail-title">' +
+      (placeholder ? "…" : escapeHtml(String(book.title || ""))) +
+      "</h3>" +
+      '<p class="phone-weread__detail-author">' +
+      (placeholder ? "…" : escapeHtml(String(book.author || ""))) +
+      "</p>" +
+      '<div class="phone-weread__progress" aria-hidden="true"><div class="phone-weread__progress-bar" style="width:' +
+      (placeholder ? 30 : progress) +
+      '%"></div></div>' +
+      '<p class="phone-weread__detail-status">' +
+      (placeholder ? "…" : escapeHtml(formatPhoneWereadStatusLabel(book.status)) + " · " + progress + "%") +
+      "</p>" +
+      "</div></div>" +
+      '<h3 class="phone-weread__section-title">本书摘录</h3>' +
+      '<div class="phone-weread__hl-list">' +
+      (hlHtml || '<p class="phone-weread__empty-hl">暂无摘录</p>') +
+      "</div></div></div>"
+    );
+  }
+
+  function openPhoneWeread(slot) {
+    const nav = getPhoneNav(slot);
+    nav.screen = "weread";
+    nav.chatId = null;
+    nav.wereadBookId = null;
+    renderPhoneScreen(slot);
+  }
+
+  function openPhoneWereadBook(slot, bookId) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "weread" && nav.screen !== "weread-book") return;
+    const id = String(bookId || "").trim();
+    if (!id) return;
+    nav.screen = "weread-book";
+    nav.wereadBookId = id;
+    renderPhoneScreen(slot);
+  }
+
+  function formatPhoneWereadBookForPrompt(book) {
+    if (!book) return "";
+    const hl = (book.highlights || [])
+      .slice(0, 2)
+      .map(function (h) {
+        return h.quote;
+      })
+      .join("；");
+    return "- id=" + book.id + "《" + book.title + "》" + book.author + "，progress=" + book.progress + "%，摘录示例：" + (hl || "无");
+  }
+
+  function buildPhoneWereadPrompt(plot, holder) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const lines = [
+      "请为「查手机·微信读书」生成手机持有者「" + holderName + "」的阅读书架 JSON。",
+      "视角：以「" + holderName + "」的阅读口味与人生处境选书；note 为 Ta 对摘录的私密感想（第一人称、可关联剧情情绪）。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push(
+      "硬性要求：\n" +
+        "1. books 至少 " +
+        PHONE_WEREAD_MIN_BOOKS +
+        " 本，须为真实出版、可在豆瓣/国家图书馆检索到的书名与作者；禁止虚构书名。\n" +
+        "2. 每本书 highlights 1～2 条：quote 须为该书中真实存在的原文句子（可略去无关前后文，但不得杜撰）；chapter 标注章节名或类似「第三章」；note≤" +
+        PHONE_WEREAD_NOTE_MAX +
+        " 字。\n" +
+        "3. 至少一本 status=reading（progress 10～90），其余 finished 或 paused；stats 含 weekMinutes、streakDays、booksFinished，数值与人设自洽。\n" +
+        "4. 选书须贴合人设与剧情（职业、年龄、心境、近期事件）；中外文学、非虚构均可。\n" +
+        "5. 全部摘录合计至少 " +
+        PHONE_WEREAD_MIN_HIGHLIGHTS +
+        " 条。\n" +
+        '6. 输出 JSON：{"stats":{"weekMinutes":0,"streakDays":0,"booksFinished":0},"books":[{"id":"wr-1","title":"书名","author":"作者","coverHue":210,"progress":42,"status":"reading","lastReadKey":"YYYY-MM-DD","highlights":[{"id":"hl-1","quote":"...","chapter":"...","note":"...","dateKey":"YYYY-MM-DD"}]}]}'
+    );
+    return lines.join("\n");
+  }
+
+  function buildPhoneWereadRegeneratePrompt(plot, holder, existing) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const lines = [
+      "请为「查手机·微信读书」增量追加「" + holderName + "」的阅读内容 JSON。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    if (existing && existing.books && existing.books.length) {
+      lines.push("【已在架书籍（勿重复同一书名）】");
+      existing.books.forEach(function (b) {
+        lines.push(formatPhoneWereadBookForPrompt(b));
+      });
+      lines.push("");
+    }
+    lines.push(
+      "要求：\n" +
+        "1. 追加 appendHighlights 至少 " +
+        PHONE_WEREAD_MIN_NEW_HIGHLIGHTS +
+        " 条（bookId 指向已有书），或 newBooks 1 本（含 2+ 真实摘录）；quote 仍须真实原文。\n" +
+        "2. 可选 newBooks 为新真实书籍；可选 stats 更新 weekMinutes/streakDays。\n" +
+        '3. 输出 JSON：{"appendHighlights":[{"bookId":"wr-1","id":"hl-new","quote":"...","chapter":"...","note":"...","dateKey":"YYYY-MM-DD"}],"newBooks":[],"stats":{}}'
+    );
+    return lines.join("\n");
+  }
+
+  async function generatePhoneWereadContent(slot) {
+    if (isAnyPhoneAiGenerating()) return;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const holder = getPhoneHolderCharacter();
+    if (!plot || !holder) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    preparePhoneStoryDateForGeneration(plot);
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    getPhoneWereadBundleMutable();
+    const existing = phoneWereadData[key] || null;
+    const isRegenerate = !!(existing && existing.books && existing.books.length);
+    phoneWereadGenerating = true;
+    if (slot && (getPhoneNav(slot).screen === "weread" || getPhoneNav(slot).screen === "weread-book")) {
+      renderPhoneScreen(slot);
+    }
+    try {
+      showToast(isRegenerate ? "正在追加阅读记录…" : "正在生成阅读记录…", "info");
+      setGenCallContext(buildGenCallOpts("phone-weread", { slot: slot }));
+      const systemPrompt = isRegenerate
+        ? "你是中文互动叙事助手。根据剧情与已有书架，增量追加微信读书 JSON。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          '格式：{"appendHighlights":[{"bookId":"...","id":"...","quote":"...","chapter":"...","note":"...","dateKey":"YYYY-MM-DD"}],"newBooks":[{"id":"...","title":"...","author":"...","highlights":[...]}],"stats":{}}'
+        : "你是中文互动叙事助手。根据剧情与人设，生成「查手机·微信读书」JSON。\n" +
+          "quote 必须是真实书籍中的原文句子，书名作者必须真实可查。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          '格式：{"stats":{"weekMinutes":0,"streakDays":0,"booksFinished":0},"books":[{"id":"...","title":"...","author":"...","coverHue":0,"progress":0,"status":"reading","lastReadKey":"YYYY-MM-DD","highlights":[{"id":"...","quote":"...","chapter":"...","note":"...","dateKey":"YYYY-MM-DD"}]}]}';
+      const userPrompt = isRegenerate
+        ? buildPhoneWereadRegeneratePrompt(plot, holder, existing)
+        : buildPhoneWereadPrompt(plot, holder);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.72,
+        12288
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const parsedSafe = isRegenerate ? bumpPhoneStoryWereadIncrement(parsed) : parsed;
+      const bundle = isRegenerate ? mergePhoneWereadIncrement(existing, parsedSafe) : normalizePhoneWereadBundle(parsedSafe);
+      if (!bundle.books || !bundle.books.length) {
+        throw new Error("未能解析有效的阅读内容");
+      }
+      phoneWereadData[key] = bundle;
+      schedulePersistNarrative();
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) renderPhoneScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      phoneWereadGenerating = false;
+      const nav = slot ? getPhoneNav(slot) : null;
+      if (slot && nav && (nav.screen === "weread" || nav.screen === "weread-book")) renderPhoneScreen(slot);
+    }
+  }
+
+  /* ── 查手机 · 晋江文学城 ── */
+
+  const PHONE_JJWXC_DEFAULT_CATEGORIES = [
+    {
+      id: "yq",
+      name: "言情",
+      description: "现代/古代言情，甜宠、虐恋、先婚后爱、破镜重圆等；主角为虚构原创人物，与剧情角色无关。",
+    },
+    {
+      id: "ca",
+      name: "纯爱",
+      description: "耽美/百合向原创故事；作者与读者均为网文生态中的陌生人，不涉及手机持有者社交圈。",
+    },
+    {
+      id: "ys",
+      name: "衍生",
+      description: "影视/动漫/游戏等同人二创；须为大众 IP 衍生，禁止以剧情内人物或手机持有者为同人主角。",
+    },
+    {
+      id: "xx",
+      name: "仙侠",
+      description: "修仙、玄幻、东方奇幻；独立世界观，与持有者现实人生无直接对应。",
+    },
+    {
+      id: "xh",
+      name: "幻想",
+      description: "幻想现言、异能、穿书（穿进别的虚构作品）等轻幻想题材。",
+    },
+    {
+      id: "xy",
+      name: "悬疑",
+      description: "推理、惊悚、无限流；节奏紧凑，适合熬夜追更的类型。",
+    },
+    {
+      id: "qs",
+      name: "轻松",
+      description: "沙雕搞笑、日常治愈、美食种田等解压向。",
+    },
+    {
+      id: "xj",
+      name: "现实",
+      description: "职场、行业、成长向现实题材；可映射持有者职业兴趣但不写其真名真事。",
+    },
+  ];
+
+  const PHONE_JJWXC_CAT_NAME_MAX = 8;
+  const PHONE_JJWXC_CAT_DESC_MAX = 200;
+  const PHONE_JJWXC_MIN_CATEGORIES = 3;
+  const PHONE_JJWXC_MAX_CATEGORIES = 10;
+  const PHONE_JJWXC_MIN_NOVELS_PER_CAT = 3;
+  const PHONE_JJWXC_MIN_CHAPTERS = 6;
+  const PHONE_JJWXC_TARGET_CHAPTER_CHARS = 4500;
+  const PHONE_JJWXC_MIN_CHAPTER_CHARS = 4000;
+  const PHONE_JJWXC_CHAPTER_CONTENT_MAX = 5200;
+  const PHONE_JJWXC_CHAPTER_SAVED_MIN = 80;
+  const PHONE_JJWXC_PREV_CHAPTER_REF_CHARS = 2200;
+  const PHONE_JJWXC_TITLE_MAX = 28;
+  const PHONE_JJWXC_AUTHOR_MAX = 16;
+  const PHONE_JJWXC_SUMMARY_MAX = 72;
+  const PHONE_JJWXC_SYNOPSIS_MAX = 360;
+  const PHONE_JJWXC_TAG_MAX = 8;
+  const PHONE_JJWXC_MIN_TIPS = 4;
+  const PHONE_JJWXC_MIN_READING_NOTES = 3;
+  const PHONE_JJWXC_TIP_MSG_MAX = 48;
+  const PHONE_JJWXC_NOTE_MAX = 120;
+  const PHONE_JJWXC_READER_THOUGHT_MAX = 100;
+  const PHONE_JJWXC_CHAPTER_BLURB_MAX = 50;
+  const PHONE_JJWXC_APPEND_CHAPTERS = 10;
+  const PHONE_JJWXC_CHAPTER_TITLE_MAX = 20;
+  const PHONE_JJWXC_PLACEHOLDER_NOVELS = 6;
+  const PHONE_JJWXC_REF_NOVELS = 5;
+
+  function purgePhoneJjwxcDataForPlot(plotId) {
+    const pid = String(plotId || "").trim();
+    if (!pid) return;
+    Object.keys(phoneJjwxcData).forEach(function (k) {
+      if (k.indexOf(pid + "\u001e") === 0) delete phoneJjwxcData[k];
+    });
+  }
+
+  function purgePhoneJjwxcDataForChar(charId) {
+    const cid = String(charId || "").trim();
+    if (!cid) return;
+    const suffix = "\u001e" + cid;
+    Object.keys(phoneJjwxcData).forEach(function (k) {
+      if (k.slice(-suffix.length) === suffix) delete phoneJjwxcData[k];
+    });
+  }
+
+  function getPhoneJjwxcDefaultCategoryMeta(categoryId) {
+    return PHONE_JJWXC_DEFAULT_CATEGORIES.find(function (s) {
+      return s.id === categoryId;
+    });
+  }
+
+  function clonePhoneJjwxcDefaultCategories() {
+    return PHONE_JJWXC_DEFAULT_CATEGORIES.map(function (s) {
+      return { id: s.id, name: s.name, description: String(s.description || "") };
+    });
+  }
+
+  function mergePhoneJjwxcCategoryDescriptions(categories) {
+    return (categories || []).map(function (c) {
+      const def = getPhoneJjwxcDefaultCategoryMeta(c.id);
+      const desc = String(c.description || "").trim();
+      return {
+        id: String(c.id || ""),
+        name: String(c.name || ""),
+        description: desc || (def ? def.description : ""),
+      };
+    });
+  }
+
+  function clonePhoneJjwxcCategory(category) {
+    return {
+      id: String(category.id || ""),
+      name: String(category.name || ""),
+      description: String(category.description || ""),
+    };
+  }
+
+  function getPhoneJjwxcCategories() {
+    const rec = getPhoneJjwxcCategoryBundleRecord();
+    if (rec && rec.categories.length) {
+      return mergePhoneJjwxcCategoryDescriptions(rec.categories);
+    }
+    return clonePhoneJjwxcDefaultCategories();
+  }
+
+  function getPhoneJjwxcCategoryBundleRecord() {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key) return null;
+    const rec = phoneJjwxcData[key];
+    if (!rec || !Array.isArray(rec.categories)) return null;
+    return rec;
+  }
+
+  function findPhoneJjwxcCategory(categoryId) {
+    const id = String(categoryId || "").trim();
+    return (
+      getPhoneJjwxcCategories().find(function (s) {
+        return s.id === id;
+      }) || null
+    );
+  }
+
+  function getPhoneJjwxcBundleRecord() {
+    const rec = getPhoneJjwxcCategoryBundleRecord();
+    if (!rec || !Array.isArray(rec.novels)) return null;
+    return rec;
+  }
+
+  function getPhoneJjwxcBundleMutable() {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key) return null;
+    if (!phoneJjwxcData[key]) {
+      phoneJjwxcData[key] = {
+        categories: clonePhoneJjwxcDefaultCategories(),
+        novels: [],
+        tips: [],
+        readingNotes: [],
+        readerProfile: {},
+        categoriesUserEdited: false,
+      };
+    }
+    const bundle = phoneJjwxcData[key];
+    if (!Array.isArray(bundle.categories)) bundle.categories = clonePhoneJjwxcDefaultCategories();
+    if (!Array.isArray(bundle.novels)) bundle.novels = [];
+    if (!Array.isArray(bundle.tips)) bundle.tips = [];
+    if (!Array.isArray(bundle.readingNotes)) bundle.readingNotes = [];
+    if (!bundle.readerProfile || typeof bundle.readerProfile !== "object") bundle.readerProfile = {};
+    if (bundle.categoriesUserEdited == null) bundle.categoriesUserEdited = false;
+    bundle.categories = mergePhoneJjwxcCategoryDescriptions(bundle.categories);
+    return { key: key, bundle: bundle };
+  }
+
+  function requirePhoneJjwxcHolderForEdit() {
+    sanitizePhoneHolderState();
+    if (!getPhoneWechatStorageKeyForCurrentHolder()) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return false;
+    }
+    return true;
+  }
+
+  function normalizePhoneJjwxcCategoryItem(item, idx, seenIds) {
+    if (!item || typeof item !== "object") return null;
+    let id = String(item.id || "").trim() || "jjc-" + String((idx || 0) + 1);
+    while (seenIds && seenIds.has(id)) id = id + "-d";
+    if (seenIds) seenIds.add(id);
+    const name = truncateCharsWithEllipsis(String(item.name || "").trim(), PHONE_JJWXC_CAT_NAME_MAX);
+    const description = truncateCharsWithEllipsis(String(item.description || "").trim(), PHONE_JJWXC_CAT_DESC_MAX);
+    if (!name || !description) return null;
+    return { id: id, name: name, description: description };
+  }
+
+  function normalizePhoneJjwxcCategoriesList(rawCategories, labelPrefix) {
+    const seenIds = new Set();
+    const categories = [];
+    (Array.isArray(rawCategories) ? rawCategories : []).forEach(function (item, idx) {
+      const cat = normalizePhoneJjwxcCategoryItem(item, idx, seenIds);
+      if (cat) categories.push(cat);
+    });
+    if (categories.length < PHONE_JJWXC_MIN_CATEGORIES) {
+      throw new Error((labelPrefix || "") + "分类不足 " + PHONE_JJWXC_MIN_CATEGORIES + " 个");
+    }
+    if (categories.length > PHONE_JJWXC_MAX_CATEGORIES) {
+      return categories.slice(0, PHONE_JJWXC_MAX_CATEGORIES);
+    }
+    return categories;
+  }
+
+  function resolvePhoneJjwxcCategoriesForCatalog(existing, raw, isFirstGen) {
+    const base = existing && existing.categories ? mergePhoneJjwxcCategoryDescriptions(existing.categories) : clonePhoneJjwxcDefaultCategories();
+    if (!isFirstGen) {
+      return base.map(clonePhoneJjwxcCategory);
+    }
+    if (existing && existing.categoriesUserEdited) {
+      return base.map(clonePhoneJjwxcCategory);
+    }
+    if (raw && Array.isArray(raw.categories) && raw.categories.length) {
+      return normalizePhoneJjwxcCategoriesList(raw.categories, "");
+    }
+    return base.map(clonePhoneJjwxcCategory);
+  }
+
+  function normalizePhoneJjwxcBundleOnLoad(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const bundle = {
+      categories: Array.isArray(raw.categories) ? raw.categories.map(clonePhoneJjwxcCategory) : clonePhoneJjwxcDefaultCategories(),
+      novels: Array.isArray(raw.novels) ? raw.novels : [],
+      tips: Array.isArray(raw.tips) ? raw.tips : [],
+      readingNotes: Array.isArray(raw.readingNotes) ? raw.readingNotes : [],
+      readerProfile: raw.readerProfile && typeof raw.readerProfile === "object" ? raw.readerProfile : {},
+      categoriesUserEdited: !!raw.categoriesUserEdited,
+      generatedAt: raw.generatedAt || null,
+    };
+    bundle.novels = bundle.novels.map(function (novel) {
+      if (!novel || typeof novel !== "object") return novel;
+      const n = Object.assign({}, novel);
+      n.chapters = (Array.isArray(n.chapters) ? n.chapters : []).map(function (ch) {
+        if (!ch || typeof ch !== "object") return ch;
+        const c = Object.assign({}, ch);
+        const content = String(c.content || "").trim();
+        if (content.length >= PHONE_JJWXC_CHAPTER_SAVED_MIN) {
+          c.contentReady = true;
+        }
+        if (String(c.blurb || "").trim() && String(c.readerThought || "").trim()) {
+          c.previewReady = true;
+        }
+        return c;
+      });
+      if (String(n.synopsis || "").trim() && n.chapters.length >= PHONE_JJWXC_MIN_CHAPTERS) {
+        n.detailReady = true;
+      }
+      return n;
+    });
+    return bundle;
+  }
+
+  function persistPhoneJjwxcBundle(bundle, immediate) {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key || !bundle) return;
+    phoneJjwxcData[key] = bundle;
+    if (immediate) {
+      flushPersistNarrative();
+    } else {
+      schedulePersistNarrative();
+    }
+  }
+
+  function hasPhoneJjwxcGenerated() {
+    const rec = getPhoneJjwxcBundleRecord();
+    return !!(rec && rec.novels && rec.novels.length);
+  }
+
+  function hashPhoneJjwxcHue(seed) {
+    const s = String(seed || "novel");
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return h % 360;
+  }
+
+  function normalizePhoneJjwxcStatus(raw) {
+    const s = String(raw || "").trim().toLowerCase();
+    if (s === "finished" || s === "done" || s === "完结" || s === "完本") return "finished";
+    return "ongoing";
+  }
+
+  function normalizePhoneJjwxcCategoryId(raw) {
+    const id = String(raw || "").trim();
+    if (getPhoneJjwxcCategories().some(function (c) {
+      return c.id === id;
+    })) {
+      return id;
+    }
+    const byName = getPhoneJjwxcCategories().find(function (c) {
+      return c.name === id;
+    });
+    return byName ? byName.id : null;
+  }
+
+  function normalizePhoneJjwxcTags(raw) {
+    const tags = [];
+    const arr = Array.isArray(raw) ? raw : String(raw || "").split(/[,，、/|]/);
+    arr.forEach(function (t) {
+      const tag = truncateCharsWithEllipsis(String(t || "").trim(), PHONE_JJWXC_TAG_MAX);
+      if (tag && tags.indexOf(tag) < 0) tags.push(tag);
+    });
+    return tags.slice(0, 4);
+  }
+
+  function normalizePhoneJjwxcChapterItem(item, idx, seenIds) {
+    if (!item || typeof item !== "object") return null;
+    let id = String(item.id || "").trim() || "ch-" + String((idx || 0) + 1);
+    while (seenIds && seenIds.has(id)) id = id + "-d";
+    if (seenIds) seenIds.add(id);
+    const title = truncateCharsWithEllipsis(String(item.title || item.name || "").trim(), PHONE_JJWXC_CHAPTER_TITLE_MAX);
+    if (!title) return null;
+    let wordCount = Number(item.wordCount || item.words);
+    if (!Number.isFinite(wordCount) || wordCount < 0) wordCount = 0;
+    const content = truncateCharsWithEllipsis(String(item.content || item.text || "").trim(), PHONE_JJWXC_CHAPTER_CONTENT_MAX);
+    const readerThought = truncateCharsWithEllipsis(
+      String(
+        item.readerThought || item.authorWords || item.authorNote || item.thought || item.innerVoice || ""
+      ).trim(),
+      PHONE_JJWXC_READER_THOUGHT_MAX
+    );
+    const blurb = truncateCharsWithEllipsis(
+      String(item.blurb || item.synopsis || item.summary || item.hook || "").trim(),
+      PHONE_JJWXC_CHAPTER_BLURB_MAX
+    );
+    const previewReady = !!(blurb && readerThought);
+    return {
+      id: id,
+      title: title,
+      wordCount: Math.round(wordCount),
+      content: content,
+      blurb: blurb,
+      readerThought: readerThought,
+      previewReady: previewReady,
+    };
+  }
+
+  function normalizePhoneJjwxcNovelItem(item, idx, seenIds) {
+    if (!item || typeof item !== "object") return null;
+    const categoryId = normalizePhoneJjwxcCategoryId(item.categoryId || item.category);
+    if (!categoryId) return null;
+    let id = String(item.id || "").trim() || "jn-" + String((idx || 0) + 1);
+    while (seenIds && seenIds.has(id)) id = id + "-d";
+    if (seenIds) seenIds.add(id);
+    const title = truncateCharsWithEllipsis(String(item.title || item.name || "").trim(), PHONE_JJWXC_TITLE_MAX);
+    const author = truncateCharsWithEllipsis(String(item.author || item.penName || "").trim(), PHONE_JJWXC_AUTHOR_MAX);
+    const summary = truncateCharsWithEllipsis(String(item.summary || item.blurb || item.intro || "").trim(), PHONE_JJWXC_SUMMARY_MAX);
+    if (!title || !author || !summary) return null;
+    let coverHue = Number(item.coverHue);
+    if (!Number.isFinite(coverHue)) coverHue = hashPhoneJjwxcHue(title + author);
+    let collectCount = Number(item.collectCount != null ? item.collectCount : item.favorites);
+    if (!Number.isFinite(collectCount) || collectCount < 0) collectCount = 0;
+    let wordCountLabel = String(item.wordCount || item.words || "").trim();
+    if (!wordCountLabel) wordCountLabel = "…";
+    wordCountLabel = truncateCharsWithEllipsis(wordCountLabel, 12);
+    const chIn = Array.isArray(item.chapters) ? item.chapters : [];
+    const chSeen = new Set();
+    const chapters = [];
+    chIn.forEach(function (ch, ci) {
+      const c = normalizePhoneJjwxcChapterItem(ch, ci, chSeen);
+      if (c) chapters.push(c);
+    });
+    let readProgress = Number(item.readProgress != null ? item.readProgress : item.progress);
+    if (!Number.isFinite(readProgress) || readProgress < 0) readProgress = 0;
+    readProgress = Math.max(0, Math.min(100, Math.round(readProgress)));
+    return {
+      id: id,
+      categoryId: categoryId,
+      title: title,
+      author: author,
+      tags: normalizePhoneJjwxcTags(item.tags),
+      summary: summary,
+      status: normalizePhoneJjwxcStatus(item.status),
+      wordCountLabel: wordCountLabel,
+      collectCount: Math.round(collectCount),
+      coverHue: Math.max(0, Math.min(359, Math.round(coverHue))),
+      synopsis: truncateCharsWithEllipsis(String(item.synopsis || "").trim(), PHONE_JJWXC_SYNOPSIS_MAX),
+      authorNote: truncateCharsWithEllipsis(String(item.authorNote || item.authorWords || "").trim(), 200),
+      chapters: chapters,
+      onShelf: !!item.onShelf,
+      isFavorite: !!(item.isFavorite || item.favorite),
+      readProgress: readProgress,
+      lastReadKey: normalizePhoneBrowserDateKey(item.lastReadKey || item.dateKey),
+    };
+  }
+
+  function normalizePhoneJjwxcTipItem(item, idx, seenIds) {
+    if (!item || typeof item !== "object") return null;
+    let id = String(item.id || "").trim() || "tip-" + String((idx || 0) + 1);
+    while (seenIds && seenIds.has(id)) id = id + "-d";
+    if (seenIds) seenIds.add(id);
+    const novelId = String(item.novelId || item.bookId || "").trim();
+    if (!novelId) return null;
+    let amount = Number(item.amount != null ? item.amount : item.coins);
+    if (!Number.isFinite(amount) || amount <= 0) amount = 1;
+    const message = truncateCharsWithEllipsis(String(item.message || item.comment || "").trim(), PHONE_JJWXC_TIP_MSG_MAX);
+    return {
+      id: id,
+      novelId: novelId,
+      amount: Math.round(amount),
+      message: message,
+      dateKey: normalizePhoneBrowserDateKey(item.dateKey || item.date),
+    };
+  }
+
+  function normalizePhoneJjwxcReadingNoteItem(item, idx, seenIds) {
+    if (!item || typeof item !== "object") return null;
+    let id = String(item.id || "").trim() || "rn-" + String((idx || 0) + 1);
+    while (seenIds && seenIds.has(id)) id = id + "-d";
+    if (seenIds) seenIds.add(id);
+    const novelId = String(item.novelId || item.bookId || "").trim();
+    const content = truncateCharsWithEllipsis(String(item.content || item.text || item.thought || "").trim(), PHONE_JJWXC_NOTE_MAX);
+    if (!novelId || !content) return null;
+    const chapterTitle = truncateCharsWithEllipsis(String(item.chapterTitle || item.chapter || "").trim(), PHONE_JJWXC_CHAPTER_TITLE_MAX);
+    return {
+      id: id,
+      novelId: novelId,
+      chapterTitle: chapterTitle,
+      content: content,
+      dateKey: normalizePhoneBrowserDateKey(item.dateKey || item.date),
+    };
+  }
+
+  function normalizePhoneJjwxcReaderProfile(raw) {
+    const p = raw && typeof raw === "object" ? raw : {};
+    let coins = Number(p.coins != null ? p.coins : p.balance);
+    if (!Number.isFinite(coins) || coins < 0) coins = 0;
+    let totalTips = Number(p.totalTips != null ? p.totalTips : p.tipped);
+    if (!Number.isFinite(totalTips) || totalTips < 0) totalTips = 0;
+    let favoriteCount = Number(p.favoriteCount != null ? p.favoriteCount : p.favorites);
+    if (!Number.isFinite(favoriteCount) || favoriteCount < 0) favoriteCount = 0;
+    const nickname = truncateCharsWithEllipsis(String(p.nickname || p.name || "读者").trim(), 16) || "读者";
+    return {
+      nickname: nickname,
+      coins: Math.round(coins),
+      totalTips: Math.round(totalTips),
+      favoriteCount: Math.round(favoriteCount),
+    };
+  }
+
+  function normalizePhoneJjwxcCatalogBundle(raw, existing) {
+    const isFirstGen = !(existing && existing.novels && existing.novels.length);
+    const categories = resolvePhoneJjwxcCategoriesForCatalog(existing, raw, isFirstGen);
+    const novelsIn = raw && Array.isArray(raw.novels) ? raw.novels : [];
+    const seenIds = new Set();
+    const novels = [];
+    novelsIn.forEach(function (item, idx) {
+      const n = normalizePhoneJjwxcNovelItem(item, idx, seenIds);
+      if (n) novels.push(n);
+    });
+    const byCat = Object.create(null);
+    categories.forEach(function (c) {
+      byCat[c.id] = novels.filter(function (n) {
+        return n && n.categoryId === c.id;
+      });
+    });
+    categories.forEach(function (c) {
+      if ((byCat[c.id] || []).length < PHONE_JJWXC_MIN_NOVELS_PER_CAT) {
+        throw new Error("分类「" + c.name + "」作品不足 " + PHONE_JJWXC_MIN_NOVELS_PER_CAT + " 部");
+      }
+    });
+    const tipSeen = new Set();
+    const tips = (raw && Array.isArray(raw.tips) ? raw.tips : [])
+      .map(function (t, i) {
+        return normalizePhoneJjwxcTipItem(t, i, tipSeen);
+      })
+      .filter(Boolean);
+    if (tips.length < PHONE_JJWXC_MIN_TIPS) {
+      throw new Error("打赏记录不足 " + PHONE_JJWXC_MIN_TIPS + " 条");
+    }
+    const noteSeen = new Set();
+    const readingNotes = (raw && Array.isArray(raw.readingNotes) ? raw.readingNotes : [])
+      .map(function (n, i) {
+        return normalizePhoneJjwxcReadingNoteItem(n, i, noteSeen);
+      })
+      .filter(Boolean);
+    if (readingNotes.length < PHONE_JJWXC_MIN_READING_NOTES) {
+      throw new Error("阅读心声不足 " + PHONE_JJWXC_MIN_READING_NOTES + " 条");
+    }
+    return {
+      categories: categories.map(clonePhoneJjwxcCategory),
+      novels: novels,
+      tips: tips,
+      readingNotes: readingNotes,
+      readerProfile: normalizePhoneJjwxcReaderProfile(raw && raw.readerProfile ? raw.readerProfile : null),
+      categoriesUserEdited: !!(existing && existing.categoriesUserEdited),
+      generatedAt: Date.now(),
+    };
+  }
+
+  function mergePhoneJjwxcCatalogIncrement(existing, raw) {
+    const base = (existing && existing.novels ? existing.novels : []).map(function (n) {
+      return Object.assign({}, n, { chapters: (n.chapters || []).map(function (c) {
+        return Object.assign({}, c);
+      }) });
+    });
+    const seenIds = new Set(
+      base.map(function (n) {
+        return n.id;
+      })
+    );
+    const addedByCat = Object.create(null);
+    getPhoneJjwxcCategories().forEach(function (c) {
+      addedByCat[c.id] = 0;
+    });
+    const appendIn =
+      raw && Array.isArray(raw.newNovels) ? raw.newNovels : raw && Array.isArray(raw.novels) ? raw.novels : [];
+    appendIn.forEach(function (item, idx) {
+      const n = normalizePhoneJjwxcNovelItem(item, idx, seenIds);
+      if (!n) return;
+      base.unshift(n);
+      if (addedByCat[n.categoryId] != null) addedByCat[n.categoryId] += 1;
+    });
+    const hadExisting = !!(existing && existing.novels && existing.novels.length);
+    if (!hadExisting && raw && raw.novels && raw.novels.length) {
+      return normalizePhoneJjwxcCatalogBundle(raw, existing);
+    }
+    getPhoneJjwxcCategories().forEach(function (c) {
+      if ((addedByCat[c.id] || 0) < PHONE_JJWXC_MIN_NOVELS_PER_CAT) {
+        throw new Error("追加后分类「" + c.name + "」新作品不足 " + PHONE_JJWXC_MIN_NOVELS_PER_CAT + " 部");
+      }
+    });
+    const tips = (existing && existing.tips ? existing.tips : []).slice();
+    const tipSeen = new Set(
+      tips.map(function (t) {
+        return t.id;
+      })
+    );
+    (raw && Array.isArray(raw.newTips) ? raw.newTips : []).forEach(function (t, i) {
+      const tip = normalizePhoneJjwxcTipItem(t, i, tipSeen);
+      if (tip) tips.unshift(tip);
+    });
+    const readingNotes = (existing && existing.readingNotes ? existing.readingNotes : []).slice();
+    const noteSeen = new Set(
+      readingNotes.map(function (n) {
+        return n.id;
+      })
+    );
+    (raw && Array.isArray(raw.newReadingNotes) ? raw.newReadingNotes : []).forEach(function (n, i) {
+      const note = normalizePhoneJjwxcReadingNoteItem(n, i, noteSeen);
+      if (note) readingNotes.unshift(note);
+    });
+    return {
+      categories: (existing && existing.categories ? existing.categories : clonePhoneJjwxcDefaultCategories()).map(
+        clonePhoneJjwxcCategory
+      ),
+      novels: base,
+      tips: tips,
+      readingNotes: readingNotes,
+      readerProfile: normalizePhoneJjwxcReaderProfile(
+        (raw && raw.readerProfile) || (existing && existing.readerProfile) || null
+      ),
+      categoriesUserEdited: !!(existing && existing.categoriesUserEdited),
+      generatedAt: Date.now(),
+    };
+  }
+
+  function phoneJjwxcNovelHasDetail(novel) {
+    if (!novel) return false;
+    if (novel.detailReady === true) return true;
+    return !!(String(novel.synopsis || "").trim() && (novel.chapters || []).length >= PHONE_JJWXC_MIN_CHAPTERS);
+  }
+
+  function phoneJjwxcChapterHasContent(chapter) {
+    if (!chapter) return false;
+    if (chapter.contentReady === true) return true;
+    return String(chapter.content || "").trim().length >= PHONE_JJWXC_CHAPTER_SAVED_MIN;
+  }
+
+  function phoneJjwxcChapterHasPreview(chapter) {
+    if (!chapter) return false;
+    if (chapter.previewReady === true) return true;
+    return !!(getPhoneJjwxcChapterBlurb(chapter) && String(chapter.readerThought || "").trim());
+  }
+
+  function getPhoneJjwxcChapterBlurb(chapter) {
+    if (!chapter) return "";
+    const blurb = String(chapter.blurb || "").trim();
+    if (blurb) return blurb;
+    const legacy = normalizePhoneJjwxcChapterParagraphs(chapter.content);
+    if (legacy) return truncateCharsWithEllipsis(legacy, PHONE_JJWXC_CHAPTER_BLURB_MAX);
+    return "";
+  }
+
+  function findPhoneJjwxcNovel(novelId) {
+    const rec = getPhoneJjwxcBundleRecord();
+    const id = String(novelId || "").trim();
+    if (!rec || !id) return null;
+    const novel = (rec.novels || []).find(function (n) {
+      return n && n.id === id;
+    });
+    return novel ? { novel: novel, bundle: rec } : null;
+  }
+
+  function getPhoneJjwxcNovelMutable(novelId) {
+    const rec = getPhoneJjwxcBundleMutable();
+    if (!rec) return null;
+    const id = String(novelId || "").trim();
+    const novel = (rec.bundle.novels || []).find(function (n) {
+      return n && n.id === id;
+    });
+    if (!novel) return null;
+    if (!Array.isArray(novel.chapters)) novel.chapters = [];
+    return { bundle: rec.bundle, novel: novel };
+  }
+
+  function getPhoneJjwxcChapterMutable(novelId, chapterId) {
+    const hit = getPhoneJjwxcNovelMutable(novelId);
+    if (!hit) return null;
+    const cid = String(chapterId || "").trim();
+    const chapter = (hit.novel.chapters || []).find(function (c) {
+      return c && c.id === cid;
+    });
+    if (!chapter) return null;
+    return { bundle: hit.bundle, novel: hit.novel, chapter: chapter };
+  }
+
+  function applyPhoneJjwxcNovelDetail(novel, parsed, incremental) {
+    if (!novel || !parsed) return;
+    if (!incremental && parsed.synopsis) {
+      novel.synopsis = truncateCharsWithEllipsis(String(parsed.synopsis).trim(), PHONE_JJWXC_SYNOPSIS_MAX);
+    }
+    if (!incremental && parsed.authorNote) {
+      novel.authorNote = truncateCharsWithEllipsis(String(parsed.authorNote).trim(), 200);
+    }
+    const chIn = incremental
+      ? Array.isArray(parsed.newChapters)
+        ? parsed.newChapters
+        : []
+      : Array.isArray(parsed.chapters)
+        ? parsed.chapters
+        : [];
+    if (!incremental) novel.chapters = [];
+    const prevChapterCount = (novel.chapters || []).length;
+    const seen = new Set(
+      (novel.chapters || []).map(function (c) {
+        return c.id;
+      })
+    );
+    chIn.forEach(function (item, idx) {
+      const ch = normalizePhoneJjwxcChapterItem(item, idx, seen);
+      if (ch) {
+        if (!phoneJjwxcChapterHasPreview(ch)) {
+          throw new Error("第 " + (idx + 1) + " 章缺少梗概或阅读心理");
+        }
+        novel.chapters.push(ch);
+      }
+    });
+    if (incremental) {
+      const added = novel.chapters.length - prevChapterCount;
+      if (added < PHONE_JJWXC_APPEND_CHAPTERS) {
+        throw new Error("追加章节不足 " + PHONE_JJWXC_APPEND_CHAPTERS + " 章");
+      }
+    }
+    if (!phoneJjwxcNovelHasDetail(novel)) {
+      throw new Error("作品详情不足 " + PHONE_JJWXC_MIN_CHAPTERS + " 章");
+    }
+    novel.detailReady = true;
+  }
+
+  function normalizePhoneJjwxcChapterParagraphs(text) {
+    return String(text || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  function formatPhoneJjwxcChapterBodyHtml(content) {
+    const text = normalizePhoneJjwxcChapterParagraphs(content);
+    if (!text) return "";
+    let paragraphs = text.split(/\n\s*\n+/).map(function (p) {
+      return p.trim();
+    }).filter(Boolean);
+    if (paragraphs.length <= 1) {
+      paragraphs = text
+        .split(/\n+/)
+        .map(function (p) {
+          return p.trim();
+        })
+        .filter(Boolean);
+    }
+    if (!paragraphs.length) return "";
+    return paragraphs
+      .map(function (p) {
+        return '<p class="phone-jjwxc__chapter-p">' + escapeHtml(p) + "</p>";
+      })
+      .join("");
+  }
+
+  function buildPhoneJjwxcPrevChapterContextBlock(prevChapter, chapterIndex, chapters) {
+    if (!prevChapter) return "";
+    const lines = [
+      "【承接要求 · 必须遵守】",
+      "1. 本章必须紧接上一章剧情续写，人物状态、时间线、未完结对话/动作须无缝衔接。",
+      "2. 禁止重复上一章已写过的情节；禁止用「上回说到」等复述式开场。",
+      "3. 若上一章留有悬念或半句话，本章应从此处接着写。",
+      "",
+      "【上一章】" + String(prevChapter.title || "").trim() + "（id=" + String(prevChapter.id || "") + "）",
+    ];
+    if (prevChapter.content) {
+      const tail = normalizePhoneJjwxcChapterParagraphs(prevChapter.content).slice(-PHONE_JJWXC_PREV_CHAPTER_REF_CHARS);
+      lines.push("");
+      lines.push("【上一章末尾正文（须直接续写，勿改写）】");
+      lines.push(tail);
+    }
+    if (chapterIndex > 1 && chapters[chapterIndex - 2] && chapters[chapterIndex - 2].title) {
+      lines.push("");
+      lines.push("【再上一章标题（脉络参考）】" + String(chapters[chapterIndex - 2].title || "").trim());
+    }
+    return lines.join("\n");
+  }
+
+  function applyPhoneJjwxcChapterContent(novel, chapterId, parsed) {
+    const target = getPhoneJjwxcChapterMutable(novel.id, chapterId);
+    if (!target) throw new Error("章节不存在");
+    const content = truncateCharsWithEllipsis(
+      normalizePhoneJjwxcChapterParagraphs(String(parsed.content || parsed.text || "").trim()),
+      PHONE_JJWXC_CHAPTER_CONTENT_MAX
+    );
+    if (content.length < PHONE_JJWXC_MIN_CHAPTER_CHARS) {
+      throw new Error("章节正文不足 " + PHONE_JJWXC_MIN_CHAPTER_CHARS + " 字（目标约 " + PHONE_JJWXC_TARGET_CHAPTER_CHARS + " 字）");
+    }
+    target.chapter.content = content;
+    target.chapter.contentReady = true;
+    target.chapter.generatedAt = Date.now();
+    if (parsed.readerThought) {
+      target.chapter.readerThought = truncateCharsWithEllipsis(
+        String(parsed.readerThought).trim(),
+        PHONE_JJWXC_READER_THOUGHT_MAX
+      );
+    }
+    target.chapter.wordCount = Math.round(
+      Number(parsed.wordCount) > 0 ? Number(parsed.wordCount) : content.replace(/\s/g, "").length
+    );
+  }
+
+  function formatPhoneJjwxcNovelForPrompt(novel) {
+    if (!novel) return "";
+    const cat = findPhoneJjwxcCategory(novel.categoryId);
+    return (
+      "- id=" +
+      novel.id +
+      "《" +
+      novel.title +
+      "》" +
+      novel.author +
+      "，分类=" +
+      (cat ? cat.name : novel.categoryId) +
+      "，" +
+      (novel.onShelf ? "在架" : "") +
+      (novel.isFavorite ? "已收藏" : "") +
+      "，进度=" +
+      novel.readProgress +
+      "%"
+    );
+  }
+
+  function buildPhoneJjwxcCategoryRulesBlock() {
+    return getPhoneJjwxcCategories()
+      .map(function (c) {
+        return "- " + c.name + "（id=" + c.id + "）：" + (c.description || "（无简介）");
+      })
+      .join("\n");
+  }
+
+  function buildPhoneJjwxcCatalogPrompt(plot, holder, existing) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const userEdited = !!(existing && existing.categoriesUserEdited);
+    const presetCats = getPhoneJjwxcCategories();
+    const lines = [
+      "请为「查手机·晋江文学城」生成手机持有者「" + holderName + "」作为读者的网文浏览数据 JSON。",
+      "",
+      "【核心设定 · 必须遵守】",
+      "1. 所有小说均为晋江平台上的原创/衍生网文，作者是与剧情无关的陌生写手（笔名即可），不认识手机持有者，也不认识剧情中的任何人物。",
+      "2. 禁止以手机持有者「" + holderName + "」、我的形象主角「" + ctx.protagName + "」或剧情相关人物为任何小说的主角/配角/被提及的真实人物。",
+      "3. 持有者是普通读者：通过书架、收藏、打赏、阅读进度与「阅读心声」体现其口味与人设，而非成为故事中心。",
+      "4. 阅读心声 readingNotes 为持有者读文时的私密心理活动（第一人称、可关联近期剧情情绪，但不泄露隐私到作者评论区）。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    if (userEdited) {
+      lines.push("【用户已预设分类 · 必须沿用下列 id 与 name，不要新增或删除分类，可微调 description】");
+      presetCats.forEach(function (c) {
+        lines.push("- " + c.name + "（id=" + c.id + "）：" + (c.description || "（无简介）"));
+      });
+      lines.push("");
+    } else {
+      lines.push(
+        "【分类生成 · 首次】\n" +
+          "根据持有者人设、年龄、职业、性格与近期剧情心境，生成其常逛的晋江书城分类 categories（" +
+          PHONE_JJWXC_MIN_CATEGORIES +
+          "～" +
+          PHONE_JJWXC_MAX_CATEGORIES +
+          " 个，不必凑满全部默认类型）。\n" +
+          "每项字段：id（英文短 id 唯一）、name（≤" +
+          PHONE_JJWXC_CAT_NAME_MAX +
+          "字）、description（≤" +
+          PHONE_JJWXC_CAT_DESC_MAX +
+          "字，作为后续生成该分类下作品的规则提示词）。\n" +
+          "不同角色关注的分类应明显不同；description 须说明该分类下作品题材、风格与禁忌（禁止出现剧情人物）。"
+      );
+      lines.push("");
+      lines.push("【可参考的晋江常见类型（可选用、可合并、可不用）】");
+      lines.push(buildPhoneJjwxcCategoryRulesBlock());
+      lines.push("");
+    }
+    lines.push(
+      "生成要求：\n" +
+        "1. 输出唯一 JSON，含 " +
+        (userEdited ? "" : "categories、") +
+        "novels、tips、readingNotes、readerProfile；每个分类至少 " +
+        PHONE_JJWXC_MIN_NOVELS_PER_CAT +
+        " 部作品。\n" +
+        "2. novel 字段：id、categoryId、title（网文风标题≤" +
+        PHONE_JJWXC_TITLE_MAX +
+        "字）、author（笔名）、tags（2～3个）、summary（列表简介≤" +
+        PHONE_JJWXC_SUMMARY_MAX +
+        "字）、status（ongoing/finished）、wordCount（如「18万字」）、collectCount、coverHue（0-359）、onShelf、isFavorite、readProgress（0-100）、lastReadKey。\n" +
+        "3. 至少 4 部 onShelf=true（书架），至少 6 部 isFavorite=true（收藏）；tips 至少 " +
+        PHONE_JJWXC_MIN_TIPS +
+        " 条；readingNotes 至少 " +
+        PHONE_JJWXC_MIN_READING_NOTES +
+        " 条。\n" +
+        "4. readerProfile：nickname、coins、totalTips、favoriteCount。\n" +
+        "5. 不要生成 synopsis/chapters；选书须贴合人设。禁止 OOC。"
+    );
+    return lines.join("\n");
+  }
+
+  function buildPhoneJjwxcCatalogRegeneratePrompt(plot, holder, existing) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const lines = [
+      "请根据最新剧情，在「已有晋江书城数据」基础上增量追加；不要修改或删除已有作品。",
+      "持有者「" + holderName + "」仍是普通读者；新作品作者不认识剧情人物。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【分类规则】");
+    lines.push(buildPhoneJjwxcCategoryRulesBlock());
+    lines.push("");
+    lines.push("【已有作品摘要（请勿重复 id 或同标题）】");
+    (existing.novels || []).slice(0, PHONE_JJWXC_REF_NOVELS * getPhoneJjwxcCategories().length).forEach(function (n) {
+      lines.push(formatPhoneJjwxcNovelForPrompt(n));
+    });
+    lines.push("");
+    lines.push(
+      "输出 JSON：{\"newNovels\":[...],\"newTips\":[...],\"newReadingNotes\":[...],\"readerProfile\":{}}；每个分类至少新增 " +
+        PHONE_JJWXC_MIN_NOVELS_PER_CAT +
+        " 部；可选更新 readerProfile。"
+    );
+    return lines.join("\n");
+  }
+
+  function buildPhoneJjwxcNovelPrompt(plot, holder, novel, incremental) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const cat = findPhoneJjwxcCategory(novel.categoryId);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const lines = [
+      incremental
+        ? "请为以下晋江作品在目录末尾增量追加 " +
+          PHONE_JJWXC_APPEND_CHAPTERS +
+          " 个新章节（仅梗概与阅读心理，不含正文）。"
+        : "请为以下晋江作品生成详情：简介、作者有话说、章节目录（每章含梗概与阅读心理，不含正文）。",
+      "视角：持有者「" + holderName + "」点进作品页看到的内容。",
+      "",
+      "【禁止】小说主角/配角不得是「" + holderName + "」或剧情人物；须为独立虚构故事。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【分类】" + (cat ? cat.name : novel.categoryId));
+    if (cat && cat.description) lines.push("【分类生成规则】" + cat.description);
+    lines.push("【作品】" + formatPhoneJjwxcNovelForPrompt(novel));
+    lines.push("简介列表页：" + novel.summary);
+    lines.push("标签：" + (novel.tags || []).join("、"));
+    if (incremental && phoneJjwxcNovelHasDetail(novel)) {
+      lines.push("");
+      lines.push("【已有章节（勿重复）】");
+      (novel.chapters || []).forEach(function (c) {
+        lines.push("- " + c.id + " " + c.title);
+      });
+    }
+    lines.push("");
+    lines.push(
+      (incremental
+        ? "输出 JSON：{\"newChapters\":[{\"id\":\"...\",\"title\":\"...\",\"wordCount\":3200,\"blurb\":\"…\",\"readerThought\":\"…\"}]}"
+        : "输出 JSON：{\"synopsis\":\"完整简介\",\"authorNote\":\"作者有话说\",\"chapters\":[{\"id\":\"ch-1\",\"title\":\"第1章 …\",\"wordCount\":3200,\"blurb\":\"…\",\"readerThought\":\"…\"}]}") +
+        "；章节" +
+        (incremental ? "恰好新增 " + PHONE_JJWXC_APPEND_CHAPTERS + " 个" : "至少 " + PHONE_JJWXC_MIN_CHAPTERS + " 个") +
+        "；每章 blurb 为章节内容梗概（≤" +
+        PHONE_JJWXC_CHAPTER_BLURB_MAX +
+        "字）；readerThought 为持有者读该章时的内心独白（第一人称、≤" +
+        PHONE_JJWXC_READER_THOUGHT_MAX +
+        "字，可折射人设与近期情绪）；不要生成 content 正文；synopsis≤" +
+        PHONE_JJWXC_SYNOPSIS_MAX +
+        "字；文风像真实晋江连载。"
+    );
+    return lines.join("\n");
+  }
+
+  function buildPhoneJjwxcChapterPrompt(plot, holder, novel, chapter, chapterIndex, chapters) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const prevChapter = chapterIndex > 0 ? chapters[chapterIndex - 1] : null;
+    const lines = [
+      "请为「查手机·晋江」以下章节生成正文 JSON。",
+      "视角：持有者「" + holderName + "」正在阅读该章；readerThought 为 Ta 读到这里时的内心独白（第一人称、≤" +
+        PHONE_JJWXC_READER_THOUGHT_MAX +
+        "字，可折射人设与近期情绪，但不打破第四面墙）。",
+      "",
+      "【禁止】故事人物不得对应剧情真实人物；作者是陌生人。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【作品】《" + novel.title + "》" + novel.author);
+    if (novel.synopsis) lines.push("【简介】" + novel.synopsis);
+    lines.push("【当前章节】" + chapter.title + "（id=" + chapter.id + "，第 " + (chapterIndex + 1) + " 章）");
+    if (prevChapter) {
+      lines.push("");
+      lines.push(buildPhoneJjwxcPrevChapterContextBlock(prevChapter, chapterIndex, chapters));
+    } else {
+      lines.push("");
+      lines.push("【本章为开篇章节，可自然引入背景与人物，但仍须分段清晰。】");
+    }
+    lines.push("");
+    lines.push(
+      "输出 JSON：{\"content\":\"章节正文\",\"readerThought\":\"…\",\"wordCount\":0}\n" +
+        "正文要求：\n" +
+        "1. 字数约 " +
+        PHONE_JJWXC_TARGET_CHAPTER_CHARS +
+        " 字（不少于 " +
+        PHONE_JJWXC_MIN_CHAPTER_CHARS +
+        " 字），含对话、心理与场景描写，像真实晋江长章更新。\n" +
+        "2. 分段格式：段与段之间用空行分隔（JSON 字符串内写作 \\n\\n）；每段聚焦一个场景、动作或说话轮次；对话可单独成段；避免整章一大段。\n" +
+        "3. 非首章必须承接上一章剧情；wordCount 填实际正文字数。\n" +
+        "4. 禁止 markdown、禁止标题行、禁止列表符号。"
+    );
+    return lines.join("\n");
+  }
+
+  function bumpPhoneStoryJjwxcIncrement(parsed) {
+    if (!parsed || typeof parsed !== "object") return parsed;
+    const out = Object.assign({}, parsed);
+    if (Array.isArray(out.newTips)) out.newTips = bumpPhoneStoryDateKeysForIncrement(out.newTips, "dateKey");
+    if (Array.isArray(out.newReadingNotes)) {
+      out.newReadingNotes = bumpPhoneStoryDateKeysForIncrement(out.newReadingNotes, "dateKey");
+    }
+    if (Array.isArray(out.newNovels)) {
+      out.newNovels = out.newNovels.map(function (n) {
+        if (!n || typeof n !== "object") return n;
+        const copy = Object.assign({}, n);
+        if (copy.lastReadKey) copy.lastReadKey = clampPhoneStoryDateKey(normalizePhoneBrowserDateKey(copy.lastReadKey));
+        return copy;
+      });
+    }
+    return out;
+  }
+
+  async function generatePhoneJjwxcCatalogContent(slot) {
+    if (isAnyPhoneAiGenerating()) return;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const holder = getPhoneHolderCharacter();
+    if (!plot || !holder) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    preparePhoneStoryDateForGeneration(plot);
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    getPhoneJjwxcBundleMutable();
+    const existing = phoneJjwxcData[key] || null;
+    const isRegenerate = !!(existing && existing.novels && existing.novels.length);
+    phoneJjwxcGenerating = true;
+    if (slot && String(getPhoneNav(slot).screen || "").indexOf("jjwxc") === 0) renderPhoneScreen(slot);
+    try {
+      showToast(isRegenerate ? "正在追加书城数据…" : "正在生成晋江书城…", "info");
+      setGenCallContext(buildGenCallOpts("phone-jjwxc-catalog", { slot: slot }));
+      const systemPrompt = isRegenerate
+        ? "你是中文互动叙事助手。根据剧情增量追加晋江书城 JSON。\n只输出一个 JSON 对象，不要用 markdown 代码围栏。\n格式：{\"newNovels\":[...],\"newTips\":[...],\"newReadingNotes\":[...],\"readerProfile\":{}}"
+        : "你是中文互动叙事助手。生成「查手机·晋江」书城 JSON。\n小说作者与剧情人物无关；持有者是读者。\n首次生成须含 categories（分类及 description 提示词）与 novels。\n只输出一个 JSON 对象，不要用 markdown 代码围栏。\n格式：{\"categories\":[{\"id\":\"...\",\"name\":\"...\",\"description\":\"...\"}],\"novels\":[...],\"tips\":[...],\"readingNotes\":[...],\"readerProfile\":{\"nickname\":\"\",\"coins\":0,\"totalTips\":0,\"favoriteCount\":0}}";
+      const userPrompt = isRegenerate
+        ? buildPhoneJjwxcCatalogRegeneratePrompt(plot, holder, existing)
+        : buildPhoneJjwxcCatalogPrompt(plot, holder, existing);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.78,
+        16384
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const parsedSafe = isRegenerate ? bumpPhoneStoryJjwxcIncrement(parsed) : parsed;
+      const bundle = isRegenerate
+        ? mergePhoneJjwxcCatalogIncrement(existing, parsedSafe)
+        : normalizePhoneJjwxcCatalogBundle(parsedSafe, existing);
+      phoneJjwxcData[key] = bundle;
+      flushPersistNarrative();
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) renderPhoneScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      phoneJjwxcGenerating = false;
+      if (slot && String(getPhoneNav(slot).screen || "").indexOf("jjwxc") === 0) renderPhoneScreen(slot);
+    }
+  }
+
+  async function generatePhoneJjwxcNovelContent(slot, novelId, incremental) {
+    if (isAnyPhoneAiGenerating()) return;
+    const hit = findPhoneJjwxcNovel(novelId);
+    if (!hit) return;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const holder = getPhoneHolderCharacter();
+    if (!plot || !holder) return;
+    preparePhoneStoryDateForGeneration(plot);
+    phoneJjwxcNovelGeneratingId = String(novelId);
+    if (slot) renderPhoneScreen(slot);
+    try {
+      showToast(
+        incremental ? "正在追加 " + PHONE_JJWXC_APPEND_CHAPTERS + " 章梗概…" : "正在生成作品详情与章节目录…",
+        "info"
+      );
+      setGenCallContext(buildGenCallOpts("phone-jjwxc-novel", { slot: slot, novelId: novelId }));
+      const systemPrompt = incremental
+        ? "你是中文互动叙事助手。增量追加晋江作品章节目录 JSON（梗概+阅读心理，无正文）。\n只输出 JSON：{\"newChapters\":[{\"id\":\"...\",\"title\":\"...\",\"wordCount\":0,\"blurb\":\"…\",\"readerThought\":\"…\"}]}"
+        : "你是中文互动叙事助手。生成晋江作品详情 JSON（每章含 blurb 与 readerThought，无正文）。\n只输出 JSON：{\"synopsis\":\"...\",\"authorNote\":\"...\",\"chapters\":[{\"id\":\"...\",\"title\":\"...\",\"wordCount\":0,\"blurb\":\"…\",\"readerThought\":\"…\"}]}";
+      const userPrompt = buildPhoneJjwxcNovelPrompt(plot, holder, hit.novel, incremental);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.76,
+        8192
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const target = getPhoneJjwxcNovelMutable(novelId);
+      if (!target) throw new Error("作品不存在");
+      applyPhoneJjwxcNovelDetail(target.novel, parsed, incremental);
+      persistPhoneJjwxcBundle(target.bundle, true);
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) renderPhoneScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      phoneJjwxcNovelGeneratingId = null;
+      if (slot) renderPhoneScreen(slot);
+    }
+  }
+
+  async function generatePhoneJjwxcChapterContent(slot, novelId, chapterId) {
+    if (isAnyPhoneAiGenerating()) return;
+    const hit = findPhoneJjwxcNovel(novelId);
+    if (!hit) return;
+    const chapter = (hit.novel.chapters || []).find(function (c) {
+      return c && c.id === chapterId;
+    });
+    if (!chapter) return;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const holder = getPhoneHolderCharacter();
+    if (!plot || !holder) return;
+    preparePhoneStoryDateForGeneration(plot);
+    phoneJjwxcChapterGeneratingId = novelId + "\u001f" + chapterId;
+    if (slot) renderPhoneScreen(slot);
+    try {
+      showToast("正在生成章节正文…", "info");
+      setGenCallContext(buildGenCallOpts("phone-jjwxc-chapter", { slot: slot, novelId: novelId, chapterId: chapterId }));
+      const chIdx = (hit.novel.chapters || []).findIndex(function (c) {
+        return c && c.id === chapterId;
+      });
+      const chapters = hit.novel.chapters || [];
+      const systemPrompt =
+        "你是中文互动叙事助手。生成晋江网文章节 JSON。\n" +
+        "正文约" +
+        PHONE_JJWXC_TARGET_CHAPTER_CHARS +
+        "字，段间用\\n\\n分隔；非首章须紧接上一章剧情续写。\n" +
+        "只输出 JSON：{\"content\":\"正文\",\"readerThought\":\"读者心声\",\"wordCount\":0}";
+      const userPrompt = buildPhoneJjwxcChapterPrompt(plot, holder, hit.novel, chapter, chIdx, chapters);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.82,
+        16384
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      applyPhoneJjwxcChapterContent(hit.novel, chapterId, parsed);
+      const target = getPhoneJjwxcNovelMutable(novelId);
+      if (target) persistPhoneJjwxcBundle(target.bundle, true);
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) renderPhoneScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      phoneJjwxcChapterGeneratingId = null;
+      if (slot) renderPhoneScreen(slot);
+    }
+  }
+
+  function removeJjwxcNovelFromBundle(bundle, novelId) {
+    const id = String(novelId || "").trim();
+    if (!id || !bundle) return;
+    bundle.novels = (bundle.novels || []).filter(function (n) {
+      return n && n.id !== id;
+    });
+    if (Array.isArray(bundle.tips)) {
+      bundle.tips = bundle.tips.filter(function (t) {
+        return t && String(t.novelId || "") !== id;
+      });
+    }
+    if (Array.isArray(bundle.readingNotes)) {
+      bundle.readingNotes = bundle.readingNotes.filter(function (n) {
+        return n && String(n.novelId || "") !== id;
+      });
+    }
+  }
+
+  function buildPhoneJjwxcCoverHtml(novel, placeholder, size) {
+    const cls =
+      "phone-jjwxc__cover" +
+      (size === "sm" ? " phone-jjwxc__cover--sm" : size === "md" ? " phone-jjwxc__cover--md" : "") +
+      (placeholder ? " phone-jjwxc__cover--ph" : "");
+    const title = placeholder ? "…" : escapeHtml(String(novel.title || ""));
+    const author = placeholder ? "" : escapeHtml(String(novel.author || ""));
+    const hue = placeholder ? 340 : Number(novel.coverHue || 0);
+    return (
+      '<div class="' +
+      cls +
+      '" style="--cover-hue:' +
+      hue +
+      '" aria-hidden="true">' +
+      '<span class="phone-jjwxc__cover-title">' +
+      title +
+      "</span>" +
+      (author ? '<span class="phone-jjwxc__cover-author">' + author + "</span>" : "") +
+      "</div>"
+    );
+  }
+
+  function buildPhoneJjwxcStatusBadgeHtml(status, placeholder) {
+    if (placeholder) return '<span class="phone-jjwxc__badge phone-jjwxc__badge--ph">…</span>';
+    const finished = status === "finished";
+    return (
+      '<span class="phone-jjwxc__badge' +
+      (finished ? " phone-jjwxc__badge--done" : " phone-jjwxc__badge--ongoing") +
+      '">' +
+      (finished ? "完结" : "连载") +
+      "</span>"
+    );
+  }
+
+  function buildPhoneJjwxcTagsHtml(tags, placeholder) {
+    if (placeholder) {
+      return '<span class="phone-jjwxc__tag phone-jjwxc__tag--ph">…</span><span class="phone-jjwxc__tag phone-jjwxc__tag--ph">…</span>';
+    }
+    return (tags || [])
+      .slice(0, 3)
+      .map(function (t) {
+        return '<span class="phone-jjwxc__tag">' + escapeHtml(String(t)) + "</span>";
+      })
+      .join("");
+  }
+
+  function buildPhoneJjwxcBarHtml(titleText, generateAttr) {
+    const loadingCls = phoneJjwxcGenerating ? " phone-wechat-gen-btn--loading" : "";
+    const disabled = isAnyPhoneAiGenerating();
+    const title = String(titleText || "晋江文学城").trim() || "晋江文学城";
+    const genBtn =
+      generateAttr !== false
+        ? '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+          loadingCls +
+          '" ' +
+          (generateAttr || "data-phone-jjwxc-generate") +
+          ' aria-label="AI 生成" title="AI 生成"' +
+          (disabled ? " disabled" : "") +
+          ">" +
+          buildPhoneWechatStarIconSvg() +
+          "</button>"
+        : '<span class="phone-app__bar-side" aria-hidden="true"></span>';
+    return (
+      '<header class="phone-app__bar phone-jjwxc__bar">' +
+      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<div class="phone-jjwxc__title-wrap">' +
+      '<h2 class="phone-app__title phone-app__title--left phone-jjwxc__title">' +
+      escapeHtml(title) +
+      "</h2>" +
+      "</div>" +
+      genBtn +
+      "</header>"
+    );
+  }
+
+  function buildPhoneJjwxcBottomNavHtml(activeTab) {
+    const tabs = [
+      { id: "store", label: "书城" },
+      { id: "shelf", label: "书架" },
+      { id: "fav", label: "收藏" },
+      { id: "mine", label: "我的" },
+    ];
+    return (
+      '<nav class="phone-jjwxc__seg" aria-label="晋江导航">' +
+      tabs
+        .map(function (t) {
+          const active = t.id === activeTab;
+          return (
+            '<button type="button" class="phone-jjwxc__seg-item' +
+            (active ? " is-active" : "") +
+            '" data-phone-jjwxc-tab="' +
+            escapeHtml(t.id) +
+            '">' +
+            escapeHtml(t.label) +
+            "</button>"
+          );
+        })
+        .join("") +
+      "</nav>"
+    );
+  }
+
+  function getPhoneJjwxcActiveCategoryId(nav) {
+    const id = String((nav && nav.jjwxcCategoryId) || "").trim();
+    if (id && findPhoneJjwxcCategory(id)) return id;
+    const sections = getPhoneJjwxcCategories();
+    return sections.length ? sections[0].id : "";
+  }
+
+  function buildPhoneJjwxcManageListHtml() {
+    const sections = getPhoneJjwxcCategories();
+    const rows = sections
+      .map(function (sec) {
+        const desc = String(sec.description || "").trim();
+        const descHtml = desc
+          ? escapeHtml(truncateCharsWithEllipsis(desc, 48))
+          : '<span class="phone-forum-manage__desc-placeholder">…</span>';
+        return (
+          '<div class="phone-forum-manage__row">' +
+          '<div class="phone-forum-manage__info">' +
+          '<span class="phone-forum-manage__name">' +
+          escapeHtml(sec.name) +
+          "</span>" +
+          '<span class="phone-forum-manage__desc">' +
+          descHtml +
+          "</span>" +
+          "</div>" +
+          '<div class="phone-forum-manage__actions">' +
+          '<button type="button" class="phone-forum-manage__action" data-phone-jjwxc-category-edit="' +
+          escapeHtml(sec.id) +
+          '" aria-label="编辑分类">编辑</button>' +
+          '<button type="button" class="phone-forum-manage__action phone-forum-manage__action--danger" data-phone-jjwxc-category-delete="' +
+          escapeHtml(sec.id) +
+          '" aria-label="删除分类">删除</button>' +
+          "</div>" +
+          "</div>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="phone-forum-manage__panel">' +
+      '<div class="phone-forum-manage__head">' +
+      '<h3 class="phone-forum-manage__title">管理分类</h3>' +
+      '<button type="button" class="phone-forum-manage__close" data-phone-jjwxc-manage-close aria-label="关闭">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      "</button>" +
+      "</div>" +
+      '<p class="phone-forum-manage__hint">分类简介将作为 AI 生成该分类下作品的规则提示词；首次生成后分类会保存，可随时编辑。</p>' +
+      '<div class="phone-forum-manage__list">' +
+      rows +
+      "</div>" +
+      '<button type="button" class="btn btn--secondary btn--pill phone-forum-manage__add" data-phone-jjwxc-category-add>添加分类</button>' +
+      "</div>"
+    );
+  }
+
+  function buildPhoneJjwxcCategoryFormHtml(nav) {
+    const formId = String((nav && nav.jjwxcCategoryFormId) || "").trim();
+    if (!formId) return "";
+    const isNew = formId === "new";
+    let nameVal = "";
+    let descVal = "";
+    if (!isNew) {
+      const sec = findPhoneJjwxcCategory(formId);
+      if (sec) {
+        nameVal = sec.name;
+        descVal = sec.description;
+      }
+    }
+    return (
+      '<div class="phone-forum-manage__panel phone-forum-manage__panel--form">' +
+      '<div class="phone-forum-manage__head">' +
+      '<h3 class="phone-forum-manage__title">' +
+      (isNew ? "添加分类" : "编辑分类") +
+      "</h3>" +
+      '<button type="button" class="phone-forum-manage__close" data-phone-jjwxc-category-form-cancel aria-label="取消">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      "</button>" +
+      "</div>" +
+      '<label class="phone-forum-manage__field">' +
+      '<span class="phone-forum-manage__label">分类名称</span>' +
+      '<input type="text" class="phone-forum-manage__input" data-phone-jjwxc-category-name-input maxlength="' +
+      PHONE_JJWXC_CAT_NAME_MAX +
+      '" value="' +
+      escapeHtml(nameVal) +
+      '" placeholder="最多' +
+      PHONE_JJWXC_CAT_NAME_MAX +
+      '字" />' +
+      "</label>" +
+      '<label class="phone-forum-manage__field">' +
+      '<span class="phone-forum-manage__label">分类简介（生成规则）</span>' +
+      '<textarea class="phone-forum-manage__textarea" data-phone-jjwxc-category-desc-input maxlength="' +
+      PHONE_JJWXC_CAT_DESC_MAX +
+      '" rows="4" placeholder="描述该分类下作品的题材、风格与禁忌，供 AI 生成时使用">' +
+      escapeHtml(descVal) +
+      "</textarea>" +
+      "</label>" +
+      '<button type="button" class="btn btn--primary btn--pill phone-forum-manage__save" data-phone-jjwxc-category-save>保存</button>' +
+      "</div>"
+    );
+  }
+
+  function buildPhoneJjwxcManageOverlayHtml(nav) {
+    if (!nav || !nav.jjwxcManageOpen) return "";
+    const formHtml = nav.jjwxcCategoryFormId ? buildPhoneJjwxcCategoryFormHtml(nav) : buildPhoneJjwxcManageListHtml();
+    return (
+      '<div class="phone-forum-manage" role="dialog" aria-modal="true" aria-label="管理晋江分类">' +
+      '<button type="button" class="phone-forum-manage__backdrop" data-phone-jjwxc-manage-close aria-label="关闭"></button>' +
+      formHtml +
+      "</div>"
+    );
+  }
+
+  function buildPhoneJjwxcCategoryPillsHtml(activeCategoryId) {
+    const sections = getPhoneJjwxcCategories();
+    const tabs = sections
+      .map(function (sec) {
+        const active = sec.id === activeCategoryId;
+        return (
+          '<button type="button" class="filter-pill phone-jjwxc__pill' +
+          (active ? " is-active" : "") +
+          '" data-phone-jjwxc-category="' +
+          escapeHtml(sec.id) +
+          '">' +
+          escapeHtml(sec.name) +
+          "</button>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="pill-row-wrap phone-jjwxc__pill-wrap phone-jjwxc__pill-wrap--sticky" aria-label="书城分类">' +
+      '<div class="phone-jjwxc__pill-row">' +
+      '<div class="phone-jjwxc__pill-scroll pill-row">' +
+      tabs +
+      "</div>" +
+      '<button type="button" class="phone-jjwxc__cat-manage" data-phone-jjwxc-manage-open aria-label="管理分类" title="管理分类">' +
+      '<svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></svg>' +
+      "</button></div></div>"
+    );
+  }
+
+  function buildPhoneJjwxcCornerDeleteBtnHtml(itemId, deleteAttr, ariaLabel) {
+    const id = escapeHtml(String(itemId || ""));
+    const attr = String(deleteAttr || "").trim();
+    const label = escapeHtml(String(ariaLabel || "删除").trim() || "删除");
+    return (
+      '<button type="button" class="phone-jjwxc__card-del"' +
+      " " +
+      attr +
+      '="' +
+      id +
+      '" aria-label="' +
+      label +
+      '" title="' +
+      label +
+      '">' +
+      PHONE_FORUM_CORNER_ICON_DELETE +
+      "</button>"
+    );
+  }
+
+  function buildPhoneJjwxcNovelCardDeleteBtnHtml(novelId, deleteAttr) {
+    return buildPhoneJjwxcCornerDeleteBtnHtml(novelId, deleteAttr, "删除作品");
+  }
+
+  function buildPhoneJjwxcNovelCardHtml(novel, placeholder, opts) {
+    opts = opts || {};
+    if (placeholder) {
+      return (
+        '<div class="phone-jjwxc__card phone-jjwxc__card--ph">' +
+        buildPhoneJjwxcCoverHtml(null, true, "sm") +
+        '<div class="phone-jjwxc__card-body">' +
+        '<p class="phone-jjwxc__card-title">…</p>' +
+        '<p class="phone-jjwxc__card-author">…</p>' +
+        '<div class="phone-jjwxc__card-tags">' +
+        buildPhoneJjwxcTagsHtml(null, true) +
+        "</div>" +
+        '<p class="phone-jjwxc__card-summary">…</p>' +
+        '<div class="phone-jjwxc__card-meta">' +
+        buildPhoneJjwxcStatusBadgeHtml(null, true) +
+        '<span class="phone-jjwxc__card-stat">…</span>' +
+        "</div></div></div>"
+      );
+    }
+    const progressHtml =
+      opts.showProgress && novel.readProgress > 0
+        ? '<div class="phone-jjwxc__card-progress"><div class="phone-jjwxc__card-progress-bar" style="width:' +
+          novel.readProgress +
+          '%"></div></div><span class="phone-jjwxc__card-progress-label">已读 ' +
+          novel.readProgress +
+          "%</span>"
+        : "";
+    return (
+      '<div class="phone-jjwxc__card-wrap">' +
+      '<button type="button" class="phone-jjwxc__card" data-phone-jjwxc-novel="' +
+      escapeHtml(String(novel.id || "")) +
+      '">' +
+      buildPhoneJjwxcCoverHtml(novel, false, "sm") +
+      '<div class="phone-jjwxc__card-body">' +
+      '<p class="phone-jjwxc__card-title">' +
+      escapeHtml(String(novel.title || "")) +
+      "</p>" +
+      '<p class="phone-jjwxc__card-author">' +
+      escapeHtml(String(novel.author || "")) +
+      "</p>" +
+      '<div class="phone-jjwxc__card-tags">' +
+      buildPhoneJjwxcTagsHtml(novel.tags, false) +
+      "</div>" +
+      '<p class="phone-jjwxc__card-summary">' +
+      escapeHtml(String(novel.summary || "")) +
+      "</p>" +
+      '<div class="phone-jjwxc__card-meta">' +
+      buildPhoneJjwxcStatusBadgeHtml(novel.status, false) +
+      '<span class="phone-jjwxc__card-stat">' +
+      escapeHtml(String(novel.wordCountLabel || "")) +
+      " · " +
+      escapeHtml(String(novel.collectCount || 0)) +
+      "收藏</span>" +
+      "</div>" +
+      progressHtml +
+      "</div></button>" +
+      buildPhoneJjwxcNovelCardDeleteBtnHtml(novel.id, "data-phone-jjwxc-novel-delete") +
+      "</div>"
+    );
+  }
+
+  function buildPhoneJjwxcStorePanelHtml(nav) {
+    const placeholder = !hasPhoneJjwxcGenerated();
+    const categoryId = getPhoneJjwxcActiveCategoryId(nav);
+    let cards = "";
+    if (placeholder) {
+      for (let i = 0; i < PHONE_JJWXC_PLACEHOLDER_NOVELS; i++) {
+        cards += buildPhoneJjwxcNovelCardHtml(null, true);
+      }
+    } else {
+      const rec = getPhoneJjwxcBundleRecord();
+      const novels = (rec.novels || []).filter(function (n) {
+        return n && n.categoryId === categoryId;
+      });
+      if (!novels.length) {
+        cards = '<div class="phone-jjwxc__empty"><p>该分类暂无作品</p></div>';
+      } else {
+        novels.forEach(function (n) {
+          cards += buildPhoneJjwxcNovelCardHtml(n, false);
+        });
+      }
+    }
+    return (
+      '<div class="phone-jjwxc__panel">' +
+      buildPhoneJjwxcCategoryPillsHtml(categoryId) +
+      '<div class="phone-jjwxc__list">' +
+      cards +
+      "</div></div>"
+    );
+  }
+
+  function buildPhoneJjwxcShelfPanelHtml() {
+    const placeholder = !hasPhoneJjwxcGenerated();
+    let cards = "";
+    if (placeholder) {
+      for (let i = 0; i < 4; i++) cards += buildPhoneJjwxcNovelCardHtml(null, true, { showProgress: true });
+    } else {
+      const rec = getPhoneJjwxcBundleRecord();
+      const novels = (rec.novels || []).filter(function (n) {
+        return n && n.onShelf;
+      });
+      if (!novels.length) {
+        cards = '<div class="phone-jjwxc__empty"><p>书架空空，去书城逛逛吧</p></div>';
+      } else {
+        novels.forEach(function (n) {
+          cards += buildPhoneJjwxcNovelCardHtml(n, false, { showProgress: true });
+        });
+      }
+    }
+    return (
+      '<div class="phone-jjwxc__panel">' +
+      '<p class="phone-jjwxc__panel-kicker">正在追更 / 最近在读</p>' +
+      '<div class="phone-jjwxc__list">' +
+      cards +
+      "</div></div>"
+    );
+  }
+
+  function buildPhoneJjwxcFavPanelHtml() {
+    const placeholder = !hasPhoneJjwxcGenerated();
+    let cards = "";
+    if (placeholder) {
+      for (let i = 0; i < 4; i++) cards += buildPhoneJjwxcNovelCardHtml(null, true);
+    } else {
+      const rec = getPhoneJjwxcBundleRecord();
+      const novels = (rec.novels || []).filter(function (n) {
+        return n && n.isFavorite;
+      });
+      if (!novels.length) {
+        cards = '<div class="phone-jjwxc__empty"><p>还没有收藏</p></div>';
+      } else {
+        novels.forEach(function (n) {
+          cards += buildPhoneJjwxcNovelCardHtml(n, false);
+        });
+      }
+    }
+    return (
+      '<div class="phone-jjwxc__panel">' +
+      '<p class="phone-jjwxc__panel-kicker">收藏作品</p>' +
+      '<div class="phone-jjwxc__list">' +
+      cards +
+      "</div></div>"
+    );
+  }
+
+  function buildPhoneJjwxcTipRowHtml(tip, novel, placeholder) {
+    if (placeholder) {
+      return (
+        '<div class="phone-jjwxc__tip-row phone-jjwxc__tip-row--ph">' +
+        '<span class="phone-jjwxc__tip-amt">…</span>' +
+        '<div class="phone-jjwxc__tip-body">' +
+        '<p class="phone-jjwxc__tip-novel">…</p>' +
+        '<p class="phone-jjwxc__tip-msg">…</p>' +
+        '<p class="phone-jjwxc__tip-date">…</p>' +
+        "</div></div>"
+      );
+    }
+    const title = novel ? novel.title : "…";
+    return (
+      '<div class="phone-jjwxc__card-wrap">' +
+      '<div class="phone-jjwxc__tip-row">' +
+      '<span class="phone-jjwxc__tip-amt">' +
+      escapeHtml(String(tip.amount || 0)) +
+      "币</span>" +
+      '<div class="phone-jjwxc__tip-body">' +
+      '<button type="button" class="phone-jjwxc__tip-novel" data-phone-jjwxc-novel="' +
+      escapeHtml(String(tip.novelId || "")) +
+      '">' +
+      escapeHtml(String(title)) +
+      "</button>" +
+      '<p class="phone-jjwxc__tip-msg">' +
+      (tip.message ? escapeHtml(String(tip.message)) : '<span class="phone-jjwxc__muted">（无留言）</span>') +
+      "</p>" +
+      '<p class="phone-jjwxc__tip-date">' +
+      escapeHtml(getPhoneBrowserDateGroupLabel(tip.dateKey)) +
+      "</p>" +
+      "</div></div>" +
+      buildPhoneJjwxcCornerDeleteBtnHtml(tip.id, "data-phone-jjwxc-tip-delete", "删除打赏") +
+      "</div>"
+    );
+  }
+
+  function buildPhoneJjwxcNoteRowHtml(note, novel, placeholder) {
+    if (placeholder) {
+      return (
+        '<article class="phone-jjwxc__note phone-jjwxc__note--ph">' +
+        '<p class="phone-jjwxc__note-book">…</p>' +
+        '<p class="phone-jjwxc__note-text">…</p>' +
+        '<p class="phone-jjwxc__note-meta">…</p>' +
+        "</article>"
+      );
+    }
+    const title = novel ? novel.title : "…";
+    const chapterPart = note.chapterTitle ? " · " + escapeHtml(String(note.chapterTitle)) : "";
+    return (
+      '<div class="phone-jjwxc__card-wrap">' +
+      '<article class="phone-jjwxc__note">' +
+      '<button type="button" class="phone-jjwxc__note-book" data-phone-jjwxc-novel="' +
+      escapeHtml(String(note.novelId || "")) +
+      '">《' +
+      escapeHtml(String(title)) +
+      "》" +
+      chapterPart +
+      "</button>" +
+      '<p class="phone-jjwxc__note-text">' +
+      escapeHtml(String(note.content || "")) +
+      "</p>" +
+      '<p class="phone-jjwxc__note-meta">' +
+      escapeHtml(getPhoneBrowserDateGroupLabel(note.dateKey)) +
+      " · 阅读心声</p>" +
+      "</article>" +
+      buildPhoneJjwxcCornerDeleteBtnHtml(note.id, "data-phone-jjwxc-note-delete", "删除心声") +
+      "</div>"
+    );
+  }
+
+  function buildPhoneJjwxcMinePanelHtml() {
+    const placeholder = !hasPhoneJjwxcGenerated();
+    const rec = placeholder ? null : getPhoneJjwxcBundleRecord();
+    const profile = placeholder ? null : normalizePhoneJjwxcReaderProfile(rec.readerProfile);
+    const profileHtml = placeholder
+      ? '<div class="phone-jjwxc__profile phone-jjwxc__profile--ph"><span class="phone-jjwxc__avatar">…</span><div><p class="phone-jjwxc__nick">…</p><p class="phone-jjwxc__profile-stat">…</p></div></div>'
+      : '<div class="phone-jjwxc__profile">' +
+        '<span class="phone-jjwxc__avatar">' +
+        escapeHtml(String(profile.nickname || "读").slice(0, 1)) +
+        "</span>" +
+        '<div><p class="phone-jjwxc__nick">' +
+        escapeHtml(String(profile.nickname || "读者")) +
+        '</p><p class="phone-jjwxc__profile-stat">晋江币 ' +
+        escapeHtml(String(profile.coins || 0)) +
+        " · 累计打赏 " +
+        escapeHtml(String(profile.totalTips || 0)) +
+        " · 收藏 " +
+        escapeHtml(String(profile.favoriteCount || 0)) +
+        "</p></div></div>";
+    let tipsHtml = "";
+    if (placeholder) {
+      for (let i = 0; i < 3; i++) tipsHtml += buildPhoneJjwxcTipRowHtml(null, null, true);
+    } else {
+      const novelById = Object.create(null);
+      (rec.novels || []).forEach(function (n) {
+        if (n && n.id) novelById[n.id] = n;
+      });
+      (rec.tips || []).forEach(function (t) {
+        tipsHtml += buildPhoneJjwxcTipRowHtml(t, novelById[t.novelId], false);
+      });
+    }
+    let notesHtml = "";
+    if (placeholder) {
+      for (let i = 0; i < 3; i++) notesHtml += buildPhoneJjwxcNoteRowHtml(null, null, true);
+    } else {
+      const novelById = Object.create(null);
+      (rec.novels || []).forEach(function (n) {
+        if (n && n.id) novelById[n.id] = n;
+      });
+      (rec.readingNotes || []).forEach(function (n) {
+        notesHtml += buildPhoneJjwxcNoteRowHtml(n, novelById[n.novelId], false);
+      });
+    }
+    return (
+      '<div class="phone-jjwxc__panel phone-jjwxc__panel--mine">' +
+      profileHtml +
+      '<h3 class="phone-jjwxc__section-title">打赏记录</h3>' +
+      '<div class="phone-jjwxc__tip-list">' +
+      tipsHtml +
+      "</div>" +
+      '<h3 class="phone-jjwxc__section-title">阅读心声</h3>' +
+      '<p class="phone-jjwxc__section-hint">持有者读文时的私密想法，不会发给作者</p>' +
+      '<div class="phone-jjwxc__note-list">' +
+      notesHtml +
+      "</div></div>"
+    );
+  }
+
+  function buildPhoneJjwxcMainHtml(slot) {
+    const nav = getPhoneNav(slot);
+    const tab = nav.jjwxcTab || "store";
+    let panelHtml = "";
+    if (tab === "store") panelHtml = buildPhoneJjwxcStorePanelHtml(nav);
+    else if (tab === "shelf") panelHtml = buildPhoneJjwxcShelfPanelHtml();
+    else if (tab === "fav") panelHtml = buildPhoneJjwxcFavPanelHtml();
+    else panelHtml = buildPhoneJjwxcMinePanelHtml();
+    return (
+      '<div class="phone-app phone-jjwxc" aria-label="晋江文学城">' +
+      '<div class="phone-jjwxc__top">' +
+      buildPhoneJjwxcBarHtml("晋江文学城") +
+      buildPhoneJjwxcBottomNavHtml(tab) +
+      "</div>" +
+      '<div class="phone-jjwxc__scroll">' +
+      panelHtml +
+      "</div>" +
+      buildPhoneJjwxcManageOverlayHtml(nav) +
+      "</div>"
+    );
+  }
+
+  function normalizePhoneJjwxcExpandedChapterIds(nav) {
+    if (!nav.jjwxcExpandedChapterIds || typeof nav.jjwxcExpandedChapterIds !== "object") {
+      nav.jjwxcExpandedChapterIds = {};
+    }
+    const legacy = String(nav.jjwxcExpandedChapterId || "").trim();
+    if (legacy && !nav.jjwxcExpandedChapterIds[legacy]) nav.jjwxcExpandedChapterIds[legacy] = true;
+    delete nav.jjwxcExpandedChapterId;
+    return nav.jjwxcExpandedChapterIds;
+  }
+
+  function isPhoneJjwxcChapterExpanded(nav, chapterId) {
+    const id = String(chapterId || "").trim();
+    if (!id || !nav) return false;
+    return !!normalizePhoneJjwxcExpandedChapterIds(nav)[id];
+  }
+
+  function clearPhoneJjwxcExpandedChapterIds(nav) {
+    if (!nav) return;
+    nav.jjwxcExpandedChapterIds = {};
+    delete nav.jjwxcExpandedChapterId;
+  }
+
+  function findPhoneJjwxcChapterItemEl(slot, chapterId) {
+    const id = String(chapterId || "").trim();
+    if (!slot || !id) return null;
+    const list = slot.querySelector(".phone-jjwxc__ch-list");
+    if (!list) return null;
+    const items = list.querySelectorAll("[data-phone-jjwxc-ch-item]");
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].getAttribute("data-phone-jjwxc-ch-item") === id) return items[i];
+    }
+    return null;
+  }
+
+  function applyPhoneJjwxcChapterExpandDom(slot, chapterId, expanded) {
+    const item = findPhoneJjwxcChapterItemEl(slot, chapterId);
+    if (!item) return;
+    const toggle = item.querySelector("[data-phone-jjwxc-ch-toggle]");
+    const panel = item.querySelector(".phone-jjwxc__ch-expand");
+    item.classList.toggle("is-expanded", expanded);
+    if (toggle) {
+      toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+      toggle.setAttribute("aria-label", expanded ? "收起本章梗概" : "展开本章梗概");
+    }
+    if (panel) panel.hidden = !expanded;
+  }
+
+  function buildPhoneJjwxcChapterListItemHtml(ch, expanded) {
+    const id = String((ch && ch.id) || "").trim();
+    const hasPreview = phoneJjwxcChapterHasPreview(ch);
+    const blurb = hasPreview ? getPhoneJjwxcChapterBlurb(ch) : "";
+    const thought = hasPreview ? String(ch.readerThought || "").trim() : "";
+    const expandHtml = hasPreview
+      ? '<div class="phone-jjwxc__ch-expand"' +
+        (expanded ? "" : " hidden") +
+        '>' +
+        '<p class="phone-jjwxc__ch-blurb">' +
+        escapeHtml(blurb) +
+        "</p>" +
+        '<aside class="phone-jjwxc__ch-thought">' +
+        '<span class="phone-jjwxc__ch-thought-label">💭 读到这里</span>' +
+        "<p>" +
+        escapeHtml(thought) +
+        "</p></aside></div>"
+      : "";
+    return (
+      '<div class="phone-jjwxc__ch-item' +
+      (expanded ? " is-expanded" : "") +
+      (hasPreview ? "" : " phone-jjwxc__ch-item--pending") +
+      '" data-phone-jjwxc-ch-item="' +
+      escapeHtml(id) +
+      '">' +
+      '<div class="phone-jjwxc__ch-head">' +
+      '<span class="phone-jjwxc__ch-title">' +
+      escapeHtml(String((ch && ch.title) || "")) +
+      "</span>" +
+      '<button type="button" class="phone-jjwxc__ch-toggle" data-phone-jjwxc-ch-toggle="' +
+      escapeHtml(id) +
+      '" aria-expanded="' +
+      (expanded ? "true" : "false") +
+      '" aria-label="' +
+      (expanded ? "收起本章梗概" : "展开本章梗概") +
+      '"' +
+      (hasPreview ? "" : " disabled") +
+      ">" +
+      '<svg class="icon-linear phone-jjwxc__ch-toggle-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>' +
+      "</button></div>" +
+      expandHtml +
+      "</div>"
+    );
+  }
+
+  function buildPhoneJjwxcNovelDetailHtml(slot) {
+    const nav = getPhoneNav(slot);
+    const novelId = String(nav.jjwxcNovelId || "").trim();
+    const hit = findPhoneJjwxcNovel(novelId);
+    const novel = hit ? hit.novel : null;
+    const placeholder = !novel;
+    const hasDetail = novel && phoneJjwxcNovelHasDetail(novel);
+    const generating = phoneJjwxcNovelGeneratingId === novelId;
+    const cat = novel ? findPhoneJjwxcCategory(novel.categoryId) : null;
+    let chaptersHtml = "";
+    if (placeholder || !hasDetail) {
+      for (let i = 0; i < 5; i++) {
+        chaptersHtml +=
+          '<div class="phone-jjwxc__ch-item phone-jjwxc__ch-item--ph"><div class="phone-jjwxc__ch-head"><span class="phone-jjwxc__ch-title">…</span><span class="phone-jjwxc__ch-meta">…</span></div></div>';
+      }
+    } else {
+      (novel.chapters || []).forEach(function (ch) {
+        chaptersHtml += buildPhoneJjwxcChapterListItemHtml(ch, isPhoneJjwxcChapterExpanded(nav, ch.id));
+      });
+    }
+    const genBtn =
+      !placeholder && !generating
+        ? '<button type="button" class="phone-jjwxc__detail-gen" data-phone-jjwxc-novel-generate="' +
+          escapeHtml(novelId) +
+          '"' +
+          (isAnyPhoneAiGenerating() ? " disabled" : "") +
+          ">" +
+          (hasDetail ? "追加章节" : "生成详情") +
+          "</button>"
+        : generating
+          ? '<p class="phone-jjwxc__generating">生成中…</p>'
+          : "";
+    return (
+      '<div class="phone-app phone-jjwxc phone-jjwxc--detail" aria-label="作品详情">' +
+      buildPhoneJjwxcBarHtml(placeholder ? "…" : novel.title, false) +
+      '<div class="phone-jjwxc__scroll">' +
+      '<div class="phone-jjwxc__detail-head">' +
+      buildPhoneJjwxcCoverHtml(novel, placeholder, "md") +
+      '<div class="phone-jjwxc__detail-meta">' +
+      '<p class="phone-jjwxc__detail-author">' +
+      (placeholder ? "…" : escapeHtml(String(novel.author || ""))) +
+      "</p>" +
+      '<div class="phone-jjwxc__card-tags">' +
+      buildPhoneJjwxcTagsHtml(placeholder ? null : novel.tags, placeholder) +
+      "</div>" +
+      '<div class="phone-jjwxc__detail-stats">' +
+      buildPhoneJjwxcStatusBadgeHtml(placeholder ? null : novel.status, placeholder) +
+      '<span class="phone-jjwxc__detail-stat">' +
+      (placeholder ? "…" : escapeHtml(String(novel.wordCountLabel || ""))) +
+      "</span>" +
+      '<span class="phone-jjwxc__detail-stat">' +
+      (placeholder ? "…" : escapeHtml(String(novel.collectCount || 0)) + "收藏") +
+      "</span>" +
+      (placeholder
+        ? ""
+        : novel.onShelf
+          ? '<span class="phone-jjwxc__detail-flag">在架</span>'
+          : "") +
+      (placeholder
+        ? ""
+        : novel.isFavorite
+          ? '<span class="phone-jjwxc__detail-flag phone-jjwxc__detail-flag--fav">已收藏</span>'
+          : "") +
+      "</div>" +
+      (placeholder
+        ? '<p class="phone-jjwxc__detail-cat">…</p>'
+        : '<p class="phone-jjwxc__detail-cat">' + escapeHtml(cat ? cat.name : "") + "</p>") +
+      "</div></div>" +
+      '<section class="phone-jjwxc__synopsis">' +
+      '<h3 class="phone-jjwxc__section-title">简介</h3>' +
+      '<p class="phone-jjwxc__synopsis-text">' +
+      (placeholder ? "…" : hasDetail ? escapeHtml(String(novel.synopsis || novel.summary)) : "…") +
+      "</p>" +
+      (hasDetail && novel.authorNote
+        ? '<div class="phone-jjwxc__author-note"><span class="phone-jjwxc__author-note-label">作者有话说</span><p>' +
+          escapeHtml(String(novel.authorNote)) +
+          "</p></div>"
+        : "") +
+      "</section>" +
+      '<section class="phone-jjwxc__chapters">' +
+      '<div class="phone-jjwxc__chapters-head"><h3 class="phone-jjwxc__section-title">目录</h3>' +
+      genBtn +
+      "</div>" +
+      '<div class="phone-jjwxc__ch-list">' +
+      chaptersHtml +
+      "</div></section>" +
+      "</div></div>"
+    );
+  }
+
+  function buildPhoneJjwxcChapterHtml(slot) {
+    const nav = getPhoneNav(slot);
+    const novelId = String(nav.jjwxcNovelId || "").trim();
+    const chapterId = String(nav.jjwxcChapterId || "").trim();
+    const hit = findPhoneJjwxcNovel(novelId);
+    const novel = hit ? hit.novel : null;
+    const chapter =
+      novel &&
+      (novel.chapters || []).find(function (c) {
+        return c && c.id === chapterId;
+      });
+    const genKey = novelId + "\u001f" + chapterId;
+    const generating = phoneJjwxcChapterGeneratingId === genKey;
+    const hasContent = chapter && phoneJjwxcChapterHasContent(chapter);
+    const contentHtml = hasContent
+      ? formatPhoneJjwxcChapterBodyHtml(chapter.content)
+      : generating
+        ? '<p class="phone-jjwxc__generating">正在生成正文…</p>'
+        : '<p class="phone-jjwxc__chapter-ph">…</p><p class="phone-jjwxc__chapter-ph">…</p><p class="phone-jjwxc__chapter-ph">…</p>';
+    const thoughtHtml =
+      hasContent && chapter.readerThought
+        ? '<aside class="phone-jjwxc__reader-thought"><span class="phone-jjwxc__reader-thought-label">💭 读到这里</span><p>' +
+          escapeHtml(String(chapter.readerThought)) +
+          "</p></aside>"
+        : "";
+    const title = chapter ? chapter.title : "…";
+    return (
+      '<div class="phone-app phone-jjwxc phone-jjwxc--chapter" aria-label="章节阅读">' +
+      buildPhoneJjwxcBarHtml(title, false) +
+      '<div class="phone-jjwxc__reader">' +
+      '<article class="phone-jjwxc__chapter-body">' +
+      contentHtml +
+      "</article>" +
+      thoughtHtml +
+      "</div></div>"
+    );
+  }
+
+  function openPhoneJjwxc(slot) {
+    const nav = getPhoneNav(slot);
+    nav.screen = "jjwxc";
+    nav.jjwxcNovelId = null;
+    nav.jjwxcChapterId = null;
+    if (!nav.jjwxcTab) nav.jjwxcTab = "store";
+    if (!nav.jjwxcCategoryId) {
+      nav.jjwxcCategoryId = getPhoneJjwxcActiveCategoryId(nav);
+    }
+    getPhoneJjwxcBundleMutable();
+    renderPhoneScreen(slot);
+  }
+
+  function openPhoneJjwxcManage(slot) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "jjwxc") return;
+    nav.jjwxcManageOpen = true;
+    nav.jjwxcCategoryFormId = null;
+    renderPhoneScreen(slot);
+  }
+
+  function closePhoneJjwxcManage(slot) {
+    const nav = getPhoneNav(slot);
+    nav.jjwxcManageOpen = false;
+    nav.jjwxcCategoryFormId = null;
+    renderPhoneScreen(slot);
+  }
+
+  function openPhoneJjwxcCategoryForm(slot, categoryIdOrNew) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "jjwxc") return;
+    nav.jjwxcManageOpen = true;
+    nav.jjwxcCategoryFormId = String(categoryIdOrNew || "new");
+    renderPhoneScreen(slot);
+    if (slot) {
+      const input = slot.querySelector("[data-phone-jjwxc-category-name-input]");
+      if (input) input.focus();
+    }
+  }
+
+  function cancelPhoneJjwxcCategoryForm(slot) {
+    const nav = getPhoneNav(slot);
+    nav.jjwxcCategoryFormId = null;
+    renderPhoneScreen(slot);
+  }
+
+  function savePhoneJjwxcCategoryForm(slot) {
+    if (!requirePhoneJjwxcHolderForEdit()) return;
+    const rec = getPhoneJjwxcBundleMutable();
+    if (!rec) return;
+    const nav = getPhoneNav(slot);
+    const nameInput = slot && slot.querySelector("[data-phone-jjwxc-category-name-input]");
+    const descInput = slot && slot.querySelector("[data-phone-jjwxc-category-desc-input]");
+    const name = truncateCharsWithEllipsis(String((nameInput && nameInput.value) || "").trim(), PHONE_JJWXC_CAT_NAME_MAX);
+    const description = truncateCharsWithEllipsis(
+      String((descInput && descInput.value) || "").trim(),
+      PHONE_JJWXC_CAT_DESC_MAX
+    );
+    if (!name) {
+      showToast("分类名称不能为空", "warning");
+      return;
+    }
+    if (!description) {
+      showToast("请填写分类简介（生成规则）", "warning");
+      return;
+    }
+    const formId = String(nav.jjwxcCategoryFormId || "").trim();
+    if (formId === "new") {
+      if (rec.bundle.categories.length >= PHONE_JJWXC_MAX_CATEGORIES) {
+        showToast("分类已达上限 " + PHONE_JJWXC_MAX_CATEGORIES + " 个", "warning");
+        return;
+      }
+      const newId = uid("jjc-cat");
+      rec.bundle.categories.push({ id: newId, name: name, description: description });
+      nav.jjwxcCategoryId = newId;
+    } else {
+      const sec = rec.bundle.categories.find(function (s) {
+        return s && s.id === formId;
+      });
+      if (!sec) {
+        showToast("分类不存在", "error");
+        return;
+      }
+      sec.name = name;
+      sec.description = description;
+    }
+    rec.bundle.categoriesUserEdited = true;
+    persistPhoneJjwxcBundle(rec.bundle, true);
+    nav.jjwxcCategoryFormId = null;
+    showToast("已保存分类", "success");
+    renderPhoneScreen(slot);
+  }
+
+  async function handlePhoneJjwxcCategoryDelete(slot, categoryId) {
+    if (!requirePhoneJjwxcHolderForEdit()) return;
+    const rec = getPhoneJjwxcBundleMutable();
+    if (!rec) return;
+    const id = String(categoryId || "").trim();
+    const sec = rec.bundle.categories.find(function (s) {
+      return s && s.id === id;
+    });
+    if (!sec) return;
+    if (rec.bundle.categories.length <= PHONE_JJWXC_MIN_CATEGORIES) {
+      showToast("至少保留 " + PHONE_JJWXC_MIN_CATEGORIES + " 个分类", "warning");
+      return;
+    }
+    const ok = await showConfirm("确定删除分类「" + sec.name + "」吗？该分类下的作品也会一并移除。", "删除分类");
+    if (!ok) return;
+    rec.bundle.categories = rec.bundle.categories.filter(function (s) {
+      return s && s.id !== id;
+    });
+    rec.bundle.novels = (rec.bundle.novels || []).filter(function (n) {
+      return n && n.categoryId !== id;
+    });
+    rec.bundle.categoriesUserEdited = true;
+    persistPhoneJjwxcBundle(rec.bundle, true);
+    const nav = getPhoneNav(slot);
+    if (nav.jjwxcCategoryId === id) {
+      nav.jjwxcCategoryId = rec.bundle.categories.length ? rec.bundle.categories[0].id : "";
+    }
+    nav.jjwxcCategoryFormId = null;
+    if (!rec.bundle.categories.length) nav.jjwxcManageOpen = false;
+    showToast("已删除分类", "success");
+    renderPhoneScreen(slot);
+  }
+
+  async function handlePhoneJjwxcNovelDelete(slot, novelId) {
+    if (!requirePhoneJjwxcHolderForEdit()) return;
+    const hit = findPhoneJjwxcNovel(novelId);
+    if (!hit) return;
+    const title = String(hit.novel.title || "").trim() || "未命名";
+    const ok = await showConfirm("确定删除作品「" + title + "」吗？", "删除作品");
+    if (!ok) return;
+    const rec = getPhoneJjwxcBundleMutable();
+    if (!rec) return;
+    removeJjwxcNovelFromBundle(rec.bundle, hit.novel.id);
+    persistPhoneJjwxcBundle(rec.bundle, true);
+    const nav = getPhoneNav(slot);
+    if (nav.jjwxcNovelId === hit.novel.id) {
+      nav.screen = "jjwxc";
+      nav.jjwxcNovelId = null;
+      nav.jjwxcChapterId = null;
+      nav.jjwxcAppendOpen = false;
+      nav.jjwxcAppendNovelId = null;
+    }
+    showToast("已删除作品", "success");
+    renderPhoneScreen(slot);
+  }
+
+  async function handlePhoneJjwxcTipDelete(slot, tipId) {
+    if (!requirePhoneJjwxcHolderForEdit()) return;
+    const rec = getPhoneJjwxcBundleMutable();
+    if (!rec) return;
+    const id = String(tipId || "").trim();
+    if (!id) return;
+    const tips = rec.bundle.tips || [];
+    const tip = tips.find(function (t) {
+      return t && t.id === id;
+    });
+    if (!tip) return;
+    const hit = findPhoneJjwxcNovel(tip.novelId);
+    const label = hit ? String(hit.novel.title || "").trim() || "该作品" : "该条";
+    const ok = await showConfirm("确定删除对「" + label + "」的这条打赏记录吗？", "删除打赏");
+    if (!ok) return;
+    rec.bundle.tips = tips.filter(function (t) {
+      return t && t.id !== id;
+    });
+    if (rec.bundle.readerProfile) {
+      const profile = normalizePhoneJjwxcReaderProfile(rec.bundle.readerProfile);
+      profile.totalTips = Math.max(0, profile.totalTips - (tip.amount || 0));
+      rec.bundle.readerProfile = profile;
+    }
+    persistPhoneJjwxcBundle(rec.bundle, true);
+    showToast("已删除打赏记录", "success");
+    renderPhoneScreen(slot);
+  }
+
+  async function handlePhoneJjwxcReadingNoteDelete(slot, noteId) {
+    if (!requirePhoneJjwxcHolderForEdit()) return;
+    const rec = getPhoneJjwxcBundleMutable();
+    if (!rec) return;
+    const id = String(noteId || "").trim();
+    if (!id) return;
+    const notes = rec.bundle.readingNotes || [];
+    const note = notes.find(function (n) {
+      return n && n.id === id;
+    });
+    if (!note) return;
+    const hit = findPhoneJjwxcNovel(note.novelId);
+    const label = hit ? String(hit.novel.title || "").trim() || "该作品" : "该条";
+    const ok = await showConfirm("确定删除「" + label + "」的这条阅读心声吗？", "删除心声");
+    if (!ok) return;
+    rec.bundle.readingNotes = notes.filter(function (n) {
+      return n && n.id !== id;
+    });
+    persistPhoneJjwxcBundle(rec.bundle, true);
+    showToast("已删除阅读心声", "success");
+    renderPhoneScreen(slot);
+  }
+
+  async function openPhoneJjwxcNovel(slot, novelId) {
+    const nav = getPhoneNav(slot);
+    const id = String(novelId || "").trim();
+    if (!id || id.indexOf("jn-ph-") === 0) return;
+    nav.screen = "jjwxc-novel";
+    nav.jjwxcNovelId = id;
+    nav.jjwxcChapterId = null;
+    clearPhoneJjwxcExpandedChapterIds(nav);
+    renderPhoneScreen(slot);
+    const hit = findPhoneJjwxcNovel(id);
+    if (hit && !phoneJjwxcNovelHasDetail(hit.novel) && !isAnyPhoneAiGenerating()) {
+      await generatePhoneJjwxcNovelContent(slot, id, false);
+    }
+  }
+
+  function togglePhoneJjwxcChapterExpand(slot, chapterId) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "jjwxc-novel") return;
+    const id = String(chapterId || "").trim();
+    if (!id) return;
+    const hit = findPhoneJjwxcNovel(nav.jjwxcNovelId);
+    if (!hit) return;
+    const chapter = (hit.novel.chapters || []).find(function (c) {
+      return c && c.id === id;
+    });
+    if (!chapter || !phoneJjwxcChapterHasPreview(chapter)) return;
+    const ids = normalizePhoneJjwxcExpandedChapterIds(nav);
+    const nextExpanded = !ids[id];
+    if (nextExpanded) ids[id] = true;
+    else delete ids[id];
+    applyPhoneJjwxcChapterExpandDom(slot, id, nextExpanded);
+  }
+
+  function switchPhoneJjwxcTab(slot, tabId) {
+    const nav = getPhoneNav(slot);
+    nav.jjwxcTab = String(tabId || "store");
+    nav.screen = "jjwxc";
+    nav.jjwxcNovelId = null;
+    nav.jjwxcChapterId = null;
+    clearPhoneJjwxcExpandedChapterIds(nav);
+    renderPhoneScreen(slot);
+  }
+
+  function switchPhoneJjwxcCategory(slot, categoryId) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "jjwxc") return;
+    const id = String(categoryId || "").trim();
+    if (!findPhoneJjwxcCategory(id)) return;
+    nav.jjwxcCategoryId = id;
+    renderPhoneScreen(slot);
+  }
+
+  /* ── 同人粮 · 晋江同人文 ── */
+
+  const FANWORK_JJWXC_MIN_CATEGORIES = 1;
+  const FANWORK_JJWXC_MAX_CATEGORIES = 10;
+  const FANWORK_JJWXC_GENERATE_NOVEL_COUNT = 15;
+  const FANWORK_JJWXC_PLACEHOLDER_NOVELS = 6;
+  const FANWORK_JJWXC_CATALOG_AUTHOR_NOTE_MAX = 72;
+  const FANWORK_JJWXC_MIN_CHAPTERS = 1;
+  const FANWORK_JJWXC_APPEND_HINT_MAX = 240;
+  const FANWORK_JJWXC_AUTHOR_WORDS_LABEL = "✍️ 作者的话";
+  const FANWORK_JJWXC_AUTHOR_WORDS_PROMPT =
+    "readerThought 为本章「作者的话」：以作者/太太口吻写 2～4 句写文时的想法（如灵感来源、卡文心路、对这章 CP 的期待、埋的彩蛋等），第一人称，语气像在章节末尾跟读者唠嗑，≤" +
+    PHONE_JJWXC_READER_THOUGHT_MAX +
+    " 字；不要写成读者嗑 CP 的反应";
+
+  function buildFanworkJjwxcAuthorWordsAsideHtml(text) {
+    const body = String(text || "").trim();
+    if (!body) return "";
+    return (
+      '<aside class="phone-jjwxc__reader-thought phone-jjwxc__author-words">' +
+      '<span class="phone-jjwxc__reader-thought-label">' +
+      FANWORK_JJWXC_AUTHOR_WORDS_LABEL +
+      '</span><p>' +
+      escapeHtml(body) +
+      "</p></aside>"
+    );
+  }
+
+  function sortFanworkCpCharIds(idA, idB) {
+    const a = String(idA || "").trim();
+    const b = String(idB || "").trim();
+    if (!a || !b || a === b) return null;
+    return a < b ? [a, b] : [b, a];
+  }
+
+  function getFanworkCpPair() {
+    if (!Array.isArray(fanworkCpCharIds) || fanworkCpCharIds.length !== 2) return null;
+    const c1 = getCharById(fanworkCpCharIds[0]);
+    const c2 = getCharById(fanworkCpCharIds[1]);
+    if (!c1 || !c2) return null;
+    return { ids: fanworkCpCharIds.slice(), charA: c1, charB: c2 };
+  }
+
+  function getFanworkCpLabel(pair) {
+    const p = pair || getFanworkCpPair();
+    if (!p) return "选择 CP";
+    const n1 = String(p.charA.name || "").trim() || "角色A";
+    const n2 = String(p.charB.name || "").trim() || "角色B";
+    return n1 + " × " + n2;
+  }
+
+  function getFanworkCpStorageKey() {
+    const pair = getFanworkCpPair();
+    if (!pair) return null;
+    return pair.ids[0] + "\u001e" + pair.ids[1];
+  }
+
+  function getFanworkJjwxcBundleRecord() {
+    const key = getFanworkCpStorageKey();
+    if (!key) return null;
+    const rec = fanworkJjwxcData[key];
+    if (!rec || !Array.isArray(rec.categories)) return null;
+    return rec;
+  }
+
+  function getFanworkJjwxcCategories() {
+    const rec = getFanworkJjwxcBundleRecord();
+    if (rec && rec.categories.length) return rec.categories.map(clonePhoneJjwxcCategory);
+    return [];
+  }
+
+  function findFanworkJjwxcCategory(categoryId) {
+    const id = String(categoryId || "").trim();
+    return (
+      getFanworkJjwxcCategories().find(function (s) {
+        return s.id === id;
+      }) || null
+    );
+  }
+
+  function getFanworkJjwxcBundleMutable() {
+    const key = getFanworkCpStorageKey();
+    if (!key) return null;
+    if (!fanworkJjwxcData[key]) {
+      fanworkJjwxcData[key] = {
+        categories: [],
+        novels: [],
+        tips: [],
+        readingNotes: [],
+        readerProfile: {},
+        categoriesUserEdited: false,
+      };
+    }
+    const bundle = fanworkJjwxcData[key];
+    if (!Array.isArray(bundle.categories)) bundle.categories = [];
+    if (!Array.isArray(bundle.novels)) bundle.novels = [];
+    if (!Array.isArray(bundle.tips)) bundle.tips = [];
+    if (!Array.isArray(bundle.readingNotes)) bundle.readingNotes = [];
+    if (!bundle.readerProfile || typeof bundle.readerProfile !== "object") bundle.readerProfile = {};
+    return { key: key, bundle: bundle };
+  }
+
+  function persistFanworkJjwxcBundle(bundle, immediate) {
+    const key = getFanworkCpStorageKey();
+    if (!key || !bundle) return;
+    fanworkJjwxcData[key] = bundle;
+    if (immediate) flushPersistNarrative();
+    else schedulePersistNarrative();
+  }
+
+  function hasFanworkJjwxcGenerated() {
+    const rec = getFanworkJjwxcBundleRecord();
+    return !!(rec && rec.novels && rec.novels.length);
+  }
+
+  function requireFanworkCpForEdit() {
+    if (!getFanworkCpPair()) {
+      showToast("请先选择两位角色组 CP。", "warning");
+      return false;
+    }
+    return true;
+  }
+
+  function normalizeFanworkJjwxcCategoryId(raw) {
+    const id = String(raw || "").trim();
+    if (
+      getFanworkJjwxcCategories().some(function (c) {
+        return c.id === id;
+      })
+    ) {
+      return id;
+    }
+    const byName = getFanworkJjwxcCategories().find(function (c) {
+      return c.name === id;
+    });
+    return byName ? byName.id : null;
+  }
+
+  function normalizeFanworkJjwxcBundleOnLoad(raw) {
+    const bundle = normalizePhoneJjwxcBundleOnLoad(raw);
+    if (!bundle) return null;
+    bundle.novels = (bundle.novels || []).map(function (novel) {
+      if (!novel || typeof novel !== "object") return novel;
+      const n = Object.assign({}, novel);
+      if (!n.userShelf) n.onShelf = false;
+      if (!n.userFav) n.isFavorite = false;
+      n.authorNote = truncateCharsWithEllipsis(
+        String(n.authorNote || n.authorWords || "").trim(),
+        FANWORK_JJWXC_CATALOG_AUTHOR_NOTE_MAX
+      );
+      return n;
+    });
+    return bundle;
+  }
+
+  function getFanworkJjwxcDetailAuthorNoteText(novel) {
+    if (!novel) return "";
+    const note = String(novel.authorNote || novel.authorWords || "").trim();
+    if (note) return truncateCharsWithEllipsis(note, FANWORK_JJWXC_CATALOG_AUTHOR_NOTE_MAX);
+    const summary = String(novel.summary || "").trim();
+    if (summary) return truncateCharsWithEllipsis(summary, FANWORK_JJWXC_CATALOG_AUTHOR_NOTE_MAX);
+    return "";
+  }
+
+  function buildFanworkJjwxcDetailAuthorNoteHtml(novel, placeholder) {
+    if (placeholder || !novel) return "";
+    const note = getFanworkJjwxcDetailAuthorNoteText(novel);
+    if (!note) return "";
+    return (
+      '<div class="fanwork-jjwxc__detail-author-note">' +
+      '<span class="fanwork-jjwxc__detail-author-note-label">作者的话</span>' +
+      '<p class="fanwork-jjwxc__detail-author-note-text">' +
+      escapeHtml(note) +
+      "</p></div>"
+    );
+  }
+
+  function normalizeFanworkJjwxcNovelItem(item, idx, seenIds) {
+    if (!item || typeof item !== "object") return null;
+    const categoryId = normalizeFanworkJjwxcCategoryId(item.categoryId || item.category);
+    if (!categoryId) return null;
+    let id = String(item.id || "").trim() || "fn-" + String((idx || 0) + 1);
+    while (seenIds && seenIds.has(id)) id = id + "-d";
+    if (seenIds) seenIds.add(id);
+    const title = truncateCharsWithEllipsis(String(item.title || item.name || "").trim(), PHONE_JJWXC_TITLE_MAX);
+    const author = truncateCharsWithEllipsis(String(item.author || item.penName || "").trim(), PHONE_JJWXC_AUTHOR_MAX);
+    const summary = truncateCharsWithEllipsis(String(item.summary || item.blurb || item.intro || "").trim(), PHONE_JJWXC_SUMMARY_MAX);
+    if (!title || !author || !summary) return null;
+    let coverHue = Number(item.coverHue);
+    if (!Number.isFinite(coverHue)) coverHue = hashPhoneJjwxcHue(title + author);
+    let collectCount = Number(item.collectCount != null ? item.collectCount : item.favorites);
+    if (!Number.isFinite(collectCount) || collectCount < 0) collectCount = 0;
+    let wordCountLabel = String(item.wordCount || item.words || "").trim();
+    if (!wordCountLabel) wordCountLabel = "…";
+    wordCountLabel = truncateCharsWithEllipsis(wordCountLabel, 12);
+    const chIn = Array.isArray(item.chapters) ? item.chapters : [];
+    const chSeen = new Set();
+    const chapters = [];
+    chIn.forEach(function (ch, ci) {
+      const c = normalizePhoneJjwxcChapterItem(ch, ci, chSeen);
+      if (c) chapters.push(c);
+    });
+    let readProgress = Number(item.readProgress != null ? item.readProgress : item.progress);
+    if (!Number.isFinite(readProgress) || readProgress < 0) readProgress = 0;
+    readProgress = Math.max(0, Math.min(100, Math.round(readProgress)));
+    return {
+      id: id,
+      categoryId: categoryId,
+      title: title,
+      author: author,
+      tags: normalizePhoneJjwxcTags(item.tags),
+      summary: summary,
+      status: normalizePhoneJjwxcStatus(item.status),
+      wordCountLabel: wordCountLabel,
+      collectCount: Math.round(collectCount),
+      coverHue: Math.max(0, Math.min(359, Math.round(coverHue))),
+      synopsis: truncateCharsWithEllipsis(String(item.synopsis || "").trim(), PHONE_JJWXC_SYNOPSIS_MAX),
+      authorNote: truncateCharsWithEllipsis(String(item.authorNote || item.authorWords || "").trim(), 200),
+      chapters: chapters,
+      onShelf: !!item.onShelf,
+      isFavorite: !!(item.isFavorite || item.favorite),
+      readProgress: readProgress,
+      lastReadKey: normalizePhoneBrowserDateKey(item.lastReadKey || item.dateKey),
+    };
+  }
+
+  function buildFanworkJjwxcNovelCountRequirementBlock(isIncrement) {
+    const total = FANWORK_JJWXC_GENERATE_NOVEL_COUNT;
+    const cats = getFanworkJjwxcCategories();
+    const verb = isIncrement ? "新增" : "生成";
+    const lines = [
+      verb + " " + total + " 部作品；各分类下合计 " + total + " 篇（不是每个分类各 " + total + " 篇）。",
+    ];
+    if (cats.length > 1) {
+      const base = Math.floor(total / cats.length);
+      const rem = total % cats.length;
+      const parts = cats.map(function (c, i) {
+        return "「" + c.name + "」" + (base + (i < rem ? 1 : 0)) + " 部";
+      });
+      lines.push("建议分配：" + parts.join("、") + "；每个已有分类至少 1 部。");
+    }
+    return lines.join("\n");
+  }
+
+  function assertFanworkJjwxcNovelBatchCount(novels, categories, expectedCount, label) {
+    const list = novels || [];
+    const count = list.length;
+    if (count < expectedCount) {
+      throw new Error((label || "") + "作品不足 " + expectedCount + " 部（当前 " + count + " 部）");
+    }
+    (categories || []).forEach(function (c) {
+      const n = list.filter(function (item) {
+        return item && item.categoryId === c.id;
+      }).length;
+      if (!n) {
+        throw new Error("分类「" + c.name + "」至少需要 1 部作品");
+      }
+    });
+  }
+
+  function normalizeFanworkJjwxcCatalogBundle(raw, existing) {
+    const categories = (existing && existing.categories ? existing.categories : [])
+      .map(clonePhoneJjwxcCategory)
+      .filter(function (c) {
+        return c && c.id && c.name;
+      });
+    if (!categories.length && raw && Array.isArray(raw.categories) && raw.categories.length) {
+      const seenIds = new Set();
+      raw.categories.forEach(function (item, idx) {
+        const cat = normalizePhoneJjwxcCategoryItem(item, idx, seenIds);
+        if (cat) categories.push(cat);
+      });
+    }
+    if (categories.length < FANWORK_JJWXC_MIN_CATEGORIES) {
+      throw new Error("请先在「管理分类」中添加至少 " + FANWORK_JJWXC_MIN_CATEGORIES + " 个分区并填写剧情方向");
+    }
+    const novelsIn = raw && Array.isArray(raw.novels) ? raw.novels : [];
+    const seenIds = new Set();
+    const novels = [];
+    novelsIn.forEach(function (item, idx) {
+      const n = normalizeFanworkJjwxcNovelItem(item, idx, seenIds);
+      if (n) novels.push(n);
+    });
+    assertFanworkJjwxcNovelBatchCount(
+      novels,
+      categories,
+      FANWORK_JJWXC_GENERATE_NOVEL_COUNT,
+      "本次"
+    );
+    const tipSeen = new Set();
+    const tips = (raw && Array.isArray(raw.tips) ? raw.tips : [])
+      .map(function (t, i) {
+        return normalizePhoneJjwxcTipItem(t, i, tipSeen);
+      })
+      .filter(Boolean);
+    const noteSeen = new Set();
+    const readingNotes = (raw && Array.isArray(raw.readingNotes) ? raw.readingNotes : [])
+      .map(function (n, i) {
+        return normalizePhoneJjwxcReadingNoteItem(n, i, noteSeen);
+      })
+      .filter(Boolean);
+    return {
+      categories: categories.map(clonePhoneJjwxcCategory),
+      novels: novels,
+      tips: tips,
+      readingNotes: readingNotes,
+      readerProfile: mergeFanworkJjwxcReaderProfile(
+        existing && existing.readerProfile ? existing.readerProfile : null,
+        raw && raw.readerProfile ? raw.readerProfile : null
+      ),
+      categoriesUserEdited: !!(existing && existing.categoriesUserEdited),
+      generatedAt: Date.now(),
+    };
+  }
+
+  function mergeFanworkJjwxcCatalogIncrement(existing, raw) {
+    const base = (existing && existing.novels ? existing.novels : []).map(function (n) {
+      return Object.assign({}, n, {
+        chapters: (n.chapters || []).map(function (c) {
+          return Object.assign({}, c);
+        }),
+      });
+    });
+    const seenIds = new Set(
+      base.map(function (n) {
+        return n.id;
+      })
+    );
+    const addedByCat = Object.create(null);
+    getFanworkJjwxcCategories().forEach(function (c) {
+      addedByCat[c.id] = 0;
+    });
+    const addedNovels = [];
+    const appendIn =
+      raw && Array.isArray(raw.newNovels) ? raw.newNovels : raw && Array.isArray(raw.novels) ? raw.novels : [];
+    appendIn.forEach(function (item, idx) {
+      const n = normalizeFanworkJjwxcNovelItem(item, idx, seenIds);
+      if (!n) return;
+      base.unshift(n);
+      addedNovels.unshift(n);
+      if (addedByCat[n.categoryId] != null) addedByCat[n.categoryId] += 1;
+    });
+    assertFanworkJjwxcNovelBatchCount(
+      addedNovels,
+      getFanworkJjwxcCategories(),
+      FANWORK_JJWXC_GENERATE_NOVEL_COUNT,
+      "本次追加"
+    );
+    const tips = (existing && existing.tips ? existing.tips : []).slice();
+    const tipSeen = new Set(
+      tips.map(function (t) {
+        return t.id;
+      })
+    );
+    (raw && Array.isArray(raw.newTips) ? raw.newTips : []).forEach(function (t, i) {
+      const tip = normalizePhoneJjwxcTipItem(t, i, tipSeen);
+      if (tip) tips.unshift(tip);
+    });
+    const readingNotes = (existing && existing.readingNotes ? existing.readingNotes : []).slice();
+    const noteSeen = new Set(
+      readingNotes.map(function (n) {
+        return n.id;
+      })
+    );
+    (raw && Array.isArray(raw.newReadingNotes) ? raw.newReadingNotes : []).forEach(function (n, i) {
+      const note = normalizePhoneJjwxcReadingNoteItem(n, i, noteSeen);
+      if (note) readingNotes.unshift(note);
+    });
+    return {
+      categories: (existing && existing.categories ? existing.categories : []).map(clonePhoneJjwxcCategory),
+      novels: base,
+      tips: tips,
+      readingNotes: readingNotes,
+      readerProfile: mergeFanworkJjwxcReaderProfile(
+        existing && existing.readerProfile ? existing.readerProfile : null,
+        raw && raw.readerProfile ? raw.readerProfile : null
+      ),
+      categoriesUserEdited: !!(existing && existing.categoriesUserEdited),
+      generatedAt: Date.now(),
+    };
+  }
+
+  function normalizeFanworkJjwxcReaderProfile(raw) {
+    const base = normalizePhoneJjwxcReaderProfile(raw);
+    const p = raw && typeof raw === "object" ? raw : {};
+    const avatarUrl = String(p.avatarUrl || "").trim();
+    const nickname =
+      truncateCharsWithEllipsis(String(p.nickname || p.name || "嗑学家").trim(), 16) || "嗑学家";
+    return Object.assign({}, base, {
+      nickname: nickname,
+      avatarUrl: avatarUrl,
+    });
+  }
+
+  function mergeFanworkJjwxcReaderProfile(existingRaw, incomingRaw) {
+    const incoming = normalizeFanworkJjwxcReaderProfile(incomingRaw);
+    if (!existingRaw || typeof existingRaw !== "object") return incoming;
+    const existing = normalizeFanworkJjwxcReaderProfile(existingRaw);
+    return {
+      nickname:
+        existingRaw.nickname != null && String(existingRaw.nickname).trim()
+          ? existing.nickname
+          : incoming.nickname,
+      avatarUrl: existingRaw.avatarUrl != null ? existing.avatarUrl : incoming.avatarUrl,
+      coins: existingRaw.coins != null ? existing.coins : incoming.coins,
+      totalTips: incoming.totalTips,
+      favoriteCount: incoming.favoriteCount,
+    };
+  }
+
+  function markFanworkJjwxcNovelReadProgress(novelId, chapterId) {
+    const target = getFanworkJjwxcNovelMutable(novelId);
+    if (!target) return;
+    const novel = target.novel;
+    const chapters = novel.chapters || [];
+    const idx = chapters.findIndex(function (c) {
+      return c && c.id === chapterId;
+    });
+    if (idx < 0) return;
+    const chapter = chapters[idx];
+    if (!phoneJjwxcChapterHasContent(chapter)) return;
+    const total = Math.max(chapters.length, 1);
+    const nextProgress = Math.round(((idx + 1) / total) * 100);
+    if ((novel.readProgress || 0) < nextProgress) novel.readProgress = nextProgress;
+    novel.lastReadKey = normalizePhoneBrowserDateKey(new Date().toISOString().slice(0, 10));
+    persistFanworkJjwxcBundle(target.bundle);
+  }
+
+  function toggleFanworkJjwxcNovelShelf(slot, novelId) {
+    const target = getFanworkJjwxcNovelMutable(novelId);
+    if (!target) return;
+    target.novel.onShelf = !target.novel.onShelf;
+    target.novel.userShelf = !!target.novel.onShelf;
+    persistFanworkJjwxcBundle(target.bundle);
+    showToast(target.novel.onShelf ? "已加入在追" : "已取消在追", "success");
+    renderFanworkScreen(slot);
+  }
+
+  function toggleFanworkJjwxcNovelFavorite(slot, novelId) {
+    const target = getFanworkJjwxcNovelMutable(novelId);
+    if (!target) return;
+    target.novel.isFavorite = !target.novel.isFavorite;
+    target.novel.userFav = !!target.novel.isFavorite;
+    persistFanworkJjwxcBundle(target.bundle);
+    showToast(target.novel.isFavorite ? "已收藏" : "已取消收藏", "success");
+    renderFanworkScreen(slot);
+  }
+
+  function findFanworkJjwxcNovel(novelId) {
+    const key = getFanworkCpStorageKey();
+    if (!key) return null;
+    const rec = fanworkJjwxcData[key];
+    const id = String(novelId || "").trim();
+    if (!rec || !id) return null;
+    const novel = (rec.novels || []).find(function (n) {
+      return n && n.id === id;
+    });
+    return novel ? { novel: novel, bundle: rec } : null;
+  }
+
+  function getFanworkJjwxcNovelMutable(novelId) {
+    const rec = getFanworkJjwxcBundleMutable();
+    if (!rec) return null;
+    const id = String(novelId || "").trim();
+    const novel = (rec.bundle.novels || []).find(function (n) {
+      return n && n.id === id;
+    });
+    if (!novel) return null;
+    if (!Array.isArray(novel.chapters)) novel.chapters = [];
+    return { bundle: rec.bundle, novel: novel };
+  }
+
+  function fanworkJjwxcNovelHasDetail(novel) {
+    if (!novel) return false;
+    if (novel.detailReady === true) return true;
+    return !!(
+      String(novel.synopsis || "").trim() &&
+      (novel.chapters || []).length >= FANWORK_JJWXC_MIN_CHAPTERS
+    );
+  }
+
+  function applyFanworkJjwxcNovelDetail(novel, parsed) {
+    if (!novel || !parsed) return;
+    if (parsed.synopsis) {
+      novel.synopsis = truncateCharsWithEllipsis(String(parsed.synopsis).trim(), PHONE_JJWXC_SYNOPSIS_MAX);
+    }
+    if (parsed.authorNote) {
+      novel.authorNote = truncateCharsWithEllipsis(
+        String(parsed.authorNote).trim(),
+        FANWORK_JJWXC_CATALOG_AUTHOR_NOTE_MAX
+      );
+    }
+    const chIn = Array.isArray(parsed.chapters) ? parsed.chapters : [];
+    novel.chapters = [];
+    const seen = new Set();
+    chIn.forEach(function (item, idx) {
+      if (novel.chapters.length >= FANWORK_JJWXC_MIN_CHAPTERS) return;
+      const ch = normalizePhoneJjwxcChapterItem(item, idx, seen);
+      if (ch) novel.chapters.push(ch);
+    });
+    if (!fanworkJjwxcNovelHasDetail(novel)) {
+      throw new Error("作品详情须含简介与第 1 章目录");
+    }
+    novel.detailReady = true;
+  }
+
+  function applyFanworkJjwxcChapterContent(novelId, chapterId, parsed) {
+    const target = getFanworkJjwxcNovelMutable(novelId);
+    if (!target) throw new Error("作品不存在");
+    const chapter = (target.novel.chapters || []).find(function (c) {
+      return c && c.id === chapterId;
+    });
+    if (!chapter) throw new Error("章节不存在");
+    const content = truncateCharsWithEllipsis(
+      normalizePhoneJjwxcChapterParagraphs(String(parsed.content || parsed.text || "").trim()),
+      PHONE_JJWXC_CHAPTER_CONTENT_MAX
+    );
+    if (content.length < PHONE_JJWXC_MIN_CHAPTER_CHARS) {
+      throw new Error(
+        "章节正文不足 " + PHONE_JJWXC_MIN_CHAPTER_CHARS + " 字（目标约 " + PHONE_JJWXC_TARGET_CHAPTER_CHARS + " 字）"
+      );
+    }
+    chapter.content = content;
+    chapter.contentReady = true;
+    chapter.generatedAt = Date.now();
+    if (parsed.readerThought || parsed.authorWords || parsed.authorNote) {
+      chapter.readerThought = truncateCharsWithEllipsis(
+        String(parsed.readerThought || parsed.authorWords || parsed.authorNote || "").trim(),
+        PHONE_JJWXC_READER_THOUGHT_MAX
+      );
+    }
+    chapter.wordCount = Math.round(
+      Number(parsed.wordCount) > 0 ? Number(parsed.wordCount) : content.replace(/\s/g, "").length
+    );
+    return target;
+  }
+
+  function applyFanworkJjwxcAppendChapter(novel, parsed) {
+    if (!novel || !parsed) throw new Error("章节数据无效");
+    const raw =
+      parsed.chapter ||
+      (Array.isArray(parsed.newChapters) && parsed.newChapters[0]) ||
+      (Array.isArray(parsed.chapters) && parsed.chapters[0]) ||
+      null;
+    if (!raw || typeof raw !== "object") throw new Error("未返回章节数据");
+    const seen = new Set(
+      (novel.chapters || []).map(function (c) {
+        return c.id;
+      })
+    );
+    const ch = normalizePhoneJjwxcChapterItem(raw, (novel.chapters || []).length, seen);
+    if (!ch) throw new Error("章节数据无效");
+    const content = normalizePhoneJjwxcChapterParagraphs(ch.content);
+    if (content.length < PHONE_JJWXC_MIN_CHAPTER_CHARS) {
+      throw new Error(
+        "章节正文不足 " + PHONE_JJWXC_MIN_CHAPTER_CHARS + " 字（目标约 " + PHONE_JJWXC_TARGET_CHAPTER_CHARS + " 字）"
+      );
+    }
+    ch.content = truncateCharsWithEllipsis(content, PHONE_JJWXC_CHAPTER_CONTENT_MAX);
+    ch.contentReady = true;
+    ch.generatedAt = Date.now();
+    if (!ch.wordCount) ch.wordCount = Math.round(ch.content.replace(/\s/g, "").length);
+    if (!Array.isArray(novel.chapters)) novel.chapters = [];
+    novel.chapters.push(ch);
+    return ch;
+  }
+
+  function openFanworkJjwxcAppendDialog(slot, novelId) {
+    const nav = getFanworkNav(slot);
+    nav.jjwxcAppendOpen = true;
+    nav.jjwxcAppendNovelId = String(novelId || "").trim();
+    renderFanworkScreen(slot);
+  }
+
+  function closeFanworkJjwxcAppendDialog(slot) {
+    const nav = getFanworkNav(slot);
+    nav.jjwxcAppendOpen = false;
+    nav.jjwxcAppendNovelId = null;
+    renderFanworkScreen(slot);
+  }
+
+  function getFanworkJjwxcLatestChapter(novel) {
+    const chapters = novel && Array.isArray(novel.chapters) ? novel.chapters : [];
+    return chapters.length ? chapters[chapters.length - 1] : null;
+  }
+
+  function openFanworkJjwxcRegenDialog(slot, novelId) {
+    const hit = findFanworkJjwxcNovel(novelId);
+    const latestCh = hit ? getFanworkJjwxcLatestChapter(hit.novel) : null;
+    if (!hit || !latestCh || !phoneJjwxcChapterHasContent(latestCh)) return;
+    const nav = getFanworkNav(slot);
+    nav.jjwxcRegenOpen = true;
+    nav.jjwxcRegenNovelId = String(novelId || "").trim();
+    renderFanworkScreen(slot);
+  }
+
+  function closeFanworkJjwxcRegenDialog(slot) {
+    const nav = getFanworkNav(slot);
+    nav.jjwxcRegenOpen = false;
+    nav.jjwxcRegenNovelId = null;
+    renderFanworkScreen(slot);
+  }
+
+  function buildFanworkJjwxcAppendOverlayHtml(nav, novelId) {
+    if (!nav || !nav.jjwxcAppendOpen || nav.jjwxcAppendNovelId !== novelId) return "";
+    return (
+      '<div class="phone-forum-manage fanwork-jjwxc__append" role="dialog" aria-modal="true" aria-label="追加章节">' +
+      '<button type="button" class="phone-forum-manage__backdrop" data-fanwork-jjwxc-append-cancel aria-label="关闭"></button>' +
+      '<div class="phone-forum-manage__panel phone-forum-manage__panel--form">' +
+      '<div class="phone-forum-manage__head">' +
+      '<h3 class="phone-forum-manage__title">追加章节</h3>' +
+      '<button type="button" class="phone-forum-manage__close" data-fanwork-jjwxc-append-cancel aria-label="取消">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      "</button></div>" +
+      '<p class="fanwork-jjwxc__append-hint">写下你想看的后续走向（选填），AI 将据此续写下一章。</p>' +
+      '<label class="phone-forum-manage__field"><span class="phone-forum-manage__label">后续剧情</span>' +
+      '<textarea class="phone-forum-manage__textarea" data-fanwork-jjwxc-append-hint-input maxlength="' +
+      FANWORK_JJWXC_APPEND_HINT_MAX +
+      '" rows="4" placeholder="如：两人误会解除后的第一次独处、某场雨夜的对峙…"></textarea></label>' +
+      '<button type="button" class="btn btn--primary btn--pill phone-forum-manage__save" data-fanwork-jjwxc-append-confirm>生成下一章</button>' +
+      "</div></div>"
+    );
+  }
+
+  function buildFanworkJjwxcRegenOverlayHtml(nav, novelId) {
+    if (!nav || !nav.jjwxcRegenOpen || nav.jjwxcRegenNovelId !== novelId) return "";
+    const hit = findFanworkJjwxcNovel(novelId);
+    const latestCh = hit ? getFanworkJjwxcLatestChapter(hit.novel) : null;
+    const chapterTitle = latestCh ? String(latestCh.title || "").trim() : "";
+    return (
+      '<div class="phone-forum-manage fanwork-jjwxc__append fanwork-jjwxc__regen" role="dialog" aria-modal="true" aria-label="重新生成最新章">' +
+      '<button type="button" class="phone-forum-manage__backdrop" data-fanwork-jjwxc-regen-cancel aria-label="关闭"></button>' +
+      '<div class="phone-forum-manage__panel phone-forum-manage__panel--form">' +
+      '<div class="phone-forum-manage__head">' +
+      '<h3 class="phone-forum-manage__title">重新生成最新章</h3>' +
+      '<button type="button" class="phone-forum-manage__close" data-fanwork-jjwxc-regen-cancel aria-label="取消">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      "</button></div>" +
+      (chapterTitle
+        ? '<p class="fanwork-jjwxc__append-hint">将覆盖「' + escapeHtml(chapterTitle) + "」的正文与作者的话，章节标题与序号不变。</p>"
+        : '<p class="fanwork-jjwxc__append-hint">将覆盖最新章正文与作者的话，章节标题与序号不变。</p>') +
+      '<label class="phone-forum-manage__field"><span class="phone-forum-manage__label">重写要求</span>' +
+      '<textarea class="phone-forum-manage__textarea" data-fanwork-jjwxc-regen-hint-input maxlength="' +
+      FANWORK_JJWXC_APPEND_HINT_MAX +
+      '" rows="4" placeholder="如：加强拉扯感、结尾留悬念、减少误会桥段…"></textarea></label>' +
+      '<button type="button" class="btn btn--primary btn--pill phone-forum-manage__save" data-fanwork-jjwxc-regen-confirm>重新生成</button>' +
+      "</div></div>"
+    );
+  }
+
+  function getFanworkJjwxcActiveCategoryId(nav) {
+    const id = String((nav && nav.jjwxcCategoryId) || "").trim();
+    if (id && findFanworkJjwxcCategory(id)) return id;
+    const sections = getFanworkJjwxcCategories();
+    return sections.length ? sections[0].id : "";
+  }
+
+  function buildFanworkCpProfileBlock(pair) {
+    if (!pair) return "";
+    const lines = [
+      "【CP 组合】" + getFanworkCpLabel(pair),
+      "【" + (pair.charA.name || "角色A") + "】" + buildCharacterProfileFromLibrary(pair.charA),
+      "【" + (pair.charB.name || "角色B") + "】" + buildCharacterProfileFromLibrary(pair.charB),
+    ];
+    return lines.filter(Boolean).join("\n");
+  }
+
+  function buildFanworkJjwxcCategoryRulesBlock() {
+    return getFanworkJjwxcCategories()
+      .map(function (c) {
+        return "- " + c.name + "（id=" + c.id + "）：" + (c.description || "（无简介）");
+      })
+      .join("\n");
+  }
+
+  function formatFanworkJjwxcNovelForPrompt(novel) {
+    if (!novel) return "";
+    const cat = findFanworkJjwxcCategory(novel.categoryId);
+    return (
+      "- id=" +
+      novel.id +
+      "《" +
+      novel.title +
+      "》" +
+      novel.author +
+      "，分类=" +
+      (cat ? cat.name : novel.categoryId) +
+      "，" +
+      (novel.onShelf ? "在架" : "") +
+      (novel.isFavorite ? "已收藏" : "")
+    );
+  }
+
+  function buildFanworkJjwxcCatalogPrompt(pair, existing) {
+    const cpLabel = getFanworkCpLabel(pair);
+    const lines = [
+      "请为「同人粮·晋江」生成 CP 同人文书城数据 JSON。",
+      "",
+      "【核心设定 · 必须遵守】",
+      "1. 所有作品均为以「" + cpLabel + "」为主 CP 的同人向网文；两位主角必须是该 CP 组合（可用 AU/化名，但读者能认出是同人）。",
+      "2. 作者是虚构笔名（同好太太），不是角色本人；文风像真实晋江连载同人文。",
+      "3. 每个分类的 description 是用户想看的剧情发展方向，该分类下所有作品须严格贴合。",
+      "4. 禁止引入与 CP 无关的第三者恋爱主线；可写配角但不抢 CP 主轴。",
+      "",
+      buildFanworkCpProfileBlock(pair),
+      "",
+      "【用户预设分区 · 必须沿用下列 id 与 name，不要新增或删除分类】",
+    ];
+    getFanworkJjwxcCategories().forEach(function (c) {
+      lines.push("- " + c.name + "（id=" + c.id + "）：" + (c.description || "（无简介）"));
+    });
+    lines.push("");
+    lines.push("【数量要求】");
+    lines.push(buildFanworkJjwxcNovelCountRequirementBlock(false));
+    lines.push("");
+    lines.push(
+      "生成要求：\n" +
+        "1. 输出唯一 JSON，含 novels、tips、readingNotes、readerProfile；novels 数组长度须为 " +
+        FANWORK_JJWXC_GENERATE_NOVEL_COUNT +
+        "。\n" +
+        "2. novel 字段：id、categoryId、title、author（笔名）、tags（2～3个 CP 标签）、summary、authorNote（作者有话说，1～2 句口语化短评，≤" +
+        FANWORK_JJWXC_CATALOG_AUTHOR_NOTE_MAX +
+        " 字，勿与 summary 重复）、status、wordCount、collectCount、coverHue、readProgress。\n" +
+        "3. onShelf、isFavorite 一律 false 或省略；tips 与 readingNotes 可适量生成。\n" +
+        "4. 不要生成 synopsis/chapters；标题与简介须体现 CP 张力与人设。"
+    );
+    return lines.join("\n");
+  }
+
+  function buildFanworkJjwxcCatalogRegeneratePrompt(pair, existing) {
+    const lines = [
+      "请根据已有同人粮书城数据增量追加新作品；不要修改或删除已有作品。",
+      "CP：" + getFanworkCpLabel(pair),
+      "",
+      buildFanworkCpProfileBlock(pair),
+      "",
+      "【分类规则】",
+      buildFanworkJjwxcCategoryRulesBlock(),
+      "",
+      "【已有作品摘要（请勿重复 id 或同标题）】",
+    ];
+    (existing.novels || []).slice(0, 12).forEach(function (n) {
+      lines.push(formatFanworkJjwxcNovelForPrompt(n));
+    });
+    lines.push("");
+    lines.push("【数量要求】");
+    lines.push(buildFanworkJjwxcNovelCountRequirementBlock(true));
+    lines.push("");
+    lines.push(
+      "输出 JSON：{\"newNovels\":[...],\"newTips\":[...],\"newReadingNotes\":[...],\"readerProfile\":{}}；newNovels 长度须为 " +
+        FANWORK_JJWXC_GENERATE_NOVEL_COUNT +
+        "。\n" +
+        "newNovels 每项须含 authorNote（作者有话说，1～2 句，≤" +
+        FANWORK_JJWXC_CATALOG_AUTHOR_NOTE_MAX +
+        " 字）；onShelf、isFavorite 一律 false 或省略。"
+    );
+    return lines.join("\n");
+  }
+
+  function buildFanworkJjwxcNovelPrompt(pair, novel) {
+    const cat = findFanworkJjwxcCategory(novel.categoryId);
+    const lines = [
+      "请为以下 CP 同人文生成详情：简介、作者有话说、目录（仅第 1 章标题，不含正文）。",
+      "CP：" + getFanworkCpLabel(pair),
+      "",
+      buildFanworkCpProfileBlock(pair),
+      "",
+      "【分类】" + (cat ? cat.name : novel.categoryId),
+    ];
+    if (cat && cat.description) lines.push("【剧情方向】" + cat.description);
+    lines.push("【作品】" + formatFanworkJjwxcNovelForPrompt(novel));
+    lines.push("简介列表页：" + novel.summary);
+    lines.push("标签：" + (novel.tags || []).join("、"));
+    lines.push("");
+    lines.push(
+      "输出 JSON：{\"synopsis\":\"完整简介\",\"authorNote\":\"作者有话说\",\"chapters\":[{\"id\":\"ch-1\",\"title\":\"第1章 …\",\"wordCount\":0}]}" +
+        "；chapters 数组长度必须为 " +
+        FANWORK_JJWXC_MIN_CHAPTERS +
+        "（仅第 1 章）；synopsis≤" +
+        PHONE_JJWXC_SYNOPSIS_MAX +
+        "字；须写 CP 互动与情感推进。"
+    );
+    return lines.join("\n");
+  }
+
+  function buildFanworkJjwxcAppendChapterPrompt(pair, novel, userHint) {
+    const cat = findFanworkJjwxcCategory(novel.categoryId);
+    const chapters = novel.chapters || [];
+    const nextIndex = chapters.length;
+    const prevChapter = nextIndex > 0 ? chapters[nextIndex - 1] : null;
+    const lines = [
+      "请为以下 CP 同人文生成下一章完整正文（含标题），紧接已有剧情续写。",
+      "CP：" + getFanworkCpLabel(pair),
+      "",
+      buildFanworkCpProfileBlock(pair),
+      "",
+    ];
+    if (cat && cat.description) lines.push("【剧情方向】" + cat.description);
+    lines.push("【作品】《" + novel.title + "》" + novel.author);
+    if (novel.synopsis) lines.push("【简介】" + novel.synopsis);
+    lines.push("");
+    lines.push("【已有章节】");
+    chapters.forEach(function (c, i) {
+      lines.push(
+        "- 第 " +
+          (i + 1) +
+          " 章 " +
+          c.id +
+          " " +
+          c.title +
+          (phoneJjwxcChapterHasContent(c) ? "（已有正文）" : "（无正文）")
+      );
+    });
+    if (prevChapter && phoneJjwxcChapterHasContent(prevChapter)) {
+      lines.push("");
+      lines.push(buildPhoneJjwxcPrevChapterContextBlock(prevChapter, nextIndex - 1, chapters));
+    }
+    const hint = String(userHint || "").trim();
+    if (hint) {
+      lines.push("");
+      lines.push("【读者希望的后续走向】" + truncateCharsWithEllipsis(hint, FANWORK_JJWXC_APPEND_HINT_MAX));
+      lines.push("须在不违背已有设定的前提下尽量满足上述期待。");
+    }
+    lines.push("");
+    lines.push(
+      "输出 JSON：{\"chapter\":{\"id\":\"ch-" +
+        (nextIndex + 1) +
+        "\",\"title\":\"第" +
+        (nextIndex + 1) +
+        "章 …\",\"content\":\"正文\",\"readerThought\":\"作者的话\",\"wordCount\":0}}\n" +
+        "仅生成 1 章；正文约 " +
+        PHONE_JJWXC_TARGET_CHAPTER_CHARS +
+        " 字（不少于 " +
+        PHONE_JJWXC_MIN_CHAPTER_CHARS +
+        " 字）；段间用\\n\\n分隔；写对话、心理与 CP 张力；禁止 markdown。\n" +
+        FANWORK_JJWXC_AUTHOR_WORDS_PROMPT
+    );
+    return lines.join("\n");
+  }
+
+  function buildFanworkJjwxcRegenerateChapterPrompt(pair, novel, chapter, chapterIndex, chapters, userHint) {
+    const cat = findFanworkJjwxcCategory(novel.categoryId);
+    const prevChapter = chapterIndex > 0 ? chapters[chapterIndex - 1] : null;
+    const lines = [
+      "请重写以下 CP 同人文的最新章节正文（覆盖原稿，不是追加新章）。",
+      "须保持章节 id 与 title 不变，只重写 content 与 readerThought（作者的话）。",
+      "CP：" + getFanworkCpLabel(pair),
+      "",
+      buildFanworkCpProfileBlock(pair),
+      "",
+    ];
+    if (cat && cat.description) lines.push("【剧情方向】" + cat.description);
+    lines.push("【作品】《" + novel.title + "》" + novel.author);
+    if (novel.synopsis) lines.push("【简介】" + novel.synopsis);
+    lines.push("【待重写章节】" + chapter.title + "（id=" + chapter.id + "，第 " + (chapterIndex + 1) + " 章）");
+    if (prevChapter) {
+      lines.push("");
+      lines.push(buildPhoneJjwxcPrevChapterContextBlock(prevChapter, chapterIndex, chapters));
+    } else {
+      lines.push("");
+      lines.push("【本章为开篇章节，自然引入 CP 关系与背景。】");
+    }
+    if (phoneJjwxcChapterHasContent(chapter)) {
+      const body = normalizePhoneJjwxcChapterParagraphs(chapter.content);
+      lines.push("");
+      lines.push("【原稿参考（须重写，勿照抄）】");
+      lines.push(truncateCharsWithEllipsis(body, PHONE_JJWXC_PREV_CHAPTER_REF_CHARS));
+    }
+    const hint = String(userHint || "").trim();
+    if (hint) {
+      lines.push("");
+      lines.push("【重写要求】" + truncateCharsWithEllipsis(hint, FANWORK_JJWXC_APPEND_HINT_MAX));
+      lines.push("须在保持章节定位与前后衔接的前提下尽量满足上述要求。");
+    }
+    lines.push("");
+    lines.push(
+      "输出 JSON：{\"content\":\"章节正文\",\"readerThought\":\"作者的话\",\"wordCount\":0}\n" +
+        "正文约 " +
+        PHONE_JJWXC_TARGET_CHAPTER_CHARS +
+        " 字（不少于 " +
+        PHONE_JJWXC_MIN_CHAPTER_CHARS +
+        " 字）；段间用\\n\\n分隔；写对话、心理与 CP 张力；禁止 markdown；禁止改变章节 id 与 title。\n" +
+        FANWORK_JJWXC_AUTHOR_WORDS_PROMPT
+    );
+    return lines.join("\n");
+  }
+
+  function buildFanworkJjwxcChapterPrompt(pair, novel, chapter, chapterIndex, chapters) {
+    const cat = findFanworkJjwxcCategory(novel.categoryId);
+    const prevChapter = chapterIndex > 0 ? chapters[chapterIndex - 1] : null;
+    const lines = [
+      "请为「同人粮·晋江」以下 CP 同人文章节生成正文 JSON。",
+      "CP：" + getFanworkCpLabel(pair),
+      "",
+      buildFanworkCpProfileBlock(pair),
+      "",
+    ];
+    if (cat && cat.description) lines.push("【剧情方向】" + cat.description);
+    lines.push("【作品】《" + novel.title + "》" + novel.author);
+    if (novel.synopsis) lines.push("【简介】" + novel.synopsis);
+    lines.push("【当前章节】" + chapter.title + "（id=" + chapter.id + "，第 " + (chapterIndex + 1) + " 章）");
+    if (prevChapter) {
+      lines.push("");
+      lines.push(buildPhoneJjwxcPrevChapterContextBlock(prevChapter, chapterIndex, chapters));
+    } else {
+      lines.push("");
+      lines.push("【本章为开篇章节，自然引入 CP 关系与背景。】");
+    }
+    lines.push("");
+    lines.push(
+      "输出 JSON：{\"content\":\"章节正文\",\"readerThought\":\"作者的话\",\"wordCount\":0}\n" +
+        "正文约 " +
+        PHONE_JJWXC_TARGET_CHAPTER_CHARS +
+        " 字（不少于 " +
+        PHONE_JJWXC_MIN_CHAPTER_CHARS +
+        " 字）；段间用\\n\\n分隔；写对话、心理与 CP 张力；禁止 markdown。\n" +
+        FANWORK_JJWXC_AUTHOR_WORDS_PROMPT
+    );
+    return lines.join("\n");
+  }
+
+  async function generateFanworkJjwxcCatalogContent(slot) {
+    if (isAnyPhoneAiGenerating()) {
+      showToast("正在生成中，请稍候…", "info");
+      return;
+    }
+    const pair = getFanworkCpPair();
+    if (!pair) {
+      showToast("请先选择两位角色组 CP。", "warning");
+      return;
+    }
+    const cats = getFanworkJjwxcCategories();
+    if (cats.length < FANWORK_JJWXC_MIN_CATEGORIES) {
+      showToast("请先添加至少 " + FANWORK_JJWXC_MIN_CATEGORIES + " 个分区并填写剧情方向。", "warning");
+      return;
+    }
+    const key = getFanworkCpStorageKey();
+    getFanworkJjwxcBundleMutable();
+    const existing = fanworkJjwxcData[key] || null;
+    const isRegenerate = !!(existing && existing.novels && existing.novels.length);
+    fanworkJjwxcGenerating = true;
+    if (slot && String(getFanworkNav(slot).screen || "").indexOf("jjwxc") === 0) renderFanworkScreen(slot);
+    showToast(isRegenerate ? "正在追加同人文…" : "正在生成同人文城…", "info");
+    try {
+      setGenCallContext(buildGenCallOpts("fanwork-jjwxc-catalog", { slot: slot }));
+      const systemPrompt = isRegenerate
+        ? "你是中文同人向叙事助手。增量追加 CP 同人文书城 JSON。\n每次追加 newNovels 共 " +
+          FANWORK_JJWXC_GENERATE_NOVEL_COUNT +
+          " 部，各分类合计 " +
+          FANWORK_JJWXC_GENERATE_NOVEL_COUNT +
+          " 篇。\n只输出一个 JSON 对象，不要用 markdown 代码围栏。\n格式：{\"newNovels\":[...],\"newTips\":[...],\"newReadingNotes\":[...],\"readerProfile\":{}}"
+        : "你是中文同人向叙事助手。生成「同人粮·晋江」CP 同人文书城 JSON。\n每次生成 novels 共 " +
+          FANWORK_JJWXC_GENERATE_NOVEL_COUNT +
+          " 部，各分类合计 " +
+          FANWORK_JJWXC_GENERATE_NOVEL_COUNT +
+          " 篇。\n只输出一个 JSON 对象，不要用 markdown 代码围栏。\n格式：{\"novels\":[...],\"tips\":[...],\"readingNotes\":[...],\"readerProfile\":{\"nickname\":\"\",\"coins\":0,\"totalTips\":0,\"favoriteCount\":0}}";
+      const userPrompt = isRegenerate
+        ? buildFanworkJjwxcCatalogRegeneratePrompt(pair, existing)
+        : buildFanworkJjwxcCatalogPrompt(pair, existing);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.78,
+        16384
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const bundle = isRegenerate
+        ? mergeFanworkJjwxcCatalogIncrement(existing, parsed)
+        : normalizeFanworkJjwxcCatalogBundle(parsed, existing);
+      fanworkJjwxcData[key] = bundle;
+      flushPersistNarrative();
+      if (slot) renderFanworkScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      fanworkJjwxcGenerating = false;
+      if (slot && String(getFanworkNav(slot).screen || "").indexOf("jjwxc") === 0) renderFanworkScreen(slot);
+    }
+  }
+
+  async function generateFanworkJjwxcNovelContent(slot, novelId) {
+    if (isAnyPhoneAiGenerating()) return;
+    const hit = findFanworkJjwxcNovel(novelId);
+    if (!hit) return;
+    const pair = getFanworkCpPair();
+    if (!pair) return;
+    fanworkJjwxcNovelGeneratingId = String(novelId);
+    if (slot) renderFanworkScreen(slot);
+    try {
+      showToast("正在生成作品详情…", "info");
+      setGenCallContext(buildGenCallOpts("fanwork-jjwxc-novel", { slot: slot, novelId: novelId }));
+      const systemPrompt =
+        "你是中文同人向叙事助手。生成 CP 同人文详情 JSON。\n" +
+        "只输出 JSON：{\"synopsis\":\"...\",\"authorNote\":\"...\",\"chapters\":[{\"id\":\"ch-1\",\"title\":\"...\",\"wordCount\":0}]}\n" +
+        "chapters 数组长度必须为 1。";
+      const userPrompt = buildFanworkJjwxcNovelPrompt(pair, hit.novel);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.76,
+        8192
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const target = getFanworkJjwxcNovelMutable(novelId);
+      if (!target) throw new Error("作品不存在");
+      applyFanworkJjwxcNovelDetail(target.novel, parsed);
+      persistFanworkJjwxcBundle(target.bundle, true);
+      if (slot) renderFanworkScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      fanworkJjwxcNovelGeneratingId = null;
+      if (slot) renderFanworkScreen(slot);
+    }
+  }
+
+  async function generateFanworkJjwxcAppendChapter(slot, novelId, userHint) {
+    if (isAnyPhoneAiGenerating()) return;
+    const hit = findFanworkJjwxcNovel(novelId);
+    if (!hit || !fanworkJjwxcNovelHasDetail(hit.novel)) return;
+    const pair = getFanworkCpPair();
+    if (!pair) return;
+    fanworkJjwxcNovelGeneratingId = String(novelId);
+    if (slot) renderFanworkScreen(slot);
+    try {
+      showToast("正在生成新章节…", "info");
+      setGenCallContext(buildGenCallOpts("fanwork-jjwxc-append", { slot: slot, novelId: novelId }));
+      const systemPrompt =
+        "你是中文同人向叙事助手。为 CP 同人文追加下一章，输出含标题与正文的 JSON。\n" +
+        "正文约" +
+        PHONE_JJWXC_TARGET_CHAPTER_CHARS +
+        "字，段间用\\n\\n分隔；须紧接上一章剧情续写。\n" +
+        "只输出 JSON：{\"chapter\":{\"id\":\"...\",\"title\":\"...\",\"content\":\"...\",\"readerThought\":\"作者的话\",\"wordCount\":0}}\n" +
+        FANWORK_JJWXC_AUTHOR_WORDS_PROMPT;
+      const userPrompt = buildFanworkJjwxcAppendChapterPrompt(pair, hit.novel, userHint);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.82,
+        16384
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const target = getFanworkJjwxcNovelMutable(novelId);
+      if (!target) throw new Error("作品不存在");
+      applyFanworkJjwxcAppendChapter(target.novel, parsed);
+      persistFanworkJjwxcBundle(target.bundle, true);
+      if (slot) renderFanworkScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      fanworkJjwxcNovelGeneratingId = null;
+      if (slot) renderFanworkScreen(slot);
+    }
+  }
+
+  async function confirmFanworkJjwxcAppendChapter(slot) {
+    const nav = getFanworkNav(slot);
+    const novelId = nav.jjwxcAppendNovelId;
+    const input = slot && slot.querySelector("[data-fanwork-jjwxc-append-hint-input]");
+    const hint = input ? String(input.value || "").trim() : "";
+    nav.jjwxcAppendOpen = false;
+    nav.jjwxcAppendNovelId = null;
+    renderFanworkScreen(slot);
+    if (novelId) await generateFanworkJjwxcAppendChapter(slot, novelId, hint);
+  }
+
+  async function generateFanworkJjwxcRegenerateLatestChapter(slot, novelId, userHint) {
+    if (isAnyPhoneAiGenerating()) return;
+    const hit = findFanworkJjwxcNovel(novelId);
+    if (!hit || !fanworkJjwxcNovelHasDetail(hit.novel)) return;
+    const chapters = hit.novel.chapters || [];
+    const chapter = chapters.length ? chapters[chapters.length - 1] : null;
+    if (!chapter || !phoneJjwxcChapterHasContent(chapter)) return;
+    const pair = getFanworkCpPair();
+    if (!pair) return;
+    const chapterId = String(chapter.id || "").trim();
+    const chapterIndex = chapters.length - 1;
+    fanworkJjwxcChapterGeneratingId = String(novelId) + "\u001f" + chapterId;
+    if (slot) renderFanworkScreen(slot);
+    try {
+      showToast("正在重新生成最新章…", "info");
+      setGenCallContext(
+        buildGenCallOpts("fanwork-jjwxc-regen", { slot: slot, novelId: novelId, chapterId: chapterId })
+      );
+      const systemPrompt =
+        "你是中文同人向叙事助手。重写 CP 同人文章节 JSON，覆盖最新章原稿。\n" +
+        "正文约" +
+        PHONE_JJWXC_TARGET_CHAPTER_CHARS +
+        "字，段间用\\n\\n分隔；须与上一章剧情衔接；不得改变章节 id 与 title。\n" +
+        "只输出 JSON：{\"content\":\"正文\",\"readerThought\":\"作者的话\",\"wordCount\":0}\n" +
+        FANWORK_JJWXC_AUTHOR_WORDS_PROMPT;
+      const userPrompt = buildFanworkJjwxcRegenerateChapterPrompt(
+        pair,
+        hit.novel,
+        chapter,
+        chapterIndex,
+        chapters,
+        userHint
+      );
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.82,
+        16384
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      applyFanworkJjwxcChapterContent(novelId, chapterId, parsed);
+      const target = getFanworkJjwxcNovelMutable(novelId);
+      if (target) persistFanworkJjwxcBundle(target.bundle, true);
+      if (slot) renderFanworkScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "重新生成失败", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      fanworkJjwxcChapterGeneratingId = null;
+      if (slot) renderFanworkScreen(slot);
+    }
+  }
+
+  async function confirmFanworkJjwxcRegenerateLatestChapter(slot) {
+    const nav = getFanworkNav(slot);
+    const novelId = nav.jjwxcRegenNovelId;
+    const input = slot && slot.querySelector("[data-fanwork-jjwxc-regen-hint-input]");
+    const hint = input ? String(input.value || "").trim() : "";
+    nav.jjwxcRegenOpen = false;
+    nav.jjwxcRegenNovelId = null;
+    renderFanworkScreen(slot);
+    if (novelId) await generateFanworkJjwxcRegenerateLatestChapter(slot, novelId, hint);
+  }
+
+  async function generateFanworkJjwxcChapterContent(slot, novelId, chapterId) {
+    if (isAnyPhoneAiGenerating()) return;
+    const hit = findFanworkJjwxcNovel(novelId);
+    if (!hit) return;
+    const chapter = (hit.novel.chapters || []).find(function (c) {
+      return c && c.id === chapterId;
+    });
+    if (!chapter) return;
+    const pair = getFanworkCpPair();
+    if (!pair) return;
+    fanworkJjwxcChapterGeneratingId = novelId + "\u001f" + chapterId;
+    if (slot) renderFanworkScreen(slot);
+    try {
+      showToast("正在生成章节正文…", "info");
+      setGenCallContext(buildGenCallOpts("fanwork-jjwxc-chapter", { slot: slot, novelId: novelId, chapterId: chapterId }));
+      const chIdx = (hit.novel.chapters || []).findIndex(function (c) {
+        return c && c.id === chapterId;
+      });
+      const chapters = hit.novel.chapters || [];
+      const systemPrompt =
+        "你是中文同人向叙事助手。生成 CP 同人文章节 JSON。\n" +
+        "正文约" +
+        PHONE_JJWXC_TARGET_CHAPTER_CHARS +
+        "字，段间用\\n\\n分隔；非首章须紧接上一章剧情续写。\n" +
+        "只输出 JSON：{\"content\":\"正文\",\"readerThought\":\"作者的话\",\"wordCount\":0}\n" +
+        FANWORK_JJWXC_AUTHOR_WORDS_PROMPT;
+      const userPrompt = buildFanworkJjwxcChapterPrompt(pair, hit.novel, chapter, chIdx, chapters);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.82,
+        16384
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      applyFanworkJjwxcChapterContent(novelId, chapterId, parsed);
+      const target = getFanworkJjwxcNovelMutable(novelId);
+      if (target) persistFanworkJjwxcBundle(target.bundle, true);
+      if (slot) renderFanworkScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      fanworkJjwxcChapterGeneratingId = null;
+      if (slot) renderFanworkScreen(slot);
+    }
+  }
+
+  function buildFanworkJjwxcBarHtml(titleText, generateAttr, opts) {
+    opts = opts || {};
+    const loadingCls = fanworkJjwxcGenerating ? " phone-wechat-gen-btn--loading" : "";
+    const disabled = isAnyPhoneAiGenerating();
+    const title = String(titleText || "小狗饭").trim() || "小狗饭";
+    const genAttr =
+      generateAttr === false
+        ? ""
+        : typeof generateAttr === "string" && generateAttr.trim()
+          ? generateAttr.trim()
+          : "data-fanwork-jjwxc-generate";
+    const genBtn =
+      genAttr
+        ? '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+          loadingCls +
+          '" ' +
+          genAttr +
+          ' aria-label="AI 生成" title="AI 生成"' +
+          (disabled ? " disabled" : "") +
+          ">" +
+          buildPhoneWechatStarIconSvg() +
+          "</button>"
+        : "";
+    const showBack = opts.showBack !== false;
+    const cpInline = opts.cpInline ? buildFanworkCpBarInlineHtml() : "";
+    const backCell = showBack
+      ? '<button type="button" class="phone-app__back" data-fanwork-back aria-label="返回">' +
+        '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
+        "</button>"
+      : "";
+    const barClass =
+      "phone-app__bar phone-jjwxc__bar" +
+      (showBack ? "" : " phone-jjwxc__bar--no-back") +
+      (cpInline ? " phone-jjwxc__bar--with-cp" : "");
+    const trail =
+      cpInline || genBtn
+        ? '<div class="phone-jjwxc__bar-trail">' + cpInline + genBtn + "</div>"
+        : genBtn || '<span class="phone-app__bar-side" aria-hidden="true"></span>';
+    return (
+      '<header class="' +
+      barClass +
+      '">' +
+      (showBack ? backCell : "") +
+      '<div class="phone-jjwxc__title-wrap">' +
+      '<h2 class="phone-app__title phone-app__title--left phone-jjwxc__title">' +
+      escapeHtml(title) +
+      "</h2></div>" +
+      trail +
+      "</header>"
+    );
+  }
+
+  function buildFanworkEmptyHtml(kind, message) {
+    const icons = {
+      cp: "💘",
+      cat: "📂",
+      shelf: "📚",
+      fav: "⭐",
+      default: "🍬",
+    };
+    const icon = icons[kind] || icons.default;
+    return (
+      '<div class="fanwork-jjwxc__empty">' +
+      '<span class="fanwork-jjwxc__empty-icon" aria-hidden="true">' +
+      icon +
+      "</span>" +
+      "<p>" +
+      escapeHtml(message) +
+      "</p></div>"
+    );
+  }
+
+  function buildFanworkCpShipPreviewHtml(charIdA, charIdB) {
+    const a = charIdA ? getCharById(charIdA) : null;
+    const b = charIdB ? getCharById(charIdB) : null;
+    if (!a || !b || charIdA === charIdB) {
+      return '<div class="fanwork-cp-pick__ship-preview fanwork-cp-pick__ship-preview--empty"><p>选满两位角色，预览你的 CP 组合</p></div>';
+    }
+    return (
+      '<div class="fanwork-cp-pick__ship-preview">' +
+      '<span class="avatar fanwork-cp-pick__ship-av" data-char-id="' +
+      escapeHtml(a.id) +
+      '"></span>' +
+      '<span class="fanwork-cp-pick__ship-heart" aria-hidden="true">💕</span>' +
+      '<span class="avatar fanwork-cp-pick__ship-av" data-char-id="' +
+      escapeHtml(b.id) +
+      '"></span>' +
+      '<p class="fanwork-cp-pick__ship-label">' +
+      escapeHtml(getFanworkCpLabel({ charA: a, charB: b })) +
+      "</p></div>"
+    );
+  }
+
+  function buildFanworkCpBarInlineHtml() {
+    const pair = getFanworkCpPair();
+    const label = pair
+      ? escapeHtml(getFanworkCpLabel(pair))
+      : '<span class="fanwork-cp-bar__label--empty">选 CP</span>';
+    return (
+      '<button type="button" class="fanwork-cp-bar__btn fanwork-cp-bar__btn--inline" data-fanwork-cp-open aria-label="选择或更换 CP" title="切换 CP">' +
+      '<span class="fanwork-cp-bar__label fanwork-cp-bar__label--inline">' +
+      label +
+      "</span></button>"
+    );
+  }
+
+  function buildFanworkCpPickCharBtnHtml(c, pickA, pickB, index) {
+    const selA = pickA === c.id;
+    const selB = pickB === c.id;
+    const selected = selA || selB;
+    let zIndex = index + 1;
+    if (selA) zIndex = 100;
+    if (selB) zIndex = 101;
+    const name = c.name || "未命名";
+    return (
+      '<button type="button" class="char-pick-avatar' +
+      (selected ? " is-selected" : "") +
+      '" data-fanwork-cp-char="' +
+      escapeHtml(c.id) +
+      '" title="' +
+      escapeHtml(name) +
+      '" aria-label="' +
+      escapeHtml(name) +
+      '" style="z-index:' +
+      zIndex +
+      '"><span class="avatar" data-char-id="' +
+      escapeHtml(c.id) +
+      '"></span></button>'
+    );
+  }
+
+  function buildFanworkCpPickCharRowHtml(list, pickA, pickB) {
+    if (!list.length) {
+      return '<p class="field__hint field__hint--tight fanwork-cp-pick__col-empty">暂无</p>';
+    }
+    return (
+      '<div class="h-scroll sheet-char-pick-row sheet-char-pick-row--overlap">' +
+      list
+        .map(function (c, idx) {
+          return buildFanworkCpPickCharBtnHtml(c, pickA, pickB, idx);
+        })
+        .join("") +
+      "</div>"
+    );
+  }
+
+  function buildFanworkCpPickerOverlayHtml(nav) {
+    if (!nav || !nav.cpPickOpen) return "";
+    const pair = getFanworkCpPair();
+    const pickA = nav.cpPickPendingA != null ? nav.cpPickPendingA : pair ? pair.ids[0] : null;
+    const pickB = nav.cpPickPendingB != null ? nav.cpPickPendingB : pair ? pair.ids[1] : null;
+    const selfList = getSelfCharacters();
+    const supList = getSupportingCharacters();
+    const charsBlock =
+      !selfList.length && !supList.length
+        ? '<p class="fanwork-cp-pick__empty-list">暂无角色，请先在「角色」页创建。</p>'
+        : '<div class="sheet-char-pick-inline sheet-char-pick-inline--in-modal fanwork-cp-pick__chars">' +
+          '<div class="sheet-char-pick-inline__block sheet-char-pick-inline__block--prot">' +
+          '<p class="field__label sheet-char-pick-inline__label">我的形象</p>' +
+          buildFanworkCpPickCharRowHtml(selfList, pickA, pickB) +
+          "</div>" +
+          '<div class="sheet-char-pick-inline__block sheet-char-pick-inline__block--sup">' +
+          '<p class="field__label sheet-char-pick-inline__label">其他角色</p>' +
+          buildFanworkCpPickCharRowHtml(supList, pickA, pickB) +
+          "</div></div>";
+    const canConfirm = !!(pickA && pickB && pickA !== pickB);
+    function slotHtml(label, charId, slotKey) {
+      const c = charId ? getCharById(charId) : null;
+      const active = nav.cpPickSlot === slotKey ? " fanwork-cp-pick__slot--active" : "";
+      return (
+        '<button type="button" class="fanwork-cp-pick__slot' +
+        active +
+        '" data-fanwork-cp-slot="' +
+        escapeHtml(slotKey) +
+        '">' +
+        '<span class="fanwork-cp-pick__slot-label">' +
+        escapeHtml(label) +
+        "</span>" +
+        (c
+          ? '<span class="avatar fanwork-cp-pick__avatar" data-char-id="' +
+            escapeHtml(c.id) +
+            '"></span><span class="fanwork-cp-pick__name">' +
+            escapeHtml(c.name || "未命名") +
+            "</span>"
+          : '<span class="fanwork-cp-pick__empty">点击选择</span>') +
+        "</button>"
+      );
+    }
+    return (
+      '<div class="phone-forum-manage fanwork-cp-pick-overlay" role="dialog" aria-modal="true" aria-label="选择 CP">' +
+      '<button type="button" class="phone-forum-manage__backdrop" data-fanwork-cp-close aria-label="关闭"></button>' +
+      '<div class="phone-forum-manage__panel fanwork-cp-pick__panel">' +
+      '<div class="phone-forum-manage__head">' +
+      '<h3 class="phone-forum-manage__title">组 CP</h3>' +
+      '<button type="button" class="phone-forum-manage__close" data-fanwork-cp-close aria-label="关闭">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      "</button></div>" +
+      '<p class="fanwork-cp-pick__hint">选择两位角色组成 CP，书城将生成该组合的同人文。</p>' +
+      buildFanworkCpShipPreviewHtml(pickA, pickB) +
+      '<div class="fanwork-cp-pick__pair">' +
+      slotHtml("角色 A", pickA, "a") +
+      '<span class="fanwork-cp-pick__x" aria-hidden="true">×</span>' +
+      slotHtml("角色 B", pickB, "b") +
+      "</div>" +
+      charsBlock +
+      '<button type="button" class="btn btn--primary btn--pill btn--block fanwork-cp-pick__enter"' +
+      (canConfirm ? "" : " disabled") +
+      ' data-fanwork-cp-enter>确认</button>' +
+      "</div></div>"
+    );
+  }
+
+  function buildFanworkJjwxcBottomNavHtml(activeTab) {
+    const tabs = [
+      { id: "store", label: "书城" },
+      { id: "shelf", label: "书架" },
+      { id: "fav", label: "收藏" },
+    ];
+    return (
+      '<nav class="phone-jjwxc__seg" aria-label="小狗饭导航">' +
+      tabs
+        .map(function (t) {
+          const active = t.id === activeTab;
+          return (
+            '<button type="button" class="phone-jjwxc__seg-item' +
+            (active ? " is-active" : "") +
+            '" data-fanwork-jjwxc-tab="' +
+            escapeHtml(t.id) +
+            '">' +
+            escapeHtml(t.label) +
+            "</button>"
+          );
+        })
+        .join("") +
+      "</nav>"
+    );
+  }
+
+  function buildFanworkJjwxcManageListHtml() {
+    const sections = getFanworkJjwxcCategories();
+    const rows = sections
+      .map(function (sec) {
+        const desc = String(sec.description || "").trim();
+        const descHtml = desc
+          ? escapeHtml(truncateCharsWithEllipsis(desc, 48))
+          : '<span class="phone-forum-manage__desc-placeholder">…</span>';
+        return (
+          '<div class="phone-forum-manage__row">' +
+          '<div class="phone-forum-manage__info">' +
+          '<span class="phone-forum-manage__name">' +
+          escapeHtml(sec.name) +
+          "</span>" +
+          '<span class="phone-forum-manage__desc">' +
+          descHtml +
+          "</span></div>" +
+          '<div class="phone-forum-manage__actions">' +
+          '<button type="button" class="phone-forum-manage__action" data-fanwork-jjwxc-category-edit="' +
+          escapeHtml(sec.id) +
+          '">编辑</button>' +
+          '<button type="button" class="phone-forum-manage__action phone-forum-manage__action--danger" data-fanwork-jjwxc-category-delete="' +
+          escapeHtml(sec.id) +
+          '">删除</button>' +
+          "</div></div>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="phone-forum-manage__panel">' +
+      '<div class="phone-forum-manage__head">' +
+      '<h3 class="phone-forum-manage__title">管理分区</h3>' +
+      '<button type="button" class="phone-forum-manage__close" data-fanwork-jjwxc-manage-close aria-label="关闭">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      "</button></div>" +
+      '<p class="phone-forum-manage__hint">分区简介即你想看的剧情发展方向，AI 生成该分区下的同人文时会严格遵守。</p>' +
+      '<div class="phone-forum-manage__list">' +
+      (rows || '<p class="field__hint">暂无分区，请添加。</p>') +
+      "</div>" +
+      '<button type="button" class="btn btn--secondary btn--pill phone-forum-manage__add" data-fanwork-jjwxc-category-add>添加分区</button>' +
+      "</div>"
+    );
+  }
+
+  function buildFanworkJjwxcCategoryFormHtml(nav) {
+    const formId = String((nav && nav.jjwxcCategoryFormId) || "").trim();
+    if (!formId) return "";
+    const isNew = formId === "new";
+    let nameVal = "";
+    let descVal = "";
+    if (!isNew) {
+      const sec = findFanworkJjwxcCategory(formId);
+      if (sec) {
+        nameVal = sec.name;
+        descVal = sec.description;
+      }
+    }
+    return (
+      '<div class="phone-forum-manage__panel phone-forum-manage__panel--form">' +
+      '<div class="phone-forum-manage__head">' +
+      '<h3 class="phone-forum-manage__title">' +
+      (isNew ? "添加分区" : "编辑分区") +
+      "</h3>" +
+      '<button type="button" class="phone-forum-manage__close" data-fanwork-jjwxc-category-form-cancel aria-label="取消">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      "</button></div>" +
+      '<label class="phone-forum-manage__field"><span class="phone-forum-manage__label">分区名称</span>' +
+      '<input type="text" class="phone-forum-manage__input" data-fanwork-jjwxc-category-name-input maxlength="' +
+      PHONE_JJWXC_CAT_NAME_MAX +
+      '" value="' +
+      escapeHtml(nameVal) +
+      '" placeholder="如：现代AU、破镜重圆" /></label>' +
+      '<label class="phone-forum-manage__field"><span class="phone-forum-manage__label">剧情方向（生成规则）</span>' +
+      '<textarea class="phone-forum-manage__textarea" data-fanwork-jjwxc-category-desc-input maxlength="' +
+      PHONE_JJWXC_CAT_DESC_MAX +
+      '" rows="4" placeholder="描述你想看的 CP 剧情走向、风格与禁忌">' +
+      escapeHtml(descVal) +
+      "</textarea></label>" +
+      '<button type="button" class="btn btn--primary btn--pill phone-forum-manage__save" data-fanwork-jjwxc-category-save>保存</button>' +
+      "</div>"
+    );
+  }
+
+  function buildFanworkJjwxcManageOverlayHtml(nav) {
+    if (!nav || !nav.jjwxcManageOpen) return "";
+    const formHtml = nav.jjwxcCategoryFormId ? buildFanworkJjwxcCategoryFormHtml(nav) : buildFanworkJjwxcManageListHtml();
+    return (
+      '<div class="phone-forum-manage" role="dialog" aria-modal="true" aria-label="管理小狗饭分区">' +
+      '<button type="button" class="phone-forum-manage__backdrop" data-fanwork-jjwxc-manage-close aria-label="关闭"></button>' +
+      formHtml +
+      "</div>"
+    );
+  }
+
+  function buildFanworkJjwxcCategoryPillsHtml(activeCategoryId) {
+    const sections = getFanworkJjwxcCategories();
+    const tabs = sections
+      .map(function (sec) {
+        const active = sec.id === activeCategoryId;
+        return (
+          '<button type="button" class="filter-pill phone-jjwxc__pill' +
+          (active ? " is-active" : "") +
+          '" data-fanwork-jjwxc-category="' +
+          escapeHtml(sec.id) +
+          '">' +
+          escapeHtml(sec.name) +
+          "</button>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="pill-row-wrap phone-jjwxc__pill-wrap phone-jjwxc__pill-wrap--sticky" aria-label="书城分区">' +
+      '<div class="phone-jjwxc__pill-row">' +
+      '<div class="phone-jjwxc__pill-scroll pill-row">' +
+      (tabs || '<span class="field__hint phone-jjwxc__empty-cat">请先点 ⚙ 添加分区</span>') +
+      "</div>" +
+      '<button type="button" class="phone-jjwxc__cat-manage" data-fanwork-jjwxc-manage-open aria-label="管理分区" title="管理分区">' +
+      '<svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></svg>' +
+      "</button></div></div>"
+    );
+  }
+
+  function buildFanworkJjwxcNovelCardHtml(novel, placeholder, opts) {
+    opts = opts || {};
+    if (placeholder) {
+      return (
+        '<div class="phone-jjwxc__card phone-jjwxc__card--ph fanwork-jjwxc__card--ph">' +
+        buildPhoneJjwxcCoverHtml(null, true, "sm") +
+        '<div class="phone-jjwxc__card-body"><p class="phone-jjwxc__card-title">…</p><p class="phone-jjwxc__card-author">…</p>' +
+        '<div class="phone-jjwxc__card-tags">' +
+        buildPhoneJjwxcTagsHtml(null, true) +
+        "</div><p class=\"phone-jjwxc__card-summary\">…</p></div></div>"
+      );
+    }
+    const rank = opts.rank != null ? Number(opts.rank) : 0;
+    const rankHtml =
+      rank > 0 && rank <= 3
+        ? '<span class="fanwork-jjwxc__rank fanwork-jjwxc__rank--' +
+          rank +
+          '">' +
+          rank +
+          "</span>"
+        : rank > 3
+          ? '<span class="fanwork-jjwxc__rank">' +
+            rank +
+            "</span>"
+          : "";
+    const hotHtml =
+      (novel.collectCount || 0) >= 50 || rank === 1
+        ? '<span class="fanwork-jjwxc__hot">热</span>'
+        : "";
+    const favHtml = novel.isFavorite ? '<span class="fanwork-jjwxc__fav-mark" aria-label="已收藏">★</span>' : "";
+    const progressHtml =
+      opts.showProgress && novel.readProgress > 0
+        ? '<div class="phone-jjwxc__card-progress"><div class="phone-jjwxc__card-progress-bar" style="width:' +
+          novel.readProgress +
+          '%"></div></div><span class="phone-jjwxc__card-progress-label">已读 ' +
+          novel.readProgress +
+          "%</span>"
+        : "";
+    return (
+      '<div class="phone-jjwxc__card-wrap">' +
+      '<button type="button" class="phone-jjwxc__card fanwork-jjwxc__card" data-fanwork-jjwxc-novel="' +
+      escapeHtml(String(novel.id || "")) +
+      '">' +
+      rankHtml +
+      buildPhoneJjwxcCoverHtml(novel, false, "sm") +
+      '<div class="phone-jjwxc__card-body">' +
+      '<div class="fanwork-jjwxc__card-head">' +
+      '<p class="phone-jjwxc__card-title">' +
+      escapeHtml(String(novel.title || "")) +
+      "</p>" +
+      hotHtml +
+      favHtml +
+      "</div>" +
+      '<p class="phone-jjwxc__card-author">' +
+      escapeHtml(String(novel.author || "")) +
+      " · 太太</p>" +
+      '<div class="phone-jjwxc__card-tags">' +
+      buildPhoneJjwxcTagsHtml(novel.tags, false) +
+      "</div>" +
+      '<p class="phone-jjwxc__card-summary">' +
+      escapeHtml(String(novel.summary || "")) +
+      "</p>" +
+      '<div class="phone-jjwxc__card-meta">' +
+      buildPhoneJjwxcStatusBadgeHtml(novel.status, false) +
+      '<span class="phone-jjwxc__card-stat">' +
+      escapeHtml(String(novel.wordCountLabel || "")) +
+      " · " +
+      escapeHtml(String(novel.collectCount || 0)) +
+      " 收藏</span></div>" +
+      progressHtml +
+      "</div></button>" +
+      buildPhoneJjwxcNovelCardDeleteBtnHtml(novel.id, "data-fanwork-jjwxc-novel-delete") +
+      "</div>"
+    );
+  }
+
+  function buildFanworkJjwxcStorePanelHtml(nav) {
+    const placeholder = !hasFanworkJjwxcGenerated();
+    const categoryId = getFanworkJjwxcActiveCategoryId(nav);
+    let cards = "";
+    if (placeholder) {
+      for (let i = 0; i < FANWORK_JJWXC_PLACEHOLDER_NOVELS; i++) cards += buildFanworkJjwxcNovelCardHtml(null, true);
+    } else {
+      const key = getFanworkCpStorageKey();
+      const rec = key ? fanworkJjwxcData[key] : null;
+      const novels = (rec && rec.novels ? rec.novels : []).filter(function (n) {
+        return n && n.categoryId === categoryId;
+      });
+      if (!novels.length) {
+        const noCp = !getFanworkCpPair();
+        cards = noCp
+          ? buildFanworkEmptyHtml("cp", "先选一对 CP，再开嗑同人文")
+          : buildFanworkEmptyHtml("cat", "该分区还没有粮 · 点右上角 ✦ 生成");
+      } else {
+        novels.forEach(function (n, idx) {
+          cards += buildFanworkJjwxcNovelCardHtml(n, false, { rank: idx + 1 });
+        });
+      }
+    }
+    return (
+      '<div class="phone-jjwxc__panel fanwork-jjwxc__store-panel">' +
+      buildFanworkJjwxcCategoryPillsHtml(categoryId) +
+      '<div class="phone-jjwxc__list fanwork-jjwxc__list">' +
+      cards +
+      "</div></div>"
+    );
+  }
+
+  function buildFanworkJjwxcShelfPanelHtml() {
+    const placeholder = !hasFanworkJjwxcGenerated();
+    let cards = "";
+    const key = getFanworkCpStorageKey();
+    const rec = key ? fanworkJjwxcData[key] : null;
+    if (placeholder) {
+      for (let i = 0; i < 4; i++) cards += buildFanworkJjwxcNovelCardHtml(null, true, { showProgress: true });
+    } else {
+      const novels = (rec.novels || []).filter(function (n) {
+        return n && n.onShelf;
+      });
+      cards = novels.length
+        ? novels.map(function (n) {
+            return buildFanworkJjwxcNovelCardHtml(n, false, { showProgress: true });
+          }).join("")
+        : buildFanworkEmptyHtml("shelf", "书架空空，去书城捞点粮");
+    }
+    return (
+      '<div class="phone-jjwxc__panel"><p class="phone-jjwxc__panel-kicker fanwork-jjwxc__kicker">📖 正在追更</p><div class="phone-jjwxc__list fanwork-jjwxc__list">' +
+      cards +
+      "</div></div>"
+    );
+  }
+
+  function buildFanworkJjwxcFavPanelHtml() {
+    const placeholder = !hasFanworkJjwxcGenerated();
+    let cards = "";
+    const key = getFanworkCpStorageKey();
+    const rec = key ? fanworkJjwxcData[key] : null;
+    if (placeholder) {
+      for (let i = 0; i < 4; i++) cards += buildFanworkJjwxcNovelCardHtml(null, true);
+    } else {
+      const novels = (rec.novels || []).filter(function (n) {
+        return n && n.isFavorite;
+      });
+      cards = novels.length
+        ? novels.map(function (n) {
+            return buildFanworkJjwxcNovelCardHtml(n, false);
+          }).join("")
+        : buildFanworkEmptyHtml("fav", "还没有收藏，看到对味的就星标");
+    }
+    return (
+      '<div class="phone-jjwxc__panel"><p class="phone-jjwxc__panel-kicker fanwork-jjwxc__kicker">⭐ 收藏作品</p><div class="phone-jjwxc__list fanwork-jjwxc__list">' +
+      cards +
+      "</div></div>"
+    );
+  }
+
+  function buildFanworkJjwxcMainHtml(slot) {
+    const nav = getFanworkNav(slot);
+    let tab = nav.jjwxcTab || "store";
+    if (tab !== "store" && tab !== "shelf" && tab !== "fav") tab = "store";
+    let panelHtml = "";
+    if (tab === "shelf") panelHtml = buildFanworkJjwxcShelfPanelHtml();
+    else if (tab === "fav") panelHtml = buildFanworkJjwxcFavPanelHtml();
+    else panelHtml = buildFanworkJjwxcStorePanelHtml(nav);
+    const showMainBack = !!(slot && slot.id === "story-fanwork-slot");
+    return (
+      '<div class="phone-app phone-jjwxc phone-jjwxc--fanwork" aria-label="小狗饭">' +
+      '<div class="phone-jjwxc__top">' +
+      buildFanworkJjwxcBarHtml("小狗饭", undefined, { showBack: showMainBack, cpInline: true }) +
+      buildFanworkJjwxcBottomNavHtml(tab) +
+      "</div>" +
+      '<div class="phone-jjwxc__scroll">' +
+      panelHtml +
+      "</div>" +
+      buildFanworkJjwxcManageOverlayHtml(nav) +
+      buildFanworkCpPickerOverlayHtml(nav) +
+      "</div>"
+    );
+  }
+
+  function buildFanworkJjwxcNovelDetailHtml(slot) {
+    const nav = getFanworkNav(slot);
+    const novelId = String(nav.jjwxcNovelId || "").trim();
+    const hit = findFanworkJjwxcNovel(novelId);
+    const novel = hit ? hit.novel : null;
+    const placeholder = !novel;
+    const hasDetail = novel && fanworkJjwxcNovelHasDetail(novel);
+    const generating = fanworkJjwxcNovelGeneratingId === novelId;
+    const cat = novel ? findFanworkJjwxcCategory(novel.categoryId) : null;
+    let chaptersHtml = "";
+    if (placeholder || !hasDetail) {
+      chaptersHtml +=
+        '<div class="phone-jjwxc__ch-row phone-jjwxc__ch-row--ph"><span class="phone-jjwxc__ch-title">…</span><span class="phone-jjwxc__ch-meta">…</span></div>';
+    } else {
+      (novel.chapters || []).forEach(function (ch) {
+        const hasContent = phoneJjwxcChapterHasContent(ch);
+        chaptersHtml +=
+          '<button type="button" class="phone-jjwxc__ch-row' +
+          (hasContent ? "" : " phone-jjwxc__ch-row--locked") +
+          '" data-fanwork-jjwxc-chapter="' +
+          escapeHtml(String(ch.id || "")) +
+          '"><span class="phone-jjwxc__ch-title">' +
+          escapeHtml(String(ch.title || "")) +
+          '</span><span class="phone-jjwxc__ch-meta">' +
+          (hasContent ? escapeHtml(String(ch.wordCount || 0)) + "字" : "…") +
+          "</span></button>";
+      });
+    }
+    let genBtn = "";
+    if (!placeholder && generating) {
+      genBtn = '<p class="phone-jjwxc__generating">生成中…</p>';
+    } else if (!placeholder) {
+      const latestCh = hasDetail ? getFanworkJjwxcLatestChapter(novel) : null;
+      const canRegenLatest = !!(latestCh && phoneJjwxcChapterHasContent(latestCh));
+      const regenKey = canRegenLatest ? novelId + "\u001f" + latestCh.id : "";
+      const regenGenerating = !!(regenKey && fanworkJjwxcChapterGeneratingId === regenKey);
+      const disabled = isAnyPhoneAiGenerating() ? " disabled" : "";
+      genBtn = '<div class="phone-jjwxc__chapters-actions">';
+      genBtn +=
+        '<button type="button" class="phone-jjwxc__detail-gen" data-fanwork-jjwxc-novel-generate="' +
+        escapeHtml(novelId) +
+        '"' +
+        disabled +
+        ">" +
+        (hasDetail ? "追加章节" : "生成详情") +
+        "</button>";
+      if (canRegenLatest) {
+        genBtn += regenGenerating
+          ? '<span class="phone-jjwxc__generating phone-jjwxc__generating--inline">重写中…</span>'
+          : '<button type="button" class="phone-jjwxc__detail-gen phone-jjwxc__detail-gen--secondary" data-fanwork-jjwxc-regen-latest="' +
+            escapeHtml(novelId) +
+            '"' +
+            disabled +
+            ">重新生成最新章</button>";
+      }
+      genBtn += "</div>";
+    }
+    const actionsHtml = placeholder
+      ? ""
+      : '<div class="fanwork-jjwxc__detail-actions">' +
+        '<button type="button" class="fanwork-jjwxc__action' +
+        (novel.onShelf ? " is-active" : "") +
+        '" data-fanwork-jjwxc-toggle-shelf="' +
+        escapeHtml(novelId) +
+        '">' +
+        (novel.onShelf ? "已在追" : "+ 追更") +
+        "</button>" +
+        '<button type="button" class="fanwork-jjwxc__action' +
+        (novel.isFavorite ? " is-active" : "") +
+        '" data-fanwork-jjwxc-toggle-fav="' +
+        escapeHtml(novelId) +
+        '">' +
+        (novel.isFavorite ? "★ 已收藏" : "☆ 收藏") +
+        "</button></div>";
+    return (
+      '<div class="phone-app phone-jjwxc phone-jjwxc--detail phone-jjwxc--fanwork" aria-label="作品详情">' +
+      buildFanworkJjwxcBarHtml(placeholder ? "…" : novel.title, false) +
+      '<div class="phone-jjwxc__scroll fanwork-jjwxc__detail-scroll">' +
+      '<div class="fanwork-jjwxc__detail-banner">' +
+      '<span class="fanwork-jjwxc__detail-banner-tag">CP 同人</span>' +
+      (cat ? '<span class="fanwork-jjwxc__detail-banner-cat">' + escapeHtml(cat.name) + "</span>" : "") +
+      "</div>" +
+      '<div class="phone-jjwxc__detail-head">' +
+      buildPhoneJjwxcCoverHtml(novel, placeholder, "md") +
+      '<div class="phone-jjwxc__detail-meta">' +
+      '<p class="phone-jjwxc__detail-author">' +
+      (placeholder ? "…" : escapeHtml(String(novel.author || ""))) +
+      "</p>" +
+      '<div class="phone-jjwxc__card-tags">' +
+      buildPhoneJjwxcTagsHtml(placeholder ? null : novel.tags, placeholder) +
+      "</div>" +
+      (placeholder ? "" : '<p class="phone-jjwxc__detail-cat">' + escapeHtml(cat ? cat.name : "") + "</p>") +
+      buildFanworkJjwxcDetailAuthorNoteHtml(novel, placeholder) +
+      "</div></div>" +
+      actionsHtml +
+      '<section class="phone-jjwxc__synopsis"><h3 class="phone-jjwxc__section-title">简介</h3>' +
+      '<p class="phone-jjwxc__synopsis-text">' +
+      (placeholder ? "…" : hasDetail ? escapeHtml(String(novel.synopsis || novel.summary)) : "…") +
+      "</p></section>" +
+      '<section class="phone-jjwxc__chapters"><div class="phone-jjwxc__chapters-head"><h3 class="phone-jjwxc__section-title">目录</h3>' +
+      genBtn +
+      '</div><div class="phone-jjwxc__ch-list">' +
+      chaptersHtml +
+      "</div></section></div></div>" +
+      buildFanworkJjwxcAppendOverlayHtml(nav, novelId) +
+      buildFanworkJjwxcRegenOverlayHtml(nav, novelId)
+    );
+  }
+
+  function buildFanworkJjwxcChapterHtml(slot) {
+    const nav = getFanworkNav(slot);
+    const novelId = String(nav.jjwxcNovelId || "").trim();
+    const chapterId = String(nav.jjwxcChapterId || "").trim();
+    const hit = findFanworkJjwxcNovel(novelId);
+    const novel = hit ? hit.novel : null;
+    const chapter =
+      novel &&
+      (novel.chapters || []).find(function (c) {
+        return c && c.id === chapterId;
+      });
+    const genKey = novelId + "\u001f" + chapterId;
+    const generating = fanworkJjwxcChapterGeneratingId === genKey;
+    const hasContent = chapter && phoneJjwxcChapterHasContent(chapter);
+    const contentHtml = hasContent
+      ? formatPhoneJjwxcChapterBodyHtml(chapter.content)
+      : generating
+        ? '<p class="phone-jjwxc__generating">正在生成正文…</p>'
+        : '<p class="phone-jjwxc__chapter-ph">…</p>';
+    const thoughtHtml =
+      hasContent && chapter.readerThought ? buildFanworkJjwxcAuthorWordsAsideHtml(chapter.readerThought) : "";
+    return (
+      '<div class="phone-app phone-jjwxc phone-jjwxc--chapter phone-jjwxc--fanwork" aria-label="章节阅读">' +
+      buildFanworkJjwxcBarHtml(chapter ? chapter.title : "…", false) +
+      '<div class="phone-jjwxc__reader fanwork-jjwxc__reader">' +
+      '<article class="phone-jjwxc__chapter-body fanwork-jjwxc__chapter-body">' +
+      contentHtml +
+      "</article>" +
+      thoughtHtml +
+      "</div></div>"
+    );
+  }
+
+  function fillFanworkAvatarsInSlot(slot) {
+    if (!slot) return;
+    slot.querySelectorAll(".avatar[data-char-id]").forEach(function (el) {
+      const c = getCharById(el.getAttribute("data-char-id"));
+      if (c) fillAvatarElement(el, c);
+    });
+  }
+
+  function renderFanworkScreen(slot) {
+    if (!slot) return;
+    slot.classList.remove("story-placeholder");
+    const nav = getFanworkNav(slot);
+    if (nav.screen === "jjwxc") {
+      if (getFanworkCpPair()) getFanworkJjwxcBundleMutable();
+      slot.innerHTML = buildFanworkJjwxcMainHtml(slot);
+      fillFanworkAvatarsInSlot(slot);
+      return;
+    }
+    if (nav.screen === "jjwxc-novel") {
+      slot.innerHTML = buildFanworkJjwxcNovelDetailHtml(slot);
+      return;
+    }
+    if (nav.screen === "jjwxc-chapter") {
+      slot.innerHTML = buildFanworkJjwxcChapterHtml(slot);
+      return;
+    }
+    nav.screen = "jjwxc";
+    renderFanworkScreen(slot);
+  }
+
+  function fanworkNavBack(slot) {
+    const nav = getFanworkNav(slot);
+    if (nav.screen === "jjwxc-chapter") {
+      nav.screen = "jjwxc-novel";
+      nav.jjwxcChapterId = null;
+    } else if (nav.screen === "jjwxc-novel") {
+      if (nav.jjwxcAppendOpen) {
+        nav.jjwxcAppendOpen = false;
+        nav.jjwxcAppendNovelId = null;
+      } else if (nav.jjwxcRegenOpen) {
+        nav.jjwxcRegenOpen = false;
+        nav.jjwxcRegenNovelId = null;
+      } else {
+        nav.screen = "jjwxc";
+        nav.jjwxcNovelId = null;
+        nav.jjwxcChapterId = null;
+      }
+    } else if (nav.screen === "jjwxc") {
+      if (nav.cpPickOpen) nav.cpPickOpen = false;
+      else if (nav.jjwxcCategoryFormId) nav.jjwxcCategoryFormId = null;
+      else if (nav.jjwxcManageOpen) nav.jjwxcManageOpen = false;
+      else if (slot && slot.id === "story-fanwork-slot") {
+        closeStoryFanworkModal();
+        return;
+      }
+    }
+    renderFanworkScreen(slot);
+  }
+
+  function openFanworkCpPick(slot) {
+    const nav = getFanworkNav(slot);
+    const pair = getFanworkCpPair();
+    nav.screen = "jjwxc";
+    nav.jjwxcNovelId = null;
+    nav.jjwxcChapterId = null;
+    nav.cpPickOpen = true;
+    nav.cpPickSlot = "a";
+    nav.cpPickPendingA = pair ? pair.ids[0] : null;
+    nav.cpPickPendingB = pair ? pair.ids[1] : null;
+    renderFanworkScreen(slot);
+  }
+
+  function closeFanworkCpPick(slot) {
+    const nav = getFanworkNav(slot);
+    nav.cpPickOpen = false;
+    renderFanworkScreen(slot);
+  }
+
+  function confirmFanworkCpPick(slot) {
+    const nav = getFanworkNav(slot);
+    const a = String(nav.cpPickPendingA || "").trim();
+    const b = String(nav.cpPickPendingB || "").trim();
+    const sorted = sortFanworkCpCharIds(a, b);
+    if (!sorted) {
+      showToast("请选择两位不同的角色。", "warning");
+      return;
+    }
+    const changed =
+      !fanworkCpCharIds ||
+      fanworkCpCharIds[0] !== sorted[0] ||
+      fanworkCpCharIds[1] !== sorted[1];
+    fanworkCpCharIds = sorted;
+    schedulePersistNarrative();
+    nav.cpPickOpen = false;
+    nav.screen = "jjwxc";
+    nav.jjwxcTab = nav.jjwxcTab || "store";
+    nav.jjwxcCategoryId = getFanworkJjwxcActiveCategoryId(nav);
+    getFanworkJjwxcBundleMutable();
+    renderFanworkScreen(slot);
+    if (changed) {
+      showToast("已切换为「" + getFanworkCpLabel() + "」", "success");
+    }
+  }
+
+  function openFanworkJjwxcManage(slot) {
+    const nav = getFanworkNav(slot);
+    if (nav.screen !== "jjwxc") return;
+    nav.jjwxcManageOpen = true;
+    nav.jjwxcCategoryFormId = null;
+    renderFanworkScreen(slot);
+  }
+
+  function closeFanworkJjwxcManage(slot) {
+    const nav = getFanworkNav(slot);
+    nav.jjwxcManageOpen = false;
+    nav.jjwxcCategoryFormId = null;
+    renderFanworkScreen(slot);
+  }
+
+  function saveFanworkJjwxcCategoryForm(slot) {
+    if (!requireFanworkCpForEdit()) return;
+    const rec = getFanworkJjwxcBundleMutable();
+    if (!rec) return;
+    const nav = getFanworkNav(slot);
+    const nameInput = slot && slot.querySelector("[data-fanwork-jjwxc-category-name-input]");
+    const descInput = slot && slot.querySelector("[data-fanwork-jjwxc-category-desc-input]");
+    const name = truncateCharsWithEllipsis(String((nameInput && nameInput.value) || "").trim(), PHONE_JJWXC_CAT_NAME_MAX);
+    const description = truncateCharsWithEllipsis(
+      String((descInput && descInput.value) || "").trim(),
+      PHONE_JJWXC_CAT_DESC_MAX
+    );
+    if (!name) {
+      showToast("分区名称不能为空", "warning");
+      return;
+    }
+    if (!description) {
+      showToast("请填写剧情方向", "warning");
+      return;
+    }
+    const formId = String(nav.jjwxcCategoryFormId || "").trim();
+    if (formId === "new") {
+      if (rec.bundle.categories.length >= FANWORK_JJWXC_MAX_CATEGORIES) {
+        showToast("分区已达上限 " + FANWORK_JJWXC_MAX_CATEGORIES + " 个", "warning");
+        return;
+      }
+      const newId = uid("fw-cat");
+      rec.bundle.categories.push({ id: newId, name: name, description: description });
+      nav.jjwxcCategoryId = newId;
+    } else {
+      const sec = rec.bundle.categories.find(function (s) {
+        return s && s.id === formId;
+      });
+      if (!sec) {
+        showToast("分区不存在", "error");
+        return;
+      }
+      sec.name = name;
+      sec.description = description;
+    }
+    rec.bundle.categoriesUserEdited = true;
+    persistFanworkJjwxcBundle(rec.bundle, true);
+    nav.jjwxcCategoryFormId = null;
+    showToast("已保存分区", "success");
+    renderFanworkScreen(slot);
+  }
+
+  async function handleFanworkJjwxcCategoryDelete(slot, categoryId) {
+    if (!requireFanworkCpForEdit()) return;
+    const rec = getFanworkJjwxcBundleMutable();
+    if (!rec) return;
+    const id = String(categoryId || "").trim();
+    const sec = rec.bundle.categories.find(function (s) {
+      return s && s.id === id;
+    });
+    if (!sec) return;
+    const ok = await showConfirm("确定删除分区「" + sec.name + "」吗？该分区下的作品也会一并移除。", "删除分区");
+    if (!ok) return;
+    rec.bundle.categories = rec.bundle.categories.filter(function (s) {
+      return s && s.id !== id;
+    });
+    rec.bundle.novels = (rec.bundle.novels || []).filter(function (n) {
+      return n && n.categoryId !== id;
+    });
+    rec.bundle.categoriesUserEdited = true;
+    persistFanworkJjwxcBundle(rec.bundle, true);
+    const nav = getFanworkNav(slot);
+    if (nav.jjwxcCategoryId === id) {
+      nav.jjwxcCategoryId = rec.bundle.categories.length ? rec.bundle.categories[0].id : "";
+    }
+    nav.jjwxcCategoryFormId = null;
+    if (!rec.bundle.categories.length) nav.jjwxcManageOpen = false;
+    showToast("已删除分区", "success");
+    renderFanworkScreen(slot);
+  }
+
+  async function handleFanworkJjwxcNovelDelete(slot, novelId) {
+    if (!requireFanworkCpForEdit()) return;
+    const hit = findFanworkJjwxcNovel(novelId);
+    if (!hit) return;
+    const title = String(hit.novel.title || "").trim() || "未命名";
+    const ok = await showConfirm("确定删除作品「" + title + "」吗？", "删除作品");
+    if (!ok) return;
+    const rec = getFanworkJjwxcBundleMutable();
+    if (!rec) return;
+    removeJjwxcNovelFromBundle(rec.bundle, hit.novel.id);
+    persistFanworkJjwxcBundle(rec.bundle, true);
+    const nav = getFanworkNav(slot);
+    if (nav.jjwxcNovelId === hit.novel.id) {
+      nav.screen = "jjwxc";
+      nav.jjwxcNovelId = null;
+      nav.jjwxcChapterId = null;
+      nav.jjwxcAppendOpen = false;
+      nav.jjwxcAppendNovelId = null;
+      nav.jjwxcRegenOpen = false;
+      nav.jjwxcRegenNovelId = null;
+    }
+    showToast("已删除作品", "success");
+    renderFanworkScreen(slot);
+  }
+
+  async function openFanworkJjwxcNovel(slot, novelId) {
+    const nav = getFanworkNav(slot);
+    const id = String(novelId || "").trim();
+    if (!id) return;
+    nav.screen = "jjwxc-novel";
+    nav.jjwxcNovelId = id;
+    nav.jjwxcChapterId = null;
+    renderFanworkScreen(slot);
+    const hit = findFanworkJjwxcNovel(id);
+    if (hit && !fanworkJjwxcNovelHasDetail(hit.novel) && !isAnyPhoneAiGenerating()) {
+      await generateFanworkJjwxcNovelContent(slot, id);
+    }
+  }
+
+  async function openFanworkJjwxcChapter(slot, novelId, chapterId) {
+    const nav = getFanworkNav(slot);
+    nav.screen = "jjwxc-chapter";
+    nav.jjwxcNovelId = String(novelId || "").trim();
+    nav.jjwxcChapterId = String(chapterId || "").trim();
+    renderFanworkScreen(slot);
+    const hit = findFanworkJjwxcNovel(novelId);
+    if (!hit) return;
+    const chapter = (hit.novel.chapters || []).find(function (c) {
+      return c && c.id === chapterId;
+    });
+    if (chapter && !phoneJjwxcChapterHasContent(chapter) && !isAnyPhoneAiGenerating()) {
+      await generateFanworkJjwxcChapterContent(slot, novelId, chapterId);
+    }
+    if (chapter && phoneJjwxcChapterHasContent(chapter)) {
+      markFanworkJjwxcNovelReadProgress(novelId, chapterId);
+    }
+  }
+
+  function switchFanworkJjwxcTab(slot, tabId) {
+    const nav = getFanworkNav(slot);
+    const tab = String(tabId || "store");
+    nav.jjwxcTab = tab === "shelf" || tab === "fav" ? tab : "store";
+    nav.screen = "jjwxc";
+    nav.jjwxcNovelId = null;
+    nav.jjwxcChapterId = null;
+    renderFanworkScreen(slot);
+  }
+
+  function switchFanworkJjwxcCategory(slot, categoryId) {
+    const nav = getFanworkNav(slot);
+    if (nav.screen !== "jjwxc") return;
+    const id = String(categoryId || "").trim();
+    if (!findFanworkJjwxcCategory(id)) return;
+    nav.jjwxcCategoryId = id;
+    renderFanworkScreen(slot);
+  }
+
+  function renderFanworkView() {
+    renderFanworkScreen(els.fanworkContentSlot());
+  }
+
+  function handleFanworkCpCharPick(slot, charId) {
+    const nav = getFanworkNav(slot);
+    const id = String(charId || "").trim();
+    if (!id || !getCharById(id)) return;
+    const slotKey = nav.cpPickSlot === "b" ? "b" : "a";
+    if (slotKey === "a") {
+      nav.cpPickPendingA = id;
+      if (nav.cpPickPendingB === id) nav.cpPickPendingB = null;
+      nav.cpPickSlot = "b";
+    } else {
+      nav.cpPickPendingB = id;
+      if (nav.cpPickPendingA === id) nav.cpPickPendingA = null;
+      nav.cpPickSlot = "a";
+    }
+    renderFanworkScreen(slot);
+  }
+
+  function resetPhoneWechatChatUi(nav) {
+    if (!nav) return;
+    nav.wechatSelectMode = false;
+    nav.wechatEditMode = false;
+    nav.wechatSelectedMsgs = [];
+  }
+
+  function getPhoneWechatChatUi(nav) {
+    if (!nav) return { selectMode: false, editMode: false, selectedMsgs: [] };
+    if (!Array.isArray(nav.wechatSelectedMsgs)) nav.wechatSelectedMsgs = [];
+    return {
+      selectMode: !!nav.wechatSelectMode,
+      editMode: !!nav.wechatEditMode,
+      selectedMsgs: nav.wechatSelectedMsgs,
+    };
+  }
+
+  function getPhoneWechatBundleForMutation() {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key) return null;
+    const bundle = phoneWechatData[key];
+    if (!bundle || !Array.isArray(bundle.chats)) return null;
+    return { key: key, bundle: bundle };
+  }
+
+  function getPhoneWechatChatMutable(chatId) {
+    const rec = getPhoneWechatBundleForMutation();
+    if (!rec) return null;
+    const id = String(chatId || "").trim();
+    const chat = rec.bundle.chats.find(function (c) {
+      return c && c.id === id;
+    });
+    if (!chat || !Array.isArray(chat.messages)) return null;
+    return { bundle: rec.bundle, chat: chat };
+  }
+
+  function persistPhoneWechatBundle(bundle) {
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    if (!key || !bundle) return;
+    phoneWechatData[key] = bundle;
+    schedulePersistNarrative();
+  }
+
+  function deletePhoneWechatMessages(chatId, indices) {
+    const target = getPhoneWechatChatMutable(chatId);
+    if (!target) return false;
+    const remove = {};
+    (indices || []).forEach(function (i) {
+      const n = Number(i);
+      if (Number.isFinite(n) && n >= 0) remove[n] = true;
+    });
+    target.chat.messages = target.chat.messages.filter(function (_m, idx) {
+      return !remove[idx];
+    });
+    syncPhoneWechatChatPreview(target.chat);
+    persistPhoneWechatBundle(target.bundle);
+    return true;
+  }
+
+  function deletePhoneWechatChat(chatId) {
+    const rec = getPhoneWechatBundleForMutation();
+    if (!rec) return false;
+    const id = String(chatId || "").trim();
+    if (!id) return false;
+    rec.bundle.chats = rec.bundle.chats.filter(function (c) {
+      return c && c.id !== id;
+    });
+    persistPhoneWechatBundle(rec.bundle);
+    return true;
+  }
+
+  const PHONE_ROW_SWIPE_DELETE_WIDTH = 72;
+  const PHONE_WECHAT_ROW_DELETE_WIDTH = PHONE_ROW_SWIPE_DELETE_WIDTH;
+  let phoneWechatRowSwipeDrag = null;
+  let phoneWechatRowSwipeDidMove = false;
+
+  function getPhoneRowSwipeActionWidth(wrap) {
+    if (!wrap) return PHONE_ROW_SWIPE_DELETE_WIDTH;
+    return PHONE_ROW_SWIPE_DELETE_WIDTH;
+  }
+
+  function getPhoneRowSwipeSlide(wrap) {
+    if (!wrap) return null;
+    return wrap.querySelector(".phone-wechat-row__slide, .phone-music-row__slide");
+  }
+
+  function getPhoneRowSwipeOffset(wrap) {
+    const slide = getPhoneRowSwipeSlide(wrap);
+    const actionW = getPhoneRowSwipeActionWidth(wrap);
+    if (!slide || !slide.style.transform) {
+      return wrap && wrap.classList.contains("is-open") ? -actionW : 0;
+    }
+    const m = slide.style.transform.match(/translateX\((-?\d+(?:\.\d+)?)px\)/);
+    return m ? Number(m[1]) : 0;
+  }
+
+  function getPhoneWechatRowSwipeOffset(wrap) {
+    return getPhoneRowSwipeOffset(wrap);
+  }
+
+  function setPhoneRowSwipeTransform(slide, px) {
+    if (!slide) return;
+    if (!px) slide.style.transform = "";
+    else slide.style.transform = "translateX(" + px + "px)";
+  }
+
+  function setPhoneWechatRowSwipeTransform(slide, px) {
+    setPhoneRowSwipeTransform(slide, px);
+  }
+
+  function closePhoneRowSwipe(slot) {
+    if (!slot) return;
+    slot
+      .querySelectorAll(
+        ".phone-wechat-row-wrap.is-open, .phone-wechat-row-wrap.is-dragging, .phone-music-row-wrap.is-open, .phone-music-row-wrap.is-dragging"
+      )
+      .forEach(function (wrap) {
+        wrap.classList.remove("is-open", "is-dragging");
+        setPhoneRowSwipeTransform(getPhoneRowSwipeSlide(wrap), 0);
+      });
+  }
+
+  function closePhoneWechatRowSwipe(slot) {
+    closePhoneRowSwipe(slot);
+  }
+
+  function openPhoneRowSwipe(wrap, slot) {
+    if (!wrap || !slot) return;
+    closePhoneRowSwipe(slot);
+    wrap.classList.add("is-open");
+    const slide = getPhoneRowSwipeSlide(wrap);
+    setPhoneRowSwipeTransform(slide, -getPhoneRowSwipeActionWidth(wrap));
+  }
+
+  function openPhoneWechatRowSwipe(wrap, slot) {
+    openPhoneRowSwipe(wrap, slot);
+  }
+
+  async function handlePhoneWechatDeleteChat(slot, chatId) {
+    if (!hasPhoneWechatGenerated()) return;
+    const id = String(chatId || "").trim();
+    if (!id) return;
+    const chat = getPhoneWechatChat(id);
+    const name = chat && chat.name ? chat.name : "该联系人";
+    closePhoneWechatRowSwipe(slot);
+    const ok = await showConfirm("确定删除与「" + name + "」的全部聊天记录吗？", "删除会话");
+    if (!ok) return;
+    if (!deletePhoneWechatChat(id)) {
+      showToast("删除失败", "error");
+      return;
+    }
+    const nav = getPhoneNav(slot);
+    if (nav.screen === "wechat-chat" && nav.chatId === id) {
+      resetPhoneWechatChatUi(nav);
+      nav.screen = "wechat-list";
+      nav.chatId = null;
+    }
+    showToast("已删除会话", "success");
+    renderPhoneScreen(slot);
+  }
+
+  function updatePhoneWechatMessageText(chatId, msgIndex, text) {
+    const target = getPhoneWechatChatMutable(chatId);
+    if (!target) return false;
+    const idx = Number(msgIndex);
+    if (!Number.isFinite(idx) || idx < 0 || idx >= target.chat.messages.length) return false;
+    const trimmed = truncateCharsWithEllipsis(String(text || "").trim(), 80);
+    if (!trimmed) return false;
+    target.chat.messages[idx].text = trimmed;
+    syncPhoneWechatChatPreview(target.chat);
+    persistPhoneWechatBundle(target.bundle);
+    return true;
+  }
+
+  function buildPhoneWechatSingleChatPrompt(plot, holder, chat) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const lines = [
+      "请根据最新剧情，为「查手机·微信」中以下单个会话追加新消息；不要重复或改写已有内容，只在末尾追加。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【当前会话】");
+    lines.push("- id=" + chat.id + "，name=" + chat.name + (chat.isProtagonistChat ? "（与「我的形象」主角的私聊）" : ""));
+    lines.push("- 当前 preview=" + (chat.preview || "") + "，time=" + (chat.time || ""));
+    const hist = formatPhoneWechatMessagesForPrompt(chat.messages, PHONE_WECHAT_MSG_HISTORY_REF);
+    if (hist) {
+      lines.push("最近 " + PHONE_WECHAT_MSG_HISTORY_REF + " 条：");
+      lines.push(hist);
+    }
+    lines.push("");
+    lines.push(
+      "输出唯一 JSON 对象：\n" +
+        '{"messages":[{"side":"in|out","text":"..."}],"preview":"可选更新≤24字","time":"可选更新时间"}\n\n' +
+        "规则：\n" +
+        "1. messages 仅含本次新增消息（4～12 条），须自然衔接上文最近 " +
+        PHONE_WECHAT_MSG_HISTORY_REF +
+        " 条。\n" +
+        "2. side：in=对方发来，out=手机持有者发出。\n" +
+        "3. 单条 text ≤80 字，口语化像微信；须与最新剧情、人设、记忆、总结一致。\n" +
+        "4. preview/time 可随最新消息更新，也可省略。"
+    );
+    return lines.join("\n");
+  }
+
+  function mergePhoneWechatSingleChatAppend(chat, raw) {
+    if (!chat || !raw || typeof raw !== "object") return false;
+    const append = normalizePhoneWechatMessages(raw.messages, false);
+    if (!append.length) return false;
+    chat.messages = chat.messages.concat(append).slice(-PHONE_WECHAT_MAX_MSGS_PER_CHAT);
+    if (raw.preview) chat.preview = truncateCharsWithEllipsis(String(raw.preview).trim(), 24);
+    if (raw.time) chat.time = String(raw.time).trim();
+    syncPhoneWechatChatPreview(chat);
+    return true;
+  }
+
+  async function generatePhoneWechatChatContent(slot, chatId) {
+    if (phoneWechatGenerating) return;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const holder = getPhoneHolderCharacter();
+    if (!plot || !holder) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    preparePhoneStoryDateForGeneration(plot);
+    const id = String(chatId || "").trim();
+    if (!id) return;
+    if (!hasPhoneWechatGenerated()) {
+      showToast("请先在微信列表页生成内容。", "warning");
+      return;
+    }
+    const target = getPhoneWechatChatMutable(id);
+    if (!target) {
+      showToast("未找到该会话。", "warning");
+      return;
+    }
+    phoneWechatGenerating = true;
+    phoneWechatGeneratingTarget = id;
+    if (slot) renderPhoneScreen(slot);
+    try {
+      showToast("正在生成「" + (target.chat.name || "会话") + "」的新消息…", "info");
+      setGenCallContext(buildGenCallOpts("phone-wechat-chat", { slot: slot, chatId: id, chat: target.chat }));
+      const systemPrompt =
+        "你是中文互动叙事助手。根据用户提供的剧情与单个微信会话上下文，增量追加该会话消息 JSON。\n" +
+        "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+        '格式：{"messages":[{"side":"in|out","text":"..."}],"preview":"可选","time":"可选"}';
+      const userPrompt = buildPhoneWechatSingleChatPrompt(plot, holder, target.chat);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.78,
+        4096
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      if (!mergePhoneWechatSingleChatAppend(target.chat, parsed)) {
+        throw new Error("未能解析有效的新消息");
+      }
+      persistPhoneWechatBundle(target.bundle);
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) renderPhoneScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      phoneWechatGenerating = false;
+      phoneWechatGeneratingTarget = null;
+      if (slot && getPhoneNav(slot).screen === "wechat-chat") renderPhoneScreen(slot);
+    }
+  }
+
+  async function generatePhoneWechatContent(slot) {
+    if (phoneWechatGenerating) return;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const holder = getPhoneHolderCharacter();
+    if (!plot || !holder) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    preparePhoneStoryDateForGeneration(plot);
+    const key = phoneWechatStorageKey(plot.id, holder.id);
+    const existing = phoneWechatData[key] || null;
+    const isRegenerate = !!(existing && existing.chats && existing.chats.length);
+    phoneWechatGenerating = true;
+    phoneWechatGeneratingTarget = "list";
+    if (slot && getPhoneNav(slot).screen === "wechat-list") renderPhoneScreen(slot);
+    try {
+      showToast(isRegenerate ? "正在追加微信内容…" : "正在生成微信内容…", "info");
+      setGenCallContext(buildGenCallOpts("phone-wechat-list", { slot: slot }));
+      const systemPrompt = isRegenerate
+        ? "你是中文互动叙事助手。根据用户提供的剧情与已有微信数据，增量追加微信聊天 JSON。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          '格式：{"appendToChats":[{"id":"已有id","messages":[仅新增消息],"preview":"可选","time":"可选"}],"newChats":[{"id":"新id","name":"...","preview":"...","time":"...","messages":[...]}]}'
+        : "你是中文互动叙事助手。根据用户提供的剧情、人设、记忆与总结，生成「查手机·微信」界面用的 JSON。\n" +
+          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+          '格式：{"chats":[{"id":"唯一英文id","name":"列表名","preview":"预览","time":"时间","messages":[{"side":"in|out","text":"消息"}]}]}';
+      const userPrompt = isRegenerate
+        ? buildPhoneWechatRegeneratePrompt(plot, holder, existing)
+        : buildPhoneWechatPrompt(plot, holder);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.78,
+        8192
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const bundle = isRegenerate
+        ? mergePhoneWechatIncrement(existing, parsed, plot, holder)
+        : normalizePhoneWechatBundle(parsed, plot, holder);
+      phoneWechatData[key] = preservePhoneSocialAvatarOverrides(bundle, existing);
+      schedulePersistNarrative();
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) {
+        const nav = getPhoneNav(slot);
+        if (nav.screen === "wechat-chat") nav.screen = "wechat-list";
+        renderPhoneScreen(slot);
+      }
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      phoneWechatGenerating = false;
+      phoneWechatGeneratingTarget = null;
+      if (slot) {
+        const nav = getPhoneNav(slot);
+        if (nav.screen === "wechat-list") renderPhoneScreen(slot);
+      }
+    }
+  }
+
+  function buildPhoneAppBarHtml(title) {
+    return (
+      '<header class="phone-app__bar">' +
+      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<h2 class="phone-app__title">' +
+      escapeHtml(title) +
+      "</h2>" +
+      '<span class="phone-app__bar-side" aria-hidden="true"></span>' +
+      "</header>"
+    );
+  }
+
+  function buildPhoneWechatStarIconSvg() {
+    return (
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M12 2l1.6 5.2L19 9l-5.4 1.8L12 16l-1.6-5.2L5 9l5.4-1.8L12 2z"/>' +
+      '<path d="M19 4l.8 2.4h2.5l-2 1.5.8 2.4L19 9.2l-2.1 1.5.8-2.4-2-1.5h2.5L19 4z"/>' +
+      "</svg>"
+    );
+  }
+
+  function buildPhoneWechatChatBarHtml(title, chatId, ui, placeholder) {
+    const selectActive = ui && ui.selectMode;
+    const editActive = ui && ui.editMode;
+    const selectedCount = ui && ui.selectedMsgs ? ui.selectedMsgs.length : 0;
+    const chatGenerating = phoneWechatGenerating && phoneWechatGeneratingTarget === chatId;
+    const selectCls =
+      " phone-app__bar-action phone-wechat-chat-action phone-wechat-chat-action--select" +
+      (selectActive ? " phone-wechat-chat-action--active" : "") +
+      (selectActive && selectedCount ? " phone-wechat-chat-action--delete-ready" : "");
+    const editCls =
+      " phone-app__bar-action phone-wechat-chat-action phone-wechat-chat-action--edit" +
+      (editActive ? " phone-wechat-chat-action--active" : "");
+    const genCls =
+      " phone-app__bar-action phone-wechat-gen-btn phone-wechat-chat-action phone-wechat-chat-action--generate" +
+      (chatGenerating ? " phone-wechat-gen-btn--loading" : "");
+    const selectLabel =
+      selectActive && selectedCount
+        ? "删除已选 " + selectedCount + " 条"
+        : selectActive
+          ? "取消多选"
+          : "多选删除";
+    const disabledAttr = placeholder || phoneWechatGenerating ? " disabled" : "";
+    return (
+      '<header class="phone-app__bar phone-app__bar--wechat-chat">' +
+      '<div class="phone-wechat-chat-bar__lead">' +
+      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<h2 class="phone-app__title phone-app__title--chat">' +
+      escapeHtml(title) +
+      "</h2>" +
+      "</div>" +
+      '<div class="phone-wechat-chat-bar__actions">' +
+      '<button type="button" class="' +
+      selectCls.trim() +
+      '" data-phone-wechat-select-toggle aria-label="' +
+      escapeHtml(selectLabel) +
+      '" title="' +
+      escapeHtml(selectLabel) +
+      '"' +
+      disabledAttr +
+      ">" +
+      (selectActive && selectedCount
+        ? '<svg class="icon-linear" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>'
+        : '<svg class="icon-linear" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>') +
+      "</button>" +
+      '<button type="button" class="' +
+      editCls.trim() +
+      '" data-phone-wechat-edit-toggle aria-label="编辑消息" title="编辑消息"' +
+      (placeholder || selectActive || phoneWechatGenerating ? " disabled" : "") +
+      ">" +
+      '<svg class="icon-linear" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4 16.5-12.5z"/></svg>' +
+      "</button>" +
+      '<button type="button" class="' +
+      genCls.trim() +
+      '" data-phone-wechat-chat-generate data-wechat-chat-id="' +
+      escapeHtml(String(chatId || "")) +
+      '" aria-label="AI 生成该会话新消息" title="AI 生成该会话新消息"' +
+      (placeholder || phoneWechatGenerating ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>" +
+      "</div>" +
+      "</header>"
+    );
+  }
+
+  function buildPhoneWechatListBarHtml() {
+    const loadingCls =
+      phoneWechatGenerating && phoneWechatGeneratingTarget === "list" ? " phone-wechat-gen-btn--loading" : "";
+    return (
+      '<header class="phone-app__bar phone-app__bar--wechat-list">' +
+      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<h2 class="phone-app__title phone-app__title--left">微信</h2>' +
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      loadingCls +
+      '" data-phone-wechat-generate aria-label="AI 生成微信内容" title="AI 生成微信内容"' +
+      (phoneWechatGenerating ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>" +
+      "</header>"
+    );
+  }
+
+  function buildPhoneWechatEllipsisThreadHtml() {
+    return (
+      '<div class="phone-wechat-msg phone-wechat-msg--in">' +
+      '<span class="phone-wechat-msg__avatar" aria-hidden="true">…</span>' +
+      '<span class="phone-wechat-msg__bubble phone-wechat-msg__bubble--ellipsis">…</span>' +
+      "</div>" +
+      '<div class="phone-wechat-msg phone-wechat-msg--out">' +
+      '<span class="phone-wechat-msg__bubble phone-wechat-msg__bubble--ellipsis">…</span>' +
+      "</div>" +
+      '<div class="phone-wechat-msg phone-wechat-msg--in">' +
+      '<span class="phone-wechat-msg__avatar" aria-hidden="true">…</span>' +
+      '<span class="phone-wechat-msg__bubble phone-wechat-msg__bubble--ellipsis">…</span>' +
+      "</div>"
+    );
+  }
+
+  function buildPhoneWechatListHtml() {
+    const placeholder = !hasPhoneWechatGenerated();
+    const rows = getPhoneWechatChats().map(function (chat) {
+      const nameText = placeholder ? "…" : chat.name || "…";
+      const previewText = placeholder ? "…" : chat.preview || "…";
+      const timeText = placeholder ? "…" : chat.time || "";
+      const nameCls = placeholder ? " phone-wechat-row__name--ellipsis" : "";
+      const previewCls = placeholder ? " phone-wechat-row__preview--ellipsis" : "";
+      const avatarHtml = placeholder
+        ? '<span class="phone-wechat-row__avatar" aria-hidden="true">…</span>'
+        : buildPhoneSocialAvatarHtml("phone-wechat-row__avatar", {
+            name: nameText,
+            avatarUrl: getPhoneWechatContactAvatarUrl(chat.id),
+            scope: "wechat",
+            uploadKind: "contact",
+            uploadKey: chat.id,
+            clickable: true,
+          });
+      const rowInner =
+        avatarHtml +
+        '<span class="phone-wechat-row__body">' +
+        '<span class="phone-wechat-row__top">' +
+        '<span class="phone-wechat-row__name' +
+        nameCls +
+        '">' +
+        escapeHtml(nameText) +
+        "</span>" +
+        '<span class="phone-wechat-row__time">' +
+        escapeHtml(timeText) +
+        "</span>" +
+        "</span>" +
+        '<span class="phone-wechat-row__preview' +
+        previewCls +
+        '">' +
+        escapeHtml(previewText) +
+        "</span>" +
+        "</span>";
+      if (placeholder) {
+        return (
+          '<button type="button" class="phone-wechat-row" data-wechat-chat-id="' +
+          escapeHtml(chat.id) +
+          '">' +
+          rowInner +
+          "</button>"
+        );
+      }
+      return (
+        '<div class="phone-wechat-row-wrap">' +
+        '<button type="button" class="phone-wechat-row__delete" data-phone-wechat-delete-chat="' +
+        escapeHtml(chat.id) +
+        '" aria-label="删除与' +
+        escapeHtml(nameText) +
+        '的聊天记录">删除</button>' +
+        '<div class="phone-wechat-row__slide">' +
+        '<button type="button" class="phone-wechat-row" data-wechat-chat-id="' +
+        escapeHtml(chat.id) +
+        '">' +
+        rowInner +
+        "</button>" +
+        "</div>" +
+        "</div>"
+      );
+    }).join("");
+    return (
+      '<div class="phone-app phone-wechat" aria-label="微信">' +
+      buildPhoneWechatListBarHtml() +
+      '<div class="phone-wechat__list">' +
+      rows +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function buildPhoneWechatMessageHtml(msg, chatId, msgIndex, ui, placeholder) {
+    if (!msg) return "";
+    const side = msg.side === "out" ? "out" : "in";
+    const text = escapeHtml(String(msg.text || "").trim());
+    if (!text) return "";
+    const idx = Number(msgIndex);
+    const selectMode = ui && ui.selectMode;
+    const editMode = ui && ui.editMode;
+    const selected =
+      selectMode && ui.selectedMsgs && ui.selectedMsgs.indexOf(idx) >= 0;
+    let msgCls = "phone-wechat-msg phone-wechat-msg--" + side;
+    if (selectMode) msgCls += " phone-wechat-msg--selectable";
+    if (selected) msgCls += " phone-wechat-msg--selected";
+    if (editMode) msgCls += " phone-wechat-msg--editable";
+    const msgAttrs =
+      ' data-wechat-msg-index="' +
+      idx +
+      '"' +
+      (selectMode ? ' data-phone-wechat-msg-select role="button" tabindex="0"' : "");
+    const bubbleAttrs = editMode
+      ? ' contenteditable="true" spellcheck="false" data-wechat-msg-edit'
+      : "";
+    const checkHtml = selectMode
+      ? '<span class="phone-wechat-msg__check" aria-hidden="true">' +
+        (selected
+          ? '<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>'
+          : "") +
+        "</span>"
+      : "";
+    const chat = !placeholder ? getPhoneWechatChat(chatId) : null;
+    const peerName = chat ? chat.name : "对";
+    const peerAvatarHtml = placeholder
+      ? '<span class="phone-wechat-msg__avatar" aria-hidden="true">…</span>'
+      : buildPhoneSocialAvatarHtml("phone-wechat-msg__avatar", {
+          name: peerName,
+          avatarUrl: getPhoneWechatContactAvatarUrl(chatId),
+          scope: "wechat",
+          uploadKind: "contact",
+          uploadKey: chatId,
+          clickable: true,
+        });
+    const holder = getPhoneHolderCharacter();
+    const holderName = holder ? holder.name : "我";
+    const holderAvatarHtml = placeholder
+      ? ""
+      : buildPhoneSocialAvatarHtml("phone-wechat-msg__avatar phone-wechat-msg__avatar--out", {
+          name: holderName,
+          avatarUrl: getPhoneWechatHolderAvatarUrl(),
+          scope: "wechat",
+          uploadKind: "holder",
+          clickable: true,
+          ariaLabel: "更换我的头像",
+        });
+    if (side === "out") {
+      return (
+        '<div class="' +
+        msgCls +
+        '"' +
+        msgAttrs +
+        ">" +
+        checkHtml +
+        '<span class="phone-wechat-msg__bubble"' +
+        bubbleAttrs +
+        ">" +
+        text +
+        "</span>" +
+        holderAvatarHtml +
+        "</div>"
+      );
+    }
+    return (
+      '<div class="' +
+      msgCls +
+      '"' +
+      msgAttrs +
+      ">" +
+      checkHtml +
+      peerAvatarHtml +
+      '<span class="phone-wechat-msg__bubble"' +
+      bubbleAttrs +
+      ">" +
+      text +
+      "</span>" +
+      "</div>"
+    );
+  }
+
+  function buildPhoneWechatChatHtml(chatId, slot) {
+    const nav = getPhoneNav(slot);
+    const ui = getPhoneWechatChatUi(nav);
+    const chat = getPhoneWechatChat(chatId);
+    const placeholder = !hasPhoneWechatGenerated();
+    const title = placeholder ? "…" : chat ? chat.name : "聊天";
+    const msgs = !placeholder && chat && Array.isArray(chat.messages) ? chat.messages : null;
+    let threadHtml = "";
+    if (msgs && msgs.length) {
+      threadHtml = msgs
+        .map(function (m, idx) {
+          return buildPhoneWechatMessageHtml(m, chatId, idx, ui, false);
+        })
+        .join("");
+    } else {
+      threadHtml = buildPhoneWechatEllipsisThreadHtml();
+    }
+    return (
+      '<div class="phone-app phone-wechat phone-wechat--chat' +
+      (ui.selectMode ? " phone-wechat--select-mode" : "") +
+      (ui.editMode ? " phone-wechat--edit-mode" : "") +
+      '" aria-label="微信聊天" data-wechat-chat-id="' +
+      escapeHtml(String(chatId || "")) +
+      '">' +
+      buildPhoneWechatChatBarHtml(title, chatId, ui, placeholder) +
+      '<div class="phone-wechat__thread">' +
+      threadHtml +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function buildPhoneDeviceStatusIconsHtml() {
+    return (
+      '<span class="phone-device__status-icons" aria-hidden="true">' +
+      '<svg class="phone-device__icon" width="15" height="11" viewBox="0 0 15 11" fill="currentColor">' +
+      '<rect x="0" y="7" width="2.5" height="4" rx="0.5"/>' +
+      '<rect x="3.5" y="5" width="2.5" height="6" rx="0.5"/>' +
+      '<rect x="7" y="2.5" width="2.5" height="8.5" rx="0.5"/>' +
+      '<rect x="10.5" y="0" width="2.5" height="11" rx="0.5" opacity="0.35"/>' +
+      "</svg>" +
+      '<svg class="phone-device__icon" width="14" height="11" viewBox="0 0 14 11" fill="currentColor">' +
+      '<path d="M7 2.2C5.2 2.2 3.6 3 2.4 4.2L1 2.8C2.6 1.2 4.7 0.2 7 0.2s4.4 1 6 2.6l-1.4 1.4C10.4 3 8.8 2.2 7 2.2z"/>' +
+      '<path d="M7 5.5c-1.2 0-2.2.5-3 1.2L2.6 5.3c1.1-1 2.5-1.6 4.1-1.6s3 .6 4.1 1.6l-1.4 1.4c-.8-.7-1.8-1.2-3-1.2z"/>' +
+      '<circle cx="7" cy="9.5" r="1.2"/>' +
+      "</svg>" +
+      '<svg class="phone-device__icon phone-device__icon--battery" width="22" height="11" viewBox="0 0 22 11" fill="none">' +
+      '<rect x="0.5" y="0.5" width="18" height="10" rx="2.2" stroke="currentColor" stroke-width="1"/>' +
+      '<rect x="2" y="2" width="13" height="7" rx="1.2" fill="currentColor"/>' +
+      '<path d="M20 3.5v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>' +
+      "</svg>" +
+      "</span>"
+    );
+  }
+
+  function buildPhoneDeviceStatusBarHtml() {
+    const timeText = formatClockTime(new Date());
+    return (
+      '<div class="phone-device__status-bar" aria-hidden="true">' +
+      '<span class="phone-device__time">' +
+      escapeHtml(timeText) +
+      "</span>" +
+      buildPhoneDeviceStatusIconsHtml() +
+      "</div>"
+    );
+  }
+
+  function wrapPhoneDeviceShell(innerHtml, mode) {
+    const modeCls = mode === "home" ? "phone-device--home" : "phone-device--app";
+    return (
+      '<div class="phone-device ' +
+      modeCls +
+      '" aria-label="手机预览">' +
+      '<div class="phone-device__shell">' +
+      '<div class="phone-device__screen">' +
+      buildPhoneDeviceStatusBarHtml() +
+      '<div class="phone-device__content">' +
+      innerHtml +
+      "</div>" +
+      '<button type="button" class="phone-device__home-indicator" data-phone-home aria-label="返回主屏幕"></button>' +
+      "</div></div></div>"
+    );
+  }
+
+  function renderPhoneScreen(slot) {
+    if (!slot) return;
+    slot.classList.remove("story-placeholder");
+    const nav = getPhoneNav(slot);
+    if (nav.screen === "home") {
+      if (slot.dataset.phoneHomeRendered === "1" && slot.querySelector(".phone-home__wallpaper")) {
+        tickStatusClock();
+        updatePhoneHomeOwnerLabels();
+        applyPhoneWallpaperStyles();
+        return;
+      }
+      slot.innerHTML = wrapPhoneDeviceShell(buildPhoneHomeHtml(), "home");
+      slot.dataset.phoneHomeRendered = "1";
+      applyPhoneWallpaperStyles();
+      return;
+    }
+    delete slot.dataset.phoneHomeRendered;
+    let innerHtml = "";
+    if (nav.screen === "wechat-list") {
+      innerHtml = buildPhoneWechatListHtml();
+    } else if (nav.screen === "wechat-chat") {
+      innerHtml = buildPhoneWechatChatHtml(nav.chatId, slot);
+    } else if (nav.screen === "moments") {
+      innerHtml = buildPhoneMomentsHtml();
+    } else if (nav.screen === "music") {
+      innerHtml = buildPhoneMusicHtml();
+    } else if (nav.screen === "album") {
+      innerHtml = buildPhoneAlbumHtml(slot);
+    } else if (nav.screen === "forum") {
+      innerHtml = buildPhoneForumHtml(slot);
+    } else if (nav.screen === "forum-post") {
+      innerHtml = buildPhoneForumPostDetailHtml(slot);
+    } else if (nav.screen === "browser") {
+      innerHtml = buildPhoneBrowserHtml(slot);
+    } else if (nav.screen === "memo") {
+      innerHtml = buildPhoneMemoHtml(slot);
+    } else if (nav.screen === "diary") {
+      innerHtml = buildPhoneDiaryHtml(slot);
+    } else if (nav.screen === "bill") {
+      innerHtml = buildPhoneBillHtml(slot);
+    } else if (nav.screen === "weread") {
+      innerHtml = buildPhoneWereadHtml(slot);
+    } else if (nav.screen === "weread-book") {
+      innerHtml = buildPhoneWereadBookDetailHtml(slot);
+    } else if (nav.screen === "jjwxc") {
+      innerHtml = buildPhoneJjwxcMainHtml(slot);
+    } else if (nav.screen === "jjwxc-novel") {
+      innerHtml = buildPhoneJjwxcNovelDetailHtml(slot);
+    } else if (nav.screen === "jjwxc-chapter") {
+      innerHtml = buildPhoneJjwxcChapterHtml(slot);
+    }
+    if (innerHtml) slot.innerHTML = wrapPhoneDeviceShell(innerHtml, "app");
+  }
+
+  function phoneNavHome(slot) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen === "home") return;
+    if (nav.wechatEditMode || nav.wechatSelectMode) {
+      tryApplyPhoneWechatChatModesFromBlank(slot);
+    }
+    resetPhoneWechatChatUi(nav);
+    nav.screen = "home";
+    nav.chatId = null;
+    nav.diaryEntryIndex = -1;
+    nav.diaryDateKey = null;
+    nav.albumPhotoId = null;
+    nav.albumPhotoEdit = false;
+    nav.forumPostId = null;
+    nav.forumInlineEdit = null;
+    nav.forumSectionFormId = null;
+    nav.forumManageOpen = false;
+    nav.browserInlineEdit = null;
+    nav.browserSectionFormId = null;
+    nav.browserManageOpen = false;
+    nav.browserExpandedId = null;
+    nav.memoInlineEdit = null;
+    nav.memoSectionFormId = null;
+    nav.memoManageOpen = false;
+    nav.memoExpandedId = null;
+    nav.wereadBookId = null;
+    nav.jjwxcNovelId = null;
+    nav.jjwxcChapterId = null;
+    clearPhoneJjwxcExpandedChapterIds(nav);
+    nav.jjwxcCategoryFormId = null;
+    nav.jjwxcManageOpen = false;
+    renderPhoneScreen(slot);
+  }
+
+  function phoneNavBack(slot) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen === "wechat-chat") {
+      if (nav.wechatEditMode || nav.wechatSelectMode) {
+        tryApplyPhoneWechatChatModesFromBlank(slot);
+      }
+      resetPhoneWechatChatUi(nav);
+      nav.screen = "wechat-list";
+      nav.chatId = null;
+    } else if (nav.screen === "wechat-list") {
+      nav.screen = "home";
+    } else if (nav.screen === "moments") {
+      nav.screen = "home";
+    } else if (nav.screen === "music") {
+      nav.screen = "home";
+    } else if (nav.screen === "album") {
+      if (nav.albumPhotoId) {
+        nav.albumPhotoId = null;
+        nav.albumPhotoEdit = false;
+      } else {
+        nav.screen = "home";
+      }
+    } else if (nav.screen === "forum-post") {
+      if (nav.forumInlineEdit) {
+        nav.forumInlineEdit = null;
+      } else {
+        nav.screen = "forum";
+        nav.forumPostId = null;
+      }
+    } else if (nav.screen === "forum") {
+      if (nav.forumInlineEdit) {
+        nav.forumInlineEdit = null;
+      } else if (nav.forumSectionFormId) {
+        nav.forumSectionFormId = null;
+      } else if (nav.forumManageOpen) {
+        nav.forumManageOpen = false;
+      } else {
+        nav.screen = "home";
+      }
+    } else if (nav.screen === "browser") {
+      if (nav.browserInlineEdit) {
+        nav.browserInlineEdit = null;
+      } else if (nav.browserSectionFormId) {
+        nav.browserSectionFormId = null;
+      } else if (nav.browserManageOpen) {
+        nav.browserManageOpen = false;
+      } else {
+        nav.screen = "home";
+        nav.browserExpandedId = null;
+      }
+    } else if (nav.screen === "memo") {
+      if (nav.memoInlineEdit) {
+        nav.memoInlineEdit = null;
+      } else if (nav.memoSectionFormId) {
+        nav.memoSectionFormId = null;
+      } else if (nav.memoManageOpen) {
+        nav.memoManageOpen = false;
+      } else {
+        nav.screen = "home";
+        nav.memoExpandedId = null;
+      }
+    } else if (nav.screen === "diary") {
+      nav.screen = "home";
+      nav.diaryEntryIndex = -1;
+      nav.diaryDateKey = null;
+    } else if (nav.screen === "bill") {
+      nav.screen = "home";
+    } else if (nav.screen === "weread-book") {
+      nav.screen = "weread";
+      nav.wereadBookId = null;
+    } else if (nav.screen === "weread") {
+      nav.screen = "home";
+      nav.wereadBookId = null;
+    } else if (nav.screen === "jjwxc-chapter") {
+      nav.screen = "jjwxc-novel";
+      nav.jjwxcChapterId = null;
+    } else if (nav.screen === "jjwxc-novel") {
+      nav.screen = "jjwxc";
+      nav.jjwxcNovelId = null;
+      nav.jjwxcChapterId = null;
+      clearPhoneJjwxcExpandedChapterIds(nav);
+    } else if (nav.screen === "jjwxc") {
+      if (nav.jjwxcCategoryFormId) {
+        nav.jjwxcCategoryFormId = null;
+      } else if (nav.jjwxcManageOpen) {
+        nav.jjwxcManageOpen = false;
+      } else {
+        nav.screen = "home";
+        nav.jjwxcNovelId = null;
+        nav.jjwxcChapterId = null;
+      }
+    }
+    renderPhoneScreen(slot);
+  }
+
+  function openPhoneWechatList(slot) {
+    const nav = getPhoneNav(slot);
+    nav.screen = "wechat-list";
+    nav.chatId = null;
+    renderPhoneScreen(slot);
+  }
+
+  function openPhoneWechatChat(slot, chatId) {
+    const nav = getPhoneNav(slot);
+    resetPhoneWechatChatUi(nav);
+    nav.screen = "wechat-chat";
+    nav.chatId = String(chatId || "").trim();
+    renderPhoneScreen(slot);
+  }
+
+  function commitPhoneWechatEditMode(slot, exitMode) {
+    const nav = getPhoneNav(slot);
+    if (!nav.wechatEditMode || nav.screen !== "wechat-chat" || !nav.chatId || !slot) {
+      if (exitMode && nav) nav.wechatEditMode = false;
+      return { ok: true, changed: false };
+    }
+    const target = getPhoneWechatChatMutable(nav.chatId);
+    if (!target) {
+      if (exitMode) nav.wechatEditMode = false;
+      return { ok: true, changed: false };
+    }
+    const bubbles = slot.querySelectorAll("[data-wechat-msg-edit]");
+    let changed = false;
+    for (let i = 0; i < bubbles.length; i++) {
+      const bubble = bubbles[i];
+      const msgEl = bubble.closest("[data-wechat-msg-index]");
+      const idx = Number((msgEl || bubble).getAttribute("data-wechat-msg-index"));
+      if (!Number.isFinite(idx) || idx < 0 || idx >= target.chat.messages.length) continue;
+      const nextText = String(bubble.textContent || "").trim();
+      if (!nextText) return { ok: false, changed: false };
+      const prevText = String(target.chat.messages[idx].text || "").trim();
+      if (prevText !== nextText) {
+        target.chat.messages[idx].text = truncateCharsWithEllipsis(nextText, 80);
+        changed = true;
+      }
+    }
+    if (changed) {
+      syncPhoneWechatChatPreview(target.chat);
+      persistPhoneWechatBundle(target.bundle);
+    }
+    if (exitMode) nav.wechatEditMode = false;
+    return { ok: true, changed: changed };
+  }
+
+  function commitPhoneWechatSelectMode(slot) {
+    const nav = getPhoneNav(slot);
+    if (!nav.wechatSelectMode || nav.screen !== "wechat-chat" || !nav.chatId) return false;
+    let deleted = false;
+    if (nav.wechatSelectedMsgs && nav.wechatSelectedMsgs.length) {
+      deletePhoneWechatMessages(nav.chatId, nav.wechatSelectedMsgs);
+      deleted = true;
+    }
+    nav.wechatSelectMode = false;
+    nav.wechatSelectedMsgs = [];
+    return deleted;
+  }
+
+  function isPhoneWechatChatModeFunctionalTarget(target) {
+    if (!target || !target.closest) return false;
+    return !!(
+      target.closest("[data-phone-wechat-select-toggle]") ||
+      target.closest("[data-phone-wechat-edit-toggle]") ||
+      target.closest("[data-phone-wechat-chat-generate]") ||
+      target.closest("[data-phone-wechat-msg-select]") ||
+      target.closest("[data-wechat-msg-edit]")
+    );
+  }
+
+  function tryApplyPhoneWechatChatModesFromBlank(slot) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "wechat-chat") return false;
+    if (!nav.wechatEditMode && !nav.wechatSelectMode) return false;
+    let applied = false;
+    let saved = false;
+    let deleted = false;
+    if (nav.wechatEditMode) {
+      const result = commitPhoneWechatEditMode(slot, true);
+      if (!result.ok) {
+        showToast("消息不能为空", "warning");
+        return true;
+      }
+      saved = result.changed;
+      applied = true;
+    }
+    if (nav.wechatSelectMode) {
+      deleted = commitPhoneWechatSelectMode(slot);
+      applied = true;
+    }
+    if (!applied) return false;
+    if (deleted) showToast("已删除选中消息", "success");
+    else if (saved) showToast("已保存", "success");
+    renderPhoneScreen(slot);
+    return true;
+  }
+
+  function togglePhoneWechatSelectMode(slot) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "wechat-chat" || !nav.chatId) return;
+    if (!hasPhoneWechatGenerated()) return;
+    if (nav.wechatSelectMode && nav.wechatSelectedMsgs && nav.wechatSelectedMsgs.length) {
+      commitPhoneWechatSelectMode(slot);
+      showToast("已删除选中消息", "success");
+    } else if (nav.wechatSelectMode) {
+      nav.wechatSelectMode = false;
+      nav.wechatSelectedMsgs = [];
+    } else {
+      nav.wechatSelectMode = true;
+      nav.wechatEditMode = false;
+      nav.wechatSelectedMsgs = [];
+    }
+    renderPhoneScreen(slot);
+  }
+
+  function togglePhoneWechatEditMode(slot) {
+    const nav = getPhoneNav(slot);
+    if (nav.screen !== "wechat-chat" || !nav.chatId) return;
+    if (!hasPhoneWechatGenerated()) return;
+    if (nav.wechatEditMode) {
+      const result = commitPhoneWechatEditMode(slot, true);
+      if (!result.ok) {
+        showToast("消息不能为空", "warning");
+        return;
+      }
+      if (result.changed) showToast("已保存", "success");
+      renderPhoneScreen(slot);
+      return;
+    }
+    nav.wechatEditMode = true;
+    nav.wechatSelectMode = false;
+    nav.wechatSelectedMsgs = [];
+    renderPhoneScreen(slot);
+  }
+
+  function togglePhoneWechatMessageSelection(slot, msgIndex) {
+    const nav = getPhoneNav(slot);
+    if (!nav.wechatSelectMode || nav.screen !== "wechat-chat") return;
+    const idx = Number(msgIndex);
+    if (!Number.isFinite(idx)) return;
+    if (!Array.isArray(nav.wechatSelectedMsgs)) nav.wechatSelectedMsgs = [];
+    const pos = nav.wechatSelectedMsgs.indexOf(idx);
+    if (pos >= 0) nav.wechatSelectedMsgs.splice(pos, 1);
+    else nav.wechatSelectedMsgs.push(idx);
+    renderPhoneScreen(slot);
+  }
+
+  function phoneHomeAppIconSvg(appId) {
+    switch (appId) {
+      case "wechat":
+        return (
+          '<svg class="icon-linear" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<path d="M7.5 18.5l-2.5 2.5V7a2 2 0 012-2h9a2 2 0 012 2v7a2 2 0 01-2 2H9.5l-2 2.5z"/>' +
+          '<path d="M8 10h6M8 13.5h4"/>' +
+          "</svg>"
+        );
+      case "moments":
+        return (
+          '<svg class="icon-linear" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<circle cx="12" cy="12" r="9"/>' +
+          '<circle cx="12" cy="12" r="3.5"/>' +
+          '<path d="M12 3v2M12 19v2M3 12h2M19 12h2"/>' +
+          "</svg>"
+        );
+      case "music":
+        return (
+          '<svg class="icon-linear" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<path d="M9 18V6l10-2v12"/>' +
+          '<circle cx="7" cy="18" r="2.5"/>' +
+          '<circle cx="17" cy="16" r="2.5"/>' +
+          "</svg>"
+        );
+      case "album":
+        return (
+          '<svg class="icon-linear" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<rect x="4" y="5" width="16" height="14" rx="2"/>' +
+          '<circle cx="9" cy="10" r="1.5"/>' +
+          '<path d="M4 16l4.5-4 3 2.5L16 11l4 3"/>' +
+          "</svg>"
+        );
+      case "forum":
+        return (
+          '<svg class="icon-linear" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<path d="M4 6h16M4 10h16M4 14h10"/>' +
+          '<path d="M6 18l-2 2v-4h4"/>' +
+          "</svg>"
+        );
+      case "browser":
+        return (
+          '<svg class="icon-linear" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<circle cx="12" cy="12" r="9"/>' +
+          '<path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/>' +
+          "</svg>"
+        );
+      case "memo":
+        return (
+          '<svg class="icon-linear" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<path d="M8 4h8l2 2v14H6V4h2z"/>' +
+          '<path d="M9 10h6M9 14h6M9 18h4"/>' +
+          "</svg>"
+        );
+      case "diary":
+        return (
+          '<svg class="icon-linear" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<path d="M6 4h10a2 2 0 012 2v14H8a2 2 0 01-2-2V4z"/>' +
+          '<path d="M6 8h12M10 4v4"/>' +
+          "</svg>"
+        );
+      case "jjwxc":
+        return (
+          '<svg class="icon-linear" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<path d="M5 5h14v14H5z"/>' +
+          '<path d="M8 16V8l4 5 4-5v8"/>' +
+          "</svg>"
+        );
+      case "bill":
+        return (
+          '<svg class="icon-linear" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<rect x="4" y="6" width="16" height="12" rx="2"/>' +
+          '<path d="M4 10h16M8 14h3"/>' +
+          "</svg>"
+        );
+      case "weread":
+        return (
+          '<svg class="icon-linear" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<path d="M4 19V5a2 2 0 012-2h12a2 2 0 012 2v14"/>' +
+          '<path d="M8 7h8M8 11h8M8 15h5"/>' +
+          "</svg>"
+        );
+      case "settings":
+        return (
+          '<svg class="icon-linear" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<circle cx="12" cy="12" r="3"/>' +
+          '<path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/>' +
+          "</svg>"
+        );
+      default:
+        return (
+          '<svg class="icon-linear" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">' +
+          '<rect x="5" y="5" width="14" height="14" rx="3"/>' +
+          "</svg>"
+        );
+    }
+  }
+
+  function buildPhoneHomeHtml() {
+    const timeText = formatClockTime(new Date());
+    const appsHtml = PHONE_HOME_APPS.map(function (app) {
+      return (
+        '<button type="button" class="phone-home__app" data-phone-app="' +
+        escapeHtml(app.id) +
+        '" aria-label="' +
+        escapeHtml(app.name) +
+        '">' +
+        '<span class="phone-home__icon">' +
+        phoneHomeAppIconSvg(app.id) +
+        "</span>" +
+        '<span class="phone-home__label">' +
+        escapeHtml(app.name) +
+        "</span>" +
+        "</button>"
+      );
+    }).join("");
+    return (
+      '<div class="phone-home" aria-label="手机桌面">' +
+      '<div class="phone-home__wallpaper" aria-hidden="true"></div>' +
+      '<div class="phone-home__top">' +
+      '<time class="phone-home__clock" datetime="' +
+      escapeHtml(timeText) +
+      '">' +
+      escapeHtml(timeText) +
+      "</time>" +
+      '<p class="phone-home__owner">' +
+      escapeHtml(getPhoneHolderOwnerText()) +
+      "</p>" +
+      "</div>" +
+      '<div class="phone-home__dock">' +
+      '<div class="phone-home__grid" role="list">' +
+      appsHtml +
+      "</div>" +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function renderPhoneView() {
+    renderPhoneScreen(els.phoneContentSlot());
+  }
+
+  function closeStoryPhoneModal() {
+    const modal = els.modalStoryPhone();
+    if (!modal) return;
+    modal.hidden = true;
+    syncStoryPlaySideBtnActive();
+  }
+
+  function openStoryPhoneModal() {
+    closeStoryFanworkModal();
+    const modal = els.modalStoryPhone();
+    if (!modal) return;
+    modal.hidden = false;
+    renderPhoneScreen(els.storyPhoneSlot());
+    syncStoryPlaySideBtnActive();
+  }
+
+  function closeStoryFanworkModal() {
+    const modal = els.modalStoryFanwork();
+    if (!modal) return;
+    modal.hidden = true;
+    syncStoryPlaySideBtnActive();
+  }
+
+  function openStoryFanworkModal() {
+    closeStoryPhoneModal();
+    const modal = els.modalStoryFanwork();
+    if (!modal) return;
+    modal.hidden = false;
+    renderFanworkScreen(els.storyFanworkSlot());
+    syncStoryPlaySideBtnActive();
+  }
+
+  function resolveGenSlotId(slot, fallbackId) {
+    return slot && slot.id ? slot.id : fallbackId || "phone-content-slot";
+  }
+
+  function navigateToFanworkView(slotId, patch) {
+    let slot;
+    if (String(slotId) === "story-fanwork-slot") {
+      reopenStoryLayerIfHidden();
+      openStoryFanworkModal();
+      slot = document.getElementById("story-fanwork-slot");
+    } else {
+      dismissStoryLayerForOverview();
+      openOverviewSubView("fanwork");
+      slot = document.getElementById("fanwork-content-slot");
+    }
+    if (!slot) return;
+    const nav = getFanworkNav(slot);
+    Object.keys(patch || {}).forEach(function (k) {
+      nav[k] = patch[k];
+    });
+    renderFanworkScreen(slot);
+    syncGlobalGenPawOverlay();
+  }
+
+  function navigateToPhoneView(slotId, patch) {
+    let slot;
+    if (String(slotId) === "story-phone-slot") {
+      reopenStoryLayerIfHidden();
+      openStoryPhoneModal();
+      slot = document.getElementById("story-phone-slot");
+    } else {
+      dismissStoryLayerForOverview();
+      openOverviewSubView("phone");
+      slot = document.getElementById("phone-content-slot");
+    }
+    if (!slot) return;
+    const nav = getPhoneNav(slot);
+    Object.keys(patch || {}).forEach(function (k) {
+      nav[k] = patch[k];
+    });
+    renderPhoneScreen(slot);
+    syncGlobalGenPawOverlay();
+  }
+
+  function buildGenCallOpts(kind, params) {
+    params = params || {};
+    const slot = params.slot;
+    const slotId = resolveGenSlotId(slot, kind.indexOf("fanwork") >= 0 ? "fanwork-content-slot" : "phone-content-slot");
+
+    if (kind === "fanwork-jjwxc-chapter") {
+      const hit = findFanworkJjwxcNovel(params.novelId);
+      const chapter = hit
+        ? (hit.novel.chapters || []).find(function (c) {
+            return c && c.id === params.chapterId;
+          })
+        : null;
+      const chapterTitle = chapter ? String(chapter.title || "").trim() || "章节" : "章节";
+      const novelTitle = hit ? String(hit.novel.title || "").trim() : "";
+      const label = novelTitle ? "《" + novelTitle + "》" + chapterTitle : chapterTitle;
+      return {
+        pawContext: buildFanworkPawContext(slot),
+        genReady: {
+          message: label + " 已生成好",
+          navigate: function () {
+            navigateToFanworkView(slotId, {
+              screen: "jjwxc-chapter",
+              jjwxcNovelId: params.novelId,
+              jjwxcChapterId: params.chapterId,
+            });
+          },
+        },
+      };
+    }
+
+    if (kind === "fanwork-jjwxc-novel") {
+      const hit = findFanworkJjwxcNovel(params.novelId);
+      const title = hit ? String(hit.novel.title || "").trim() || "同人文" : "同人文";
+      return {
+        pawContext: buildFanworkPawContext(slot),
+        genReady: {
+          message: "《" + title + "》已生成好",
+          navigate: function () {
+            navigateToFanworkView(slotId, {
+              screen: "jjwxc-novel",
+              jjwxcNovelId: params.novelId,
+              jjwxcChapterId: null,
+            });
+          },
+        },
+      };
+    }
+
+    if (kind === "fanwork-jjwxc-catalog") {
+      return {
+        pawContext: buildFanworkPawContext(slot),
+        genReady: {
+          message: "小狗饭书单已生成好",
+          navigate: function () {
+            navigateToFanworkView(slotId, { screen: "jjwxc", jjwxcNovelId: null, jjwxcChapterId: null });
+          },
+        },
+      };
+    }
+
+    if (kind === "fanwork-jjwxc-append") {
+      const hit = findFanworkJjwxcNovel(params.novelId);
+      const title = hit ? String(hit.novel.title || "").trim() || "同人文" : "同人文";
+      const chTitle = params.chapterTitle ? String(params.chapterTitle).trim() : "新章节";
+      return {
+        pawContext: buildFanworkPawContext(slot),
+        genReady: {
+          message: "《" + title + "》" + chTitle + " 已生成好",
+          navigate: function () {
+            navigateToFanworkView(slotId, {
+              screen: "jjwxc-novel",
+              jjwxcNovelId: params.novelId,
+              jjwxcChapterId: null,
+            });
+          },
+        },
+      };
+    }
+
+    if (kind === "fanwork-jjwxc-regen") {
+      const hit = findFanworkJjwxcNovel(params.novelId);
+      const chapter = hit
+        ? (hit.novel.chapters || []).find(function (c) {
+            return c && c.id === params.chapterId;
+          })
+        : null;
+      const chapterTitle = chapter ? String(chapter.title || "").trim() || "最新章" : "最新章";
+      const novelTitle = hit ? String(hit.novel.title || "").trim() : "";
+      const label = novelTitle ? "《" + novelTitle + "》" + chapterTitle : chapterTitle;
+      return {
+        pawContext: buildFanworkPawContext(slot),
+        genReady: {
+          message: label + " 已重新生成",
+          navigate: function () {
+            navigateToFanworkView(slotId, {
+              screen: "jjwxc-chapter",
+              jjwxcNovelId: params.novelId,
+              jjwxcChapterId: params.chapterId,
+            });
+          },
+        },
+      };
+    }
+
+    if (kind === "phone-jjwxc-chapter") {
+      const hit = findPhoneJjwxcNovel(params.novelId);
+      const title = hit ? String(hit.novel.title || "").trim() || "作品" : "作品";
+      return {
+        pawContext: buildPhonePawContext(slot),
+        genReady: {
+          message: "《" + title + "》目录已更新",
+          navigate: function () {
+            navigateToPhoneView(slotId, {
+              screen: "jjwxc-novel",
+              jjwxcNovelId: params.novelId,
+              jjwxcChapterId: null,
+            });
+          },
+        },
+      };
+    }
+
+    if (kind === "phone-jjwxc-novel") {
+      const hit = findPhoneJjwxcNovel(params.novelId);
+      const title = hit ? String(hit.novel.title || "").trim() || "作品" : "作品";
+      return {
+        pawContext: buildPhonePawContext(slot),
+        genReady: {
+          message: "《" + title + "》已生成好",
+          navigate: function () {
+            navigateToPhoneView(slotId, {
+              screen: "jjwxc-novel",
+              jjwxcNovelId: params.novelId,
+              jjwxcChapterId: null,
+            });
+          },
+        },
+      };
+    }
+
+    if (kind === "phone-jjwxc-catalog") {
+      return {
+        pawContext: buildPhonePawContext(slot),
+        genReady: {
+          message: "晋江书单已生成好",
+          navigate: function () {
+            navigateToPhoneView(slotId, { screen: "jjwxc", jjwxcNovelId: null, jjwxcChapterId: null });
+          },
+        },
+      };
+    }
+
+    if (kind === "phone-wechat-chat") {
+      const chat = params.chat;
+      const chatName = chat ? String(chat.name || "").trim() || "微信会话" : "微信会话";
+      return {
+        pawContext: buildPhonePawContext(slot),
+        genReady: {
+          message: "「" + chatName + "」有新消息",
+          navigate: function () {
+            navigateToPhoneView(slotId, { screen: "wechat-chat", chatId: params.chatId });
+          },
+        },
+      };
+    }
+
+    if (kind === "phone-wechat-list") {
+      return {
+        pawContext: buildPhonePawContext(slot),
+        genReady: {
+          message: "微信内容已生成好",
+          navigate: function () {
+            navigateToPhoneView(slotId, { screen: "wechat-list", chatId: null });
+          },
+        },
+      };
+    }
+
+    const phoneScreenLabels = {
+      "phone-moments": "朋友圈内容已生成好",
+      "phone-music": "音乐列表已生成好",
+      "phone-album": "相册内容已生成好",
+      "phone-forum-list": "论坛帖子已生成好",
+      "phone-forum-post": "论坛帖子详情已生成好",
+      "phone-browser": "浏览器内容已生成好",
+      "phone-memo": "备忘录已生成好",
+      "phone-diary": "日记已生成好",
+      "phone-bill": "账单已生成好",
+      "phone-weread": "微信读书已生成好",
+    };
+
+    if (kind === "phone-forum-post" && params.postId) {
+      const postId = params.postId;
+      return {
+        pawContext: buildPhonePawContext(slot),
+        genReady: {
+          message: phoneScreenLabels[kind],
+          navigate: function () {
+            navigateToPhoneView(slotId, { screen: "forum-post", forumPostId: postId });
+          },
+        },
+      };
+    }
+
+    if (phoneScreenLabels[kind]) {
+      let screen = kind.replace("phone-", "");
+      if (screen === "forum-list") screen = "forum";
+      const patch = { screen: screen };
+      if (kind === "phone-weread" && params.bookId) {
+        patch.screen = "weread-book";
+        patch.wereadBookId = params.bookId;
+      }
+      return {
+        pawContext: buildPhonePawContext(slot),
+        genReady: {
+          message: phoneScreenLabels[kind],
+          navigate: function () {
+            navigateToPhoneView(slotId, patch);
+          },
+        },
+      };
+    }
+
+    if (kind === "story-play") {
+      const plot = params.plot;
+      const title = plot ? String(plot.title || "").trim() || "剧情" : "剧情";
+      return {
+        pawContext: getGlobalGenPawContext(),
+        genReady: {
+          message: "《" + title + "》有新剧情",
+          navigate: function () {
+            if (!plot) return;
+            openStoryLayer(plot, "play");
+            requestAnimationFrame(function () {
+              requestAnimationFrame(function () {
+                scrollStoryPlayToLatest(false);
+              });
+            });
+          },
+        },
+      };
+    }
+
+    if (kind === "story-setup") {
+      const plot = params.plot;
+      const title = plot ? String(plot.title || "").trim() || "剧情" : "剧情";
+      return {
+        pawContext: getGlobalGenPawContext(),
+        genReady: {
+          message: "《" + title + "》开场已生成好",
+          navigate: function () {
+            if (plot) openStoryLayer(plot, "setup");
+          },
+        },
+      };
+    }
+
+    return { pawContext: buildPhonePawContext(slot) || buildFanworkPawContext(slot) || getGlobalGenPawContext() };
   }
 
   function truncateStorySearchText(text, maxLen) {
@@ -11837,14 +28167,16 @@
 
     try {
       showToast("正在生成剧情标题与开场概要…", "info");
-      let response = await callChatCompletion(messages, 0.8, storyBriefMaxTokens());
+      setGenCallContext(buildGenCallOpts("story-setup", { plot: plot }));
+      const storyBriefApiOpts = { skipGenReady: true };
+      let response = await callChatCompletion(messages, 0.8, storyBriefMaxTokens(), storyBriefApiOpts);
       let parsed = parseStoryBriefResponse(response);
       let fields = buildStoryBriefFieldsFromParsed(parsed);
       let missingRoles = getMissingRoleNamesForIdentityText(fields.identText, plot);
 
       if (missingRoles.length > 0) {
         showToast("检测到角色身份未覆盖主导角色，正在自动重试一次…", "info", 3200);
-        response = await callChatCompletion(messages, 0.72, storyBriefMaxTokens());
+        response = await callChatCompletion(messages, 0.72, storyBriefMaxTokens(), storyBriefApiOpts);
         parsed = parseStoryBriefResponse(response);
         fields = buildStoryBriefFieldsFromParsed(parsed);
         missingRoles = getMissingRoleNamesForIdentityText(fields.identText, plot);
@@ -11920,26 +28252,32 @@
       renderDynamic();
       if (allEmpty && rawLen > 30) {
         showToast("已收到回复但无法识别小节格式，请点「重新生成」或检查模型输出", "error", 5200);
-      } else if (missingParts.length) {
-        if (missingParts.length === 1 && missingParts[0] === "剧情标题") {
-          showToast(
-            "开场概要已生成；未识别「剧情标题」行，列表标题仍为占位。可点「重新生成」或到剧情编辑里改标题。",
-            "info",
-            5000
-          );
-        } else {
-          showToast(
-            "剧情概要已生成，但未完整识别：" + missingParts.join("、") + "。可再点「重新生成」或手动编辑。",
-            "info",
-            4800
-          );
-        }
       } else {
-        showToast("剧情标题与开场概要生成成功", "success");
+        const setupReady = buildGenCallOpts("story-setup", { plot: plot }).genReady;
+        if (setupReady) showGenReadyBanner(setupReady);
+        if (missingParts.length) {
+          if (missingParts.length === 1 && missingParts[0] === "剧情标题") {
+            showToast(
+              "开场概要已生成；未识别「剧情标题」行，列表标题仍为占位。可点「重新生成」或到剧情编辑里改标题。",
+              "info",
+              5000
+            );
+          } else {
+            showToast(
+              "剧情概要已生成，但未完整识别：" + missingParts.join("、") + "。可再点「重新生成」或手动编辑。",
+              "info",
+              4800
+            );
+          }
+        } else {
+          showToast("剧情标题与开场概要生成成功", "success");
+        }
       }
     } catch (err) {
       console.error("生成剧情概要失败:", err);
       showToast("生成失败：" + (err && err.message ? err.message : String(err)), "error", 4500);
+    } finally {
+      clearGenCallContext();
     }
   }
 
@@ -13587,13 +29925,10 @@
     const firstLine = turnLines[firstIdx];
     const tail = document.createElement("div");
     tail.className = "story-msg__ambience story-feed-narr story-feed-narr--rp";
-    tail.setAttribute("data-story-line-id", String(firstLine.id || ""));
     tail.innerHTML = renderStoryInlineMarkup(combined);
     applyStoryLineDecorations(tail, plot, String(firstLine.id || ""));
     msgRow.appendChild(tail);
-    if (!plot.playSealed) {
-      setStoryPlayLinePressMeta(tail, plot, turnIndex, firstIdx);
-    }
+    /** 氛围尾接在角色气泡后：不单独挂 line-id/按压元数据，选区与长按归属同一 story-feed-segment */
   }
 
   /** 剧情条：头像与昵称在上，正文在下全宽平铺。 */
@@ -13723,6 +30058,7 @@
               const wrap = document.createElement("div");
               wrap.className = "story-line-edit-inline-wrap";
               wrap.setAttribute("data-story-line-id", String(line.id || ""));
+              markStoryFeedSegment(wrap);
               const editable = document.createElement("div");
               editable.className = "story-feed-narr story-feed-narr--rp story-line-editable-inline";
               editable.setAttribute("role", "textbox");
@@ -13782,6 +30118,7 @@
               "story-feed-narr story-feed-narr--rp" +
               (p.playSealed ? " story-feed-narr--readonly" : " story-line-clickable");
             narr.setAttribute("data-story-line-id", String(narrFirstLine.id || ""));
+            markStoryFeedSegment(narr);
             narr.innerHTML = renderStoryInlineMarkup(narrMerged);
             applyStoryLineDecorations(narr, p, String(narrFirstLine.id || ""));
             if (!p.playSealed) {
@@ -13798,6 +30135,7 @@
             const shell = buildStoryPlayParticipantShell(isMe, displayChar, ch, "story-line-edit-outer");
             const row = shell.row;
             row.setAttribute("data-story-line-id", String(line.id || ""));
+            markStoryFeedSegment(row);
             const col = document.createElement("div");
             col.className = "story-line-edit-msg-col";
             const editable = document.createElement("div");
@@ -13867,6 +30205,7 @@
               );
               var mergeRow = shellM.row;
               mergeRow.setAttribute("data-story-line-id", String(line.id || ""));
+              markStoryFeedSegment(mergeRow);
               var mergeTxt = document.createElement("div");
               mergeTxt.className = "story-msg__text story-msg__text--rp";
               mergeTxt.innerHTML = renderStoryInlineMarkup(stripNarratorDisplayText(mergedParticipantText));
@@ -13893,6 +30232,7 @@
           );
           const row = shellN.row;
           row.setAttribute("data-story-line-id", String(line.id || ""));
+          markStoryFeedSegment(row);
           const txt = document.createElement("div");
           txt.className = "story-msg__text story-msg__text--rp";
           var bubbleDisplayText = rawText;
@@ -14267,18 +30607,20 @@
     });
     const wbs = getWorldBooksForPlot(plot);
 
-    const recentTurns = (plot.playTurns || []).slice(-4);
-    const history = recentTurns
-      .map(function (turn) {
-        return (turn.lines || [])
-          .map(function (line) {
-            return storyLineHistoryPrefix(line) + (line.text || "");
-          })
-          .join("\n");
-      })
-      .join("\n\n");
+    const recentTurns = (plot.playTurns || []).slice(-STORY_PLAY_REF_TURN_LIMIT);
+    const history = compactStoryPlayHistoryForApi(
+      recentTurns
+        .map(function (turn) {
+          return (turn.lines || [])
+            .map(function (line) {
+              return storyLineHistoryPrefix(line) + (line.text || "");
+            })
+            .join("\n");
+        })
+        .join("\n\n")
+    );
     const latestPlayerAction = (function () {
-      const turns = plot.playTurns || [];
+      const turns = recentTurns;
       for (let ti = turns.length - 1; ti >= 0; ti--) {
         const t = turns[ti];
         const ls = Array.isArray(t && t.lines) ? t.lines : [];
@@ -14430,9 +30772,22 @@
         : "") +
       (latestPlayerAction ? "\n\n上一手玩家行动（仅供连续性参考）：\n" + latestPlayerAction : "") +
       (roleOverrideBlock ? "\n\n当前角色形象覆盖：\n" + roleOverrideBlock : "") +
-      (summaryBlock ? "\n\n阶段总结（最新 " + PLAY_SUMMARY_REF_LIMIT + " 条，供连续性参考）：\n" + summaryBlock : "") +
-      (memoryBlock ? "\n\n命中关键词的记忆（最多 " + PLOT_MEMORY_PROMPT_MAX + " 条）：\n" + memoryBlock : "") +
-      "\n\n最近剧情：\n" + (history || "故事刚开始。");
+      (summaryBlock
+        ? "\n\n阶段总结（最新 " +
+          PLAY_SUMMARY_PROMPT_REF_LIMIT +
+          " 条；更早情节以此为准，勿与总结矛盾）：\n" +
+          summaryBlock
+        : "") +
+      (memoryBlock
+        ? "\n\n记忆（最多 " + PLOT_MEMORY_PROMPT_MAX + " 条，与当前场面相关）：\n" + memoryBlock
+        : "") +
+      "\n\n最近剧情（仅最近 " +
+      STORY_PLAY_REF_TURN_LIMIT +
+      " 轮记录）：\n" +
+      (history || "故事刚开始。");
+
+    const apiSystemPrompt = truncateCharsWithEllipsis(systemPrompt, STORY_PLAY_API_SYSTEM_MAX_CHARS);
+    const apiUserPrompt = capStoryPlayUserPromptForApi(userPrompt);
 
     if (
       pendingPlayerTurnAction &&
@@ -14443,16 +30798,19 @@
     }
 
     let scrollToNewTurnFirstLineId = "";
+    setGenCallContext(buildGenCallOpts("story-play", { plot: plot }));
     try {
       showToast("AI 正在续写剧情…", "info");
       const playTemperature = isGeminiPlay ? 0.56 : 0.72;
+      const storyPlayApiOpts = { skipGenReady: true };
       const rawResp = await callChatCompletion(
         [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
+          { role: "system", content: apiSystemPrompt },
+          { role: "user", content: apiUserPrompt },
         ],
         playTemperature,
-        storyPlayMaxTokens(plot)
+        storyPlayMaxTokens(plot),
+        storyPlayApiOpts
       );
       const rawProcessed = preprocessStoryPlayModelRaw(rawResp);
       const bodyBeforeChoiceHeader = sliceStoryRawBeforeChoicesHeader(rawProcessed);
@@ -14499,7 +30857,8 @@
                 },
               ],
               isGeminiPlay ? 0.45 : 0.62,
-              640
+              640,
+              storyPlayApiOpts
             );
             const rescued = sanitizeStoryChoices(
               parseStoryChoices(String(rescueRaw || "").trim(), String(rescueRaw || ""))
@@ -14539,8 +30898,11 @@
         triggerPlayerAction: triggerSnap,
       });
       plot.lastGeneratedAt = Date.now();
+      syncPhoneStoryDateAnchor(plot);
       scrollToNewTurnFirstLineId =
         linesWithIds[0] && linesWithIds[0].id ? String(linesWithIds[0].id) : "";
+      const playReady = buildGenCallOpts("story-play", { plot: plot }).genReady;
+      if (playReady) showGenReadyBanner(playReady);
       showToast("剧情续写完成", "success");
       flushPersistNarrative();
       setTimeout(function () {
@@ -14551,6 +30913,7 @@
       showToast("续写失败：" + (err && err.message ? err.message : "请重试或换用其他模型"), "error", 4000);
       restoreStoryComposerInputAfterPlayFailureFromPendingSnap(pendingPlayerTurnAction);
     } finally {
+      clearGenCallContext();
       plot.pendingPlayerTurnAction = null;
       plot.playTurnInFlight = false;
       storyAiWakeLockRelease();
@@ -14672,6 +31035,7 @@
         });
       });
     }
+    syncGlobalGenPawOverlay();
   }
 
   function closeStoryLayer(targetTab) {
@@ -14682,6 +31046,8 @@
     closeAvatarActionSheet();
     closeStorySummariesModal();
     closeStorySearchModal();
+    closeStoryPhoneModal();
+    closeStoryFanworkModal();
     closeStoryApiSettingsModal();
     closePlotMyOverrideModal();
     closePlotRoleOverrideModal();
@@ -14692,13 +31058,14 @@
     const panel = document.getElementById("story-panel-setup");
     if (panel) panel.classList.remove("story-setup--editing");
     els.layerStory().hidden = true;
-    if (targetTab && ["overview", "worldbook", "plot", "characters", "settings"].includes(targetTab)) {
+    if (targetTab && MAIN_TAB_IDS.includes(targetTab)) {
       location.hash = "#/tab/" + targetTab;
     } else {
       location.hash = "#/tab/" + activeTab;
     }
     applyHash();
     renderDynamic();
+    syncGlobalGenPawOverlay();
   }
 
   function isNewApiFormComplete(form) {
@@ -14998,7 +31365,7 @@
       backupSvg +
       '</span><div><h3 class="settings-panel__title">备份功能</h3></div></div>' +
       '<div class="settings-panel__body">' +
-      '<p class="field__hint">导出会打包当前网页中的剧情、角色、世界书、助手与聊天记录及相关设置；若包含 API 配置则会含密钥，请妥善保管。</p>' +
+      '<p class="field__hint">导出会完整打包本机全部用户数据：角色、剧情与世界书（含正文、总结、记忆、收藏、划线/想法、背景图）、查手机各 App 生成内容、小狗饭、点星助手与聊天记录、API 配置（含密钥）、外观/主题/亮度/字体/状态栏等设置，以及自定义字体文件（如有）。请妥善保管备份文件。</p>' +
       '<div class="btn-row backup-actions">' +
       '<button type="button" class="btn btn-secondary btn--pill backup-action-btn" id="btn-backup-export">导出备份</button>' +
       '<button type="button" class="btn btn-secondary btn--pill backup-action-btn" id="btn-backup-import">导入备份并覆盖</button>' +
@@ -15168,7 +31535,9 @@
     var storyOpen = !!(layerStory && !layerStory.hidden);
     if (activeTab === "overview" && !storyOpen) {
       renderAssistantHeader();
-      renderAssistantChatList();
+      syncOverviewSubViewUi();
+      if (overviewSubView === "phone") renderPhoneScreen(els.phoneContentSlot());
+      else if (overviewSubView === "fanwork") renderFanworkScreen(els.fanworkContentSlot());
     }
     if (els.modalAssistantProfile() && !els.modalAssistantProfile().hidden) {
       renderAssistantProfileModal();
@@ -15185,6 +31554,11 @@
       renderCharList();
     } else if (activeTab === "settings" && !storyOpen) {
       renderSettings();
+    }
+
+    if (document.querySelector(".phone-home")) {
+      updatePhoneHomeOwnerLabels();
+      applyPhoneWallpaperStyles();
     }
 
     document.querySelectorAll(".js-add-api-block").forEach((block) => {
@@ -15227,12 +31601,21 @@
       return;
     }
     if (h.startsWith("#/tab/")) {
-      const t = h.replace("#/tab/", "");
-      if (["overview", "worldbook", "plot", "characters", "settings"].includes(t)) {
+      let t = h.replace("#/tab/", "").split("/")[0];
+      if (LEGACY_OVERVIEW_SUB_TAB_IDS[t]) {
+        overviewSubView = LEGACY_OVERVIEW_SUB_TAB_IDS[t];
+        t = "overview";
+      } else if (t === "overview") {
+        overviewSubView = null;
+      }
+      if (MAIN_TAB_IDS.includes(t)) {
+        els.layerStory().hidden = true;
         activeTab = t;
         els.views().forEach((v) => v.classList.toggle("view--active", v.dataset.view === t));
         els.navItems().forEach((btn) => btn.classList.toggle("is-active", btn.dataset.tab === t));
         syncMainScrollMode();
+        renderDynamic();
+        syncGlobalGenPawOverlay();
       }
     }
   }
@@ -15250,43 +31633,6 @@
     if (!chip || !document.getElementById("view-overview").contains(chip)) return;
     const action = chip.getAttribute("data-assistant-action");
     if (action) handleAssistantQuickAction(action);
-  });
-  document.getElementById("assistant-profile-trigger").addEventListener("click", () => {
-    openAssistantProfileModal();
-  });
-  document.getElementById("assistant-switch-open").addEventListener("click", () => {
-    openAssistantSwitcherModal();
-  });
-  const assistantChatBatchSelectBtn = document.getElementById("assistant-chat-batch-select");
-  if (assistantChatBatchSelectBtn) {
-    assistantChatBatchSelectBtn.addEventListener("click", function () {
-      if (assistantReplying) {
-        showToast("助手正在回复，请稍后再试。", "info");
-        return;
-      }
-      if (!assistantState || !assistantState.messages.length) {
-        showToast("暂无消息可选择。", "info");
-        return;
-      }
-      enterAssistantChatSelectMode(NaN);
-      renderAssistantChatList();
-      showToast("点选要删除的消息，再点底部「删除」", "info", 2600);
-    });
-  }
-  document.getElementById("assistant-add").addEventListener("click", () => {
-    openAssistantProfileModalForCreate();
-  });
-  document.getElementById("assistant-send").addEventListener("click", () => {
-    submitAssistantUserMessage();
-  });
-  document.getElementById("assistant-generate-reply").addEventListener("click", () => {
-    void generateAssistantReplyFromChat();
-  });
-  document.getElementById("assistant-input").addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      submitAssistantUserMessage();
-    }
   });
   document.getElementById("assistant-modal-close").addEventListener("click", closeAssistantProfileModal);
   document.getElementById("modal-assistant-profile").addEventListener("click", (e) => {
@@ -15367,17 +31713,20 @@
     if (!ctx) return;
     ctx.dedicatedApiId = e.target.value || "";
   });
-  document.getElementById("assistant-chat-clear").addEventListener("click", async () => {
-    if (assistantProfileModalMode === "create") return;
-    const ok = await showConfirm("确认清空助手的全部聊天记录吗？");
-    if (!ok) return;
-    exitAssistantChatSelectMode();
-    assistantState.messages = [];
-    assistantState.assistantEverHadRealExchange = false;
-    ensureAssistantWelcomeMessages();
-    persistAssistantState();
-    renderAssistantChatList();
-  });
+  const assistantChatClearBtn = document.getElementById("assistant-chat-clear");
+  if (assistantChatClearBtn) {
+    assistantChatClearBtn.addEventListener("click", async () => {
+      if (assistantProfileModalMode === "create") return;
+      const ok = await showConfirm("确认清空该助手的历史对话记录吗？");
+      if (!ok) return;
+      exitAssistantChatSelectMode();
+      assistantState.messages = [];
+      assistantState.assistantEverHadRealExchange = false;
+      ensureAssistantWelcomeMessages();
+      persistAssistantState();
+      renderAssistantChatList();
+    });
+  }
   document.getElementById("assistant-delete").addEventListener("click", async () => {
     if (assistantProfileModalMode === "create") return;
     if (assistantDirectory.assistants.length <= 1) {
@@ -15456,22 +31805,32 @@
     if (e.target.id === "modal-assistant-inspiration") closeAssistantInspirationModal();
   });
   document.getElementById("assistant-inspiration-generate").addEventListener("click", () => {
-    void submitAssistantInspirationToChat();
+    void submitAssistantInspiration();
   });
-  document.getElementById("assistant-chat-list").addEventListener("click", (e) => {
-    if (assistantChatSelectMode) return;
-    const acceptBtn = e.target.closest("[data-assistant-inspiration-accept]");
-    if (acceptBtn) {
-      const idx = parseInt(acceptBtn.getAttribute("data-assistant-inspiration-accept"), 10);
-      if (!Number.isNaN(idx)) void acceptAssistantInspirationAtIndex(idx);
-      return;
-    }
-    const dismissBtn = e.target.closest("[data-assistant-inspiration-dismiss]");
-    if (dismissBtn) {
-      const idx = parseInt(dismissBtn.getAttribute("data-assistant-inspiration-dismiss"), 10);
-      if (!Number.isNaN(idx)) dismissAssistantInspirationAtIndex(idx);
-    }
-  });
+  const assistantInspirationResultAccept = document.getElementById("assistant-inspiration-result-accept");
+  if (assistantInspirationResultAccept) {
+    assistantInspirationResultAccept.addEventListener("click", () => {
+      void acceptAssistantInspirationFromModal();
+    });
+  }
+  const assistantInspirationResultDismiss = document.getElementById("assistant-inspiration-result-dismiss");
+  if (assistantInspirationResultDismiss) {
+    assistantInspirationResultDismiss.addEventListener("click", closeAssistantInspirationModal);
+  }
+  const modalAssistantPlotReply = document.getElementById("modal-assistant-plot-reply");
+  if (modalAssistantPlotReply) {
+    modalAssistantPlotReply.addEventListener("click", (e) => {
+      if (e.target.id === "modal-assistant-plot-reply") closeAssistantPlotShareReplyModal();
+    });
+  }
+  const assistantPlotReplyModalClose = document.getElementById("assistant-plot-reply-modal-close");
+  if (assistantPlotReplyModalClose) {
+    assistantPlotReplyModalClose.addEventListener("click", closeAssistantPlotShareReplyModal);
+  }
+  const assistantPlotReplyDone = document.getElementById("assistant-plot-reply-done");
+  if (assistantPlotReplyDone) {
+    assistantPlotReplyDone.addEventListener("click", closeAssistantPlotShareReplyModal);
+  }
 
   (function bindAssistantChatMultiSelectHandlers() {
     const list = document.getElementById("assistant-chat-list");
@@ -15860,6 +32219,889 @@
       openStorySearchModal(p);
     });
   }
+  if (els.storyPhoneBtn()) {
+    els.storyPhoneBtn().addEventListener("click", function () {
+      const modal = els.modalStoryPhone();
+      if (modal && !modal.hidden) {
+        closeStoryPhoneModal();
+        return;
+      }
+      closeStoryFanworkModal();
+      openStoryPhoneModal();
+    });
+  }
+  if (els.storyPhoneClose()) {
+    els.storyPhoneClose().addEventListener("click", closeStoryPhoneModal);
+  }
+  if (els.modalStoryPhone()) {
+    els.modalStoryPhone().addEventListener("click", function (e) {
+      if (e.target.id === "modal-story-phone") closeStoryPhoneModal();
+    });
+  }
+  if (els.storyFanworkBtn()) {
+    els.storyFanworkBtn().addEventListener("click", function () {
+      const modal = els.modalStoryFanwork();
+      if (modal && !modal.hidden) {
+        closeStoryFanworkModal();
+        return;
+      }
+      closeStoryPhoneModal();
+      openStoryFanworkModal();
+    });
+  }
+  if (els.storyFanworkClose()) {
+    els.storyFanworkClose().addEventListener("click", closeStoryFanworkModal);
+  }
+  if (els.modalStoryFanwork()) {
+    els.modalStoryFanwork().addEventListener("click", function (e) {
+      if (e.target.id === "modal-story-fanwork") closeStoryFanworkModal();
+    });
+  }
+  if (els.phoneHolderClose()) {
+    els.phoneHolderClose().addEventListener("click", closePhoneHolderModal);
+  }
+  if (els.phoneHolderStepBack()) {
+    els.phoneHolderStepBack().addEventListener("click", phoneHolderModalBackToPlot);
+  }
+  if (els.modalPhoneHolder()) {
+    els.modalPhoneHolder().addEventListener("click", function (e) {
+      if (e.target.id === "modal-phone-holder") closePhoneHolderModal();
+    });
+  }
+  document.addEventListener("click", function (e) {
+    const slot = e.target.closest("#phone-content-slot, #story-phone-slot");
+    if (!slot || !slot.contains(e.target)) return;
+
+    const deleteChatBtn = e.target.closest("[data-phone-wechat-delete-chat]");
+    if (deleteChatBtn) {
+      void handlePhoneWechatDeleteChat(slot, deleteChatBtn.getAttribute("data-phone-wechat-delete-chat"));
+      return;
+    }
+
+    if (
+      e.target.closest(".phone-wechat__list") &&
+      !e.target.closest(".phone-wechat-row-wrap")
+    ) {
+      closePhoneRowSwipe(slot);
+    }
+
+    if (
+      e.target.closest(".phone-music__list") &&
+      !e.target.closest(".phone-music-row-wrap")
+    ) {
+      closePhoneRowSwipe(slot);
+    }
+
+    if (e.target.closest("[data-phone-wechat-generate]")) {
+      void generatePhoneWechatContent(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-moments-generate]")) {
+      void generatePhoneMomentsContent(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-music-generate]")) {
+      void generatePhoneMusicContent(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-album-generate]")) {
+      void generatePhoneAlbumContent(slot);
+      return;
+    }
+
+    const albumCategoryBtn = e.target.closest("[data-phone-album-category]");
+    if (albumCategoryBtn) {
+      switchPhoneAlbumCategory(slot, albumCategoryBtn.getAttribute("data-phone-album-category"));
+      return;
+    }
+
+    const albumPhotoBtn = e.target.closest("[data-phone-album-photo]");
+    if (albumPhotoBtn) {
+      openPhoneAlbumPhotoDetail(slot, albumPhotoBtn.getAttribute("data-phone-album-photo"));
+      return;
+    }
+
+    if (e.target.closest("[data-phone-album-detail-close]")) {
+      closePhoneAlbumPhotoDetail(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-album-edit-desc]")) {
+      togglePhoneAlbumPhotoEdit(slot, true);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-album-edit-cancel]")) {
+      togglePhoneAlbumPhotoEdit(slot, false);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-album-edit-save]")) {
+      const input = slot.querySelector("[data-phone-album-edit-input]");
+      savePhoneAlbumPhotoDescription(slot, input ? input.value : "");
+      return;
+    }
+
+    if (e.target.closest("[data-phone-album-delete-photo]")) {
+      void handlePhoneAlbumDeletePhoto(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-forum-generate]")) {
+      void generatePhoneForumListContent(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-browser-generate]")) {
+      void generatePhoneBrowserContent(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-browser-manage-open]")) {
+      if (!requirePhoneBrowserHolderForEdit()) return;
+      openPhoneBrowserManage(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-browser-manage-close]")) {
+      closePhoneBrowserManage(slot);
+      return;
+    }
+
+    const browserSectionEditBtn = e.target.closest("[data-phone-browser-section-edit]");
+    if (browserSectionEditBtn) {
+      if (!requirePhoneBrowserHolderForEdit()) return;
+      openPhoneBrowserSectionForm(slot, browserSectionEditBtn.getAttribute("data-phone-browser-section-edit"));
+      return;
+    }
+
+    if (e.target.closest("[data-phone-browser-section-form-cancel]")) {
+      cancelPhoneBrowserSectionForm(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-browser-section-save]")) {
+      savePhoneBrowserSectionForm(slot);
+      return;
+    }
+
+    const browserSectionBtn = e.target.closest("[data-phone-browser-section]");
+    if (browserSectionBtn) {
+      switchPhoneBrowserSection(slot, browserSectionBtn.getAttribute("data-phone-browser-section"));
+      return;
+    }
+
+    const browserEntryToggle = e.target.closest("[data-phone-browser-entry-toggle]");
+    if (browserEntryToggle) {
+      togglePhoneBrowserEntryExpand(slot, browserEntryToggle.getAttribute("data-phone-browser-entry-toggle"));
+      return;
+    }
+
+    const browserEntryEditBtn = e.target.closest("[data-phone-browser-entry-edit]");
+    if (browserEntryEditBtn) {
+      if (!hasPhoneBrowserGenerated()) return;
+      startPhoneBrowserInlineEdit(slot, browserEntryEditBtn.getAttribute("data-phone-browser-entry-edit"));
+      return;
+    }
+
+    const browserEntryDelBtn = e.target.closest("[data-phone-browser-entry-delete]");
+    if (browserEntryDelBtn) {
+      void handlePhoneBrowserDeleteEntry(slot, browserEntryDelBtn.getAttribute("data-phone-browser-entry-delete"));
+      return;
+    }
+
+    if (e.target.closest("[data-phone-memo-generate]")) {
+      void generatePhoneMemoContent(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-bill-generate]")) {
+      void generatePhoneBillContent(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-weread-generate]")) {
+      void generatePhoneWereadContent(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-jjwxc-generate]")) {
+      void generatePhoneJjwxcCatalogContent(slot);
+      return;
+    }
+
+    const jjwxcNovelGenBtn = e.target.closest("[data-phone-jjwxc-novel-generate]");
+    if (jjwxcNovelGenBtn) {
+      const nid = jjwxcNovelGenBtn.getAttribute("data-phone-jjwxc-novel-generate");
+      const hit = findPhoneJjwxcNovel(nid);
+      void generatePhoneJjwxcNovelContent(slot, nid, !!(hit && phoneJjwxcNovelHasDetail(hit.novel)));
+      return;
+    }
+
+    const jjwxcTabBtn = e.target.closest("[data-phone-jjwxc-tab]");
+    if (jjwxcTabBtn) {
+      switchPhoneJjwxcTab(slot, jjwxcTabBtn.getAttribute("data-phone-jjwxc-tab"));
+      return;
+    }
+
+    const jjwxcCatBtn = e.target.closest("[data-phone-jjwxc-category]");
+    if (jjwxcCatBtn) {
+      switchPhoneJjwxcCategory(slot, jjwxcCatBtn.getAttribute("data-phone-jjwxc-category"));
+      return;
+    }
+
+    if (e.target.closest("[data-phone-jjwxc-manage-open]")) {
+      if (!requirePhoneJjwxcHolderForEdit()) return;
+      openPhoneJjwxcManage(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-jjwxc-manage-close]")) {
+      closePhoneJjwxcManage(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-jjwxc-category-add]")) {
+      if (!requirePhoneJjwxcHolderForEdit()) return;
+      openPhoneJjwxcCategoryForm(slot, "new");
+      return;
+    }
+
+    const jjwxcCatEditBtn = e.target.closest("[data-phone-jjwxc-category-edit]");
+    if (jjwxcCatEditBtn) {
+      if (!requirePhoneJjwxcHolderForEdit()) return;
+      openPhoneJjwxcCategoryForm(slot, jjwxcCatEditBtn.getAttribute("data-phone-jjwxc-category-edit"));
+      return;
+    }
+
+    const jjwxcCatDeleteBtn = e.target.closest("[data-phone-jjwxc-category-delete]");
+    if (jjwxcCatDeleteBtn) {
+      void handlePhoneJjwxcCategoryDelete(slot, jjwxcCatDeleteBtn.getAttribute("data-phone-jjwxc-category-delete"));
+      return;
+    }
+
+    if (e.target.closest("[data-phone-jjwxc-category-form-cancel]")) {
+      cancelPhoneJjwxcCategoryForm(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-jjwxc-category-save]")) {
+      savePhoneJjwxcCategoryForm(slot);
+      return;
+    }
+
+    const jjwxcNovelDelBtn = e.target.closest("[data-phone-jjwxc-novel-delete]");
+    if (jjwxcNovelDelBtn) {
+      void handlePhoneJjwxcNovelDelete(slot, jjwxcNovelDelBtn.getAttribute("data-phone-jjwxc-novel-delete"));
+      return;
+    }
+
+    const jjwxcTipDelBtn = e.target.closest("[data-phone-jjwxc-tip-delete]");
+    if (jjwxcTipDelBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      void handlePhoneJjwxcTipDelete(slot, jjwxcTipDelBtn.getAttribute("data-phone-jjwxc-tip-delete"));
+      return;
+    }
+
+    const jjwxcNoteDelBtn = e.target.closest("[data-phone-jjwxc-note-delete]");
+    if (jjwxcNoteDelBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      void handlePhoneJjwxcReadingNoteDelete(slot, jjwxcNoteDelBtn.getAttribute("data-phone-jjwxc-note-delete"));
+      return;
+    }
+
+    const jjwxcNovelBtn = e.target.closest("[data-phone-jjwxc-novel]");
+    if (jjwxcNovelBtn) {
+      if (!hasPhoneJjwxcGenerated()) return;
+      void openPhoneJjwxcNovel(slot, jjwxcNovelBtn.getAttribute("data-phone-jjwxc-novel"));
+      return;
+    }
+
+    const jjwxcChToggleBtn = e.target.closest("[data-phone-jjwxc-ch-toggle]");
+    if (jjwxcChToggleBtn) {
+      e.preventDefault();
+      togglePhoneJjwxcChapterExpand(slot, jjwxcChToggleBtn.getAttribute("data-phone-jjwxc-ch-toggle"));
+      jjwxcChToggleBtn.blur();
+      return;
+    }
+
+    const wereadOpenBtn = e.target.closest("[data-phone-weread-open-book]");
+    if (wereadOpenBtn) {
+      if (!hasPhoneWereadGenerated()) return;
+      openPhoneWereadBook(slot, wereadOpenBtn.getAttribute("data-phone-weread-open-book"));
+      return;
+    }
+
+    if (e.target.closest("[data-phone-memo-manage-open]")) {
+      if (!requirePhoneMemoHolderForEdit()) return;
+      openPhoneMemoManage(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-memo-manage-close]")) {
+      closePhoneMemoManage(slot);
+      return;
+    }
+
+    const memoSectionEditBtn = e.target.closest("[data-phone-memo-section-edit]");
+    if (memoSectionEditBtn) {
+      if (!requirePhoneMemoHolderForEdit()) return;
+      openPhoneMemoSectionForm(slot, memoSectionEditBtn.getAttribute("data-phone-memo-section-edit"));
+      return;
+    }
+
+    const memoSectionDeleteBtn = e.target.closest("[data-phone-memo-section-delete]");
+    if (memoSectionDeleteBtn) {
+      void handlePhoneMemoSectionDelete(slot, memoSectionDeleteBtn.getAttribute("data-phone-memo-section-delete"));
+      return;
+    }
+
+    if (e.target.closest("[data-phone-memo-section-add]")) {
+      if (!requirePhoneMemoHolderForEdit()) return;
+      openPhoneMemoSectionForm(slot, "new");
+      return;
+    }
+
+    if (e.target.closest("[data-phone-memo-section-form-cancel]")) {
+      cancelPhoneMemoSectionForm(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-memo-section-save]")) {
+      savePhoneMemoSectionForm(slot);
+      return;
+    }
+
+    const memoSectionBtn = e.target.closest("[data-phone-memo-section]");
+    if (memoSectionBtn) {
+      switchPhoneMemoSection(slot, memoSectionBtn.getAttribute("data-phone-memo-section"));
+      return;
+    }
+
+    const memoNoteToggle = e.target.closest("[data-phone-memo-note-toggle]");
+    if (memoNoteToggle) {
+      togglePhoneMemoNoteExpand(slot, memoNoteToggle.getAttribute("data-phone-memo-note-toggle"));
+      return;
+    }
+
+    const memoNoteEditBtn = e.target.closest("[data-phone-memo-note-edit]");
+    if (memoNoteEditBtn) {
+      if (!hasPhoneMemoGenerated()) return;
+      startPhoneMemoInlineEdit(slot, memoNoteEditBtn.getAttribute("data-phone-memo-note-edit"));
+      return;
+    }
+
+    const memoNoteDelBtn = e.target.closest("[data-phone-memo-note-delete]");
+    if (memoNoteDelBtn) {
+      void handlePhoneMemoDeleteNote(slot, memoNoteDelBtn.getAttribute("data-phone-memo-note-delete"));
+      return;
+    }
+
+    const diaryGenBtn = e.target.closest("[data-phone-diary-generate]");
+    if (diaryGenBtn) {
+      void generatePhoneDiaryContent(slot, diaryGenBtn.getAttribute("data-phone-diary-date"));
+      return;
+    }
+
+    if (e.target.closest("[data-phone-diary-page-newer]")) {
+      switchPhoneDiaryEntry(slot, -1);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-diary-page-older]")) {
+      switchPhoneDiaryEntry(slot, 1);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-forum-post-generate]")) {
+      const nav = getPhoneNav(slot);
+      if (nav.forumPostId) void generatePhoneForumPostContent(slot, nav.forumPostId, true);
+      return;
+    }
+
+    const forumPostEditBtn = e.target.closest("[data-phone-forum-post-text-edit]");
+    if (forumPostEditBtn) {
+      startPhoneForumInlineEdit(slot, "list:" + forumPostEditBtn.getAttribute("data-phone-forum-post-text-edit"));
+      return;
+    }
+
+    const forumOpEditBtn = e.target.closest("[data-phone-forum-op-text-edit]");
+    if (forumOpEditBtn) {
+      startPhoneForumInlineEdit(slot, "op:" + forumOpEditBtn.getAttribute("data-phone-forum-op-text-edit"));
+      return;
+    }
+
+    const forumMsgEditBtn = e.target.closest("[data-phone-forum-msg-text-edit]");
+    if (forumMsgEditBtn) {
+      startPhoneForumInlineEdit(
+        slot,
+        "msg:" +
+          forumMsgEditBtn.getAttribute("data-phone-forum-msg-text-edit") +
+          ":" +
+          forumMsgEditBtn.getAttribute("data-phone-forum-msg-id")
+      );
+      return;
+    }
+
+    const forumPostDelBtn = e.target.closest("[data-phone-forum-post-delete]");
+    if (forumPostDelBtn) {
+      void handlePhoneForumDeletePost(slot, forumPostDelBtn.getAttribute("data-phone-forum-post-delete"));
+      return;
+    }
+
+    const forumMsgDelBtn = e.target.closest("[data-phone-forum-msg-delete]");
+    if (forumMsgDelBtn) {
+      void handlePhoneForumDeleteMessage(
+        slot,
+        forumMsgDelBtn.getAttribute("data-phone-forum-msg-delete"),
+        forumMsgDelBtn.getAttribute("data-phone-forum-msg-id")
+      );
+      return;
+    }
+
+    if (e.target.closest("[data-phone-forum-manage-open]")) {
+      openPhoneForumManage(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-forum-manage-close]")) {
+      closePhoneForumManage(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-forum-section-add]")) {
+      if (!requirePhoneForumHolderForEdit()) return;
+      openPhoneForumSectionForm(slot, "new");
+      return;
+    }
+
+    const forumSectionEditBtn = e.target.closest("[data-phone-forum-section-edit]");
+    if (forumSectionEditBtn) {
+      if (!requirePhoneForumHolderForEdit()) return;
+      openPhoneForumSectionForm(slot, forumSectionEditBtn.getAttribute("data-phone-forum-section-edit"));
+      return;
+    }
+
+    const forumSectionDeleteBtn = e.target.closest("[data-phone-forum-section-delete]");
+    if (forumSectionDeleteBtn) {
+      void handlePhoneForumSectionDelete(slot, forumSectionDeleteBtn.getAttribute("data-phone-forum-section-delete"));
+      return;
+    }
+
+    if (e.target.closest("[data-phone-forum-section-form-cancel]")) {
+      cancelPhoneForumSectionForm(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-forum-section-save]")) {
+      savePhoneForumSectionForm(slot);
+      return;
+    }
+
+    const forumSectionBtn = e.target.closest("[data-phone-forum-section]");
+    if (forumSectionBtn) {
+      switchPhoneForumSection(slot, forumSectionBtn.getAttribute("data-phone-forum-section"));
+      return;
+    }
+
+    const forumPostBtn = e.target.closest("[data-phone-forum-post]");
+    if (forumPostBtn) {
+      void openPhoneForumPost(slot, forumPostBtn.getAttribute("data-phone-forum-post"));
+      return;
+    }
+
+    const delMusicTrackBtn = e.target.closest("[data-phone-music-delete-track]");
+    if (delMusicTrackBtn) {
+      void handlePhoneMusicDeleteTrack(slot, delMusicTrackBtn.getAttribute("data-phone-music-delete-track"));
+      return;
+    }
+
+    const delBillTxBtn = e.target.closest("[data-phone-bill-delete-tx]");
+    if (delBillTxBtn) {
+      void handlePhoneBillDeleteTransaction(slot, delBillTxBtn.getAttribute("data-phone-bill-delete-tx"));
+      return;
+    }
+
+    const delWereadHlBtn = e.target.closest("[data-phone-weread-delete-hl]");
+    if (delWereadHlBtn) {
+      void handlePhoneWereadDeleteHighlight(slot, delWereadHlBtn.getAttribute("data-phone-weread-delete-hl"));
+      return;
+    }
+
+    const delMomentsPostBtn = e.target.closest("[data-phone-moments-delete-post]");
+    if (delMomentsPostBtn) {
+      void handlePhoneMomentsDeletePost(slot, delMomentsPostBtn.getAttribute("data-phone-moments-delete-post"));
+      return;
+    }
+
+    if (e.target.closest("[data-phone-moments-cover-upload]")) {
+      openPhoneMomentsCoverPicker(slot);
+      return;
+    }
+
+    const avatarUploadBtn = e.target.closest("[data-phone-social-avatar-upload]");
+    if (avatarUploadBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      openPhoneSocialAvatarPicker(
+        slot,
+        avatarUploadBtn.getAttribute("data-phone-avatar-scope"),
+        avatarUploadBtn.getAttribute("data-phone-avatar-kind"),
+        avatarUploadBtn.getAttribute("data-phone-avatar-key") || ""
+      );
+      return;
+    }
+
+    const chatGenBtn = e.target.closest("[data-phone-wechat-chat-generate]");
+    if (chatGenBtn) {
+      void generatePhoneWechatChatContent(slot, chatGenBtn.getAttribute("data-wechat-chat-id"));
+      return;
+    }
+
+    if (e.target.closest("[data-phone-wechat-select-toggle]")) {
+      togglePhoneWechatSelectMode(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-wechat-edit-toggle]")) {
+      togglePhoneWechatEditMode(slot);
+      return;
+    }
+
+    const msgSelect = e.target.closest("[data-phone-wechat-msg-select]");
+    if (msgSelect) {
+      togglePhoneWechatMessageSelection(slot, msgSelect.getAttribute("data-wechat-msg-index"));
+      return;
+    }
+
+    if (
+      e.target.closest(".phone-wechat--chat") &&
+      !isPhoneWechatChatModeFunctionalTarget(e.target)
+    ) {
+      const nav = getPhoneNav(slot);
+      if (nav.wechatEditMode || nav.wechatSelectMode) {
+        if (tryApplyPhoneWechatChatModesFromBlank(slot)) return;
+      }
+    }
+
+    if (e.target.closest("[data-phone-home]")) {
+      phoneNavHome(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-back]")) {
+      phoneNavBack(slot);
+      return;
+    }
+
+    const chatRow = e.target.closest(".phone-wechat-row[data-wechat-chat-id]");
+    if (chatRow) {
+      if (phoneWechatRowSwipeDidMove) return;
+      const wrap = chatRow.closest(".phone-wechat-row-wrap");
+      if (wrap && wrap.classList.contains("is-open")) {
+        closePhoneRowSwipe(slot);
+        return;
+      }
+      openPhoneWechatChat(slot, chatRow.getAttribute("data-wechat-chat-id"));
+      return;
+    }
+
+    if (!slot.querySelector(".phone-home")) return;
+
+    if (e.target.closest(".phone-home__app")) {
+      const appBtn = e.target.closest("[data-phone-app]");
+      if (appBtn) handlePhoneHomeAppClick(appBtn.getAttribute("data-phone-app"), slot);
+      return;
+    }
+    openPhoneWallpaperModal();
+  });
+  document.addEventListener("click", function (e) {
+    const slot = e.target.closest("#fanwork-content-slot, #story-fanwork-slot");
+    if (!slot || !slot.contains(e.target)) return;
+
+    if (e.target.closest("[data-fanwork-back]")) {
+      fanworkNavBack(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-fanwork-jjwxc-generate]")) {
+      void generateFanworkJjwxcCatalogContent(slot);
+      return;
+    }
+
+    const fwNovelGenBtn = e.target.closest("[data-fanwork-jjwxc-novel-generate]");
+    if (fwNovelGenBtn) {
+      const nid = fwNovelGenBtn.getAttribute("data-fanwork-jjwxc-novel-generate");
+      const hit = findFanworkJjwxcNovel(nid);
+      if (hit && fanworkJjwxcNovelHasDetail(hit.novel)) {
+        openFanworkJjwxcAppendDialog(slot, nid);
+      } else {
+        void generateFanworkJjwxcNovelContent(slot, nid);
+      }
+      return;
+    }
+
+    if (e.target.closest("[data-fanwork-jjwxc-append-cancel]")) {
+      closeFanworkJjwxcAppendDialog(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-fanwork-jjwxc-append-confirm]")) {
+      void confirmFanworkJjwxcAppendChapter(slot);
+      return;
+    }
+
+    const fwRegenBtn = e.target.closest("[data-fanwork-jjwxc-regen-latest]");
+    if (fwRegenBtn) {
+      openFanworkJjwxcRegenDialog(slot, fwRegenBtn.getAttribute("data-fanwork-jjwxc-regen-latest"));
+      return;
+    }
+
+    if (e.target.closest("[data-fanwork-jjwxc-regen-cancel]")) {
+      closeFanworkJjwxcRegenDialog(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-fanwork-jjwxc-regen-confirm]")) {
+      void confirmFanworkJjwxcRegenerateLatestChapter(slot);
+      return;
+    }
+
+    const fwTabBtn = e.target.closest("[data-fanwork-jjwxc-tab]");
+    if (fwTabBtn) {
+      switchFanworkJjwxcTab(slot, fwTabBtn.getAttribute("data-fanwork-jjwxc-tab"));
+      return;
+    }
+
+    const fwCatBtn = e.target.closest("[data-fanwork-jjwxc-category]");
+    if (fwCatBtn) {
+      switchFanworkJjwxcCategory(slot, fwCatBtn.getAttribute("data-fanwork-jjwxc-category"));
+      return;
+    }
+
+    if (e.target.closest("[data-fanwork-jjwxc-manage-open]")) {
+      if (!requireFanworkCpForEdit()) return;
+      openFanworkJjwxcManage(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-fanwork-jjwxc-manage-close]")) {
+      closeFanworkJjwxcManage(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-fanwork-jjwxc-category-add]")) {
+      if (!requireFanworkCpForEdit()) return;
+      const nav = getFanworkNav(slot);
+      nav.jjwxcManageOpen = true;
+      nav.jjwxcCategoryFormId = "new";
+      renderFanworkScreen(slot);
+      return;
+    }
+
+    const fwCatEditBtn = e.target.closest("[data-fanwork-jjwxc-category-edit]");
+    if (fwCatEditBtn) {
+      if (!requireFanworkCpForEdit()) return;
+      const nav = getFanworkNav(slot);
+      nav.jjwxcManageOpen = true;
+      nav.jjwxcCategoryFormId = fwCatEditBtn.getAttribute("data-fanwork-jjwxc-category-edit");
+      renderFanworkScreen(slot);
+      return;
+    }
+
+    const fwCatDeleteBtn = e.target.closest("[data-fanwork-jjwxc-category-delete]");
+    if (fwCatDeleteBtn) {
+      void handleFanworkJjwxcCategoryDelete(slot, fwCatDeleteBtn.getAttribute("data-fanwork-jjwxc-category-delete"));
+      return;
+    }
+
+    if (e.target.closest("[data-fanwork-jjwxc-category-form-cancel]")) {
+      const nav = getFanworkNav(slot);
+      nav.jjwxcCategoryFormId = null;
+      renderFanworkScreen(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-fanwork-jjwxc-category-save]")) {
+      saveFanworkJjwxcCategoryForm(slot);
+      return;
+    }
+
+    const fwNovelDelBtn = e.target.closest("[data-fanwork-jjwxc-novel-delete]");
+    if (fwNovelDelBtn) {
+      void handleFanworkJjwxcNovelDelete(slot, fwNovelDelBtn.getAttribute("data-fanwork-jjwxc-novel-delete"));
+      return;
+    }
+
+    const fwShelfBtn = e.target.closest("[data-fanwork-jjwxc-toggle-shelf]");
+    if (fwShelfBtn) {
+      toggleFanworkJjwxcNovelShelf(slot, fwShelfBtn.getAttribute("data-fanwork-jjwxc-toggle-shelf"));
+      return;
+    }
+
+    const fwFavBtn = e.target.closest("[data-fanwork-jjwxc-toggle-fav]");
+    if (fwFavBtn) {
+      toggleFanworkJjwxcNovelFavorite(slot, fwFavBtn.getAttribute("data-fanwork-jjwxc-toggle-fav"));
+      return;
+    }
+
+    const fwNovelBtn = e.target.closest("[data-fanwork-jjwxc-novel]");
+    if (fwNovelBtn) {
+      void openFanworkJjwxcNovel(slot, fwNovelBtn.getAttribute("data-fanwork-jjwxc-novel"));
+      return;
+    }
+
+    const fwChapterBtn = e.target.closest("[data-fanwork-jjwxc-chapter]");
+    if (fwChapterBtn) {
+      const nav = getFanworkNav(slot);
+      void openFanworkJjwxcChapter(slot, nav.jjwxcNovelId, fwChapterBtn.getAttribute("data-fanwork-jjwxc-chapter"));
+      return;
+    }
+
+    if (e.target.closest("[data-fanwork-cp-enter]")) {
+      confirmFanworkCpPick(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-fanwork-cp-open]")) {
+      openFanworkCpPick(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-fanwork-cp-close]")) {
+      closeFanworkCpPick(slot);
+      return;
+    }
+
+    const cpSlotBtn = e.target.closest("[data-fanwork-cp-slot]");
+    if (cpSlotBtn) {
+      const nav = getFanworkNav(slot);
+      nav.cpPickSlot = cpSlotBtn.getAttribute("data-fanwork-cp-slot") === "b" ? "b" : "a";
+      renderFanworkScreen(slot);
+      return;
+    }
+
+    const cpCharBtn = e.target.closest("[data-fanwork-cp-char]");
+    if (cpCharBtn) {
+      handleFanworkCpCharPick(slot, cpCharBtn.getAttribute("data-fanwork-cp-char"));
+      return;
+    }
+  });
+  document.addEventListener(
+    "pointerdown",
+    function (e) {
+      const slide = e.target.closest(".phone-wechat-row__slide, .phone-music-row__slide");
+      if (
+        !slide ||
+        e.target.closest("[data-phone-wechat-delete-chat]") ||
+        e.target.closest("[data-phone-music-delete-track]")
+      )
+        return;
+      const wrap = slide.closest(".phone-wechat-row-wrap, .phone-music-row-wrap");
+      const slot = slide.closest("#phone-content-slot, #story-phone-slot");
+      if (!wrap || !slot) return;
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      slot
+        .querySelectorAll(".phone-wechat-row-wrap.is-open, .phone-music-row-wrap.is-open")
+        .forEach(function (w) {
+          if (w !== wrap) {
+            w.classList.remove("is-open");
+            setPhoneRowSwipeTransform(getPhoneRowSwipeSlide(w), 0);
+          }
+        });
+      phoneWechatRowSwipeDrag = {
+        slot: slot,
+        wrap: wrap,
+        slide: slide,
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        baseX: getPhoneRowSwipeOffset(wrap),
+        moved: false,
+        locking: null,
+      };
+      wrap.classList.add("is-dragging");
+    },
+    true
+  );
+  document.addEventListener(
+    "pointermove",
+    function (e) {
+      const d = phoneWechatRowSwipeDrag;
+      if (!d || e.pointerId !== d.pointerId) return;
+      const dx = e.clientX - d.startX;
+      const dy = e.clientY - d.startY;
+      if (d.locking === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+        d.locking = Math.abs(dx) >= Math.abs(dy) ? "x" : "y";
+      }
+      if (d.locking !== "x") return;
+      e.preventDefault();
+      d.moved = true;
+      let next = d.baseX + dx;
+      if (next > 0) next *= 0.28;
+      const actionW = getPhoneRowSwipeActionWidth(d.wrap);
+      next = Math.max(-actionW, Math.min(0, next));
+      setPhoneRowSwipeTransform(d.slide, next);
+    },
+    { passive: false, capture: true }
+  );
+  function finishPhoneWechatRowSwipe(e) {
+    const d = phoneWechatRowSwipeDrag;
+    if (!d || e.pointerId !== d.pointerId) return;
+    d.wrap.classList.remove("is-dragging");
+    if (d.locking === "x" && d.moved) {
+      const offset = getPhoneRowSwipeOffset(d.wrap);
+      const actionW = getPhoneRowSwipeActionWidth(d.wrap);
+      if (offset < -actionW * 0.35) {
+        openPhoneRowSwipe(d.wrap, d.slot);
+      } else {
+        closePhoneRowSwipe(d.slot);
+      }
+      phoneWechatRowSwipeDidMove = true;
+      setTimeout(function () {
+        phoneWechatRowSwipeDidMove = false;
+      }, 320);
+    }
+    phoneWechatRowSwipeDrag = null;
+  }
+  document.addEventListener("pointerup", finishPhoneWechatRowSwipe, true);
+  document.addEventListener("pointercancel", finishPhoneWechatRowSwipe, true);
+  document.addEventListener(
+    "focusout",
+    function (e) {
+      const forumEl = e.target.closest("[data-phone-forum-inline-key]");
+      const browserEl = e.target.closest("[data-phone-browser-inline-key]");
+      const memoEl = e.target.closest("[data-phone-memo-inline-key]");
+      const el = forumEl || browserEl || memoEl;
+      if (!el) return;
+      const slot = el.closest("#phone-content-slot, #story-phone-slot");
+      if (!slot) return;
+      const nav = getPhoneNav(slot);
+      setTimeout(function () {
+        const active = document.activeElement;
+        if (forumEl && nav.forumInlineEdit) {
+          if (active && slot.contains(active) && active.closest("[data-phone-forum-inline-key]")) return;
+          if (getPhoneNav(slot).forumInlineEdit) commitPhoneForumInlineEdit(slot);
+          return;
+        }
+        if (browserEl && nav.browserInlineEdit) {
+          if (active && slot.contains(active) && active.closest("[data-phone-browser-inline-key]")) return;
+          if (getPhoneNav(slot).browserInlineEdit) commitPhoneBrowserInlineEdit(slot);
+          return;
+        }
+        if (memoEl && nav.memoInlineEdit) {
+          if (active && slot.contains(active) && active.closest("[data-phone-memo-inline-key]")) return;
+          if (getPhoneNav(slot).memoInlineEdit) commitPhoneMemoInlineEdit(slot);
+        }
+      }, 0);
+    },
+    true
+  );
   if (els.storySearchClose()) {
     els.storySearchClose().addEventListener("click", closeStorySearchModal);
   }
@@ -16023,6 +33265,9 @@
     });
   }
   bindStoryPlayBackgroundModal();
+  bindPhoneWallpaperModal();
+  bindPhoneMomentsCoverUpload();
+  bindPhoneSocialAvatarUpload();
 
   if (els.modalPlotMyOverride()) {
     els.modalPlotMyOverride().addEventListener("click", (e) => {
@@ -16722,11 +33967,7 @@
     if (!p) return;
     p.title = document.getElementById("plot-edit-title").value.trim() || p.title;
     const cat = document.getElementById("plot-edit-category").value;
-    if (cat === PLOT_CATEGORY_UNASSIGNED || (cat != null && String(cat).trim() === "")) {
-      p.categoryId = PLOT_CATEGORY_UNASSIGNED;
-    } else if (plotCategories.some((c) => c.id === cat)) {
-      p.categoryId = cat;
-    }
+    p.categoryId = normalizePlotUserCategoryId(cat);
     const tagList = readPlotEditTagsFromDom();
     p.summaryTags = [];
     for (let ti = 0; ti < MAX_PLOT_SUMMARY_TAGS; ti++) {
@@ -16811,13 +34052,13 @@
 
   window.addEventListener("hashchange", applyHash);
   window.addEventListener("beforeunload", function () {
-    flushPersistNarrative();
+    flushPersistNarrativeSync();
   });
   window.addEventListener("pagehide", function () {
-    flushPersistNarrative();
+    flushPersistNarrativeSync();
   });
   document.addEventListener("visibilitychange", function () {
-    if (document.visibilityState === "hidden") flushPersistNarrative();
+    if (document.visibilityState === "hidden") flushPersistNarrativeSync();
     else {
       storyAiWakeLockOnVisibleAgain();
       refreshStoryUiAfterTabVisible();
@@ -16848,6 +34089,7 @@
 
   void (async function bootShellWithNarrative() {
     try {
+      await requestPersistentDeviceStorage();
       await hydrateNarrativeFromStorage();
     } catch (hydErr) {
       try {

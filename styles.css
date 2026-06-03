@@ -32,6 +32,9 @@
   --status-h: 32px;
   /** 顶部模拟状态栏总占位（与 .status-bar 上下 padding + min-height 一致），供全屏层与顶栏对齐 */
   --shell-status-offset: calc(max(10px, env(safe-area-inset-top, 0px)) + var(--status-h) + 6px);
+  /** 状态栏与主界面顶栏共用底色，随 --bg / 主题色板同步 */
+  --shell-chrome-bg: var(--bg);
+  --overlay-scrim: rgba(33, 33, 38, 0.58);
   --glass-bg: rgba(255, 255, 255, 0.5);
   --glass-border: rgba(255, 255, 255, 0.7);
   --glass-edge: rgba(0, 0, 0, 0.06);
@@ -178,12 +181,12 @@ i {
   max-height: 880px;
   border-radius: 36px;
   overflow: hidden;
-  background: linear-gradient(165deg, var(--phone-screen-start) 0%, var(--phone-screen-end) 100%);
+  background: var(--shell-chrome-bg);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
 }
 
 html[data-theme="dark"] .phone-screen {
-  background: linear-gradient(165deg, var(--phone-screen-start) 0%, var(--phone-screen-end) 100%);
+  background: var(--shell-chrome-bg);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
@@ -309,7 +312,7 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  background: var(--shell-chrome-bg);
 }
 
 .status-bar {
@@ -325,8 +328,15 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
   color: var(--text);
   flex-shrink: 0;
   position: relative;
-  z-index: 130;
-  background: var(--bg);
+  /** 低于 .overlay(140)，底色透出 app-shell / 遮罩，避免单独混色造成色差 */
+  z-index: 125;
+  background: transparent;
+  pointer-events: none;
+}
+
+.status-bar .status-time,
+.status-bar .status-right {
+  pointer-events: auto;
 }
 
 /* 与状态栏右侧装饰网名风格协调：用手写/花体类西文字体渲染时间 */
@@ -401,6 +411,7 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 8px 16px var(--main-scroll-pad-end);
+  background: var(--shell-chrome-bg);
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -416,6 +427,122 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
   padding-left: 16px;
   padding-right: 16px;
   padding-bottom: 0;
+}
+
+.main-scroll.main-scroll--phone {
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.main-scroll.main-scroll--phone > #view-overview.view--active {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
+/* 同人粮 · 剧情弹窗：贴边全屏，去掉 sheet 与 overlay 留白 */
+#modal-story-fanwork {
+  padding: 0;
+}
+
+#modal-story-fanwork .modal-sheet--story-feature {
+  padding: 0;
+  padding-bottom: 0;
+  border-radius: 0;
+  max-height: 100%;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+#modal-story-fanwork .sheet-handle {
+  display: none;
+}
+
+#modal-story-fanwork .modal-header {
+  position: absolute;
+  top: max(0px, env(safe-area-inset-top, 0px));
+  right: 0;
+  z-index: 20;
+  padding: 2px 2px 0;
+  background: transparent;
+  border: none;
+  pointer-events: none;
+}
+
+#modal-story-fanwork .modal-header .modal-title {
+  display: none;
+}
+
+#modal-story-fanwork .modal-header .icon-btn {
+  pointer-events: auto;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+#modal-story-fanwork .modal-sheet--tall {
+  min-height: 100%;
+  max-height: 100%;
+}
+
+#story-fanwork-slot.story-feature-body {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+#fanwork-content-slot .phone-app,
+#story-fanwork-slot .phone-app {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+#fanwork-content-slot .phone-jjwxc__bar-trail,
+#story-fanwork-slot .phone-jjwxc__bar-trail {
+  gap: 2px;
+}
+
+#fanwork-content-slot .phone-jjwxc__pill-wrap,
+#story-fanwork-slot .phone-jjwxc__pill-wrap {
+  padding-left: 12px;
+  padding-right: 10px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+#fanwork-content-slot .phone-jjwxc__list,
+#story-fanwork-slot .phone-jjwxc__list {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+#fanwork-content-slot .phone-jjwxc__panel-kicker,
+#story-fanwork-slot .phone-jjwxc__panel-kicker {
+  margin-left: 12px;
+  margin-right: 12px;
+}
+
+#fanwork-content-slot .phone-jjwxc__empty,
+#story-fanwork-slot .phone-jjwxc__empty {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+#fanwork-content-slot .phone-jjwxc__scroll,
+#story-fanwork-slot .phone-jjwxc__scroll {
+  padding-bottom: 0;
+}
+
+#fanwork-content-slot .phone-jjwxc--detail .phone-jjwxc__scroll,
+#fanwork-content-slot .phone-jjwxc--chapter .phone-jjwxc__reader,
+#story-fanwork-slot .phone-jjwxc--detail .phone-jjwxc__scroll,
+#story-fanwork-slot .phone-jjwxc--chapter .phone-jjwxc__reader {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .main-scroll::-webkit-scrollbar {
@@ -469,9 +596,7 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
+  background: var(--shell-chrome-bg);
   flex-shrink: 0;
 }
 
@@ -625,20 +750,42 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
   margin-top: 2px;
 }
 
-.assistant-name--bar {
+.assistant-header__titles {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.workbench-title {
   margin: 0;
-  font-size: 1.65rem;
+  font-size: 1.42rem;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--text);
   line-height: 1.15;
+}
+
+.assistant-name--bar {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--muted2);
+  line-height: 1.25;
   text-align: left;
   padding: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
+  flex: none;
   min-width: 0;
+}
+
+.assistant-name--bar::before {
+  content: "当前助手 · ";
+  opacity: 0.85;
 }
 
 .assistant-avatar-btn {
@@ -670,22 +817,344 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
   padding: 0 12px;
 }
 
-.assistant-bottom {
-  position: sticky;
-  bottom: 0;
-  z-index: 4;
-  flex-shrink: 0;
-  background: transparent;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  border-top: none;
-  padding-top: 8px;
-  /** 与底栏纵向贴齐，不留缝 */
-  padding-bottom: 0;
+.overview-hub {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 0 16px;
   display: flex;
   flex-direction: column;
-  transform: translateY(var(--assistant-bottom-nudge-y));
-  margin-bottom: calc(-1 * var(--assistant-bottom-nudge-y));
+}
+
+.overview-hub[hidden] {
+  display: none !important;
+}
+
+.workbench-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.workbench-card {
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--accent) 6%, var(--surface)) 0%,
+      color-mix(in srgb, var(--bg) 92%, var(--surface)) 100%
+    );
+  border-radius: 16px;
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  -webkit-appearance: none;
+  appearance: none;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--text) 6%, transparent);
+  -webkit-tap-highlight-color: transparent;
+  min-height: 108px;
+}
+
+.workbench-card:active {
+  opacity: 0.88;
+  transform: scale(0.985);
+}
+
+.workbench-card__icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.workbench-card__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  width: 100%;
+}
+
+.workbench-card__title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.workbench-card__desc {
+  font-size: 0.72rem;
+  color: var(--muted2);
+  line-height: 1.4;
+}
+
+/** 点星底部：简约小狗装饰（纯视觉，无交互） */
+.workbench-scene {
+  flex: 1;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 12px 8px 4px;
+  margin-top: 6px;
+  pointer-events: none;
+  user-select: none;
+  color: var(--text);
+}
+
+.workbench-scene__glow {
+  position: absolute;
+  left: 50%;
+  top: 54%;
+  width: min(220px, 72vw);
+  height: min(120px, 38vw);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--accent) 10%, transparent) 0%,
+    transparent 72%
+  );
+  opacity: 0.85;
+}
+
+.workbench-scene__paw-trail {
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  width: min(280px, 88vw);
+  height: auto;
+  transform: translateX(-50%);
+  color: var(--accent);
+  pointer-events: none;
+}
+
+.workbench-scene__figure {
+  position: relative;
+  margin: 0;
+  z-index: 1;
+}
+
+.workbench-scene__puppy {
+  display: block;
+  width: min(132px, 42vw);
+  height: auto;
+  color: var(--accent);
+}
+
+.workbench-scene__puppy-body {
+  transform-origin: 66px 72px;
+  animation: workbench-puppy-breathe 4.8s ease-in-out infinite;
+}
+
+.workbench-scene__tail-wrap {
+  transform-origin: 96px 54px;
+  animation: workbench-tail-wag 3.6s ease-in-out infinite;
+}
+
+.workbench-scene__zzz {
+  position: absolute;
+  right: -4px;
+  top: -6px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: color-mix(in srgb, var(--accent) 42%, var(--muted2));
+  opacity: 0.55;
+}
+
+.workbench-scene__z {
+  display: block;
+  line-height: 1;
+  animation: workbench-zzz-float 2.8s ease-in-out infinite;
+}
+
+.workbench-scene__z:nth-child(2) {
+  font-size: 0.86em;
+  margin-right: 6px;
+  animation-delay: 0.45s;
+}
+
+.workbench-scene__z:nth-child(3) {
+  font-size: 1.02em;
+  margin-right: 12px;
+  animation-delay: 0.9s;
+}
+
+.workbench-scene__caption {
+  margin: 10px 0 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  color: var(--muted2);
+  opacity: 0.72;
+  text-align: center;
+  z-index: 1;
+}
+
+@keyframes workbench-puppy-breathe {
+  0%,
+  100% {
+    transform: scale(1) translateY(0);
+  }
+  50% {
+    transform: scale(1.018) translateY(-2px);
+  }
+}
+
+@keyframes workbench-tail-wag {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  40% {
+    transform: rotate(7deg);
+  }
+  70% {
+    transform: rotate(-4deg);
+  }
+}
+
+@keyframes workbench-zzz-float {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 0.75;
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workbench-scene__puppy-body,
+  .workbench-scene__tail-wrap,
+  .workbench-scene__z {
+    animation: none;
+  }
+}
+
+html[data-theme="dark"] .workbench-scene__glow {
+  opacity: 0.55;
+}
+
+html[data-theme="dark"] .workbench-scene__caption {
+  opacity: 0.58;
+}
+
+.overview-subview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: 100%;
+}
+
+.overview-subview[hidden] {
+  display: none !important;
+}
+
+#overview-sub-phone .feature-view-body,
+#overview-sub-phone #phone-content-slot,
+#overview-sub-fanwork .feature-view-body,
+#overview-sub-fanwork #fanwork-content-slot {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+#overview-sub-phone #phone-content-slot {
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+#overview-sub-phone .phone-device {
+  width: min(336px, 100%);
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+#overview-sub-fanwork #fanwork-content-slot .phone-app,
+#overview-sub-fanwork #fanwork-content-slot .phone-jjwxc {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+/** 点星内嵌同人粮：顶栏与 CP 条贴边，不留左右缝 */
+#fanwork-content-slot .phone-jjwxc__bar-trail .phone-app__bar-action,
+#story-fanwork-slot .phone-jjwxc__bar-trail .phone-app__bar-action {
+  flex-shrink: 0;
+}
+
+#overview-sub-fanwork #fanwork-content-slot .phone-jjwxc__bar--with-cp {
+  padding-left: 12px;
+  padding-right: 6px;
+}
+
+#overview-sub-fanwork #fanwork-content-slot .phone-jjwxc__seg {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.assistant-inspiration-result-body {
+  max-height: min(52vh, 380px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.assistant-inspiration-result-hint {
+  margin: 8px 0 0;
+}
+
+.assistant-inspiration-result-actions {
+  margin-top: 12px;
+}
+
+.assistant-plot-reply-list {
+  max-height: min(58vh, 420px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  gap: 8px;
+}
+
+.assistant-plot-reply-list .bubble {
+  align-self: flex-start;
+  max-width: 92%;
 }
 
 .assistant-tool-strip {
@@ -1056,6 +1525,7 @@ html[data-theme="dark"] .assistant-chat-item .bubble {
   justify-content: space-between;
   margin-bottom: 16px;
   padding-top: 4px;
+  background: var(--shell-chrome-bg);
 }
 
 .page-header--home {
@@ -1367,13 +1837,18 @@ html[data-theme="dark"] .btn--danger {
 }
 
 #modal-cat-manage .modal-sheet {
-  padding-left: 10px;
-  padding-right: 10px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding-left: 16px;
+  padding-right: 16px;
 }
 
 .cat-manage-body {
   padding: 0 0 20px;
   padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .cat-manage-list {
@@ -1383,29 +1858,41 @@ html[data-theme="dark"] .btn--danger {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.cat-manage-list > li {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .cat-manage-row {
+  --cat-manage-actions-w: 70px;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
   box-sizing: border-box;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .cat-manage-row__name {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
   font-size: 0.9rem;
   font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cat-manage-row__name-input {
@@ -1421,9 +1908,21 @@ html[data-theme="dark"] .btn--danger {
 .cat-manage-row__actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 2px;
   flex-shrink: 0;
-  margin-left: auto;
+  width: var(--cat-manage-actions-w);
+  min-width: var(--cat-manage-actions-w);
+  box-sizing: border-box;
+}
+
+.cat-manage-row__actions--reserve {
+  pointer-events: none;
+}
+
+.cat-manage-icon-btn--ghost {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .cat-manage-icon-btn {
@@ -1966,8 +2465,8 @@ html[data-theme="dark"] #modal-plot-edit .plot-tag {
   display: none !important;
 }
 
-.story-panel--play.story-panel--sealed-readonly .story-composer {
-  display: none !important;
+.story-panel--play.story-panel--sealed-readonly .story-play-footer {
+  display: none;
 }
 
 .btn-continue {
@@ -2018,6 +2517,12 @@ html[data-theme="dark"] #modal-plot-edit .plot-tag {
   pointer-events: none;
 }
 
+.bottom-nav--five,
+.bottom-nav--seven {
+  padding-left: 0;
+  padding-right: 0;
+}
+
 .bottom-nav .nav-item {
   pointer-events: auto;
 }
@@ -2055,9 +2560,50 @@ html[data-theme="dark"] #modal-plot-edit .plot-tag {
   justify-content: center;
 }
 
+.nav-icon-candy {
+  width: 24px;
+  height: 24px;
+  transform: rotate(-32deg);
+}
+
 .nav-item__label {
   font-weight: 600;
   letter-spacing: 0.02em;
+}
+
+.nav-item--aux {
+  flex: 0.82;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.nav-item--aux .nav-item__icon-wrap {
+  height: 26px;
+}
+
+.nav-item--aux .nav-item__label {
+  font-size: 0.56rem;
+  letter-spacing: 0;
+}
+
+.bottom-nav--five .nav-item:not(.nav-item--center) {
+  flex: 1;
+}
+
+.bottom-nav--five .nav-item--center {
+  flex: 1.12;
+}
+
+.bottom-nav--seven .nav-item:not(.nav-item--center) {
+  flex: 0.9;
+}
+
+.bottom-nav--seven .nav-item--center {
+  flex: 1.08;
+}
+
+.bottom-nav--seven .nav-item--aux {
+  flex: 0.78;
 }
 
 .nav-item--center {
@@ -2153,7 +2699,8 @@ html[data-theme="dark"] .nav-item--center.is-active .nav-item__fab {
 .overlay {
   position: absolute;
   inset: 0;
-  z-index: 100;
+  /** 盖住状态栏(125)与剧情层(120)，顶栏视觉与遮罩下主界面同源 */
+  z-index: 140;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -2164,7 +2711,7 @@ html[data-theme="dark"] .nav-item--center.is-active .nav-item__fab {
   left: 0;
   right: 0;
   transform: none;
-  background: rgba(33, 33, 38, 0.58);
+  background: var(--overlay-scrim);
   padding-top: max(48px, calc(env(safe-area-inset-top, 0px) + 36px));
   padding-right: max(8px, env(safe-area-inset-right, 0px));
   /* 底部安全区由各 sheet / drawer 内部 padding 承担，避免白条下方再露出一条遮罩空隙 */
@@ -2177,7 +2724,7 @@ html[data-theme="dark"] .nav-item--center.is-active .nav-item__fab {
 }
 
 .overlay--dim {
-  background: rgba(33, 33, 38, 0.58);
+  background: var(--overlay-scrim);
 }
 
 /* 确认框必须高于其它 overlay（摘要、编辑、长按菜单等），否则同 z-index 时后序 DOM 会挡住按钮 */
@@ -2190,6 +2737,8 @@ html[data-theme="dark"] .nav-item--center.is-active .nav-item__fab {
 #modal-story-play-bg,
 #modal-story-summaries,
 #modal-story-search,
+#modal-story-phone,
+#modal-story-fanwork,
 #modal-story-api,
 #modal-story-summary-edit,
 #modal-plot-my-override,
@@ -2212,6 +2761,7 @@ html[data-theme="dark"] .nav-item--center.is-active .nav-item__fab {
 
 #modal-story-summaries,
 #modal-story-search,
+#modal-story-phone,
 #modal-story-play-bg,
 #modal-story-api,
 #modal-plot-memories,
@@ -2229,6 +2779,7 @@ html[data-theme="dark"] .nav-item--center.is-active .nav-item__fab {
 
 #modal-story-summaries .modal-sheet--tall,
 #modal-story-search .modal-sheet--tall,
+#modal-story-phone .modal-sheet--tall,
 #modal-story-api .modal-sheet--tall,
 #modal-plot-memories .modal-sheet--tall,
 #modal-plot-favorites .modal-sheet--tall,
@@ -3007,12 +3558,12 @@ select.field__input:-webkit-autofill:focus {
   margin: 0 -4px;
 }
 
-/* 新建剧情 / 题材方向：主视角与参与角色同一行；参与角色头像横向重叠 */
+/* 新建剧情 / 题材方向：主视角与参与角色同一行；头像横向重叠展示 */
 .sheet-char-pick-inline {
   display: flex;
   flex-direction: row;
   align-items: flex-end;
-  gap: 10px 12px;
+  gap: 0;
   width: 100%;
   margin: 0 0 4px;
 }
@@ -3020,17 +3571,23 @@ select.field__input:-webkit-autofill:focus {
 .sheet-char-pick-inline__block {
   display: flex;
   flex-direction: column;
+  flex: 1 1 0;
   min-width: 0;
+  max-width: 50%;
+}
+
+.sheet-char-pick-inline__block--prot,
+.sheet-char-pick-inline__block--sup {
+  box-sizing: border-box;
 }
 
 .sheet-char-pick-inline__block--prot {
-  flex: 0 0 auto;
-  max-width: 44%;
+  padding-right: 6px;
 }
 
 .sheet-char-pick-inline__block--sup {
-  flex: 1;
-  min-width: 0;
+  padding-left: 6px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
 }
 
 .sheet-char-pick-inline__label {
@@ -3042,10 +3599,6 @@ select.field__input:-webkit-autofill:focus {
 
 .sheet-char-pick-inline--in-modal {
   margin-bottom: 0;
-}
-
-.sheet-char-pick-row--prot {
-  gap: 10px;
 }
 
 .sheet-char-pick-row--overlap {
@@ -3164,7 +3717,7 @@ select.field__input:-webkit-autofill:focus {
   position: absolute;
   inset: 0;
   z-index: 120;
-  background: var(--bg);
+  background: var(--shell-chrome-bg);
   max-width: none;
   max-height: 100%;
   left: 0;
@@ -3708,6 +4261,6003 @@ select.field__input:-webkit-autofill:focus {
   margin-bottom: 24px;
 }
 
+.feature-view-body {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 16px 24px;
+}
+
+#view-phone.view--active {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+#view-phone .page-header {
+  display: none;
+}
+
+#view-phone .feature-view-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+#phone-content-slot,
+#story-phone-slot {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 2px 4px 4px;
+  box-sizing: border-box;
+}
+
+/* 查手机：内嵌手机壳预览框 */
+.phone-device {
+  width: min(336px, 100%);
+  height: min(728px, 100%);
+  max-height: 100%;
+  min-width: 0;
+  flex: 0 1 auto;
+  display: flex;
+  align-items: stretch;
+  align-self: center;
+}
+
+.phone-device__shell {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: 34px;
+  padding: 10px;
+  background: linear-gradient(165deg, #525252 0%, #222 52%, #101010 100%);
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.35);
+}
+
+.phone-device__shell::before {
+  content: "";
+  position: absolute;
+  top: 13px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 52px;
+  height: 14px;
+  border-radius: 999px;
+  background: #0c0c0c;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  z-index: 2;
+  pointer-events: none;
+}
+
+html[data-theme="dark"] .phone-device__shell {
+  background: linear-gradient(165deg, #f5f5f5 0%, #e8e8e8 52%, #d6d6d6 100%);
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+}
+
+.phone-device__screen {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  border-radius: 26px;
+  overflow: hidden;
+  background: #111;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  position: relative;
+  container-type: inline-size;
+  --phone-device-status-inset: 27px;
+}
+
+.phone-device--home .phone-device__screen {
+  background: #1c1c1e;
+}
+
+.phone-device--home:has(.phone-home:not(.phone-home--has-wallpaper)) .phone-device__screen {
+  background: #fff;
+}
+
+.phone-device__status-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 22px;
+  padding: 5px 12px 0;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  z-index: 12;
+}
+
+.phone-device--home .phone-device__status-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  color: rgba(255, 255, 255, 0.96);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
+.phone-device--home:has(.phone-home:not(.phone-home--has-wallpaper)) .phone-device__status-bar {
+  color: #1c1c1e;
+  text-shadow: none;
+}
+
+.phone-device--app .phone-device__status-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  color: #1c1c1e;
+  background: transparent;
+  border-bottom: none;
+  z-index: 12;
+}
+
+html[data-theme="dark"] .phone-device--app .phone-device__status-bar {
+  color: rgba(255, 255, 255, 0.92);
+  background: transparent;
+  border-bottom: none;
+}
+
+.phone-device__status-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.phone-device__icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+.phone-device__icon--battery {
+  margin-left: 1px;
+}
+
+.phone-device__content {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.phone-device--home .phone-device__content {
+  position: relative;
+  overflow: hidden;
+}
+
+.phone-device__content > .phone-home,
+.phone-device__content > .phone-app,
+.phone-device__content > .phone-jjwxc,
+.phone-device__content > .phone-music,
+.phone-device__content > .phone-moments,
+.phone-device__content > .phone-album,
+.phone-device__content > .phone-forum,
+.phone-device__content > .phone-browser,
+.phone-device__content > .phone-memo,
+.phone-device__content > .phone-diary,
+.phone-device__content > .phone-bill,
+.phone-device__content > .phone-weread {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: hidden;
+}
+
+.phone-device--app .phone-device__content > .phone-app,
+.phone-device--app .phone-device__content > .phone-jjwxc,
+.phone-device--app .phone-device__content > .phone-music,
+.phone-device--app .phone-device__content > .phone-moments,
+.phone-device--app .phone-device__content > .phone-album,
+.phone-device--app .phone-device__content > .phone-forum,
+.phone-device--app .phone-device__content > .phone-browser,
+.phone-device--app .phone-device__content > .phone-memo,
+.phone-device--app .phone-device__content > .phone-diary,
+.phone-device--app .phone-device__content > .phone-bill,
+.phone-device--app .phone-device__content > .phone-weread {
+  padding-top: var(--phone-device-status-inset);
+  padding-bottom: 0;
+  box-sizing: border-box;
+}
+
+/* 查手机内应用：顶栏底色上延至状态栏，与时间行融为一体 */
+.phone-device--app .phone-device__content > .phone-app > .phone-app__bar:first-child {
+  margin-top: calc(-1 * var(--phone-device-status-inset));
+  padding-top: calc(var(--phone-device-status-inset) + 4px);
+  position: relative;
+  z-index: 1;
+}
+
+.phone-device--app .phone-device__content > .phone-app > .phone-jjwxc__top:first-child {
+  margin-top: calc(-1 * var(--phone-device-status-inset));
+  padding-top: var(--phone-device-status-inset);
+  position: relative;
+  z-index: 1;
+}
+
+.phone-device__home-indicator {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 88px;
+  height: 24px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  z-index: 12;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-device__home-indicator::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 56px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.38);
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.phone-device__home-indicator:active::before {
+  opacity: 0.72;
+}
+
+.phone-device--app .phone-device__home-indicator::before {
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.phone-device--home:has(.phone-home:not(.phone-home--has-wallpaper)) .phone-device__home-indicator::before {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+/* 查手机内屏：独立视觉，不受外层深夜模式文字色干扰 */
+.phone-home__app[data-phone-app="wechat"] {
+  --phone-app-accent: #07c160;
+}
+
+.phone-home__app[data-phone-app="moments"] {
+  --phone-app-accent: #09bb63;
+}
+
+.phone-home__app[data-phone-app="music"] {
+  --phone-app-accent: #ff3a3a;
+}
+
+.phone-home__app[data-phone-app="album"] {
+  --phone-app-accent: #ff9500;
+}
+
+.phone-home__app[data-phone-app="forum"] {
+  --phone-app-accent: #4285f4;
+}
+
+.phone-home__app[data-phone-app="browser"] {
+  --phone-app-accent: #1e90ff;
+}
+
+.phone-home__app[data-phone-app="memo"] {
+  --phone-app-accent: #e6a800;
+}
+
+.phone-home__app[data-phone-app="diary"] {
+  --phone-app-accent: #9b59b6;
+}
+
+.phone-home__app[data-phone-app="jjwxc"] {
+  --phone-app-accent: #e64398;
+}
+
+.phone-home__app[data-phone-app="bill"] {
+  --phone-app-accent: #26c6da;
+}
+
+.phone-home__app[data-phone-app="weread"] {
+  --phone-app-accent: #52c41a;
+}
+
+.phone-home__app[data-phone-app="settings"] {
+  --phone-app-accent: #8e8e93;
+}
+
+.phone-device .phone-home:not(.phone-home--has-wallpaper) {
+  background: #fff;
+}
+
+.phone-device .phone-home__clock {
+  color: #fff;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.35);
+  font-size: clamp(1.85rem, 14cqw, 2.35rem);
+}
+
+.phone-device .phone-home:not(.phone-home--has-wallpaper) .phone-home__clock {
+  color: #1c1c1e;
+  text-shadow: none;
+}
+
+.phone-device .phone-home__owner {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.phone-device .phone-home:not(.phone-home--has-wallpaper) .phone-home__owner {
+  color: rgba(28, 28, 30, 0.58);
+}
+
+.phone-device .phone-home__top {
+  padding-top: 38px;
+}
+
+.phone-device .phone-home__dock {
+  padding-bottom: 18px;
+}
+
+.phone-device .phone-home__grid {
+  gap: 20px 4px;
+}
+
+.phone-device .phone-home__icon {
+  width: 46px;
+  height: 46px;
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.38),
+    0 2px 10px rgba(0, 0, 0, 0.08);
+}
+
+.phone-device .phone-home:not(.phone-home--has-wallpaper) .phone-home__icon {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(0, 0, 0, 0.06);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 1px 4px rgba(15, 23, 42, 0.08);
+}
+
+.phone-device .phone-home__app:active .phone-home__icon {
+  transform: scale(0.94);
+  filter: none;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.phone-device .phone-home:not(.phone-home--has-wallpaper) .phone-home__app:active .phone-home__icon {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.phone-device .phone-home__icon .icon-linear {
+  width: 23px;
+  height: 23px;
+  color: var(--phone-app-accent, #fff);
+  stroke-width: 1.85;
+}
+
+.phone-device .phone-home__label {
+  font-size: 0.62rem;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.phone-device .phone-home:not(.phone-home--has-wallpaper) .phone-home__label {
+  color: rgba(28, 28, 30, 0.72);
+  text-shadow: none;
+}
+
+.phone-device .phone-home--has-wallpaper .phone-home__clock,
+.phone-device .phone-home--has-wallpaper .phone-home__owner,
+.phone-device .phone-home--has-wallpaper .phone-home__label {
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+
+.phone-device .phone-home--has-wallpaper .phone-home__owner {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.phone-device .phone-home--has-wallpaper .phone-home__icon {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.36);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    0 2px 12px rgba(0, 0, 0, 0.14);
+}
+
+.phone-device .phone-wechat__list,
+.phone-device .phone-music__scroll,
+.phone-device .phone-album__scroll,
+.phone-device .phone-forum__scroll,
+.phone-device .phone-browser__scroll,
+.phone-device .phone-memo__scroll,
+.phone-device .phone-diary__main,
+.phone-device .phone-diary__page-scroll,
+.phone-device .phone-bill__scroll,
+.phone-device .phone-weread__scroll,
+.phone-device .phone-jjwxc__scroll,
+.phone-device .phone-moments__scroll {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.phone-device .phone-wechat-row-wrap,
+.phone-device .phone-music-row-wrap {
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.phone-device .phone-music-player__cover {
+  animation: none;
+}
+
+.phone-device .phone-app__bar {
+  min-height: 44px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  min-width: 0;
+}
+
+.phone-device .phone-app__title {
+  font-size: 0.9rem;
+}
+
+.phone-device .phone-app__title--left {
+  font-size: 0.94rem;
+}
+
+/* 查手机 · 晋江：深夜模式内屏适配 */
+html[data-theme="dark"] .phone-device .phone-jjwxc {
+  background: #141210;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__bar,
+html[data-theme="dark"] .phone-device .phone-jjwxc__top,
+html[data-theme="dark"] .phone-device .phone-jjwxc__seg {
+  background: #1e1c1a;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__title {
+  color: color-mix(in srgb, var(--accent) 78%, #fff);
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__seg-item {
+  color: #888;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__seg-item.is-active {
+  color: color-mix(in srgb, var(--accent) 82%, #fff);
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__card {
+  background: #252320;
+  border-color: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__card-title {
+  color: #ece6dc;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__card-author,
+html[data-theme="dark"] .phone-device .phone-jjwxc__card-summary,
+html[data-theme="dark"] .phone-device .phone-jjwxc__card-stat {
+  color: #9a9488;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__pill-scroll .filter-pill {
+  background: #2a2622;
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #aaa;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__pill-row .filter-pill.is-active {
+  background: color-mix(in srgb, var(--accent) 16%, #2a2622);
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  color: color-mix(in srgb, var(--accent) 78%, #fff);
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__panel-kicker {
+  color: #777;
+}
+
+#view-fanwork.view--active {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+#view-fanwork .page-header {
+  display: none;
+}
+
+#view-fanwork .feature-view-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+#fanwork-content-slot,
+#story-fanwork-slot {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  --jjwxc-pink: var(--accent);
+  --jjwxc-pink-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --jjwxc-pink-deep: color-mix(in srgb, var(--accent) 82%, var(--text));
+  position: relative;
+  overflow: hidden;
+}
+
+.fanwork-cp-pick {
+  background: transparent;
+}
+
+.fanwork-cp-pick__panel {
+  max-height: min(88vh, 640px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.fanwork-cp-pick__panel .fanwork-cp-pick__hint {
+  margin: 0 0 14px;
+  padding: 0 4px;
+}
+
+.fanwork-cp-pick__panel .fanwork-cp-pick__pair {
+  margin-bottom: 14px;
+}
+
+.fanwork-cp-pick__panel .fanwork-cp-pick__chars {
+  margin-bottom: 16px;
+}
+
+.fanwork-cp-pick__panel .fanwork-cp-pick__chars .sheet-char-pick-inline {
+  margin-bottom: 0;
+}
+
+.fanwork-cp-pick__col-empty {
+  padding-left: 10px;
+}
+
+.fanwork-cp-pick__panel .char-pick-avatar {
+  width: 48px;
+  height: 48px;
+}
+
+.fanwork-cp-pick__panel .char-pick-avatar .avatar {
+  width: 44px;
+  height: 44px;
+  font-size: 0.95rem;
+}
+
+.fanwork-cp-pick__panel .sheet-char-pick-row--overlap .char-pick-avatar {
+  margin-left: -16px;
+}
+
+.fanwork-cp-pick__panel .sheet-char-pick-row--overlap .char-pick-avatar:first-child {
+  margin-left: 0;
+}
+
+.fanwork-cp-bar {
+  flex-shrink: 0;
+  padding: 8px 10px 10px;
+  background: transparent;
+  border-bottom: none;
+}
+
+.fanwork-cp-bar__btn--inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: none;
+  flex: 1 1 auto;
+}
+
+.fanwork-cp-bar__btn--inline:active {
+  opacity: 0.72;
+}
+
+.fanwork-cp-bar__label--inline {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fanwork-cp-bar__label--inline .fanwork-cp-bar__label--empty {
+  color: var(--accent);
+}
+
+.fanwork-cp-bar__btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 13px 14px;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, color-mix(in srgb, var(--accent) 4%, #fff) 100%);
+  box-shadow:
+    0 2px 12px color-mix(in srgb, var(--accent) 12%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  text-align: left;
+  position: relative;
+  overflow: hidden;
+}
+
+.fanwork-cp-bar__btn::before {
+  display: none;
+}
+
+.fanwork-cp-bar__badge {
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 72%, var(--text)));
+  color: var(--accent-contrast);
+  letter-spacing: 0.04em;
+}
+
+.fanwork-cp-bar__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fanwork-cp-bar__sub {
+  font-size: 0.66rem;
+  color: #999;
+  line-height: 1.2;
+}
+
+.fanwork-cp-bar__heart {
+  font-size: 0.68rem;
+  color: var(--accent);
+}
+
+.fanwork-cp-bar__avatars {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.fanwork-cp-bar__avatar {
+  width: 28px;
+  height: 28px;
+}
+
+.fanwork-cp-bar__x {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.fanwork-cp-bar__label {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fanwork-cp-bar__label--empty {
+  color: var(--accent);
+}
+
+.fanwork-cp-bar__placeholder-icon {
+  font-size: 1rem;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.fanwork-cp-bar__chev {
+  flex-shrink: 0;
+  color: #bbb;
+}
+
+.fanwork-cp-pick__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 16px 24px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.fanwork-cp-pick__hint {
+  margin: 0 0 16px;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: #666;
+}
+
+.fanwork-cp-pick__pair {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.fanwork-cp-pick__slot {
+  flex: 1;
+  max-width: 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  border: 2px dashed color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: 14px;
+  background: #fff;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fanwork-cp-pick__slot--active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.fanwork-cp-pick__slot-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.fanwork-cp-pick__avatar {
+  width: 52px;
+  height: 52px;
+}
+
+.fanwork-cp-pick__name {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #222;
+  text-align: center;
+  line-height: 1.3;
+}
+
+.fanwork-cp-pick__empty {
+  font-size: 0.76rem;
+  color: #999;
+}
+
+.fanwork-cp-pick__x {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.fanwork-cp-pick__empty-list {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.84rem;
+  padding: 24px 0;
+  margin-bottom: 16px;
+}
+
+.fanwork-cp-pick__enter {
+  margin-top: 4px;
+}
+
+.fanwork-cp-change {
+  margin-top: 16px;
+}
+
+.phone-jjwxc__empty-cat {
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.phone-app {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: #ededed;
+  color: #111;
+}
+
+.phone-app__bar {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  align-items: center;
+  min-height: 48px;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  background: #f7f7f7;
+}
+
+.phone-app__bar--wechat-list {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 6px 6px 2px;
+}
+
+.phone-app__bar--wechat-chat {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 6px 4px 6px 0;
+}
+
+.phone-app__bar--wechat-list .phone-app__back {
+  flex-shrink: 0;
+}
+
+.phone-wechat-chat-bar__lead {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0;
+}
+
+.phone-app__bar--wechat-chat .phone-app__back {
+  flex-shrink: 0;
+  width: 28px;
+  height: 40px;
+  margin: 0;
+  padding: 0;
+  justify-content: flex-start;
+}
+
+.phone-app__title--chat {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  text-align: left;
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 0;
+  margin: 0;
+}
+
+.phone-wechat-chat-bar__actions {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1px;
+  margin-left: 4px;
+}
+
+.phone-wechat-chat-bar__actions .phone-app__bar-action,
+.phone-wechat-chat-bar__actions .phone-wechat-chat-action {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
+
+.phone-wechat-chat-bar__actions .phone-wechat-chat-action svg,
+.phone-wechat-chat-bar__actions .phone-wechat-gen-btn svg {
+  width: 17px;
+  height: 17px;
+  display: block;
+}
+
+.phone-wechat-chat-action {
+  padding: 0;
+}
+
+.phone-wechat-chat-action svg {
+  display: block;
+}
+
+.phone-wechat-chat-action--active {
+  color: #07c160;
+}
+
+.phone-wechat-chat-action--delete-ready {
+  color: #e54d42;
+}
+
+.phone-app__title--left {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.phone-app__bar-action {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #111;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-app__bar-action:active:not(:disabled) {
+  opacity: 0.55;
+}
+
+.phone-app__bar-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.phone-wechat-gen-btn--loading {
+  animation: phone-wechat-blink 0.85s ease-in-out infinite;
+}
+
+@keyframes phone-wechat-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.22;
+  }
+}
+
+.phone-app__back {
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #111;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-app__back:active {
+  opacity: 0.55;
+}
+
+.phone-app__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+  color: #111;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-app__title.phone-app__title--chat {
+  text-align: left;
+  flex: 0 1 auto;
+  font-size: 0.95rem;
+  padding: 0;
+}
+
+.phone-app__bar-side {
+  width: 40px;
+  height: 40px;
+}
+
+.phone-wechat__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: #fff;
+}
+
+.phone-wechat-row-wrap {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.phone-wechat-row__slide {
+  position: relative;
+  z-index: 1;
+  background: #fff;
+  transition: transform 0.22s ease;
+  will-change: transform;
+}
+
+.phone-wechat-row-wrap.is-dragging .phone-wechat-row__slide {
+  transition: none;
+}
+
+.phone-wechat-row-wrap.is-open .phone-wechat-row__slide {
+  transform: translateX(-72px);
+}
+
+.phone-wechat-row__delete {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 72px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: #e54d42;
+  color: #fff;
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-wechat-row__delete:active {
+  background: #cf4339;
+}
+
+.phone-wechat-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  border: none;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-wechat-row:active {
+  background: #f2f2f2;
+}
+
+.phone-wechat-row__avatar {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  background: #d8d8d8;
+  color: #666;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05rem;
+  font-weight: 600;
+  overflow: hidden;
+}
+
+.phone-wechat-row__avatar img,
+.phone-wechat-msg__avatar img,
+.phone-moments__profile-avatar img,
+.phone-moments-post__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+[data-phone-social-avatar-upload] {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+[data-phone-social-avatar-upload]:active {
+  opacity: 0.88;
+}
+
+.phone-wechat-row__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.phone-wechat-row__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.phone-wechat-row__name {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #111;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-wechat-row__time {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  color: #b2b2b2;
+}
+
+.phone-wechat-row__preview {
+  min-height: 0.95rem;
+  font-size: 0.78rem;
+  color: #b2b2b2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-wechat-row__preview--ellipsis {
+  color: #b2b2b2;
+}
+
+.phone-wechat-msg__bubble--ellipsis {
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  padding: 10px 14px;
+  font-size: 0.88rem;
+  line-height: 1;
+  color: #b2b2b2;
+  min-height: 0;
+  min-width: 44px;
+}
+
+.phone-wechat-msg--out .phone-wechat-msg__bubble--ellipsis {
+  background: #95ec69;
+  border-color: rgba(0, 0, 0, 0.03);
+  color: rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme="dark"] .phone-wechat-msg__bubble--ellipsis {
+  background: #2c2c2c;
+  border-color: rgba(255, 255, 255, 0.06);
+  color: #888;
+}
+
+html[data-theme="dark"] .phone-wechat-msg--out .phone-wechat-msg__bubble--ellipsis {
+  background: #3a6b35;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.phone-wechat-row__name--ellipsis {
+  color: #b2b2b2;
+  letter-spacing: 0.12em;
+}
+
+.phone-wechat--chat {
+  background: #ededed;
+}
+
+.phone-wechat__thread {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 12px calc(14px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.phone-wechat-msg--selectable {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-wechat-msg--selected .phone-wechat-msg__bubble:not(.phone-wechat-msg__bubble--ellipsis) {
+  box-shadow: 0 0 0 2px rgba(7, 193, 96, 0.55);
+}
+
+.phone-wechat-msg--editable .phone-wechat-msg__bubble:not(.phone-wechat-msg__bubble--ellipsis) {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
+  outline: none;
+}
+
+.phone-wechat-msg__check {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  margin-top: 9px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 0, 0, 0.18);
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #07c160;
+}
+
+.phone-wechat-msg--selected .phone-wechat-msg__check {
+  border-color: #07c160;
+  background: #07c160;
+  color: #fff;
+}
+
+.phone-wechat-msg--out .phone-wechat-msg__check {
+  order: -1;
+}
+
+html[data-theme="dark"] .phone-wechat-msg__check {
+  background: #2c2c2c;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+html[data-theme="dark"] .phone-wechat-msg--selected .phone-wechat-msg__check {
+  background: #07c160;
+  border-color: #07c160;
+}
+
+html[data-theme="dark"] .phone-wechat-chat-action--active {
+  color: #2fd07a;
+}
+
+html[data-theme="dark"] .phone-wechat-chat-action--delete-ready {
+  color: #ff6b63;
+}
+
+.phone-wechat-msg {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.phone-wechat-msg--out {
+  justify-content: flex-end;
+}
+
+.phone-wechat-msg__avatar {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 6px;
+  background: #d8d8d8;
+  color: #666;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+  font-weight: 600;
+  overflow: hidden;
+}
+
+.phone-wechat-msg__bubble {
+  max-width: 72%;
+  min-height: 40px;
+  border-radius: 6px;
+  position: relative;
+}
+
+.phone-wechat-msg--in .phone-wechat-msg__bubble:not(.phone-wechat-msg__bubble--placeholder) {
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  padding: 10px 12px;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: #111;
+  word-break: break-word;
+  white-space: pre-wrap;
+  min-height: 0;
+}
+
+.phone-wechat-msg--out .phone-wechat-msg__bubble:not(.phone-wechat-msg__bubble--placeholder) {
+  background: #95ec69;
+  border: 1px solid rgba(0, 0, 0, 0.03);
+  padding: 10px 12px;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: #111;
+  word-break: break-word;
+  white-space: pre-wrap;
+  min-height: 0;
+}
+
+.phone-wechat-msg__bubble--placeholder {
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  min-width: 88px;
+}
+
+.phone-wechat-msg__bubble--placeholder::after {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 38px;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.03) 0%,
+    rgba(0, 0, 0, 0.06) 50%,
+    rgba(0, 0, 0, 0.03) 100%
+  );
+}
+
+.phone-wechat-msg__bubble--short {
+  min-width: 56px;
+  max-width: 42%;
+}
+
+.phone-wechat-msg--out .phone-wechat-msg__bubble--placeholder {
+  background: #95ec69;
+  border-color: rgba(0, 0, 0, 0.03);
+}
+
+.phone-wechat-msg--out .phone-wechat-msg__bubble--placeholder::after {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.08) 0%,
+    rgba(255, 255, 255, 0.18) 50%,
+    rgba(255, 255, 255, 0.08) 100%
+  );
+}
+
+.phone-wechat__composer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  background: #f7f7f7;
+}
+
+.phone-wechat__composer-icon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.phone-wechat__composer-field {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #fff;
+}
+
+html[data-theme="dark"] .phone-app {
+  background: #1a1a1a;
+  color: #f0f0f0;
+}
+
+html[data-theme="dark"] .phone-app__bar,
+html[data-theme="dark"] .phone-wechat__composer {
+  background: #242424;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .phone-app__back,
+html[data-theme="dark"] .phone-app__title,
+html[data-theme="dark"] .phone-app__bar-action {
+  color: #f0f0f0;
+}
+
+html[data-theme="dark"] .phone-wechat__list,
+html[data-theme="dark"] .phone-wechat-row {
+  background: #1f1f1f;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-wechat-row-wrap {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-wechat-row__slide {
+  background: #1f1f1f;
+}
+
+html[data-theme="dark"] .phone-wechat-row__delete {
+  background: #c93c32;
+}
+
+html[data-theme="dark"] .phone-wechat-row__delete:active {
+  background: #b3342b;
+}
+
+html[data-theme="dark"] .phone-wechat-row:active {
+  background: #2a2a2a;
+}
+
+html[data-theme="dark"] .phone-wechat-row__name {
+  color: #f0f0f0;
+}
+
+html[data-theme="dark"] .phone-wechat--chat {
+  background: #1a1a1a;
+}
+
+html[data-theme="dark"] .phone-wechat-msg--in .phone-wechat-msg__bubble:not(.phone-wechat-msg__bubble--placeholder) {
+  background: #2c2c2c;
+  border-color: rgba(255, 255, 255, 0.06);
+  color: #f0f0f0;
+}
+
+html[data-theme="dark"] .phone-wechat-msg--out .phone-wechat-msg__bubble:not(.phone-wechat-msg__bubble--placeholder) {
+  background: #3a6b35;
+  color: #f5f5f5;
+}
+
+html[data-theme="dark"] .phone-wechat-msg__bubble--placeholder {
+  background: #2c2c2c;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-wechat-msg--out .phone-wechat-msg__bubble--placeholder {
+  background: #3a6b35;
+}
+
+html[data-theme="dark"] .phone-wechat__composer-field {
+  background: #2c2c2c;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.phone-moments {
+  background: #ededed;
+}
+
+.phone-moments__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.phone-moments__hero {
+  position: relative;
+  margin-bottom: 0;
+  padding-bottom: 36px;
+  background: #fff;
+}
+
+.phone-moments__cover {
+  display: block;
+  width: 100%;
+  height: 210px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  background-color: #b8c9d8;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-image: linear-gradient(145deg, #c8d8e8 0%, #9eb5cc 48%, #7a96ad 100%);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-moments__cover--has-image {
+  background-color: #9eb5cc;
+}
+
+.phone-moments__cover-hint {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.28);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.62rem;
+  line-height: 1.3;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+.phone-moments__cover:active .phone-moments__cover-hint,
+.phone-moments__cover:focus-visible .phone-moments__cover-hint {
+  opacity: 1;
+}
+
+.phone-moments__profile {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 0 14px 0;
+  pointer-events: none;
+}
+
+.phone-moments__profile-name {
+  flex: 1;
+  min-width: 0;
+  padding-bottom: 8px;
+  text-align: right;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  letter-spacing: 0.12em;
+}
+
+.phone-moments__profile-avatar {
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  background: #d8d8d8;
+  color: #999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+
+.phone-moments__feed {
+  background: #ededed;
+  margin-top: 0;
+}
+
+.phone-moments-post:first-child {
+  border-top: none;
+}
+
+.phone-moments-post {
+  padding: 14px 14px 12px;
+  border-bottom: 8px solid #ededed;
+  background: #fff;
+}
+
+.phone-moments-post__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.phone-moments-post__avatar {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  background: #d8d8d8;
+  color: #999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  font-weight: 600;
+  overflow: hidden;
+}
+
+.phone-moments-post__name {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #576b95;
+  letter-spacing: 0.12em;
+}
+
+.phone-moments-post__text {
+  margin: 0 0 8px;
+  padding-left: 50px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: #b2b2b2;
+  letter-spacing: 0.12em;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.phone-moments-post__text--filled {
+  color: #111;
+  letter-spacing: normal;
+}
+
+.phone-moments-post--placeholder .phone-moments-post__name,
+.phone-moments-post--placeholder .phone-moments-post__time {
+  letter-spacing: 0.12em;
+}
+
+.phone-moments__profile-name--ellipsis {
+  letter-spacing: 0.12em;
+}
+
+.phone-moments-post__media {
+  margin: 0 0 8px 50px;
+}
+
+.phone-moments-post__media--grid2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+  max-width: 220px;
+}
+
+.phone-moments-post__media--grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  max-width: 220px;
+}
+
+.phone-moments-post__media--grid4 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+  max-width: 220px;
+}
+
+.phone-moments-post__media--grid9 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  max-width: 220px;
+}
+
+.phone-moments-post__media--single {
+  max-width: 160px;
+}
+
+.phone-moments-post__media-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 4px;
+  background: linear-gradient(
+    135deg,
+    rgba(0, 0, 0, 0.04) 0%,
+    rgba(0, 0, 0, 0.08) 50%,
+    rgba(0, 0, 0, 0.04) 100%
+  );
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+}
+
+.phone-moments-post__media--single .phone-moments-post__media-cell {
+  aspect-ratio: 4 / 3;
+}
+
+.phone-moments-post__media-cell--caption {
+  padding: 5px 6px;
+}
+
+.phone-moments-post__media-caption {
+  width: 100%;
+  line-height: 1.4;
+  color: #666;
+  text-align: center;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  line-break: auto;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-wrap: balance;
+}
+
+.phone-moments-post__media-caption--single-lg {
+  font-size: 0.72rem;
+  -webkit-line-clamp: 5;
+}
+
+.phone-moments-post__media-caption--single-md {
+  font-size: 0.66rem;
+  -webkit-line-clamp: 5;
+}
+
+.phone-moments-post__media-caption--single-sm {
+  font-size: 0.58rem;
+  -webkit-line-clamp: 6;
+}
+
+.phone-moments-post__media-caption--compact-lg {
+  font-size: 0.64rem;
+  -webkit-line-clamp: 4;
+}
+
+.phone-moments-post__media-caption--compact-md {
+  font-size: 0.58rem;
+  -webkit-line-clamp: 5;
+}
+
+.phone-moments-post__media-caption--compact-sm {
+  font-size: 0.52rem;
+  -webkit-line-clamp: 5;
+}
+
+.phone-moments-post__media-caption--tiny-lg {
+  font-size: 0.58rem;
+  -webkit-line-clamp: 4;
+}
+
+.phone-moments-post__media-caption--tiny-md {
+  font-size: 0.52rem;
+  -webkit-line-clamp: 4;
+}
+
+.phone-moments-post__media-caption--tiny-sm {
+  font-size: 0.48rem;
+  -webkit-line-clamp: 5;
+}
+
+.phone-moments-post__media-cell--placeholder {
+  font-size: 0.82rem;
+  color: #b2b2b2;
+  letter-spacing: 0.12em;
+}
+
+.phone-moments-post__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-left: 50px;
+  margin-bottom: 0;
+}
+
+.phone-moments-post__social {
+  margin: 8px 0 0 50px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: #f7f7f7;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.phone-moments-post__likes {
+  color: #576b95;
+  word-break: break-word;
+}
+
+.phone-moments-post__likes-icon {
+  color: #576b95;
+  margin-right: 4px;
+}
+
+.phone-moments-post__comments {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.phone-moments-post__likes + .phone-moments-post__comments {
+  margin-top: 6px;
+}
+
+.phone-moments-post__comment + .phone-moments-post__comment {
+  margin-top: 4px;
+}
+
+.phone-moments-post__comment-author {
+  color: #576b95;
+  font-weight: 500;
+}
+
+.phone-moments-post__comment-text {
+  color: #333;
+  word-break: break-word;
+}
+
+.phone-moments-post__time {
+  font-size: 0.72rem;
+  color: #b2b2b2;
+  letter-spacing: 0.08em;
+}
+
+.phone-moments-post__delete {
+  flex-shrink: 0;
+  width: 28px;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: #888;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-moments-post__delete:active {
+  background: transparent;
+  color: #e54d42;
+  opacity: 0.72;
+}
+
+.phone-moments-post--placeholder .phone-moments-post__actions {
+  flex-shrink: 0;
+  min-width: 28px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: #f7f7f7;
+  color: #b2b2b2;
+  font-size: 0.82rem;
+  line-height: 22px;
+  letter-spacing: 0.12em;
+}
+
+html[data-theme="dark"] .phone-moments {
+  background: #1a1a1a;
+}
+
+html[data-theme="dark"] .phone-moments__hero,
+html[data-theme="dark"] .phone-moments-post {
+  background: #1f1f1f;
+}
+
+html[data-theme="dark"] .phone-moments__feed {
+  background: #1a1a1a;
+}
+
+html[data-theme="dark"] .phone-moments-post {
+  border-bottom-color: #1a1a1a;
+}
+
+html[data-theme="dark"] .phone-moments__cover {
+  background-color: #2a3a48;
+  background-image: linear-gradient(145deg, #3a4f62 0%, #2a3a48 48%, #1f2c38 100%);
+}
+
+html[data-theme="dark"] .phone-moments__cover--has-image {
+  background-color: #2a3a48;
+}
+
+html[data-theme="dark"] .phone-moments__cover-hint {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+html[data-theme="dark"] .phone-moments__profile-avatar,
+html[data-theme="dark"] .phone-moments-post__avatar {
+  background: #3a3a3a;
+  color: #888;
+}
+
+html[data-theme="dark"] .phone-moments-post__name {
+  color: #7a90b8;
+}
+
+html[data-theme="dark"] .phone-moments-post__text--filled {
+  color: #f0f0f0;
+}
+
+html[data-theme="dark"] .phone-moments-post__social {
+  background: #2a2a2a;
+}
+
+html[data-theme="dark"] .phone-moments-post__comment-text {
+  color: #ddd;
+}
+
+html[data-theme="dark"] .phone-moments-post__comments {
+  border-top-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-moments-post__media-caption {
+  color: #aaa;
+}
+
+html[data-theme="dark"] .phone-moments-post__delete {
+  background: transparent;
+  color: #aaa;
+}
+
+html[data-theme="dark"] .phone-moments-post__delete:active {
+  background: transparent;
+  color: #ff6b63;
+  opacity: 0.72;
+}
+
+html[data-theme="dark"] .phone-moments-post--placeholder .phone-moments-post__actions {
+  background: #2a2a2a;
+  color: #888;
+}
+
+html[data-theme="dark"] .phone-moments-post__media-cell {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.04) 0%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.phone-music {
+  background: #fff;
+}
+
+.phone-music__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.phone-music__section {
+  padding: 4px 0 12px;
+}
+
+.phone-music__section-title {
+  margin: 0;
+  padding: 12px 16px 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #888;
+  letter-spacing: 0.04em;
+}
+
+.phone-card-delete {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: #aaa;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.phone-card-foot:has(.phone-weread__hl-meta) {
+  justify-content: space-between;
+}
+
+.phone-card-foot .phone-weread__hl-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-card-delete:active {
+  background: transparent;
+  color: #e54d42;
+  opacity: 0.72;
+}
+
+.phone-music__list {
+  display: flex;
+  flex-direction: column;
+}
+
+.phone-music-row-wrap {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.phone-music-row__slide {
+  position: relative;
+  z-index: 1;
+  background: #fff;
+  transition: transform 0.22s ease;
+  will-change: transform;
+}
+
+.phone-music-row-wrap.is-dragging .phone-music-row__slide {
+  transition: none;
+}
+
+.phone-music-row-wrap.is-open .phone-music-row__slide {
+  transform: translateX(-72px);
+}
+
+.phone-music-row__delete {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 72px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: #e54d42;
+  color: #fff;
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-music-row__delete:active {
+  background: #cf4339;
+}
+
+.phone-music-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.phone-music-row:last-child {
+  border-bottom: none;
+}
+
+.phone-music-row__cover {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  background: linear-gradient(145deg, #ececec 0%, #d8d8d8 100%);
+  color: #aaa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.phone-music-row__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.phone-music-row__title {
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: #b2b2b2;
+  letter-spacing: 0.12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-music-row__title--filled {
+  color: #333;
+  letter-spacing: 0.04em;
+}
+
+.phone-music-row__artist {
+  font-size: 0.76rem;
+  color: #c8c8c8;
+  letter-spacing: 0.1em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-music-row__artist--filled {
+  color: #888;
+  letter-spacing: 0.04em;
+}
+
+.phone-music-row__meta {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.phone-music-row__like {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #c8c8c8;
+}
+
+.phone-music-row__like--active {
+  color: #fa5151;
+}
+
+.phone-music-row__count {
+  flex-shrink: 0;
+  min-width: 2.2em;
+  font-size: 0.72rem;
+  color: #b2b2b2;
+  letter-spacing: 0.08em;
+  text-align: right;
+}
+
+.phone-music-player {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  background: #fafafa;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.04);
+}
+
+.phone-music-player__cover {
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  background: linear-gradient(145deg, #ececec 0%, #d8d8d8 100%);
+  color: #aaa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: phone-music-disc-spin 8s linear infinite;
+}
+
+.phone-music-player__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.phone-music-player__title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #333;
+  letter-spacing: 0.1em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-music-player__artist {
+  font-size: 0.72rem;
+  color: #999;
+  letter-spacing: 0.08em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-music-player__artist--lyric {
+  color: #666;
+  letter-spacing: 0.02em;
+}
+
+.phone-music-player__controls {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.phone-music-player__eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+}
+
+.phone-music-player__eq span {
+  display: block;
+  width: 2px;
+  border-radius: 1px;
+  background: #07c160;
+  animation: phone-music-eq 0.9s ease-in-out infinite;
+}
+
+.phone-music-player__eq span:nth-child(1) {
+  height: 6px;
+  animation-delay: 0s;
+}
+
+.phone-music-player__eq span:nth-child(2) {
+  height: 12px;
+  animation-delay: 0.15s;
+}
+
+.phone-music-player__eq span:nth-child(3) {
+  height: 8px;
+  animation-delay: 0.3s;
+}
+
+.phone-music-player__play {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #111;
+}
+
+@keyframes phone-music-disc-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes phone-music-eq {
+  0%,
+  100% {
+    transform: scaleY(0.45);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+html[data-theme="dark"] .phone-music {
+  background: #1f1f1f;
+}
+
+html[data-theme="dark"] .phone-music-row {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-music-row-wrap {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-music-row__slide {
+  background: #1f1f1f;
+}
+
+html[data-theme="dark"] .phone-music__section-title {
+  color: #888;
+}
+
+html[data-theme="dark"] .phone-card-delete {
+  background: transparent;
+  color: #777;
+}
+
+html[data-theme="dark"] .phone-card-delete:active {
+  background: transparent;
+  color: #ff6b63;
+  opacity: 0.72;
+}
+
+html[data-theme="dark"] .phone-music-row__cover {
+  background: linear-gradient(145deg, #3a3a3a 0%, #2a2a2a 100%);
+  color: #777;
+}
+
+html[data-theme="dark"] .phone-music-row__title,
+html[data-theme="dark"] .phone-music-row__artist,
+html[data-theme="dark"] .phone-music-row__count {
+  color: #888;
+}
+
+html[data-theme="dark"] .phone-music-row__title--filled {
+  color: #e8e8e8;
+}
+
+html[data-theme="dark"] .phone-music-row__artist--filled {
+  color: #aaa;
+}
+
+html[data-theme="dark"] .phone-music-row__like {
+  color: #666;
+}
+
+html[data-theme="dark"] .phone-music-row__like--active {
+  color: #fa5151;
+}
+
+html[data-theme="dark"] .phone-music-player {
+  background: #242424;
+  border-top-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.22);
+}
+
+html[data-theme="dark"] .phone-music-player__cover {
+  background: linear-gradient(145deg, #3a3a3a 0%, #2a2a2a 100%);
+  color: #777;
+}
+
+html[data-theme="dark"] .phone-music-player__title {
+  color: #f0f0f0;
+}
+
+html[data-theme="dark"] .phone-music-player__artist {
+  color: #888;
+}
+
+html[data-theme="dark"] .phone-music-player__play {
+  color: #f0f0f0;
+}
+
+.phone-album {
+  background: #fff;
+  position: relative;
+}
+
+.phone-album__tabs-wrap {
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  background: #fff;
+}
+
+.phone-album__tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.phone-album__tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.phone-album__tab {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.2;
+  color: #666;
+  background: #f2f2f2;
+  cursor: pointer;
+}
+
+.phone-album__tab--active {
+  color: #fff;
+  background: #111;
+}
+
+.phone-album__tab:active {
+  opacity: 0.85;
+}
+
+.phone-album__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px 8px 16px;
+}
+
+.phone-album__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 6px;
+}
+
+.phone-album__item {
+  min-width: 0;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: center;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.phone-album__item--placeholder {
+  cursor: default;
+}
+
+.phone-album__item:not(.phone-album__item--placeholder):active {
+  opacity: 0.88;
+}
+
+.phone-album__caption--filled {
+  color: #555;
+}
+
+.phone-album__emoji--person {
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: #666;
+  letter-spacing: 0;
+}
+
+.phone-album-detail {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.phone-album-detail__backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: rgba(0, 0, 0, 0.42);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.phone-album-detail__sheet {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-height: 78%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 20px 16px 18px;
+  border-radius: 16px 16px 0 0;
+  background: #fff;
+  pointer-events: auto;
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.12);
+}
+
+.phone-album-detail__close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  color: #666;
+  cursor: pointer;
+  padding: 0;
+}
+
+.phone-album-detail__close:active {
+  opacity: 0.85;
+}
+
+.phone-album-detail__thumb {
+  width: 88px;
+  height: 88px;
+  margin: 0 auto 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: #ececec;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.phone-album-detail__thumb .phone-album__emoji {
+  font-size: 2rem;
+}
+
+.phone-album-detail__thumb .phone-album__emoji--person {
+  font-size: 2rem;
+}
+
+.phone-album-detail__caption {
+  margin: 0 0 12px;
+  text-align: center;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.phone-album-detail__quote {
+  margin: 0 0 16px;
+  padding: 0 4px;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  color: #444;
+  text-align: center;
+  font-style: normal;
+}
+
+.phone-album-detail__edit-label {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.phone-album-detail__edit {
+  width: 100%;
+  min-height: 72px;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  font: inherit;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  resize: vertical;
+  box-sizing: border-box;
+  background: #fafafa;
+  color: #333;
+}
+
+.phone-album-detail__edit:focus {
+  outline: none;
+  border-color: rgba(0, 0, 0, 0.22);
+  background: #fff;
+}
+
+.phone-album-detail__actions,
+.phone-album-detail__edit-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.phone-album-detail__btn {
+  min-width: 96px;
+  font-size: 0.78rem;
+}
+
+.phone-album__thumb {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: #ececec;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.phone-album__emoji {
+  font-size: 1.35rem;
+  line-height: 1;
+  color: #bbb;
+  letter-spacing: 0.05em;
+}
+
+.phone-album__caption {
+  margin: 4px 0 0;
+  padding: 0 2px;
+  font-size: 0.68rem;
+  line-height: 1.25;
+  text-align: center;
+  color: #999;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-theme="dark"] .phone-album {
+  background: #1a1a1a;
+}
+
+html[data-theme="dark"] .phone-album__tabs-wrap {
+  background: #1a1a1a;
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .phone-album__tab {
+  color: #aaa;
+  background: #2a2a2a;
+}
+
+html[data-theme="dark"] .phone-album__tab--active {
+  color: #111;
+  background: #f0f0f0;
+}
+
+html[data-theme="dark"] .phone-album__thumb {
+  background: #2a2a2a;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-album__emoji {
+  color: #555;
+}
+
+html[data-theme="dark"] .phone-album__caption {
+  color: #777;
+}
+
+html[data-theme="dark"] .phone-album__caption--filled {
+  color: #aaa;
+}
+
+html[data-theme="dark"] .phone-album__emoji--person {
+  color: #aaa;
+}
+
+html[data-theme="dark"] .phone-album-detail__sheet {
+  background: #222;
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme="dark"] .phone-album-detail__close {
+  background: rgba(255, 255, 255, 0.08);
+  color: #bbb;
+}
+
+html[data-theme="dark"] .phone-album-detail__thumb {
+  background: #2a2a2a;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-album-detail__caption {
+  color: #e8e8e8;
+}
+
+html[data-theme="dark"] .phone-album-detail__quote {
+  color: #ccc;
+}
+
+html[data-theme="dark"] .phone-album-detail__edit {
+  background: #2a2a2a;
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #e8e8e8;
+}
+
+html[data-theme="dark"] .phone-album-detail__edit:focus {
+  background: #333;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.phone-forum {
+  background: #f5f5f5;
+  position: relative;
+}
+
+.phone-forum__pill-wrap {
+  flex-shrink: 0;
+  margin-bottom: 0;
+  padding: 8px 8px 4px;
+  background: #fff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.phone-forum__pill-row {
+  padding-bottom: 8px;
+}
+
+.phone-forum__pill-row .filter-pill {
+  padding: 6px 12px;
+  font-size: 0.74rem;
+  background: #f2f2f2;
+  color: #666;
+  border: 1px solid transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.phone-forum__pill-row .filter-pill.is-active {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+  box-shadow: none;
+}
+
+.phone-forum__pill-row .filter-pill--manage {
+  background: transparent;
+  border-style: dashed;
+  border-color: rgba(0, 0, 0, 0.18);
+  color: #888;
+}
+
+.phone-forum-post-row-item,
+.phone-forum-thread-item,
+.phone-forum-reply-item {
+  position: relative;
+  background: #fff;
+}
+
+.phone-forum-post-row-item {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.phone-forum-thread-item,
+.phone-forum-reply-item {
+  margin-bottom: 8px;
+}
+
+.phone-forum-post-row-item .phone-forum-post-row,
+.phone-forum-thread-item .phone-forum-thread,
+.phone-forum-reply-item .phone-forum-reply {
+  padding-right: 52px;
+  padding-bottom: 28px;
+}
+
+.phone-forum-post-row-item .phone-forum-post-row {
+  border-bottom: none;
+}
+
+.phone-forum-row-corner {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  pointer-events: auto;
+}
+
+.phone-forum-row-corner__btn {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-forum-row-corner__btn--edit {
+  color: #576b95;
+}
+
+.phone-forum-row-corner__btn--edit:active {
+  background: transparent;
+  color: #4a5c82;
+  opacity: 0.72;
+}
+
+.phone-forum-row-corner__btn--delete {
+  color: #e54d42;
+}
+
+.phone-forum-row-corner__btn--delete:active {
+  background: transparent;
+  color: #cf4339;
+  opacity: 0.72;
+}
+
+.phone-forum__author-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.phone-forum__role-tag {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.58rem;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+}
+
+.phone-forum__role-tag--op {
+  background: rgba(255, 152, 0, 0.16);
+  color: #e65100;
+}
+
+.phone-forum__role-tag--user {
+  background: rgba(87, 107, 149, 0.14);
+  color: #576b95;
+}
+
+.phone-forum-post-row__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.66rem;
+  color: #bbb;
+}
+
+.phone-forum-post-row__author {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-forum-thread__body .phone-forum__author-line,
+.phone-forum-reply__body .phone-forum__author-line {
+  display: flex;
+  margin-bottom: 4px;
+}
+
+.phone-forum-thread__body .phone-forum-post-row__author,
+.phone-forum-reply__body .phone-forum-post-row__author {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #666;
+}
+
+.phone-forum__editable {
+  outline: none;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(7, 193, 96, 0.45);
+}
+
+.phone-forum__empty--compact {
+  padding: 16px 12px;
+}
+
+.phone-forum__tabs-wrap {
+  flex-shrink: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  background: #fff;
+}
+
+.phone-forum__tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px 8px 10px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.phone-forum__tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.phone-forum__tab {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.2;
+  color: #666;
+  background: #f2f2f2;
+  cursor: pointer;
+}
+
+.phone-forum__tab--active {
+  color: #fff;
+  background: #111;
+}
+
+.phone-forum__tab:active {
+  opacity: 0.85;
+}
+
+.phone-forum__tabs-manage {
+  flex-shrink: 0;
+  width: 40px;
+  border: none;
+  border-left: 1px solid rgba(0, 0, 0, 0.06);
+  background: #fff;
+  color: #666;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.phone-forum__tabs-manage:active {
+  background: #f5f5f5;
+}
+
+.phone-forum__section-hint {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 6px 12px 8px;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: #aaa;
+  background: #fff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-forum__section-hint--filled {
+  color: #888;
+}
+
+.phone-forum__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.phone-forum__scroll--post {
+  padding: 12px 10px 16px;
+}
+
+.phone-forum__list {
+  display: flex;
+  flex-direction: column;
+}
+
+.phone-forum-post-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 12px;
+  border: none;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.phone-forum-post-row:active:not(.phone-forum-post-row--placeholder) {
+  background: #fafafa;
+}
+
+.phone-forum__avatar {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #e8e8e8;
+  color: #666;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.phone-forum-post-row__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.phone-forum-post-row__title {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #bbb;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-forum-post-row__title--filled {
+  color: #222;
+}
+
+.phone-forum-post-row__preview {
+  font-size: 0.74rem;
+  line-height: 1.35;
+  color: #ccc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-forum-post-row__preview--filled {
+  color: #888;
+}
+
+.phone-forum-post-row__stat {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-forum__empty {
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.phone-forum__empty-text {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #bbb;
+}
+
+.phone-forum-thread {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 12px;
+  background: #fff;
+}
+
+.phone-forum-thread-item .phone-forum-thread {
+  margin-bottom: 0;
+}
+
+.phone-forum-thread__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-forum-thread--placeholder .phone-forum-thread__title,
+.phone-forum-thread--placeholder .phone-forum-thread__content,
+.phone-forum-thread--placeholder .phone-forum-thread__time {
+  color: #ccc;
+}
+
+.phone-forum-thread__title {
+  margin: 0 0 8px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #ccc;
+}
+
+.phone-forum-thread__title--filled {
+  color: #111;
+}
+
+.phone-forum-thread__content {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: #ccc;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.phone-forum-thread__content--filled {
+  color: #444;
+}
+
+.phone-forum-thread__time {
+  font-size: 0.66rem;
+  color: #bbb;
+}
+
+.phone-forum__replies {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.phone-forum-reply {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.phone-forum-reply-item .phone-forum-reply {
+  border: none;
+  border-radius: 0;
+}
+
+.phone-forum-reply__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-forum-reply--placeholder .phone-forum-reply__text,
+.phone-forum-reply--placeholder .phone-forum-reply__time {
+  color: #ccc;
+}
+
+.phone-forum-reply__text {
+  margin: 0 0 4px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: #ccc;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.phone-forum-reply__text--filled {
+  color: #444;
+}
+
+.phone-forum-reply__time {
+  font-size: 0.64rem;
+  color: #bbb;
+}
+
+.phone-forum-manage {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.phone-forum-manage__backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: rgba(0, 0, 0, 0.42);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.phone-forum-manage__panel {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-height: 82%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px 14px calc(20px + env(safe-area-inset-bottom, 0px));
+  border-radius: 16px 16px 0 0;
+  background: #fff;
+  pointer-events: auto;
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.12);
+}
+
+.phone-forum-manage__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.phone-forum-manage__title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #222;
+}
+
+.phone-forum-manage__close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  color: #666;
+  cursor: pointer;
+  padding: 0;
+}
+
+.phone-forum-manage__hint {
+  margin: 0 0 12px;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: #999;
+}
+
+.phone-forum-manage__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.phone-forum-manage__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px;
+  border-radius: 10px;
+  background: #f7f7f7;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.phone-forum-manage__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-forum-manage__name {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 2px;
+}
+
+.phone-forum-manage__desc {
+  display: block;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: #888;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-forum-manage__desc-placeholder {
+  color: #ccc;
+}
+
+.phone-forum-manage__actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 4px;
+}
+
+.phone-forum-manage__action {
+  border: none;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 0.68rem;
+  background: #fff;
+  color: #555;
+  cursor: pointer;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.phone-forum-manage__action--danger {
+  color: #e54d42;
+}
+
+.phone-forum-manage__action:active {
+  opacity: 0.85;
+}
+
+.phone-forum-manage__add {
+  width: 100%;
+}
+
+.phone-forum-manage__field {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.phone-forum-manage__label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #555;
+}
+
+.phone-forum-manage__input,
+.phone-forum-manage__textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 11px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  background: #fafafa;
+  color: #333;
+}
+
+.phone-forum-manage__textarea {
+  resize: vertical;
+  min-height: 88px;
+}
+
+.phone-forum-manage__input:focus,
+.phone-forum-manage__textarea:focus {
+  outline: none;
+  border-color: rgba(0, 0, 0, 0.22);
+  background: #fff;
+}
+
+.phone-forum-manage__save {
+  width: 100%;
+}
+
+html[data-theme="dark"] .phone-forum {
+  background: #1a1a1a;
+}
+
+html[data-theme="dark"] .phone-forum__pill-wrap {
+  background: #1a1a1a;
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .phone-forum__pill-row .filter-pill {
+  background: #2a2a2a;
+  color: #aaa;
+}
+
+html[data-theme="dark"] .phone-forum__pill-row .filter-pill.is-active {
+  background: #f0f0f0;
+  color: #111;
+  border-color: #f0f0f0;
+}
+
+html[data-theme="dark"] .phone-forum__role-tag--op {
+  background: rgba(255, 183, 77, 0.18);
+  color: #ffb74d;
+}
+
+html[data-theme="dark"] .phone-forum__role-tag--user {
+  background: rgba(129, 157, 199, 0.18);
+  color: #90a4c7;
+}
+
+html[data-theme="dark"] .phone-forum-post-row-item,
+html[data-theme="dark"] .phone-forum-thread-item,
+html[data-theme="dark"] .phone-forum-reply-item {
+  background: #222;
+}
+
+html[data-theme="dark"] .phone-forum-row-corner__btn--edit,
+html[data-theme="dark"] .phone-forum-row-corner__btn--delete {
+  background: transparent;
+}
+
+html[data-theme="dark"] .phone-forum-row-corner__btn--edit {
+  color: #90a4c7;
+}
+
+html[data-theme="dark"] .phone-forum-row-corner__btn--delete {
+  color: #e57373;
+}
+
+html[data-theme="dark"] .phone-forum-row-corner__btn--edit:active,
+html[data-theme="dark"] .phone-forum-row-corner__btn--delete:active {
+  background: transparent;
+  opacity: 0.72;
+}
+
+html[data-theme="dark"] .phone-forum__tabs-wrap,
+html[data-theme="dark"] .phone-forum__section-hint {
+  background: #1a1a1a;
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .phone-forum__tabs-manage {
+  background: #1a1a1a;
+  border-left-color: rgba(255, 255, 255, 0.08);
+  color: #aaa;
+}
+
+html[data-theme="dark"] .phone-forum__tab {
+  color: #aaa;
+  background: #2a2a2a;
+}
+
+html[data-theme="dark"] .phone-forum__tab--active {
+  color: #111;
+  background: #f0f0f0;
+}
+
+html[data-theme="dark"] .phone-forum-post-row {
+  background: #222;
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-forum__avatar {
+  background: #333;
+  color: #aaa;
+}
+
+html[data-theme="dark"] .phone-forum-post-row__title--filled {
+  color: #eee;
+}
+
+html[data-theme="dark"] .phone-forum-thread,
+html[data-theme="dark"] .phone-forum-reply {
+  background: #222;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-forum-manage__panel {
+  background: #222;
+}
+
+html[data-theme="dark"] .phone-forum-manage__row {
+  background: #2a2a2a;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-forum-manage__input,
+html[data-theme="dark"] .phone-forum-manage__textarea {
+  background: #2a2a2a;
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #e8e8e8;
+}
+
+/* 查手机 · 浏览器 · 浏览历史 */
+.phone-browser {
+  background: #f0f0f0;
+  position: relative;
+}
+
+.phone-browser__bar {
+  background: #fff;
+}
+
+.phone-browser__title-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.phone-browser__count {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #aaa;
+  line-height: 1.2;
+}
+
+.phone-browser__pill-wrap {
+  flex-shrink: 0;
+  margin-bottom: 0;
+  padding: 8px 8px 4px;
+  background: #fff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.phone-browser__pill-row {
+  padding-bottom: 8px;
+}
+
+.phone-browser__pill-row .filter-pill {
+  padding: 6px 12px;
+  font-size: 0.74rem;
+  background: #f2f2f2;
+  color: #666;
+  border: 1px solid transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.phone-browser__pill-row .filter-pill.is-active {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+}
+
+.phone-browser__pill-row .filter-pill--manage {
+  background: transparent;
+  border-style: dashed;
+  border-color: rgba(0, 0, 0, 0.18);
+  color: #888;
+}
+
+.phone-browser__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px 10px 16px;
+}
+
+.phone-browser__group {
+  margin-bottom: 12px;
+}
+
+.phone-browser__group-title {
+  margin: 0 0 8px 4px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #222;
+  line-height: 1.2;
+}
+
+.phone-browser__group-count {
+  margin-left: 2px;
+  font-weight: 500;
+  color: #aaa;
+}
+
+.phone-browser__group-card {
+  background: #fff;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.phone-browser-entry-item {
+  position: relative;
+  background: #fff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.phone-browser-entry-item:last-child {
+  border-bottom: none;
+}
+
+.phone-browser-entry-item .phone-browser__entry {
+  border-bottom: none;
+  padding-right: 52px;
+  padding-bottom: 28px;
+}
+
+.phone-browser__entry {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.phone-browser__entry:last-child {
+  border-bottom: none;
+}
+
+.phone-browser__entry-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 12px 10px;
+}
+
+.phone-browser__entry-icon {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #ececec;
+  color: #999;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.phone-browser__entry-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-browser__entry-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.phone-browser__entry-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #bbb;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-browser__entry-title--filled {
+  color: #222;
+}
+
+.phone-browser__entry-toggle {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  margin: -2px -2px 0 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #ccc;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.phone-browser__entry-toggle svg {
+  transition: transform 0.2s ease;
+}
+
+.phone-browser__entry.is-expanded .phone-browser__entry-toggle svg {
+  transform: rotate(180deg);
+}
+
+.phone-browser__entry-toggle:active {
+  opacity: 0.7;
+}
+
+.phone-browser__entry-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 0.68rem;
+  line-height: 1.3;
+}
+
+.phone-browser__entry-time {
+  color: #0aa88f;
+  font-weight: 600;
+}
+
+.phone-browser__entry-sep {
+  color: #ccc;
+}
+
+.phone-browser__entry-source {
+  color: #999;
+}
+
+.phone-browser__entry-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(10, 168, 143, 0.1);
+  color: #0aa88f;
+  font-size: 0.62rem;
+  font-weight: 600;
+}
+
+.phone-browser__entry-duration {
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 2px;
+  font-size: 0.68rem;
+  color: #bbb;
+  line-height: 1.2;
+}
+
+.phone-browser__entry-detail {
+  padding: 0 12px 12px 56px;
+}
+
+.phone-browser__entry-detail-text {
+  margin: 0;
+  font-size: 0.74rem;
+  line-height: 1.55;
+  color: #888;
+  word-break: break-all;
+}
+
+.phone-browser__entry-detail-text--filled {
+  color: #666;
+}
+
+.phone-browser__empty {
+  padding: 48px 16px;
+  text-align: center;
+}
+
+.phone-browser__empty-text {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #aaa;
+  line-height: 1.45;
+}
+
+html[data-theme="dark"] .phone-browser {
+  background: #1a1a1a;
+}
+
+html[data-theme="dark"] .phone-browser__bar,
+html[data-theme="dark"] .phone-browser__pill-wrap,
+html[data-theme="dark"] .phone-browser__group-card {
+  background: #222;
+}
+
+html[data-theme="dark"] .phone-browser-entry-item {
+  background: #222;
+}
+
+html[data-theme="dark"] .phone-browser__group-title,
+html[data-theme="dark"] .phone-browser__entry-title {
+  color: #e8e8e8;
+}
+
+html[data-theme="dark"] .phone-browser__entry {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-browser__entry-icon {
+  background: #333;
+  color: #888;
+}
+
+html[data-theme="dark"] .phone-browser__entry-detail-text {
+  color: #aaa;
+}
+
+/* 查手机 · 备忘录 */
+.phone-memo {
+  background: #f0f0f0;
+  position: relative;
+}
+
+.phone-memo__bar {
+  background: #fff;
+}
+
+.phone-memo__title-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.phone-memo__count {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #aaa;
+  line-height: 1.2;
+}
+
+.phone-memo__pill-wrap {
+  flex-shrink: 0;
+  margin-bottom: 0;
+  padding: 8px 8px 4px;
+  background: #fff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.phone-memo__pill-row {
+  padding-bottom: 8px;
+}
+
+.phone-memo__pill-row .filter-pill {
+  padding: 6px 12px;
+  font-size: 0.74rem;
+  background: #f2f2f2;
+  color: #666;
+  border: 1px solid transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.phone-memo__pill-row .filter-pill.is-active {
+  background: #111;
+  color: #fff;
+  border-color: #111;
+}
+
+.phone-memo__pill-row .filter-pill--manage {
+  background: transparent;
+  border-style: dashed;
+  border-color: rgba(0, 0, 0, 0.18);
+  color: #888;
+}
+
+.phone-memo__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.phone-memo__list-card {
+  flex-shrink: 0;
+  background: #fff;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.phone-memo-row-wrap {
+  position: relative;
+  overflow: hidden;
+}
+
+.phone-memo-row-wrap:last-child {
+  border-bottom: none;
+}
+
+.phone-memo-row__slide {
+  position: relative;
+  z-index: 1;
+  background: #fff;
+  transition: transform 0.2s ease;
+}
+
+.phone-memo-row-wrap.is-dragging .phone-memo-row__slide {
+  transition: none;
+}
+
+.phone-memo-row {
+  padding: 12px 12px 10px;
+}
+
+.phone-memo-row__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.phone-memo-row__actions {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.phone-memo-row__action {
+  flex-shrink: 0;
+  width: 28px;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: #888;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-memo-row__action:active {
+  background: transparent;
+  color: #555;
+  opacity: 0.72;
+}
+
+.phone-memo-row__action--delete {
+  color: #e54d42;
+}
+
+.phone-memo-row__action--delete:active {
+  background: transparent;
+  color: #cf4339;
+  opacity: 0.72;
+}
+
+.phone-memo-row__action--ghost {
+  background: #f7f7f7;
+  color: #b2b2b2;
+  font-size: 0.82rem;
+  line-height: 22px;
+  letter-spacing: 0.12em;
+  cursor: default;
+}
+
+.phone-memo-row__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.phone-memo-row__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-memo-row__top {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.phone-memo-row__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #bbb;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-memo-row__title--filled {
+  color: #222;
+}
+
+.phone-memo-row__title--full {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  word-break: break-word;
+  line-height: 1.35;
+  margin-bottom: 6px;
+}
+
+.phone-memo-row__toggle {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  margin: -2px -2px 0 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #ccc;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.phone-memo-row__toggle svg {
+  transition: transform 0.2s ease;
+}
+
+.phone-memo-row.is-expanded .phone-memo-row__toggle svg {
+  transform: rotate(180deg);
+}
+
+.phone-memo-row__toggle:active {
+  opacity: 0.7;
+}
+
+.phone-memo-row__preview {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin-top: 4px;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: #ccc;
+}
+
+.phone-memo-row__preview--filled {
+  color: #888;
+}
+
+.phone-memo-row__meta {
+  margin-top: 6px;
+}
+
+.phone-memo-row__time {
+  font-size: 0.68rem;
+  color: #0aa88f;
+  font-weight: 600;
+}
+
+.phone-memo-row__detail {
+  padding: 0 0 4px;
+}
+
+.phone-memo-row__body {
+  margin: 0;
+  font-size: 0.74rem;
+  line-height: 1.55;
+  color: #ccc;
+  word-break: break-word;
+}
+
+.phone-memo-row__body--filled {
+  color: #666;
+}
+
+.phone-memo-row__body--full {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: visible;
+}
+
+.phone-memo-row--full .phone-memo-row__meta {
+  margin-top: 0;
+}
+
+.phone-memo-row--full .phone-memo-row__footer {
+  margin-top: 4px;
+}
+
+.phone-memo-row__topline {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.phone-memo-row__kind {
+  flex-shrink: 0;
+  margin-top: 2px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.62rem;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+}
+
+.phone-memo-row__kind--text {
+  background: #f0f0f0;
+  color: #888;
+}
+
+.phone-memo-row__kind--photo {
+  background: #e8f4fd;
+  color: #4a7ba7;
+}
+
+.phone-memo-row__kind--audio {
+  background: #fce8e6;
+  color: #c45c5c;
+}
+
+.phone-memo-row__kind--receipt {
+  background: #f5f0e8;
+  color: #8a7355;
+}
+
+.phone-memo-row__kind--checklist {
+  background: #e8f5e9;
+  color: #4a8a5c;
+}
+
+.phone-memo-row__kind--link {
+  background: #ece8f8;
+  color: #6a5a9a;
+}
+
+.phone-memo-row__kind--location {
+  background: #fff3e0;
+  color: #b8863a;
+}
+
+.phone-memo-row__topline .phone-memo-row__title {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.phone-memo-card {
+  margin-bottom: 4px;
+}
+
+.phone-memo-card--photo .phone-memo-card__polaroid {
+  padding: 8px 8px 14px;
+  background: #fff;
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  transform: rotate(-0.6deg);
+}
+
+.phone-memo-card__photo-frame {
+  aspect-ratio: 4 / 3;
+  border-radius: 3px;
+  background: linear-gradient(145deg, #e8e4dc 0%, #d4cfc4 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  text-align: center;
+}
+
+.phone-memo-card__photo-icon {
+  color: #b8b0a4;
+  opacity: 0.85;
+}
+
+.phone-memo-card__photo-scene {
+  margin: 0;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: #666;
+  word-break: break-word;
+}
+
+.phone-memo-card__photo-caption {
+  margin: 8px 0 0;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: #666;
+}
+
+.phone-memo-card--audio .phone-memo-card__player {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, #fff5f5 0%, #fff 100%);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.phone-memo-card__play {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #e54d42;
+  color: #fff;
+  font-size: 0.62rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-left: 2px;
+}
+
+.phone-memo-card__wave {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: #e54d42;
+  opacity: 0.75;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.phone-memo-card__duration {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #999;
+  font-variant-numeric: tabular-nums;
+}
+
+.phone-memo-card__transcript {
+  margin: 8px 0 0;
+  font-size: 0.74rem;
+  line-height: 1.55;
+  color: #666;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.phone-memo-card--receipt .phone-memo-card__receipt-paper {
+  padding: 10px 12px 12px;
+  border-radius: 4px;
+  background: #faf8f2;
+  border: 1px dashed rgba(120, 100, 70, 0.35);
+  font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+  position: relative;
+}
+
+.phone-memo-card--receipt .phone-memo-card__receipt-paper::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 6px;
+  background: linear-gradient(135deg, #faf8f2 33.33%, transparent 33.33%) 0 0 / 8px 8px,
+    linear-gradient(225deg, #faf8f2 33.33%, transparent 33.33%) 0 0 / 8px 8px;
+  transform: translateY(100%);
+}
+
+.phone-memo-card__receipt-head {
+  text-align: center;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #4a4038;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed rgba(120, 100, 70, 0.25);
+}
+
+.phone-memo-card__receipt-line {
+  font-size: 0.68rem;
+  line-height: 1.6;
+  color: #5c5348;
+}
+
+.phone-memo-card__receipt-total {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(120, 100, 70, 0.25);
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-align: right;
+  color: #3d342c;
+}
+
+.phone-memo-card--checklist .phone-memo-card__checklist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.phone-memo-card__check-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #444;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.phone-memo-card__check-item:last-child {
+  border-bottom: none;
+}
+
+.phone-memo-card__check-item.is-done {
+  color: #aaa;
+  text-decoration: line-through;
+}
+
+.phone-memo-card__check-box {
+  flex-shrink: 0;
+  font-size: 0.82rem;
+  line-height: 1.2;
+  color: #07c160;
+}
+
+.phone-memo-card__check-item.is-done .phone-memo-card__check-box {
+  color: #07c160;
+}
+
+.phone-memo-card--link .phone-memo-card__link-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f7f8fa;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.phone-memo-card__link-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #576b95;
+}
+
+.phone-memo-card__link-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.phone-memo-card__link-site {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #222;
+}
+
+.phone-memo-card__link-url {
+  font-size: 0.66rem;
+  color: #576b95;
+  word-break: break-all;
+  line-height: 1.35;
+}
+
+.phone-memo-card__link-note {
+  margin: 8px 0 0;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: #666;
+}
+
+.phone-memo-card--location .phone-memo-card__loc-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #fff8ee 0%, #fff 100%);
+  border: 1px solid rgba(184, 134, 58, 0.18);
+}
+
+.phone-memo-card__loc-icon {
+  flex-shrink: 0;
+  color: #e54d42;
+  margin-top: 1px;
+}
+
+.phone-memo-card__loc-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.phone-memo-card__loc-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #222;
+}
+
+.phone-memo-card__loc-address {
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: #666;
+  word-break: break-word;
+}
+
+.phone-memo-card--text .phone-memo-row__body {
+  margin: 0;
+}
+
+.phone-memo__empty {
+  padding: 48px 16px;
+  text-align: center;
+}
+
+.phone-memo__empty-text {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #aaa;
+  line-height: 1.45;
+}
+
+html[data-theme="dark"] .phone-memo {
+  background: #1a1a1a;
+}
+
+html[data-theme="dark"] .phone-memo__bar,
+html[data-theme="dark"] .phone-memo__pill-wrap,
+html[data-theme="dark"] .phone-memo__list-card {
+  background: #222;
+}
+
+html[data-theme="dark"] .phone-memo__list-card {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.24);
+}
+
+html[data-theme="dark"] .phone-memo-row-wrap,
+html[data-theme="dark"] .phone-memo-row__slide {
+  background: #222;
+}
+
+html[data-theme="dark"] .phone-memo-row-wrap {
+  border-bottom: none;
+}
+
+html[data-theme="dark"] .phone-memo-row__title--filled {
+  color: #e8e8e8;
+}
+
+html[data-theme="dark"] .phone-memo-row__preview--filled,
+html[data-theme="dark"] .phone-memo-row__body--filled {
+  color: #aaa;
+}
+
+html[data-theme="dark"] .phone-memo-row__kind--text {
+  background: #333;
+  color: #aaa;
+}
+
+html[data-theme="dark"] .phone-memo-row__kind--photo {
+  background: rgba(74, 123, 167, 0.2);
+  color: #90a4c7;
+}
+
+html[data-theme="dark"] .phone-memo-row__kind--audio {
+  background: rgba(196, 92, 92, 0.18);
+  color: #e57373;
+}
+
+html[data-theme="dark"] .phone-memo-card--photo .phone-memo-card__polaroid {
+  background: #2a2a2a;
+}
+
+html[data-theme="dark"] .phone-memo-card__photo-frame {
+  background: linear-gradient(145deg, #3a3a3a 0%, #2e2e2e 100%);
+}
+
+html[data-theme="dark"] .phone-memo-card--audio .phone-memo-card__player {
+  background: linear-gradient(90deg, #2a2222 0%, #222 100%);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-memo-card--receipt .phone-memo-card__receipt-paper {
+  background: #2a2824;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme="dark"] .phone-memo-card--link .phone-memo-card__link-card {
+  background: #2a2a2e;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .phone-memo-card--location .phone-memo-card__loc-card {
+  background: linear-gradient(135deg, #2a2520 0%, #222 100%);
+}
+
+/* 查手机 · 日记 */
+.phone-diary {
+  background: #ebe4d8;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  --phone-diary-hand-font:
+    "Zhi Mang Xing",
+    "Long Cang",
+    "STXingkai",
+    "华文行楷",
+    "行楷",
+    "KaiTi",
+    "楷体",
+    cursive;
+}
+
+.phone-diary__bar {
+  background: #faf6ee;
+  flex-shrink: 0;
+}
+
+.phone-diary__title-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-diary__main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.phone-diary__stage {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 12px 14px;
+  box-sizing: border-box;
+}
+
+.phone-diary__tap-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 32%;
+  max-width: 108px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  z-index: 3;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-diary__tap-zone--older {
+  left: 0;
+}
+
+.phone-diary__tap-zone--newer {
+  right: 0;
+}
+
+.phone-diary__tap-zone:disabled {
+  pointer-events: none;
+  cursor: default;
+}
+
+.phone-diary__main--empty {
+  flex: 1;
+  min-height: 0;
+  background: #ebe4d8;
+}
+
+.phone-diary__book-wrap {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  display: flex;
+  align-items: stretch;
+  perspective: 1400px;
+}
+
+.phone-diary__book {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  border-radius: 10px 14px 14px 10px;
+  box-shadow:
+    0 2px 8px rgba(80, 56, 32, 0.14),
+    0 8px 22px rgba(80, 56, 32, 0.16),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  border: 1px solid rgba(80, 56, 32, 0.14);
+  overflow: hidden;
+  transform-style: preserve-3d;
+  transform-origin: 0% 50%;
+  backface-visibility: hidden;
+  transition:
+    transform 0.42s cubic-bezier(0.33, 1, 0.68, 1),
+    opacity 0.35s ease;
+  will-change: transform;
+}
+
+.phone-diary__book.is-dragging {
+  transition: none;
+}
+
+.phone-diary__book::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(105deg, rgba(0, 0, 0, 0.14) 0%, transparent 38%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  z-index: 4;
+}
+
+.phone-diary__book.is-dragging::after,
+.phone-diary__book.phone-diary__book--flip-to-older::after,
+.phone-diary__book.phone-diary__book--flip-to-newer::after,
+.phone-diary__book.phone-diary__book--enter-from-older::after,
+.phone-diary__book.phone-diary__book--enter-from-newer::after {
+  opacity: 1;
+}
+
+.phone-diary__book--flip-to-older {
+  transform: rotateY(92deg);
+  opacity: 0.15;
+}
+
+.phone-diary__book--flip-to-newer {
+  transform: rotateY(-92deg);
+  opacity: 0.15;
+}
+
+.phone-diary__book--enter-from-older {
+  transform: rotateY(78deg);
+  opacity: 0.45;
+}
+
+.phone-diary__book--enter-from-newer {
+  transform: rotateY(-78deg);
+  opacity: 0.45;
+}
+
+.phone-diary__book--enter-active {
+  transform: rotateY(0deg) !important;
+  opacity: 1 !important;
+}
+
+.phone-diary__spine {
+  flex-shrink: 0;
+  width: 10px;
+  background: linear-gradient(90deg, #8b4a3f 0%, #a85a4d 38%, #7a3f36 100%);
+  box-shadow: inset -2px 0 6px rgba(0, 0, 0, 0.18);
+}
+
+.phone-diary__cover-edge {
+  position: absolute;
+  left: 8px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: rgba(0, 0, 0, 0.06);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.phone-diary__page {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 10px 10px 11px;
+  background-color: #faf6ee;
+  overflow: hidden;
+  position: relative;
+}
+
+.phone-diary__page-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  touch-action: pan-y;
+  background-color: #faf6ee;
+  background-image: repeating-linear-gradient(
+    transparent,
+    transparent 23px,
+    rgba(139, 119, 101, 0.11) 23px,
+    rgba(139, 119, 101, 0.11) 24px
+  );
+}
+
+.phone-diary__page-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.phone-device .phone-diary__stage {
+  padding: 10px 14px 14px;
+}
+
+.phone-diary__page-head {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed rgba(139, 119, 101, 0.28);
+}
+
+.phone-diary__date {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #6b5a48;
+  line-height: 1.35;
+}
+
+.phone-diary__date-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.phone-diary__date-tag {
+  font-size: 0.62rem;
+  font-weight: 500;
+  color: #a89888;
+  line-height: 1.35;
+}
+
+.phone-diary__head-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 20px;
+}
+
+.phone-diary__weather {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #8a7a68;
+}
+
+.phone-diary__weather--empty {
+  visibility: hidden;
+}
+
+.phone-diary__weather-icon {
+  display: block;
+}
+
+.phone-diary__mood {
+  font-family: var(--phone-diary-hand-font);
+  font-size: 0.82rem;
+  font-weight: 400;
+  color: #6b5a48;
+  line-height: 1.4;
+  letter-spacing: 0.04em;
+  word-break: break-all;
+}
+
+.phone-diary__mood--empty {
+  display: none;
+}
+
+.phone-diary__body {
+  padding: 2px 0 8px;
+  font-family: var(--phone-diary-hand-font);
+  font-size: 0.92rem;
+  font-weight: 400;
+  line-height: 1.85;
+  letter-spacing: 0.06em;
+  color: #3d3530;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-synthesis: none;
+}
+
+.phone-diary__body br + .phone-diary__scribble--wave,
+.phone-diary__body br + .phone-diary__scribble--line {
+  margin-top: 2px;
+}
+
+.phone-diary__scribble {
+  --scribble-color: #9a9088;
+}
+
+.phone-diary__scribble--blue { --scribble-color: #5b8fd4; }
+.phone-diary__scribble--pink { --scribble-color: #e07a9a; }
+.phone-diary__scribble--red { --scribble-color: #d9554a; }
+.phone-diary__scribble--green { --scribble-color: #6aab6e; }
+.phone-diary__scribble--orange { --scribble-color: #e8944a; }
+.phone-diary__scribble--purple { --scribble-color: #9a72c4; }
+.phone-diary__scribble--gold { --scribble-color: #c9a227; }
+.phone-diary__scribble--teal { --scribble-color: #4aadac; }
+.phone-diary__scribble--gray { --scribble-color: #9a9088; }
+.phone-diary__scribble--yellow { --scribble-color: #dcc84a; }
+
+.phone-diary__scribble--wave {
+  display: block;
+  width: min(82%, 210px);
+  margin: 2px 0 6px;
+  line-height: 0;
+}
+
+.phone-diary__wave-svg {
+  display: block;
+  width: 100%;
+  height: 10px;
+}
+
+.phone-diary__scribble--line {
+  display: block;
+  width: 46%;
+  height: 2px;
+  margin: 5px 0 7px;
+  background: var(--scribble-color);
+  opacity: 0.62;
+  border-radius: 999px;
+  transform: rotate(-1.2deg);
+}
+
+.phone-diary__scribble--star,
+.phone-diary__scribble--heart,
+.phone-diary__scribble--dots,
+.phone-diary__scribble--check,
+.phone-diary__scribble--cross,
+.phone-diary__scribble--arrow {
+  display: inline;
+  margin: 0 2px;
+  color: var(--scribble-color);
+  font-size: 0.88em;
+  line-height: 1;
+  vertical-align: baseline;
+  opacity: 0.88;
+}
+
+.phone-diary__scribble--dots {
+  letter-spacing: 0.12em;
+  font-weight: 700;
+}
+
+.phone-diary__scribble--highlight {
+  background: linear-gradient(
+    transparent 58%,
+    color-mix(in srgb, var(--scribble-color) 48%, transparent) 58%,
+    color-mix(in srgb, var(--scribble-color) 48%, transparent) 92%,
+    transparent 92%
+  );
+  padding: 0 1px;
+}
+
+.phone-diary__scribble--circle {
+  display: inline-block;
+  border: 1.6px solid var(--scribble-color);
+  border-radius: 48% 52% 50% 46%;
+  padding: 0 5px 1px;
+  margin: 0 1px;
+  line-height: 1.35;
+  transform: rotate(-1.5deg);
+  opacity: 0.92;
+}
+
+.phone-diary__scribble--note {
+  display: inline;
+  font-size: 0.78em;
+  color: var(--scribble-color);
+  opacity: 0.86;
+  letter-spacing: 0.02em;
+}
+
+.phone-diary__scribble--emph {
+  text-decoration: underline wavy var(--scribble-color);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1.5px;
+}
+
+.phone-diary__page--corner-star::after,
+.phone-diary__page--corner-heart::before,
+.phone-diary__page--margin-flower::after {
+  position: absolute;
+  pointer-events: none;
+  font-family: var(--phone-diary-hand-font);
+  opacity: 0.34;
+  line-height: 1;
+}
+
+.phone-diary__page--corner-star::after {
+  content: "✦";
+  top: 16px;
+  right: 12px;
+  font-size: 1rem;
+  color: #c9a227;
+  transform: rotate(14deg);
+}
+
+.phone-diary__page--corner-heart::before {
+  content: "♡";
+  top: 14px;
+  right: 14px;
+  font-size: 0.92rem;
+  color: #e07a9a;
+  transform: rotate(-8deg);
+}
+
+.phone-diary__page--margin-flower::after {
+  content: "✿";
+  bottom: 28px;
+  right: 10px;
+  font-size: 0.88rem;
+  color: #9a72c4;
+  transform: rotate(6deg);
+}
+
+html[data-theme="dark"] .phone-diary {
+  background: #1a1714;
+}
+
+html[data-theme="dark"] .phone-diary__main--empty {
+  background: #1a1714;
+}
+
+html[data-theme="dark"] .phone-diary__bar {
+  background: #24201c;
+}
+
+html[data-theme="dark"] .phone-diary__book {
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.28),
+    0 10px 28px rgba(0, 0, 0, 0.32);
+}
+
+html[data-theme="dark"] .phone-diary__page {
+  background-color: #2a2520;
+}
+
+html[data-theme="dark"] .phone-diary__page-scroll {
+  background-color: #2a2520;
+  background-image: repeating-linear-gradient(
+    transparent,
+    transparent 23px,
+    rgba(255, 255, 255, 0.06) 23px,
+    rgba(255, 255, 255, 0.06) 24px
+  );
+}
+
+html[data-theme="dark"] .phone-diary__date {
+  color: #c9b8a8;
+}
+
+html[data-theme="dark"] .phone-diary__weather {
+  color: #a89888;
+}
+
+html[data-theme="dark"] .phone-diary__mood {
+  color: #a89888;
+}
+
+html[data-theme="dark"] .phone-diary__body {
+  color: #d8cfc4;
+}
+
+/* 查手机 · 账单 */
+.phone-bill {
+  background: #f0f0f0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.phone-bill__bar {
+  background: #fafafa;
+  flex-shrink: 0;
+}
+
+.phone-bill__title-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-bill__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px 12px 16px;
+}
+
+.phone-bill__card {
+  margin: 0 0 14px;
+  padding: 16px 16px 14px;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #2a2a2e 0%, #1a1a1e 55%, #121216 100%);
+  color: #fff;
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.18),
+    0 10px 28px rgba(0, 0, 0, 0.12);
+}
+
+.phone-bill__card--placeholder {
+  opacity: 0.72;
+}
+
+.phone-bill__card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.phone-bill__card-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #e8d5a8;
+  flex-shrink: 0;
+}
+
+.phone-bill__card-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.88);
+  line-height: 1.3;
+}
+
+.phone-bill__card-caption {
+  margin: 0 0 4px;
+  font-size: 0.68rem;
+  color: rgba(255, 255, 255, 0.52);
+  line-height: 1.3;
+}
+
+.phone-bill__card-balance {
+  margin: 0 0 10px;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  color: #fff;
+}
+
+.phone-bill__card-tail {
+  margin: 0;
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.45);
+  letter-spacing: 0.08em;
+}
+
+.phone-bill__section-title {
+  margin: 0 0 10px;
+  padding: 0 2px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #333;
+  line-height: 1.3;
+}
+
+.phone-bill__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.phone-bill__tx {
+  padding: 12px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+.phone-bill__tx--placeholder {
+  opacity: 0.72;
+}
+
+.phone-bill__tx-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.phone-bill__tx-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  color: #555;
+}
+
+.phone-bill__tx-icon--ph {
+  background: #ececec;
+  color: #aaa;
+}
+
+.phone-bill__tx-icon--game {
+  background: #fff4d6;
+  color: #c99200;
+}
+
+.phone-bill__tx-icon--grocery {
+  background: #e8f6ea;
+  color: #3a9a52;
+}
+
+.phone-bill__tx-icon--mail {
+  background: #fdeaea;
+  color: #d64545;
+}
+
+.phone-bill__tx-icon--music {
+  background: #eee8fd;
+  color: #7b5fd4;
+}
+
+.phone-bill__tx-icon--transport {
+  background: #e8f0fd;
+  color: #4a7fd4;
+}
+
+.phone-bill__tx-icon--food {
+  background: #fff0e8;
+  color: #d4733a;
+}
+
+.phone-bill__tx-icon--gift {
+  background: #fde8f3;
+  color: #c94a8a;
+}
+
+.phone-bill__tx-icon--other {
+  background: #f0f0f0;
+  color: #777;
+}
+
+.phone-bill__tx-icon-svg {
+  display: block;
+}
+
+.phone-bill__tx-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-bill__tx-topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.phone-bill__tx-title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #222;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.phone-bill__tx-amount {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #222;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.phone-bill__tx-amount--income {
+  color: #2d9a52;
+}
+
+.phone-bill__tx-meta {
+  margin: 0;
+  font-size: 0.68rem;
+  color: #999;
+  line-height: 1.35;
+}
+
+.phone-bill__note {
+  margin-top: 10px;
+  padding: 10px 10px 8px;
+  border-radius: 8px;
+  background: #f5f5f5;
+}
+
+.phone-bill__note-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: #aaa;
+  line-height: 1.2;
+}
+
+.phone-bill__note-text {
+  margin: 0;
+  font-size: 0.74rem;
+  line-height: 1.55;
+  color: #555;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+html[data-theme="dark"] .phone-bill {
+  background: #141414;
+}
+
+html[data-theme="dark"] .phone-bill__bar {
+  background: #1c1c1c;
+}
+
+html[data-theme="dark"] .phone-bill__section-title {
+  color: #ddd;
+}
+
+html[data-theme="dark"] .phone-bill__tx {
+  background: #242424;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+}
+
+html[data-theme="dark"] .phone-bill__tx-title,
+html[data-theme="dark"] .phone-bill__tx-amount {
+  color: #eee;
+}
+
+html[data-theme="dark"] .phone-bill__tx-meta {
+  color: #888;
+}
+
+html[data-theme="dark"] .phone-bill__note {
+  background: #2a2a2a;
+}
+
+html[data-theme="dark"] .phone-bill__note-label {
+  color: #777;
+}
+
+html[data-theme="dark"] .phone-bill__note-text {
+  color: #bbb;
+}
+
+/* 查手机 · 微信读书 */
+.phone-weread {
+  background: #f7f3ed;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.phone-weread__bar {
+  background: #fff;
+  flex-shrink: 0;
+}
+
+.phone-weread__title-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-weread__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-weread__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 0 16px;
+}
+
+.phone-weread__stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  margin: 0;
+  padding: 14px 16px 12px;
+  background: #fff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.phone-weread__stats--ph {
+  opacity: 0.72;
+}
+
+.phone-weread__stat {
+  text-align: center;
+}
+
+.phone-weread__stat-num {
+  display: block;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #1a7f4b;
+  line-height: 1.2;
+}
+
+.phone-weread__stat-lbl {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.62rem;
+  color: #999;
+  line-height: 1.2;
+}
+
+.phone-weread__hero {
+  margin: 12px 12px 0;
+  padding: 14px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(80, 56, 32, 0.06);
+}
+
+.phone-weread__hero--ph {
+  opacity: 0.72;
+}
+
+.phone-weread__hero-open {
+  display: flex;
+  gap: 14px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-weread__hero-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.phone-weread__hero-kicker {
+  margin: 0 0 4px;
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: #1a7f4b;
+  letter-spacing: 0.04em;
+}
+
+.phone-weread__hero-title {
+  margin: 0 0 2px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #222;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.phone-weread__hero-author {
+  margin: 0 0 10px;
+  font-size: 0.72rem;
+  color: #888;
+  line-height: 1.3;
+}
+
+.phone-weread__hero-meta {
+  margin: 8px 0 0;
+  font-size: 0.66rem;
+  color: #aaa;
+  line-height: 1.3;
+}
+
+.phone-weread__cover {
+  flex-shrink: 0;
+  width: 88px;
+  height: 118px;
+  border-radius: 6px 10px 10px 6px;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 4px;
+  background: linear-gradient(
+    155deg,
+    hsl(var(--cover-hue, 210) 42% 48%) 0%,
+    hsl(calc(var(--cover-hue, 210) + 18) 36% 32%) 100%
+  );
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    2px 4px 12px rgba(0, 0, 0, 0.18);
+  color: #fff;
+  overflow: hidden;
+}
+
+.phone-weread__cover--md {
+  width: 96px;
+  height: 128px;
+}
+
+.phone-weread__cover--sm {
+  width: 72px;
+  height: 96px;
+  padding: 8px 6px;
+}
+
+.phone-weread__cover--ph {
+  background: #e8e4de;
+  color: #bbb;
+  box-shadow: none;
+}
+
+.phone-weread__cover-title {
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.35;
+  word-break: break-all;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.phone-weread__cover--sm .phone-weread__cover-title {
+  font-size: 0.58rem;
+  -webkit-line-clamp: 3;
+}
+
+.phone-weread__cover-author {
+  font-size: 0.52rem;
+  opacity: 0.82;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-weread__progress {
+  height: 4px;
+  border-radius: 999px;
+  background: #eee;
+  overflow: hidden;
+}
+
+.phone-weread__progress-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #1a7f4b, #3cb371);
+  min-width: 2%;
+}
+
+.phone-weread__section-title {
+  margin: 16px 16px 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #333;
+  line-height: 1.3;
+}
+
+.phone-weread__shelf {
+  display: flex;
+  gap: 12px;
+  padding: 0 16px 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.phone-weread__shelf::-webkit-scrollbar {
+  display: none;
+}
+
+.phone-weread__shelf-item {
+  flex-shrink: 0;
+  width: 76px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-weread__shelf-item--ph {
+  opacity: 0.72;
+  cursor: default;
+}
+
+.phone-weread__shelf-title {
+  margin: 6px 0 2px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #333;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.phone-weread__shelf-badge {
+  margin: 0;
+  font-size: 0.58rem;
+  color: #aaa;
+  line-height: 1.25;
+}
+
+.phone-weread__hl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 12px;
+}
+
+.phone-weread__hl {
+  padding: 12px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.05);
+  border-left: 3px solid #f5d76e;
+}
+
+.phone-weread__hl--ph {
+  opacity: 0.72;
+}
+
+.phone-weread__hl-book {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  max-width: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-weread__hl-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: hsl(var(--cover-hue, 210) 45% 50%);
+}
+
+.phone-weread__hl-book-title {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #1a7f4b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-weread__hl-quote {
+  margin: 0 0 8px;
+  padding: 0;
+  font-size: 0.8rem;
+  line-height: 1.65;
+  color: #333;
+  font-family: Georgia, "Noto Serif SC", "Songti SC", serif;
+  word-break: break-word;
+}
+
+.phone-weread__hl-note {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f5f2ec;
+}
+
+.phone-weread__hl-note-label {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 0.58rem;
+  font-weight: 600;
+  color: #b5a88a;
+}
+
+.phone-weread__hl-note-text {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.55;
+  color: #666;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.phone-weread__hl-meta {
+  margin: 0;
+  font-size: 0.62rem;
+  color: #bbb;
+  line-height: 1.3;
+}
+
+.phone-weread__detail-head {
+  display: flex;
+  gap: 14px;
+  margin: 12px 12px 0;
+  padding: 14px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(80, 56, 32, 0.06);
+}
+
+.phone-weread__detail-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.phone-weread__detail-title {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #222;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.phone-weread__detail-author {
+  margin: 0 0 10px;
+  font-size: 0.74rem;
+  color: #888;
+}
+
+.phone-weread__detail-status {
+  margin: 8px 0 0;
+  font-size: 0.68rem;
+  color: #aaa;
+}
+
+.phone-weread__empty-hl {
+  margin: 0;
+  padding: 20px 16px;
+  text-align: center;
+  font-size: 0.74rem;
+  color: #bbb;
+}
+
+html[data-theme="dark"] .phone-weread {
+  background: #141210;
+}
+
+html[data-theme="dark"] .phone-weread__bar,
+html[data-theme="dark"] .phone-weread__stats,
+html[data-theme="dark"] .phone-weread__hero,
+html[data-theme="dark"] .phone-weread__hl,
+html[data-theme="dark"] .phone-weread__detail-head {
+  background: #1e1c1a;
+}
+
+html[data-theme="dark"] .phone-weread__stats {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-weread__section-title,
+html[data-theme="dark"] .phone-weread__hero-title,
+html[data-theme="dark"] .phone-weread__detail-title,
+html[data-theme="dark"] .phone-weread__hl-quote,
+html[data-theme="dark"] .phone-weread__shelf-title {
+  color: #e8e0d6;
+}
+
+html[data-theme="dark"] .phone-weread__hl-note {
+  background: #2a2622;
+}
+
+html[data-theme="dark"] .phone-weread__hl-note-text {
+  color: #aaa;
+}
+
+html[data-theme="dark"] .phone-weread__progress {
+  background: #333;
+}
+
+.phone-home {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  isolation: isolate;
+  background: transparent;
+  overflow: hidden;
+}
+
+.phone-home__wallpaper {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+
+.phone-home--has-wallpaper .phone-home__wallpaper::after {
+  display: none;
+}
+
+.phone-home__top,
+.phone-home__dock {
+  position: relative;
+  z-index: 1;
+}
+
+.phone-home--has-wallpaper {
+  cursor: pointer;
+}
+
+.phone-wallpaper-preview {
+  margin: 0 auto 14px;
+  max-height: 220px;
+}
+
+.phone-wallpaper-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  padding: 0 18px 28px;
+}
+
+.phone-home__top {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  padding: 28px 16px 0;
+  text-align: center;
+}
+
+.phone-home__clock {
+  margin: 0;
+  font-size: clamp(2rem, 8.5vw, 2.85rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.phone-home__owner {
+  margin: 10px 0 0;
+  width: 100%;
+  font-size: 0.78rem;
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--muted);
+  text-align: center;
+}
+
+#modal-phone-holder .modal-sheet--phone-holder {
+  width: 100%;
+  max-width: 100%;
+  max-height: min(78dvh, 100%);
+  padding: 8px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+}
+
+#modal-phone-holder .sheet-handle {
+  margin-bottom: 4px;
+}
+
+.phone-holder-header {
+  display: grid;
+  grid-template-columns: 40px 1fr 40px;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 0;
+  padding-bottom: 2px;
+}
+
+.phone-holder-header .modal-title {
+  text-align: center;
+  min-width: 0;
+  font-size: 1rem;
+}
+
+.phone-holder-header__back {
+  justify-self: start;
+}
+
+.phone-holder-header .icon-btn:last-child {
+  justify-self: end;
+}
+
+.phone-holder-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  flex: 0 1 auto;
+}
+
+.phone-holder-hint {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  color: var(--muted2);
+}
+
+.phone-holder-plot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  max-height: min(42vh, 300px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.phone-holder-plot-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 1px 6px color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+.phone-holder-plot-row.is-current {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+.phone-holder-plot-row:active {
+  opacity: 0.88;
+}
+
+.phone-holder-plot-row__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-holder-plot-row__meta {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  color: var(--muted2);
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.phone-holder-empty {
+  margin: 0;
+  padding: 4px 0;
+  font-size: 0.76rem;
+}
+
+.phone-holder-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 14px;
+  padding: 2px 0 0;
+  min-height: 0;
+  max-height: min(36vh, 240px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.phone-holder-pick .char-pick-avatar {
+  margin: 0;
+}
+
+.phone-holder-pick .field__hint {
+  margin: 0;
+  width: 100%;
+  font-size: 0.76rem;
+}
+
+.phone-home__dock {
+  flex: 0 0 auto;
+  margin-top: auto;
+  padding: 0 6px 10px;
+}
+
+.phone-home__grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px 4px;
+}
+
+.phone-home__app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-home__app:active .phone-home__icon {
+  transform: scale(0.94);
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.phone-home__icon {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  backdrop-filter: blur(14px) saturate(1.15);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.38),
+    0 2px 10px rgba(0, 0, 0, 0.06);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.phone-home__icon .icon-linear {
+  color: var(--phone-app-accent, var(--text));
+  stroke-width: 1.85;
+}
+
+.phone-home__label {
+  font-size: 0.64rem;
+  line-height: 1.25;
+  color: var(--muted);
+  text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-device .phone-home {
+  min-height: 0;
+}
+
+#story-phone-slot.story-feature-body {
+  padding: 2px 4px 4px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
 .story-bubbles {
   display: flex;
   flex-direction: column;
@@ -3746,6 +10296,7 @@ select.field__input:-webkit-autofill:focus {
 }
 
 .layer-full--story .layer-header {
+  background: var(--shell-chrome-bg);
   border-bottom: 1px solid var(--border);
   /* 真状态栏已由 .status-bar 浮在全屏层之上，此处不再叠一层「假刘海」内边距 */
   padding-top: 8px;
@@ -3764,7 +10315,7 @@ select.field__input:-webkit-autofill:focus {
 }
 
 .layer-full--story {
-  background: var(--bg);
+  background: var(--shell-chrome-bg);
   /* 内容从状态栏下缘开始，避免剧情顶栏被时间/签名行挡住 */
   padding-top: var(--shell-status-offset);
   box-sizing: border-box;
@@ -4406,7 +10957,7 @@ html[data-theme="dark"] .story-setup-card {
 .story-scroll-nav {
   position: absolute;
   right: 12px;
-  bottom: calc(68px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(78px + env(safe-area-inset-bottom, 0px));
   z-index: 3;
   display: flex;
   flex-direction: row;
@@ -4516,14 +11067,20 @@ html[data-theme="dark"] .story-scroll-nav__btn {
   padding-bottom: 20px;
 }
 
-.story-turn-group > * + * {
+/* 回合内「一段剧情」之间的横线：仅夹在两个 story-feed-segment 之间（合并旁白/角色+氛围同属一段） */
+.story-turn-group > .story-feed-segment + .story-feed-segment {
   border-top: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
   margin-top: 13px;
   padding-top: 13px;
 }
 
-.story-turn-group > .story-turn-action-inline + * {
+.story-turn-group > .story-turn-action-inline + .story-feed-segment {
   border-top: none;
+}
+
+.story-feed-segment {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .story-feed-narr {
@@ -5347,15 +11904,89 @@ html[data-theme="dark"] .story-choice-action-btn {
   display: none;
 }
 
-.story-composer {
+.story-play-footer {
   flex-shrink: 0;
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  align-items: flex-end;
+  gap: 6px;
+  padding: 8px 6px calc(8px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg) 88%, var(--surface));
+}
+
+.story-play-footer__center {
+  flex: 1;
+  min-width: 0;
+}
+
+.story-play-side-btn {
+  flex: 0 0 44px;
+  width: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.story-play-side-btn__icon-wrap {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+  box-sizing: border-box;
+}
+
+.story-play-side-btn__svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+.story-play-side-btn__label {
+  font-size: 0.58rem;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.story-play-side-btn:hover .story-play-side-btn__icon-wrap {
+  background: color-mix(in srgb, var(--surface) 82%, var(--text));
+}
+
+.story-play-side-btn:active .story-play-side-btn__icon-wrap {
+  transform: scale(0.96);
+}
+
+.story-play-side-btn.is-active .story-play-side-btn__icon-wrap {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--accent);
+}
+
+.story-play-side-btn.is-active .story-play-side-btn__label {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.story-composer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 0;
+  border-top: none;
+  background: transparent;
 }
 
 .story-composer__avatar {
@@ -5823,10 +12454,22 @@ html[data-theme="dark"] .story-choice-action-btn {
   z-index: 1;
 }
 
-.story-panel--play.story-panel--with-bg .story-composer {
+.story-panel--play.story-panel--with-bg .story-play-footer {
   background: color-mix(in srgb, var(--bg) 80%, transparent);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
+}
+
+.modal-sheet--story-feature {
+  display: flex;
+  flex-direction: column;
+}
+
+.story-feature-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 18px 20px;
 }
 
 .modal-sheet--story-play-bg {
@@ -5871,6 +12514,13 @@ html[data-theme="dark"] .story-choice-action-btn {
 .story-play-bg-preview--has {
   border-style: solid;
   padding: 0;
+}
+
+.story-play-bg-preview.phone-wallpaper-preview {
+  width: min(calc(100% - 36px), calc(220px * 9 / 16));
+  margin-left: auto;
+  margin-right: auto;
+  margin-bottom: 14px;
 }
 
 .story-play-bg-actions {
@@ -6250,6 +12900,149 @@ html[data-theme="dark"] .story-choice-action-btn {
 }
 
 /* Toast 提示（位于 .phone-screen 内，顶端对齐手机屏幕安全区下方） */
+.global-gen-paw-host {
+  position: relative;
+}
+
+.global-gen-paw {
+  position: absolute;
+  inset: 0;
+  z-index: 320;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  user-select: none;
+}
+
+.global-gen-paw[hidden] {
+  display: none !important;
+}
+
+.global-gen-paw__track {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 10px 36px;
+}
+
+.global-gen-paw__print {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--accent) 68%, var(--muted2));
+  opacity: 0;
+  transform: translateX(var(--paw-x, 0px)) rotate(var(--paw-rot, 0deg)) scale(0.62) translateY(14px);
+  animation: global-gen-paw-step 2.8s ease-in-out infinite;
+  animation-delay: calc((4 - var(--paw-i, 0)) * 0.42s);
+}
+
+@keyframes global-gen-paw-step {
+  0%,
+  100% {
+    opacity: 0;
+    transform: translateX(var(--paw-x, 0px)) rotate(var(--paw-rot, 0deg)) scale(0.62) translateY(14px);
+  }
+  14%,
+  36% {
+    opacity: 0.58;
+    transform: translateX(var(--paw-x, 0px)) rotate(var(--paw-rot, 0deg)) scale(1) translateY(0);
+  }
+  52% {
+    opacity: 0.14;
+    transform: translateX(var(--paw-x, 0px)) rotate(var(--paw-rot, 0deg)) scale(0.84) translateY(-10px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .global-gen-paw__print {
+    animation: none;
+    opacity: 0.34;
+    transform: translateX(var(--paw-x, 0px)) rotate(var(--paw-rot, 0deg)) scale(0.92);
+  }
+
+  .global-gen-paw__print:nth-child(even) {
+    opacity: 0.2;
+  }
+}
+
+html[data-theme="dark"] .global-gen-paw__print {
+  color: color-mix(in srgb, var(--accent) 85%, var(--muted2));
+}
+
+.gen-ready-banner {
+  position: absolute;
+  left: 50%;
+  top: calc(max(8px, env(safe-area-inset-top, 0px)) + var(--status-h) + 8px);
+  transform: translateX(-50%) translateY(-12px);
+  z-index: 10050;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(calc(100% - 12px), 96vw, 440px);
+  padding: 7px 10px 7px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  box-shadow: 0 4px 20px color-mix(in srgb, var(--accent) 10%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.28s ease, transform 0.28s ease;
+  box-sizing: border-box;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.gen-ready-banner--show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+
+.gen-ready-banner__text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.62rem;
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.gen-ready-banner:active {
+  transform: translateX(-50%) translateY(0) scale(0.985);
+}
+
+.gen-ready-banner--show:active {
+  transform: translateX(-50%) translateY(0) scale(0.985);
+}
+
+.gen-ready-banner__paw {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: color-mix(in srgb, var(--accent) 88%, var(--text));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.gen-ready-banner__paw-icon {
+  width: 14px;
+  height: 14px;
+  display: block;
+  pointer-events: none;
+}
+
+html[data-theme="dark"] .gen-ready-banner {
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+}
+
 .toast-container {
   position: absolute;
   left: 50%;
@@ -6262,35 +13055,1966 @@ html[data-theme="dark"] .story-choice-action-btn {
   display: flex;
   flex-direction: column-reverse;
   align-items: center;
-  gap: 8px;
-  max-width: min(calc(100% - 24px), 92vw, 300px);
+  gap: 6px;
+  max-width: min(calc(100% - 12px), 96vw, 440px);
   box-sizing: border-box;
 }
 
 .toast {
-  width: fit-content;
+  width: max-content;
   max-width: 100%;
   margin-inline: auto;
   /* 与 --bg 混合以保持不透明；勿用 --surface（含 alpha），否则叠在正文上会透底难读 */
   background: color-mix(in srgb, var(--accent) 6%, var(--bg));
   border: 1px solid color-mix(in srgb, var(--accent) 10%, var(--border));
   border-radius: var(--radius-sm);
-  padding: 8px 14px;
+  padding: 5px 10px;
   box-shadow: 0 2px 14px color-mix(in srgb, var(--accent) 6%, transparent);
-  font-size: 0.72rem;
+  font-size: 0.62rem;
   color: var(--text);
   opacity: 0;
   transform: translateY(-10px);
   transition: opacity 0.3s ease, transform 0.3s ease;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   pointer-events: none;
   text-align: center;
-  line-height: 1.35;
+  line-height: 1.15;
+  white-space: nowrap;
 }
 
 .toast--show {
   opacity: 1;
   transform: translateY(0);
+}
+
+/* 查手机 · 晋江文学城 */
+.phone-jjwxc {
+  background: #faf7f8;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  --jjwxc-pink: #e2466b;
+  --jjwxc-pink-soft: rgba(226, 70, 107, 0.12);
+  --jjwxc-pink-deep: #c93558;
+}
+
+.phone-jjwxc__bar {
+  background: linear-gradient(180deg, #fff 0%, #fffaf9 100%);
+  border-bottom: 1px solid rgba(226, 70, 107, 0.08);
+  flex-shrink: 0;
+}
+
+.phone-jjwxc__title-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-jjwxc__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--jjwxc-pink-deep);
+}
+
+.phone-jjwxc__top {
+  flex-shrink: 0;
+  background: #fff;
+  border-bottom: 1px solid rgba(226, 70, 107, 0.08);
+  box-shadow: 0 2px 10px rgba(226, 70, 107, 0.04);
+}
+
+.phone-jjwxc__top .phone-jjwxc__bar {
+  border-bottom: none;
+  box-shadow: none;
+}
+
+.phone-jjwxc__bar--no-back {
+  grid-template-columns: minmax(0, 1fr) 44px;
+  padding-left: 12px;
+  padding-right: 8px;
+}
+
+.phone-jjwxc__bar--no-back .phone-jjwxc__title-wrap {
+  text-align: left;
+  justify-self: stretch;
+}
+
+.phone-jjwxc__bar--no-back .phone-jjwxc__title {
+  text-align: left;
+  overflow: visible;
+  text-overflow: clip;
+  max-width: 100%;
+  font-size: 1.02rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.phone-jjwxc__bar--with-cp {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+  padding-right: 6px;
+}
+
+.phone-jjwxc__bar--with-cp.phone-jjwxc__bar--no-back {
+  grid-template-columns: none;
+}
+
+.phone-jjwxc__bar--with-cp .phone-app__back {
+  flex-shrink: 0;
+}
+
+.phone-jjwxc__bar--with-cp .phone-jjwxc__title-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-jjwxc__bar-trail {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  min-width: 0;
+  max-width: 58%;
+}
+
+.phone-jjwxc__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 12px;
+}
+
+.phone-jjwxc__seg {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0 8px;
+  background: #fff;
+}
+
+.phone-jjwxc__seg-item {
+  flex: 1;
+  margin: 0;
+  padding: 8px 4px 10px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #999;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.phone-jjwxc__seg-item.is-active {
+  color: var(--jjwxc-pink-deep);
+  border-bottom-color: var(--jjwxc-pink);
+}
+
+.phone-jjwxc__pill-wrap {
+  padding: 5px 0 5px 10px;
+  background: rgba(255, 255, 255, 0.96);
+  z-index: 2;
+}
+
+.phone-jjwxc__pill-wrap--sticky {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.phone-jjwxc__pill-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 6px;
+}
+
+.phone-jjwxc__pill-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding-bottom: 0;
+  scrollbar-width: none;
+}
+
+.phone-jjwxc__pill-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.phone-jjwxc__cat-manage {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: var(--jjwxc-pink-soft);
+  color: var(--jjwxc-pink-deep);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-jjwxc__cat-manage svg {
+  width: 15px;
+  height: 15px;
+}
+
+.phone-jjwxc__cat-manage:active {
+  opacity: 0.85;
+}
+
+.phone-jjwxc__pill-row .filter-pill.is-active {
+  background: var(--jjwxc-pink-soft);
+  color: var(--jjwxc-pink-deep);
+  border-color: rgba(226, 70, 107, 0.25);
+}
+
+.phone-jjwxc__pill-scroll .filter-pill {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.phone-jjwxc__panel {
+  padding: 0 0 12px;
+}
+
+.phone-jjwxc__panel-kicker {
+  margin: 12px 14px 4px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--jjwxc-pink);
+  letter-spacing: 0.02em;
+}
+
+.phone-jjwxc__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 12px 0;
+}
+
+.phone-jjwxc__card-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.phone-jjwxc__card-wrap .phone-jjwxc__tip-row,
+.phone-jjwxc__card-wrap .phone-jjwxc__note {
+  padding-right: 34px;
+  padding-bottom: 2px;
+}
+
+.phone-jjwxc__card-del {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 3;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: #e54d42;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: none;
+}
+
+.phone-jjwxc__card-del:active {
+  background: transparent;
+  color: #cf4339;
+  opacity: 0.72;
+}
+
+html[data-theme="dark"] .phone-jjwxc__card-del {
+  background: transparent;
+  color: #ff6b63;
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .phone-jjwxc__card-del:active {
+  background: transparent;
+  color: #ff8a84;
+  opacity: 0.72;
+}
+
+.phone-jjwxc__card {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: 12px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(80, 40, 56, 0.05);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-jjwxc__card--ph {
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.phone-jjwxc__card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-jjwxc__card-title {
+  margin: 0 0 2px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #222;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.phone-jjwxc__card-author {
+  margin: 0 0 6px;
+  font-size: 0.68rem;
+  color: #888;
+}
+
+.phone-jjwxc__card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.phone-jjwxc__tag {
+  font-size: 0.58rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--jjwxc-pink-soft);
+  color: var(--jjwxc-pink-deep);
+  line-height: 1.4;
+}
+
+.phone-jjwxc__tag--ph {
+  opacity: 0.6;
+}
+
+.phone-jjwxc__card-summary {
+  margin: 0 0 8px;
+  font-size: 0.68rem;
+  color: #666;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.phone-jjwxc__card-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.phone-jjwxc__badge {
+  font-size: 0.58rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  line-height: 1.35;
+}
+
+.phone-jjwxc__badge--ongoing {
+  background: #fff3e6;
+  color: #d97706;
+}
+
+.phone-jjwxc__badge--done {
+  background: #eef7f0;
+  color: #2d8a4e;
+}
+
+.phone-jjwxc__badge--ph {
+  background: #f0f0f0;
+  color: #bbb;
+}
+
+.phone-jjwxc__card-stat {
+  font-size: 0.6rem;
+  color: #aaa;
+}
+
+.phone-jjwxc__card-progress {
+  margin-top: 8px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+.phone-jjwxc__card-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--jjwxc-pink), #f47298);
+  border-radius: 2px;
+}
+
+.phone-jjwxc__card-progress-label {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.58rem;
+  color: var(--jjwxc-pink);
+}
+
+.phone-jjwxc__cover {
+  flex-shrink: 0;
+  width: 72px;
+  height: 96px;
+  border-radius: 6px 8px 8px 6px;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 3px;
+  background: linear-gradient(
+    155deg,
+    hsl(var(--cover-hue, 340) 48% 52%) 0%,
+    hsl(calc(var(--cover-hue, 340) + 16) 40% 34%) 100%
+  );
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+    2px 3px 10px rgba(60, 30, 40, 0.18);
+}
+
+.phone-jjwxc__cover--md {
+  width: 96px;
+  height: 128px;
+  padding: 10px 8px;
+}
+
+.phone-jjwxc__cover--ph {
+  opacity: 0.65;
+  background: linear-gradient(155deg, #e8e0e3 0%, #d4ccd0 100%);
+}
+
+.phone-jjwxc__cover-title {
+  font-size: 0.58rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.95);
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.phone-jjwxc__cover-author {
+  font-size: 0.52rem;
+  color: rgba(255, 255, 255, 0.75);
+  line-height: 1.2;
+}
+
+.phone-jjwxc__empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: #aaa;
+  font-size: 0.75rem;
+}
+
+.phone-jjwxc__section-title {
+  margin: 16px 14px 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #333;
+}
+
+.phone-jjwxc__section-hint {
+  margin: -4px 14px 10px;
+  font-size: 0.62rem;
+  color: #aaa;
+  line-height: 1.35;
+}
+
+.phone-jjwxc__profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #fff 0%, #fff5f7 100%);
+  box-shadow: 0 2px 12px rgba(226, 70, 107, 0.08);
+}
+
+.phone-jjwxc__profile--ph {
+  opacity: 0.72;
+}
+
+.phone-jjwxc__avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, var(--jjwxc-pink), #f47298);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.phone-jjwxc__nick {
+  margin: 0 0 4px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #222;
+}
+
+.phone-jjwxc__profile-stat {
+  margin: 0;
+  font-size: 0.64rem;
+  color: #888;
+  line-height: 1.35;
+}
+
+.phone-jjwxc__tip-list,
+.phone-jjwxc__note-list {
+  padding: 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.phone-jjwxc__tip-row {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.04);
+}
+
+.phone-jjwxc__tip-row--ph {
+  opacity: 0.72;
+}
+
+.phone-jjwxc__tip-amt {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--jjwxc-pink);
+  min-width: 42px;
+}
+
+.phone-jjwxc__tip-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-jjwxc__tip-novel {
+  margin: 0 0 2px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #333;
+  text-align: left;
+  cursor: pointer;
+}
+
+.phone-jjwxc__tip-msg {
+  margin: 0 0 2px;
+  font-size: 0.66rem;
+  color: #666;
+  line-height: 1.4;
+}
+
+.phone-jjwxc__tip-date {
+  margin: 0;
+  font-size: 0.58rem;
+  color: #bbb;
+}
+
+.phone-jjwxc__note {
+  padding: 12px;
+  border-radius: 10px;
+  background: #fff;
+  border-left: 3px solid var(--jjwxc-pink);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.04);
+}
+
+.phone-jjwxc__note--ph {
+  opacity: 0.72;
+}
+
+.phone-jjwxc__note-book {
+  margin: 0 0 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--jjwxc-pink-deep);
+  text-align: left;
+  cursor: pointer;
+}
+
+.phone-jjwxc__note-text {
+  margin: 0 0 6px;
+  font-size: 0.74rem;
+  color: #444;
+  line-height: 1.55;
+  font-style: italic;
+}
+
+.phone-jjwxc__note-meta {
+  margin: 0;
+  font-size: 0.58rem;
+  color: #bbb;
+}
+
+.phone-jjwxc__muted {
+  color: #ccc;
+}
+
+.phone-jjwxc--detail .phone-jjwxc__scroll,
+.phone-jjwxc--chapter .phone-jjwxc__reader {
+  padding-bottom: 16px;
+}
+
+.phone-jjwxc__detail-head {
+  display: flex;
+  gap: 14px;
+  padding: 14px;
+  background: #fff;
+  margin-bottom: 8px;
+}
+
+.phone-jjwxc__detail-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-jjwxc__detail-author {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  color: #666;
+}
+
+.phone-jjwxc__detail-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.phone-jjwxc__detail-stat {
+  font-size: 0.62rem;
+  color: #999;
+}
+
+.phone-jjwxc__detail-flag {
+  font-size: 0.58rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #f0f4ff;
+  color: #5b7fd4;
+}
+
+.phone-jjwxc__detail-flag--fav {
+  background: var(--jjwxc-pink-soft);
+  color: var(--jjwxc-pink-deep);
+}
+
+.phone-jjwxc__detail-cat {
+  margin: 8px 0 0;
+  font-size: 0.62rem;
+  color: #aaa;
+}
+
+.phone-jjwxc__synopsis {
+  padding: 0 14px 12px;
+  background: #fff;
+  margin-bottom: 8px;
+}
+
+.phone-jjwxc__synopsis-text {
+  margin: 0;
+  font-size: 0.74rem;
+  color: #555;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.phone-jjwxc__author-note {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #faf5f0;
+  border: 1px dashed rgba(180, 140, 100, 0.25);
+}
+
+.phone-jjwxc__author-note-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: #b8860b;
+}
+
+.phone-jjwxc__author-note p {
+  margin: 0;
+  font-size: 0.72rem;
+  color: #666;
+  line-height: 1.5;
+}
+
+.phone-jjwxc__chapters {
+  padding: 0 0 12px;
+  background: #fff;
+}
+
+.phone-jjwxc__chapters-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 12px;
+}
+
+.phone-jjwxc__chapters-head .phone-jjwxc__section-title {
+  margin-bottom: 0;
+}
+
+.phone-jjwxc__chapters-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 62%;
+}
+
+.phone-jjwxc__generating--inline {
+  padding: 4px 0;
+  white-space: nowrap;
+}
+
+.phone-jjwxc__detail-gen {
+  padding: 4px 10px;
+  border: 1px solid rgba(226, 70, 107, 0.35);
+  border-radius: 999px;
+  background: var(--jjwxc-pink-soft);
+  color: var(--jjwxc-pink-deep);
+  font-size: 0.62rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.phone-jjwxc__detail-gen:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.phone-jjwxc__generating {
+  margin: 0;
+  padding: 8px 14px;
+  font-size: 0.68rem;
+  color: var(--jjwxc-pink);
+}
+
+.phone-jjwxc__ch-list {
+  padding: 4px 12px 0;
+}
+
+.phone-jjwxc__ch-item {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.phone-jjwxc__ch-item--ph {
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.phone-jjwxc__ch-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 4px;
+}
+
+.phone-jjwxc__ch-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.74rem;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.phone-jjwxc__ch-meta {
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  color: #bbb;
+}
+
+.phone-jjwxc__ch-toggle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #bbb;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-jjwxc__ch-toggle:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.phone-jjwxc__ch-item.is-expanded .phone-jjwxc__ch-toggle {
+  color: var(--jjwxc-pink);
+}
+
+.phone-jjwxc__ch-item.is-expanded .phone-jjwxc__ch-toggle-icon {
+  transform: rotate(180deg);
+}
+
+.phone-jjwxc__ch-toggle-icon {
+  transition: transform 0.2s ease;
+}
+
+.phone-jjwxc__ch-expand {
+  padding: 0 4px 12px;
+}
+
+.phone-jjwxc__ch-expand[hidden] {
+  display: none;
+}
+
+.phone-jjwxc__ch-blurb {
+  margin: 0 0 10px;
+  font-size: 0.7rem;
+  color: #555;
+  line-height: 1.55;
+}
+
+.phone-jjwxc__ch-blurb--ph {
+  color: #ccc;
+}
+
+.phone-jjwxc__ch-thought {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #fff5f8 0%, #fef8ff 100%);
+  border-left: 3px solid var(--jjwxc-pink);
+}
+
+.phone-jjwxc__ch-thought-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: var(--jjwxc-pink);
+}
+
+.phone-jjwxc__ch-thought p {
+  margin: 0;
+  font-size: 0.68rem;
+  color: #666;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+/* 旧版目录行（保留兼容） */
+.phone-jjwxc__ch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 11px 4px;
+  border: none;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  background: transparent;
+  text-align: left;
+}
+
+.phone-jjwxc__reader {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px 16px 24px;
+  background: #fffef9;
+}
+
+.phone-jjwxc--chapter {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.phone-jjwxc__chapter-body {
+  font-size: 0.84rem;
+  color: #2a2a2a;
+  line-height: 1.9;
+  letter-spacing: 0.03em;
+}
+
+.phone-jjwxc__chapter-p {
+  margin: 0 0 1.05em;
+  text-indent: 2em;
+  text-align: justify;
+  word-break: break-word;
+}
+
+.phone-jjwxc__chapter-p:last-child {
+  margin-bottom: 0;
+}
+
+.phone-jjwxc__chapter-ph {
+  margin: 0 0 12px;
+  color: #ccc;
+  line-height: 1.8;
+}
+
+.phone-jjwxc__reader-thought {
+  margin-top: 20px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #fff5f8 0%, #fef8ff 100%);
+  border: 1px solid rgba(226, 70, 107, 0.15);
+}
+
+.phone-jjwxc__reader-thought-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--jjwxc-pink);
+}
+
+.phone-jjwxc__reader-thought p {
+  margin: 0;
+  font-size: 0.74rem;
+  color: #555;
+  line-height: 1.55;
+  font-style: italic;
+}
+
+/* ── 同人粮 · 主题色（沿用 --accent，非晋江粉） ── */
+.phone-jjwxc--fanwork {
+  --jjwxc-pink: var(--accent);
+  --jjwxc-pink-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --jjwxc-pink-deep: color-mix(in srgb, var(--accent) 82%, var(--text));
+  background:
+    radial-gradient(ellipse 120% 80% at 50% -20%, color-mix(in srgb, var(--accent) 6%, transparent) 0%, transparent 55%),
+    linear-gradient(180deg, var(--bg) 0%, color-mix(in srgb, var(--accent) 4%, var(--bg)) 28%, var(--bg) 100%);
+}
+
+.fanwork-jjwxc__top {
+  background: linear-gradient(180deg, #fff 0%, color-mix(in srgb, var(--accent) 3%, #fff) 100%);
+  box-shadow: 0 4px 18px color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.fanwork-jjwxc__brand-bar {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.fanwork-jjwxc__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.fanwork-jjwxc__logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(145deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 72%, var(--text)) 55%, color-mix(in srgb, var(--accent) 88%, #000) 100%);
+  color: var(--accent-contrast);
+  font-size: 1rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    0 3px 10px color-mix(in srgb, var(--accent) 35%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  flex-shrink: 0;
+}
+
+.fanwork-jjwxc__brand-title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: var(--jjwxc-pink-deep);
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+}
+
+.fanwork-jjwxc__brand-sub {
+  margin: 0;
+  font-size: 0.58rem;
+  color: color-mix(in srgb, var(--accent) 55%, var(--muted));
+  letter-spacing: 0.08em;
+}
+
+.fanwork-jjwxc__gen {
+  color: var(--jjwxc-pink-deep);
+}
+
+.fanwork-jjwxc__ticker {
+  overflow: hidden;
+  height: 22px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, transparent) 0%, color-mix(in srgb, var(--accent) 5%, transparent) 50%, color-mix(in srgb, var(--accent) 8%, transparent) 100%);
+  border-top: 1px solid color-mix(in srgb, var(--accent) 6%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.fanwork-jjwxc__ticker-track {
+  display: flex;
+  width: max-content;
+  animation: fanworkTicker 22s linear infinite;
+}
+
+.fanwork-jjwxc__ticker-track span {
+  flex-shrink: 0;
+  padding: 0 24px;
+  font-size: 0.58rem;
+  font-weight: 600;
+  color: var(--jjwxc-pink-deep);
+  line-height: 22px;
+  white-space: nowrap;
+}
+
+@keyframes fanworkTicker {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.fanwork-jjwxc__hero {
+  position: relative;
+  margin: 10px 10px 0;
+  padding: 16px 14px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 68%, var(--text)) 45%, color-mix(in srgb, var(--accent) 88%, #000) 100%);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.fanwork-jjwxc__hero--invite {
+  background: linear-gradient(135deg, #fff 0%, color-mix(in srgb, var(--accent) 5%, #fff) 100%);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--accent) 25%, transparent);
+  text-align: center;
+}
+
+.fanwork-jjwxc__hero-invite {
+  margin: 0 0 4px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--jjwxc-pink-deep);
+}
+
+.fanwork-jjwxc__hero-invite-sub {
+  margin: 0;
+  font-size: 0.68rem;
+  color: color-mix(in srgb, var(--accent) 50%, var(--muted));
+}
+
+.fanwork-jjwxc__hero-deco {
+  position: absolute;
+  font-size: 2rem;
+  opacity: 0.15;
+  color: #fff;
+  pointer-events: none;
+}
+
+.fanwork-jjwxc__hero-deco--l {
+  top: -4px;
+  left: 8px;
+}
+
+.fanwork-jjwxc__hero-deco--r {
+  bottom: -8px;
+  right: 10px;
+  font-size: 2.4rem;
+}
+
+.fanwork-jjwxc__hero-tag {
+  display: inline-block;
+  font-size: 0.58rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  letter-spacing: 0.06em;
+  margin-bottom: 8px;
+}
+
+.fanwork-jjwxc__hero-ship {
+  margin: 0 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fanwork-jjwxc__hero-name {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
+.fanwork-jjwxc__hero-x {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.fanwork-jjwxc__hero-desc {
+  margin: 0;
+  text-align: center;
+  font-size: 0.64rem;
+  color: rgba(255, 255, 255, 0.88);
+  line-height: 1.4;
+}
+
+.fanwork-jjwxc__search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 10px 4px;
+  padding: 9px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent);
+  font-size: 0.68rem;
+  color: #bbb;
+}
+
+.fanwork-jjwxc__search-icon {
+  color: var(--jjwxc-pink);
+  font-weight: 700;
+}
+
+.fanwork-jjwxc__kicker {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fanwork-jjwxc__list .phone-jjwxc__card-wrap {
+  margin: 0 10px;
+  width: calc(100% - 20px);
+}
+
+.fanwork-jjwxc__list .phone-jjwxc__card {
+  margin: 0;
+  width: 100%;
+  border-radius: 14px;
+  position: relative;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.fanwork-jjwxc__list .phone-jjwxc__card-wrap .phone-jjwxc__card:active {
+  transform: scale(0.985);
+}
+
+.fanwork-jjwxc__card--ph {
+  animation: fanworkCardShimmer 1.8s ease-in-out infinite;
+}
+
+@keyframes fanworkCardShimmer {
+  0%,
+  100% {
+    opacity: 0.65;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+.fanwork-jjwxc__rank {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fanwork-jjwxc__rank--1 {
+  background: linear-gradient(145deg, #ffd700, #ffb800);
+  color: #5c4200;
+}
+
+.fanwork-jjwxc__rank--2 {
+  background: linear-gradient(145deg, #e8e8e8, #c0c0c0);
+  color: #444;
+}
+
+.fanwork-jjwxc__rank--3 {
+  background: linear-gradient(145deg, #e8c4a0, #cd7f32);
+  color: #4a2c0a;
+}
+
+.fanwork-jjwxc__card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.fanwork-jjwxc__card-head .phone-jjwxc__card-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.fanwork-jjwxc__hot {
+  flex-shrink: 0;
+  font-size: 0.52rem;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, #ff6b35, #ff8f4c);
+  color: #fff;
+}
+
+.fanwork-jjwxc__fav-mark {
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  color: #ffb020;
+}
+
+.fanwork-jjwxc__empty {
+  margin: 24px 16px;
+  padding: 28px 16px;
+  text-align: center;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px dashed color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.fanwork-jjwxc__empty-icon {
+  display: block;
+  font-size: 2rem;
+  margin-bottom: 10px;
+}
+
+.fanwork-jjwxc__empty p {
+  margin: 0;
+  font-size: 0.76rem;
+  color: #888;
+  line-height: 1.5;
+}
+
+.fanwork-jjwxc__detail-actions {
+  display: flex;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+/** 同人粮 · 作品详情：整页纯色底，避免区块色差与缝隙 */
+.phone-jjwxc--fanwork.phone-jjwxc--detail {
+  --fanwork-detail-bg: #fff;
+  background: var(--fanwork-detail-bg);
+}
+
+.phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__bar {
+  background: var(--fanwork-detail-bg);
+  border-bottom-color: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__scroll {
+  background: var(--fanwork-detail-bg);
+}
+
+.phone-jjwxc--fanwork.phone-jjwxc--detail .fanwork-jjwxc__detail-banner,
+.phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__detail-head,
+.phone-jjwxc--fanwork.phone-jjwxc--detail .fanwork-jjwxc__detail-actions,
+.phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__synopsis,
+.phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__chapters {
+  background: var(--fanwork-detail-bg);
+  margin-bottom: 0;
+}
+
+.phone-jjwxc--fanwork.phone-jjwxc--detail .fanwork-jjwxc__detail-banner {
+  background: var(--fanwork-detail-bg);
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__detail-head {
+  margin-bottom: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__detail-meta {
+  min-height: 0;
+}
+
+.phone-jjwxc--fanwork.phone-jjwxc--detail .fanwork-jjwxc__detail-author-note {
+  flex: none;
+  margin-top: 8px;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.phone-jjwxc--fanwork.phone-jjwxc--detail .fanwork-jjwxc__detail-author-note-label {
+  color: var(--muted2);
+}
+
+.phone-jjwxc--fanwork.phone-jjwxc--detail .fanwork-jjwxc__detail-actions {
+  padding: 8px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.phone-jjwxc--fanwork.phone-jjwxc--detail .fanwork-jjwxc__action {
+  background: var(--fanwork-detail-bg);
+  box-shadow: none;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.phone-jjwxc--fanwork.phone-jjwxc--detail .fanwork-jjwxc__action.is-active {
+  background: var(--fanwork-detail-bg);
+  color: var(--jjwxc-pink-deep);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  box-shadow: none;
+}
+
+.phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__synopsis {
+  padding: 10px 14px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__synopsis .phone-jjwxc__section-title {
+  margin: 0 0 6px;
+}
+
+.phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__chapters {
+  padding-bottom: 12px;
+}
+
+.phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__chapters-head .phone-jjwxc__section-title {
+  margin: 10px 14px 6px;
+}
+
+.phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__detail-gen {
+  background: var(--fanwork-detail-bg);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__detail-gen--secondary {
+  color: var(--text-muted);
+  border-color: color-mix(in srgb, var(--text-muted) 28%, transparent);
+  background: transparent;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork.phone-jjwxc--detail {
+  --fanwork-detail-bg: #1c1c1e;
+  background: var(--fanwork-detail-bg);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__bar {
+  background: var(--fanwork-detail-bg);
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__scroll {
+  background: var(--fanwork-detail-bg);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork.phone-jjwxc--detail .fanwork-jjwxc__detail-banner,
+html[data-theme="dark"] .phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__detail-head,
+html[data-theme="dark"] .phone-jjwxc--fanwork.phone-jjwxc--detail .fanwork-jjwxc__detail-actions,
+html[data-theme="dark"] .phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__synopsis,
+html[data-theme="dark"] .phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__chapters,
+html[data-theme="dark"] .phone-jjwxc--fanwork.phone-jjwxc--detail .fanwork-jjwxc__action,
+html[data-theme="dark"] .phone-jjwxc--fanwork.phone-jjwxc--detail .fanwork-jjwxc__action.is-active,
+html[data-theme="dark"] .phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__detail-gen {
+  background: var(--fanwork-detail-bg);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork.phone-jjwxc--detail .fanwork-jjwxc__detail-banner,
+html[data-theme="dark"] .phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__detail-head,
+html[data-theme="dark"] .phone-jjwxc--fanwork.phone-jjwxc--detail .fanwork-jjwxc__detail-actions,
+html[data-theme="dark"] .phone-jjwxc--fanwork.phone-jjwxc--detail .phone-jjwxc__synopsis {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork.phone-jjwxc--detail .fanwork-jjwxc__detail-author-note {
+  background: transparent;
+  border: none;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork.phone-jjwxc--detail .fanwork-jjwxc__action.is-active {
+  box-shadow: none;
+}
+
+.fanwork-jjwxc__action {
+  flex: 1;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(80, 40, 56, 0.08);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #666;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fanwork-jjwxc__action.is-active {
+  color: var(--jjwxc-pink-deep);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent),
+    0 2px 8px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.fanwork-jjwxc__detail-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 10%, transparent) 0%, transparent 100%);
+}
+
+.fanwork-jjwxc__detail-banner-tag {
+  font-size: 0.58rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.fanwork-jjwxc__detail-banner-cat {
+  font-size: 0.62rem;
+  color: var(--jjwxc-pink-deep);
+  font-weight: 600;
+}
+
+.phone-jjwxc--fanwork .phone-jjwxc__detail-meta {
+  display: flex;
+  flex-direction: column;
+  min-height: 128px;
+}
+
+.fanwork-jjwxc__detail-author-note {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  margin-top: 6px;
+  min-height: 0;
+}
+
+.fanwork-jjwxc__detail-author-note-label {
+  font-size: 0.58rem;
+  font-weight: 600;
+  color: #bbb;
+  margin-bottom: 3px;
+}
+
+.fanwork-jjwxc__detail-author-note-text {
+  margin: 0;
+  font-size: 0.64rem;
+  color: #888;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.fanwork-jjwxc__append-hint {
+  margin: 0 0 10px;
+  font-size: 0.68rem;
+  color: #888;
+  line-height: 1.45;
+}
+
+/* 点星全屏小狗饭：sheet 相对内容区定位，不超出外层 phone-screen */
+#fanwork-content-slot .phone-forum-manage {
+  position: absolute;
+  inset: 0;
+  z-index: 120;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 10px calc(10px + env(safe-area-inset-bottom, 0px));
+}
+
+#fanwork-content-slot .phone-forum-manage__panel {
+  width: 100%;
+  max-width: 100%;
+  max-height: min(82%, calc(100% - 12px));
+  min-height: 0;
+  flex: 0 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px 14px calc(16px + env(safe-area-inset-bottom, 0px));
+  border-radius: 16px;
+  box-sizing: border-box;
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.12);
+}
+
+#fanwork-content-slot .phone-forum-manage__panel--form {
+  display: flex;
+  flex-direction: column;
+}
+
+#fanwork-content-slot .phone-forum-manage__panel--form .phone-forum-manage__save {
+  margin-top: 12px;
+  flex-shrink: 0;
+}
+
+/* 剧情弹窗内小狗饭：相对内容区覆盖，仅留系统安全区 */
+#story-fanwork-slot .phone-forum-manage {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 10px calc(10px + env(safe-area-inset-bottom, 0px));
+}
+
+#story-fanwork-slot .phone-forum-manage__panel {
+  width: 100%;
+  max-width: 100%;
+  max-height: min(82%, calc(100% - 12px));
+  min-height: 0;
+  flex: 0 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px 14px calc(16px + env(safe-area-inset-bottom, 0px));
+  border-radius: 16px;
+  box-sizing: border-box;
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.12);
+}
+
+#story-fanwork-slot .phone-forum-manage__panel--form {
+  display: flex;
+  flex-direction: column;
+}
+
+#story-fanwork-slot .phone-forum-manage__panel--form .phone-forum-manage__save {
+  margin-top: 12px;
+  flex-shrink: 0;
+}
+
+.fanwork-jjwxc__reader {
+  background:
+    linear-gradient(rgba(255, 252, 248, 0.5), rgba(255, 252, 248, 0.5)),
+    repeating-linear-gradient(
+      transparent,
+      transparent 31px,
+      color-mix(in srgb, var(--accent) 4%, transparent) 31px,
+      color-mix(in srgb, var(--accent) 4%, transparent) 32px
+    );
+}
+
+.fanwork-jjwxc__chapter-body {
+  padding-top: 8px;
+  font-size: 0.9rem;
+  line-height: 1.85;
+  color: #333;
+}
+
+.fanwork-cp-pick__ship-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 4%, #fff) 0%, color-mix(in srgb, var(--accent) 3%, #fff) 100%);
+  border: 1px solid color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.fanwork-cp-pick__ship-preview--empty {
+  background: #fafafa;
+  border-style: dashed;
+}
+
+.fanwork-cp-pick__ship-preview--empty p {
+  margin: 0;
+  font-size: 0.72rem;
+  color: #999;
+}
+
+.fanwork-cp-pick__ship-preview:not(.fanwork-cp-pick__ship-preview--empty) {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.fanwork-cp-pick__ship-av {
+  width: 44px;
+  height: 44px;
+}
+
+.fanwork-cp-pick__ship-heart {
+  font-size: 1.2rem;
+  color: var(--accent);
+}
+
+.fanwork-cp-pick__ship-label {
+  width: 100%;
+  margin: 4px 0 0;
+  text-align: center;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--jjwxc-pink-deep);
+}
+
+.fanwork-cp-pick__panel {
+  border-top: 3px solid var(--jjwxc-pink);
+}
+
+.fanwork-cp-pick__enter {
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 72%, var(--text))) !important;
+  color: var(--accent-contrast) !important;
+  border: none !important;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.phone-jjwxc--fanwork .phone-jjwxc__seg-item.is-active {
+  font-weight: 800;
+}
+
+.phone-jjwxc--fanwork .phone-jjwxc__cover {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    3px 4px 14px rgba(60, 30, 40, 0.22);
+}
+
+.phone-jjwxc--fanwork .phone-jjwxc__reader-thought {
+  margin: 16px 12px 20px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, #fff) 0%, color-mix(in srgb, var(--accent) 4%, #fff) 100%);
+  box-shadow: 0 2px 12px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.phone-jjwxc--fanwork .phone-jjwxc__author-words .phone-jjwxc__reader-thought-label {
+  color: color-mix(in srgb, var(--accent) 78%, var(--text));
+}
+
+.phone-jjwxc--fanwork .phone-jjwxc__author-words p {
+  color: #666;
+}
+
+.phone-jjwxc--fanwork .phone-jjwxc__bar {
+  background: linear-gradient(180deg, #fff 0%, color-mix(in srgb, var(--accent) 3%, #fff) 100%);
+  border-bottom-color: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.phone-jjwxc--fanwork .phone-jjwxc__bar--no-back .phone-jjwxc__title {
+  font-size: 1.12rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+.phone-jjwxc--fanwork .phone-jjwxc__bar {
+  min-height: 50px;
+  align-items: center;
+}
+
+.phone-jjwxc--fanwork .phone-jjwxc__top {
+  border-bottom-color: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.phone-jjwxc--fanwork .phone-jjwxc__pill-row .filter-pill.is-active {
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.phone-jjwxc--fanwork .phone-jjwxc__card-progress-bar {
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 72%, var(--text)));
+}
+
+.phone-jjwxc--fanwork .phone-jjwxc__avatar {
+  background: linear-gradient(145deg, var(--accent), color-mix(in srgb, var(--accent) 72%, var(--text)));
+  color: var(--accent-contrast);
+}
+
+.phone-jjwxc--fanwork .phone-jjwxc__detail-gen {
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* 同人粮 · 夜间模式（统一深色层级，分类栏与顶栏同色无白条） */
+html[data-theme="dark"] .phone-jjwxc--fanwork {
+  background:
+    radial-gradient(ellipse 120% 70% at 50% -15%, color-mix(in srgb, var(--accent) 8%, transparent) 0%, transparent 52%),
+    linear-gradient(180deg, #121214 0%, #18181c 32%, #121214 100%);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__top {
+  background: #1c1c1e;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__bar,
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__seg {
+  background: transparent;
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__title {
+  color: color-mix(in srgb, var(--accent) 78%, #fff);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__seg-item {
+  color: #8e8e93;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__seg-item.is-active {
+  color: color-mix(in srgb, var(--accent) 82%, #fff);
+  border-bottom-color: var(--accent);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__pill-wrap {
+  background: #1c1c1e;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__pill-scroll .filter-pill {
+  background: #2c2c2e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #aeaeb2;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__pill-row .filter-pill.is-active {
+  background: color-mix(in srgb, var(--accent) 18%, #2c2c2e);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: color-mix(in srgb, var(--accent) 82%, #fff);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__cat-manage {
+  background: color-mix(in srgb, var(--accent) 14%, #2c2c2e);
+  color: color-mix(in srgb, var(--accent) 78%, #fff);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .fanwork-cp-bar__btn--inline {
+  background: color-mix(in srgb, var(--accent) 12%, #2c2c2e);
+  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .fanwork-cp-bar__btn--inline .fanwork-cp-bar__label--inline {
+  color: #ece6e4;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .fanwork-cp-bar__btn--inline .fanwork-cp-bar__label--empty {
+  color: color-mix(in srgb, var(--accent) 78%, #fff);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .fanwork-cp-bar__btn {
+  background: linear-gradient(135deg, #252528 0%, color-mix(in srgb, var(--accent) 8%, #252528) 100%);
+  box-shadow:
+    0 2px 10px rgba(0, 0, 0, 0.24),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .fanwork-cp-bar__btn::before {
+  background: linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.08) 50%, transparent 60%);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .fanwork-cp-bar__label {
+  color: #ece6e4;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .fanwork-cp-bar__label--empty {
+  color: #8e8e93;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .fanwork-cp-bar__sub {
+  color: #8e8e93;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__card {
+  background: #252528;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.28);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__card-title {
+  color: #ece6e4;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__card-author,
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__card-summary {
+  color: #9a9590;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__card-stat {
+  color: #7c7874;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__tag {
+  background: color-mix(in srgb, var(--accent) 14%, #2c2c2e);
+  color: color-mix(in srgb, var(--accent) 72%, #fff);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__badge--ongoing {
+  background: color-mix(in srgb, #d97706 18%, #2c2c2e);
+  color: #fbbf24;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__badge--done {
+  background: color-mix(in srgb, #2d8a4e 16%, #2c2c2e);
+  color: #6ee7a8;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__card-progress {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__panel-kicker {
+  color: color-mix(in srgb, var(--accent) 72%, #fff);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .fanwork-jjwxc__search {
+  background: #252528;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  color: #8e8e93;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .fanwork-jjwxc__empty {
+  background: #252528;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .fanwork-jjwxc__empty p {
+  color: #9a9590;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .fanwork-jjwxc__action {
+  background: #252528;
+  color: #aeaeb2;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .fanwork-jjwxc__action.is-active {
+  color: color-mix(in srgb, var(--accent) 82%, #fff);
+  background: color-mix(in srgb, var(--accent) 14%, #252528);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent),
+    0 2px 8px rgba(0, 0, 0, 0.22);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__detail-head,
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__synopsis,
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__chapters,
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__ch-row,
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__profile,
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__tip-row,
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__note {
+  background: #252528;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__detail-author,
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__synopsis-text,
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__section-title,
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__ch-title {
+  color: #ece6e4;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__detail-cat,
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__ch-meta,
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__detail-stat,
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__muted {
+  color: #9a9590;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .fanwork-jjwxc__detail-author-note,
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__author-note {
+  background: #2c2c2e;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__reader-thought,
+html[data-theme="dark"] .phone-jjwxc--fanwork .fanwork-jjwxc__reader {
+  background: #1c1c1e;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__reader-thought p,
+html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__chapter-p {
+  color: #c8c4be;
+}
+
+html[data-theme="dark"] .phone-jjwxc--fanwork .fanwork-jjwxc__hero--invite {
+  background: linear-gradient(135deg, #252528 0%, color-mix(in srgb, var(--accent) 6%, #252528) 100%);
+  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* 查手机内晋江：分类栏与顶栏夜间同色 */
+html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
+  background: #1e1c1a;
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }

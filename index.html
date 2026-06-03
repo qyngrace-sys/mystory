@@ -11,7 +11,10 @@
   <link rel="icon" type="image/png" sizes="1024x1024" href="icons/app-icon.png?v=2" />
   <link rel="apple-touch-icon" href="icons/app-icon.png?v=2" />
   <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="stylesheet" href="styles.css?v=56" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&display=swap" />
+  <link rel="stylesheet" href="styles.css?v=114" />
 </head>
 <body>
   <div class="page-backdrop">
@@ -35,82 +38,119 @@
     </header>
 
     <main id="main-scroll" class="main-scroll">
-      <!-- 助手 -->
+      <!-- 点星（原助手页：AI 工具与查手机、同人粮入口） -->
       <section id="view-overview" class="view" data-view="overview">
-        <div class="assistant-header assistant-header--bar">
-          <div class="assistant-header__row">
-            <div class="assistant-header__identity">
-              <div class="assistant-header__avatar-wrap">
-                <div class="assistant-avatar-deco" id="assistant-avatar-deco" hidden aria-hidden="true">
-                  <span class="assistant-avatar-deco__ring"></span>
-                  <span class="assistant-avatar-deco__ring"></span>
-                </div>
-                <button type="button" class="assistant-avatar-btn assistant-avatar-btn--bar" id="assistant-profile-trigger" aria-label="编辑助手资料">
-                  <div id="assistant-avatar" class="avatar assistant-avatar assistant-avatar--bar"></div>
-                </button>
-              </div>
-              <p id="assistant-name" class="assistant-name assistant-name--bar"></p>
-            </div>
-            <div class="assistant-header__actions">
-              <button type="button" class="icon-btn" id="assistant-chat-batch-select" aria-label="批量选择与删除" title="批量选择与删除">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-              </button>
-              <button type="button" class="icon-btn icon-btn--add" id="assistant-switch-open" aria-label="切换助手">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polygon fill="none" points="12 2 15 8.5 22 9.5 17 14.5 18.5 22 12 18.25 5.5 22 7 14.5 2 9.5 9 8.5 12 2"/></svg>
-              </button>
-              <button type="button" class="icon-btn icon-btn--add" id="assistant-add" aria-label="新增助手">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 5v14M5 12h14"/></svg>
-              </button>
-            </div>
+        <div id="overview-hub" class="overview-hub">
+          <div class="workbench-grid" role="list" aria-label="创作工具">
+            <button type="button" class="workbench-card" data-assistant-action="theme" role="listitem">
+              <span class="workbench-card__icon" aria-hidden="true">
+                <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M16.24 7.76l-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"/></svg>
+              </span>
+              <span class="workbench-card__text">
+                <span class="workbench-card__title">题材方向</span>
+                <span class="workbench-card__desc">生成开局方向</span>
+              </span>
+            </button>
+            <button type="button" class="workbench-card" data-assistant-action="rewrite-persona" role="listitem">
+              <span class="workbench-card__icon" aria-hidden="true">
+                <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              </span>
+              <span class="workbench-card__text">
+                <span class="workbench-card__title">改写人设</span>
+                <span class="workbench-card__desc">润色角色外貌与性格</span>
+              </span>
+            </button>
+            <button type="button" class="workbench-card" data-assistant-action="gen-worldbook" role="listitem">
+              <span class="workbench-card__icon" aria-hidden="true">
+                <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><path d="M12 6v12"/><path d="M8 10h8"/></svg>
+              </span>
+              <span class="workbench-card__text">
+                <span class="workbench-card__title">生成世界书</span>
+                <span class="workbench-card__desc">按需求产出设定条目</span>
+              </span>
+            </button>
+            <button type="button" class="workbench-card" data-assistant-action="inspiration" role="listitem">
+              <span class="workbench-card__icon" aria-hidden="true">
+                <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 017 7c0 3.5-3 6-3 9H8c0-3-3-5.5-3-9a7 7 0 017-7z"/></svg>
+              </span>
+              <span class="workbench-card__text">
+                <span class="workbench-card__title">灵感汲取</span>
+                <span class="workbench-card__desc">一套可落地的开局方案</span>
+              </span>
+            </button>
+            <button type="button" class="workbench-card" data-assistant-action="phone" role="listitem">
+              <span class="workbench-card__icon" aria-hidden="true">
+                <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M12 17h.01"/></svg>
+              </span>
+              <span class="workbench-card__text">
+                <span class="workbench-card__title">查手机</span>
+                <span class="workbench-card__desc">窥探角色手机里的生活</span>
+              </span>
+            </button>
+            <button type="button" class="workbench-card" data-assistant-action="fanwork" role="listitem">
+              <span class="workbench-card__icon" aria-hidden="true">
+                <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
+              </span>
+              <span class="workbench-card__text">
+                <span class="workbench-card__title">小狗饭</span>
+                <span class="workbench-card__desc">CP 向晋江风格同人阅读</span>
+              </span>
+            </button>
+          </div>
+          <div class="workbench-scene" aria-hidden="true">
+            <div class="workbench-scene__glow"></div>
+            <svg class="workbench-scene__paw-trail" viewBox="0 0 280 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <g opacity="0.14" fill="currentColor">
+                <ellipse cx="28" cy="18" rx="4" ry="3.2" transform="rotate(-25 28 18)"/>
+                <circle cx="24" cy="12" r="2.2"/><circle cx="28" cy="10.5" r="2.2"/><circle cx="32.5" cy="12" r="2.2"/><circle cx="26" cy="15" r="1.8"/>
+              </g>
+              <g opacity="0.11" fill="currentColor">
+                <ellipse cx="72" cy="32" rx="4" ry="3.2" transform="rotate(-15 72 32)"/>
+                <circle cx="68" cy="26" r="2.2"/><circle cx="72" cy="24.5" r="2.2"/><circle cx="76.5" cy="26" r="2.2"/><circle cx="70" cy="29" r="1.8"/>
+              </g>
+              <g opacity="0.09" fill="currentColor">
+                <ellipse cx="118" cy="48" rx="4" ry="3.2" transform="rotate(8 118 48)"/>
+                <circle cx="114" cy="42" r="2.2"/><circle cx="118" cy="40.5" r="2.2"/><circle cx="122.5" cy="42" r="2.2"/><circle cx="116" cy="45" r="1.8"/>
+              </g>
+              <g opacity="0.08" fill="currentColor">
+                <ellipse cx="168" cy="58" rx="3.6" ry="2.9" transform="rotate(18 168 58)"/>
+                <circle cx="164.5" cy="53" r="2"/><circle cx="168" cy="51.5" r="2"/><circle cx="172" cy="53" r="2"/><circle cx="166" cy="55.5" r="1.6"/>
+              </g>
+              <g opacity="0.07" fill="currentColor">
+                <ellipse cx="218" cy="62" rx="3.4" ry="2.7" transform="rotate(28 218 62)"/>
+                <circle cx="214.5" cy="57" r="1.9"/><circle cx="218" cy="55.5" r="1.9"/><circle cx="222" cy="57" r="1.9"/><circle cx="216" cy="59.5" r="1.5"/>
+              </g>
+            </svg>
+            <figure class="workbench-scene__figure">
+              <span class="workbench-scene__zzz" aria-hidden="true">
+                <span class="workbench-scene__z">z</span>
+                <span class="workbench-scene__z">z</span>
+                <span class="workbench-scene__z">z</span>
+              </span>
+              <svg class="workbench-scene__puppy" viewBox="0 0 132 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <ellipse class="workbench-scene__cushion" cx="66" cy="78" rx="46" ry="11" stroke="currentColor" stroke-width="1.2" opacity="0.16"/>
+                <g class="workbench-scene__puppy-body">
+                  <ellipse cx="70" cy="58" rx="30" ry="19" stroke="currentColor" stroke-width="1.45" opacity="0.32"/>
+                  <circle cx="46" cy="36" r="23" stroke="currentColor" stroke-width="1.45" opacity="0.42"/>
+                  <path d="M28 24 Q22 42 34 50" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" opacity="0.36"/>
+                  <path d="M62 28 Q70 46 56 50" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" opacity="0.36"/>
+                  <path d="M37 36 Q41 40 45 36" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.48"/>
+                  <path d="M47 36 Q51 40 55 36" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.48"/>
+                  <ellipse cx="48" cy="44" rx="3.2" ry="2.6" fill="currentColor" opacity="0.22"/>
+                  <g class="workbench-scene__tail-wrap">
+                    <path d="M96 54 Q108 38 102 24" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" opacity="0.34"/>
+                  </g>
+                </g>
+              </svg>
+            </figure>
+            <p class="workbench-scene__caption">小狗守在这里，等你写下一段新故事</p>
           </div>
         </div>
-        <div id="assistant-chat-select-bar" class="assistant-chat-select-bar" hidden>
-          <button type="button" class="btn btn--secondary btn--pill" id="assistant-chat-select-cancel">取消</button>
-          <span id="assistant-chat-select-count" class="assistant-chat-select-count">已选 0 条</span>
-          <button type="button" class="btn btn--danger btn--pill" id="assistant-chat-select-delete">删除</button>
+        <div id="overview-sub-phone" class="overview-subview" hidden>
+          <div id="phone-content-slot" class="feature-view-body" aria-label="查手机内容区"></div>
         </div>
-        <div id="assistant-chat-list" class="assistant-chat-list story-bubbles" aria-live="polite"></div>
-        <div class="assistant-bottom">
-          <div class="assistant-composer">
-            <label class="assistant-composer__field">
-              <span class="sr-only">输入消息；纸飞机仅加入聊天记录，四角星生成助手回复</span>
-              <textarea id="assistant-input" class="assistant-composer__input" rows="1" placeholder="输入消息，和助手开始对话"></textarea>
-            </label>
-            <div class="assistant-composer__actions" role="group" aria-label="发送与生成回复">
-              <button type="button" class="assistant-composer__send" id="assistant-send" aria-label="发送到聊天记录" title="发送到聊天记录">
-                <svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-              </button>
-              <button type="button" class="assistant-composer__generate" id="assistant-generate-reply" aria-label="生成助手回复" title="生成助手回复">
-                <svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.6 6.4L21 12l-6.4 2.6L12 21l-2.6-6.4L3 12l6.4-2.6L12 3z"/></svg>
-              </button>
-            </div>
-          </div>
-          <div class="assistant-tool-strip" role="toolbar" aria-label="助手快捷工具">
-            <button type="button" class="story-tag-chip story-tag-chip--filled assistant-tool-tag" data-assistant-action="theme" aria-label="题材方向">
-              <span class="assistant-tool-tag__inner">
-                <svg class="icon-linear assistant-tool-tag__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M16.24 7.76l-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"/></svg>
-                <span class="assistant-tool-tag__text">题材方向</span>
-              </span>
-            </button>
-            <button type="button" class="story-tag-chip story-tag-chip--filled assistant-tool-tag" data-assistant-action="rewrite-persona" aria-label="改写人设">
-              <span class="assistant-tool-tag__inner">
-                <svg class="icon-linear assistant-tool-tag__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                <span class="assistant-tool-tag__text">改写人设</span>
-              </span>
-            </button>
-            <button type="button" class="story-tag-chip story-tag-chip--filled assistant-tool-tag" data-assistant-action="gen-worldbook" aria-label="生成世界书">
-              <span class="assistant-tool-tag__inner">
-                <svg class="icon-linear assistant-tool-tag__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><path d="M12 6v12"/><path d="M8 10h8"/></svg>
-                <span class="assistant-tool-tag__text">生成世界书</span>
-              </span>
-            </button>
-            <button type="button" class="story-tag-chip story-tag-chip--filled assistant-tool-tag" data-assistant-action="inspiration" aria-label="灵感汲取">
-              <span class="assistant-tool-tag__inner">
-                <svg class="icon-linear assistant-tool-tag__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 017 7c0 3.5-3 6-3 9H8c0-3-3-5.5-3-9a7 7 0 017-7z"/></svg>
-                <span class="assistant-tool-tag__text">灵感汲取</span>
-              </span>
-            </button>
-          </div>
+        <div id="overview-sub-fanwork" class="overview-subview" hidden>
+          <div id="fanwork-content-slot" class="feature-view-body" aria-label="小狗饭内容区"></div>
         </div>
       </section>
 
@@ -165,11 +205,11 @@
       </section>
     </main>
 
-    <!-- 底部导航：助手 | 世界书 | 剧情(中) | 角色 | 设置 -->
-    <nav class="bottom-nav" aria-label="主导航">
+    <!-- 底部导航：点星 | 世界书 | 剧情(中) | 角色 | 设置 -->
+    <nav class="bottom-nav bottom-nav--five" aria-label="主导航">
       <button type="button" class="nav-item" data-tab="overview">
-        <span class="nav-item__icon-wrap"><svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><path d="M16 8L2 22"/><path d="M17.5 15H9"/></svg></span>
-        <span class="nav-item__label">助手</span>
+        <span class="nav-item__icon-wrap"><svg class="icon-linear nav-icon-candy" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 12H4"/><path d="M5 10.2l2 1.8"/><path d="M5 13.8l2-1.8"/><rect x="7.5" y="9.25" width="9" height="5.5" rx="2.75"/><path d="M12 9.25v5.5"/><path d="M17.5 12H20"/><path d="M19 10.2l-2 1.8"/><path d="M19 13.8l-2-1.8"/></svg></span>
+        <span class="nav-item__label">点星</span>
       </button>
       <button type="button" class="nav-item" data-tab="worldbook">
         <span class="nav-item__icon-wrap"><svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><path d="M8 7h8M8 11h6"/></svg></span>
@@ -255,8 +295,23 @@
           <h2 class="modal-title">分享给助手</h2>
           <button type="button" class="icon-btn" id="plot-share-assistant-modal-close" aria-label="关闭"><svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
         </div>
-        <p class="plot-share-assistant-hint">选择接收本条剧情卡片的助手；发送后将附带总结与记忆（若无则附带最近正文回合），并由助手分段回复。</p>
+        <p class="plot-share-assistant-hint">选择接收本条剧情卡片的助手；发送后将附带总结与记忆（若无则附带最近正文回合），回复会在弹窗中展示。</p>
         <div id="plot-share-assistant-list" class="assistant-switch-list form-stack"></div>
+      </div>
+    </div>
+
+    <!-- 剧情分享 · 助手回复弹窗 -->
+    <div id="modal-assistant-plot-reply" class="overlay overlay--dim" hidden>
+      <div class="modal-sheet modal-sheet--tall">
+        <div class="sheet-handle"></div>
+        <div class="modal-header">
+          <h2 class="modal-title">助手读后感</h2>
+          <button type="button" class="icon-btn" id="assistant-plot-reply-modal-close" aria-label="关闭"><svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+        </div>
+        <div id="assistant-plot-reply-list" class="assistant-plot-reply-list story-bubbles form-stack"></div>
+        <div class="story-memory-edit-actions">
+          <button type="button" class="btn btn--primary btn--pill" id="assistant-plot-reply-done">知道了</button>
+        </div>
       </div>
     </div>
 
@@ -273,7 +328,7 @@
             <div class="sheet-char-pick-inline sheet-char-pick-inline--in-modal">
               <div class="sheet-char-pick-inline__block sheet-char-pick-inline__block--prot">
                 <span class="field__label sheet-char-pick-inline__label">主视角（我的形象）</span>
-                <div id="assistant-theme-prot-pick" class="h-scroll sheet-char-pick-row sheet-char-pick-row--prot assistant-theme-char-picks"></div>
+                <div id="assistant-theme-prot-pick" class="h-scroll sheet-char-pick-row sheet-char-pick-row--overlap assistant-theme-char-picks"></div>
               </div>
               <div class="sheet-char-pick-inline__block sheet-char-pick-inline__block--sup">
                 <span class="field__label sheet-char-pick-inline__label">其他参与角色</span>
@@ -365,22 +420,30 @@
       </div>
     </div>
 
-    <!-- 助手 · 灵感汲取 -->
+    <!-- 点星 · 灵感汲取 -->
     <div id="modal-assistant-inspiration" class="overlay overlay--dim" hidden>
       <div class="modal-sheet modal-sheet--tall">
         <div class="sheet-handle"></div>
         <div class="modal-header">
-          <h2 class="modal-title">灵感汲取</h2>
+          <h2 id="assistant-inspiration-modal-title" class="modal-title">灵感汲取</h2>
           <button type="button" class="icon-btn" id="assistant-inspiration-modal-close" aria-label="关闭"><svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
         </div>
-        <div class="form-stack assistant-theme-body">
+        <div id="assistant-inspiration-step-form" class="form-stack assistant-theme-body">
           <label class="field">
             <span class="field__label">灵感方向</span>
             <textarea id="assistant-inspiration-demand" class="field__input field__textarea assistant-inspiration-demand" rows="4" placeholder="例如：偏悬疑、轻奇幻、节奏快、避免校园题材"></textarea>
           </label>
           <div class="story-memory-edit-actions">
             <button type="button" class="btn btn--secondary" id="assistant-inspiration-cancel">取消</button>
-            <button type="button" class="btn btn--primary" id="assistant-inspiration-generate">确认</button>
+            <button type="button" class="btn btn--primary" id="assistant-inspiration-generate">生成方案</button>
+          </div>
+        </div>
+        <div id="assistant-inspiration-step-result" class="form-stack assistant-theme-body" hidden>
+          <div id="assistant-inspiration-result-body" class="assistant-inspiration-result-body bubble bubble--ai" role="document"></div>
+          <p id="assistant-inspiration-result-hint" class="field__hint assistant-inspiration-result-hint"></p>
+          <div class="bubble-inspiration-actions assistant-inspiration-result-actions">
+            <button type="button" class="btn btn--secondary btn--pill" id="assistant-inspiration-result-dismiss">关闭</button>
+            <button type="button" class="btn btn--primary btn--pill" id="assistant-inspiration-result-accept" hidden>确认创建</button>
           </div>
         </div>
       </div>
@@ -660,7 +723,7 @@
           <div class="sheet-char-pick-inline">
             <div class="sheet-char-pick-inline__block sheet-char-pick-inline__block--prot">
               <p class="field__label sheet-char-pick-inline__label">主视角角色</p>
-              <div id="sheet-protagonist-pick" class="h-scroll sheet-char-pick-row sheet-char-pick-row--prot"></div>
+              <div id="sheet-protagonist-pick" class="h-scroll sheet-char-pick-row sheet-char-pick-row--overlap"></div>
             </div>
             <div class="sheet-char-pick-inline__block sheet-char-pick-inline__block--sup">
               <p class="field__label sheet-char-pick-inline__label">参与角色</p>
@@ -777,21 +840,25 @@
               <svg class="icon-linear story-scroll-nav__icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
             </button>
           </div>
-          <div class="story-composer">
-            <div id="story-composer-avatar" class="avatar story-composer__avatar" title="主视角"></div>
-            <label class="story-composer__field">
-              <span class="sr-only">自定义行动或台词</span>
-              <textarea id="story-composer-input" class="story-composer__input" rows="1" placeholder="或者，写下你想做的事…"></textarea>
-            </label>
-            <div class="story-composer__actions" role="group" aria-label="发送与 API">
-              <button type="button" class="story-composer__icon-btn" id="story-composer-send" aria-label="发送" title="发送">
-                <svg class="icon-linear story-composer__icon-btn-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-              </button>
-              <button type="button" class="story-composer__icon-btn" id="story-composer-api" aria-label="API 与模型" title="API 与模型">
-                <svg class="icon-linear story-composer__icon-btn-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a6 6 0 01-12 0V8h12z"/></svg>
-              </button>
+          <footer class="story-play-footer" id="story-play-footer" aria-label="剧情底部工具栏">
+            <div class="story-play-footer__center">
+              <div class="story-composer">
+                <div id="story-composer-avatar" class="avatar story-composer__avatar" title="主视角"></div>
+                <label class="story-composer__field">
+                  <span class="sr-only">自定义行动或台词</span>
+                  <textarea id="story-composer-input" class="story-composer__input" rows="1" placeholder="或者，写下你想做的事…"></textarea>
+                </label>
+                <div class="story-composer__actions" role="group" aria-label="发送与 API">
+                  <button type="button" class="story-composer__icon-btn" id="story-composer-send" aria-label="发送" title="发送">
+                    <svg class="icon-linear story-composer__icon-btn-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+                  </button>
+                  <button type="button" class="story-composer__icon-btn" id="story-composer-api" aria-label="API 与模型" title="API 与模型">
+                    <svg class="icon-linear story-composer__icon-btn-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a6 6 0 01-12 0V8h12z"/></svg>
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
+          </footer>
         </div>
       </div>
     </div>
@@ -828,6 +895,71 @@
           </button>
         </div>
         <div id="story-summaries-list" class="story-summaries-list"></div>
+      </div>
+    </div>
+
+    <div id="modal-phone-holder" class="overlay overlay--dim" hidden>
+      <div class="modal-sheet modal-sheet--phone-holder">
+        <div class="sheet-handle"></div>
+        <div class="modal-header phone-holder-header">
+          <button type="button" class="icon-btn phone-holder-header__back" id="phone-holder-step-back" hidden aria-label="返回选择剧情">
+            <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M15 6l-6 6 6 6"/></svg>
+          </button>
+          <h2 class="modal-title" id="phone-holder-title">选择剧情</h2>
+          <button type="button" class="icon-btn" id="phone-holder-close" aria-label="关闭">
+            <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="phone-holder-body">
+          <p class="phone-holder-hint" id="phone-holder-hint">先选择要查看手机的所在剧情</p>
+          <div id="phone-holder-plot-list" class="phone-holder-plot-list"></div>
+          <div id="phone-holder-pick" class="phone-holder-pick" hidden></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="modal-phone-wallpaper" class="overlay overlay--dim" hidden>
+      <div class="modal-sheet">
+        <div class="sheet-handle"></div>
+        <div class="modal-header">
+          <h2 class="modal-title">手机壁纸</h2>
+          <button type="button" class="icon-btn" id="phone-wallpaper-close" aria-label="关闭">
+            <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <p class="phone-holder-hint" id="phone-wallpaper-hint">为当前持有者的手机设置壁纸</p>
+        <div id="phone-wallpaper-preview" class="story-play-bg-preview phone-wallpaper-preview" role="img" aria-label="壁纸预览">暂无图片</div>
+        <div class="phone-wallpaper-actions">
+          <label class="btn btn--primary btn--pill" for="phone-wallpaper-file">选择图片</label>
+          <button type="button" class="btn btn-secondary btn--pill" id="phone-wallpaper-clear">清除壁纸</button>
+        </div>
+        <input type="file" id="phone-wallpaper-file" class="sr-only" accept="image/*" />
+      </div>
+    </div>
+
+    <div id="modal-story-phone" class="overlay overlay--dim" hidden>
+      <div class="modal-sheet modal-sheet--tall modal-sheet--story-feature">
+        <div class="sheet-handle"></div>
+        <div class="modal-header">
+          <h2 class="modal-title">查手机</h2>
+          <button type="button" class="icon-btn" id="story-phone-close" aria-label="关闭">
+            <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div id="story-phone-slot" class="story-feature-body story-placeholder" aria-label="查手机内容区"></div>
+      </div>
+    </div>
+
+    <div id="modal-story-fanwork" class="overlay overlay--dim" hidden>
+      <div class="modal-sheet modal-sheet--tall modal-sheet--story-feature">
+        <div class="sheet-handle"></div>
+        <div class="modal-header">
+          <h2 class="modal-title">小狗饭</h2>
+          <button type="button" class="icon-btn" id="story-fanwork-close" aria-label="关闭">
+            <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div id="story-fanwork-slot" class="story-feature-body story-placeholder" aria-label="小狗饭内容区"></div>
       </div>
     </div>
 
@@ -1106,6 +1238,15 @@
           </label>
           <button type="submit" class="btn btn--primary btn--block btn--pill">保存</button>
         </form>
+      </div>
+    </div>
+    <div id="global-gen-paw-overlay" class="global-gen-paw" hidden aria-hidden="true">
+      <div class="global-gen-paw__track">
+        <svg class="global-gen-paw__print" style="--paw-i:0;--paw-x:-24px;--paw-rot:-16deg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><ellipse cx="10" cy="14.5" rx="3.4" ry="2.6"/><circle cx="6.2" cy="8.2" r="1.9"/><circle cx="10" cy="6.8" r="1.9"/><circle cx="13.8" cy="8.2" r="1.9"/><circle cx="7.8" cy="11.2" r="1.55"/></svg>
+        <svg class="global-gen-paw__print" style="--paw-i:1;--paw-x:24px;--paw-rot:16deg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><ellipse cx="10" cy="14.5" rx="3.4" ry="2.6"/><circle cx="6.2" cy="8.2" r="1.9"/><circle cx="10" cy="6.8" r="1.9"/><circle cx="13.8" cy="8.2" r="1.9"/><circle cx="7.8" cy="11.2" r="1.55"/></svg>
+        <svg class="global-gen-paw__print" style="--paw-i:2;--paw-x:-20px;--paw-rot:-14deg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><ellipse cx="10" cy="14.5" rx="3.4" ry="2.6"/><circle cx="6.2" cy="8.2" r="1.9"/><circle cx="10" cy="6.8" r="1.9"/><circle cx="13.8" cy="8.2" r="1.9"/><circle cx="7.8" cy="11.2" r="1.55"/></svg>
+        <svg class="global-gen-paw__print" style="--paw-i:3;--paw-x:20px;--paw-rot:14deg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><ellipse cx="10" cy="14.5" rx="3.4" ry="2.6"/><circle cx="6.2" cy="8.2" r="1.9"/><circle cx="10" cy="6.8" r="1.9"/><circle cx="13.8" cy="8.2" r="1.9"/><circle cx="7.8" cy="11.2" r="1.55"/></svg>
+        <svg class="global-gen-paw__print" style="--paw-i:4;--paw-x:-24px;--paw-rot:-16deg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><ellipse cx="10" cy="14.5" rx="3.4" ry="2.6"/><circle cx="6.2" cy="8.2" r="1.9"/><circle cx="10" cy="6.8" r="1.9"/><circle cx="13.8" cy="8.2" r="1.9"/><circle cx="7.8" cy="11.2" r="1.55"/></svg>
       </div>
     </div>
         </div>
