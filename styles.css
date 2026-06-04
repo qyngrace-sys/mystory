@@ -4798,6 +4798,123 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__panel-kicker {
   color: #777;
 }
 
+/* 查手机 · 晋江：详情 / 章节深夜模式 */
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail,
+html[data-theme="dark"] .phone-device .phone-jjwxc--chapter {
+  background: #141210;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__scroll,
+html[data-theme="dark"] .phone-device .phone-jjwxc--chapter .phone-jjwxc__reader {
+  background: #141210;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__detail-head,
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__synopsis,
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__chapters {
+  background: #1e1c1a;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__detail-author,
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__synopsis-text,
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__section-title,
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__ch-title {
+  color: #ece6dc;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__detail-cat,
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__detail-stat,
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__ch-meta,
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__section-hint,
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__ch-blurb {
+  color: #9a9488;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__author-note,
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__ch-thought {
+  background: #2a2622;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__author-note-label,
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__ch-thought-label {
+  color: #f0a0b4;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__author-note p,
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__ch-thought p {
+  color: #b8b0a8;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__detail-flag {
+  background: rgba(91, 127, 212, 0.18);
+  color: #90a4d4;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__detail-flag--fav {
+  background: rgba(226, 70, 107, 0.16);
+  color: #f0a0b4;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__tag {
+  background: rgba(226, 70, 107, 0.16);
+  color: #f0a0b4;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__badge--ongoing {
+  background: rgba(217, 119, 6, 0.18);
+  color: #fbbf24;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__badge--done {
+  background: rgba(45, 138, 78, 0.16);
+  color: #6ee7a8;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__ch-item {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__ch-toggle {
+  color: #888;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__detail-gen {
+  background: rgba(226, 70, 107, 0.14);
+  border-color: rgba(226, 70, 107, 0.32);
+  color: #f0a0b4;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--detail .phone-jjwxc__generating {
+  color: #f0a0b4;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--chapter .phone-jjwxc__chapter-body,
+html[data-theme="dark"] .phone-device .phone-jjwxc--chapter .phone-jjwxc__chapter-p {
+  color: #d8d0c8;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--chapter .phone-jjwxc__chapter-ph {
+  color: #555;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--chapter .phone-jjwxc__reader-thought {
+  background: #2a2622;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--chapter .phone-jjwxc__reader-thought-label {
+  color: #f0a0b4;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--chapter .phone-jjwxc__reader-thought p {
+  color: #b8b0a8;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc--chapter .phone-jjwxc__generating {
+  color: #f0a0b4;
+}
+
 #view-fanwork.view--active {
   display: flex;
   flex-direction: column;
@@ -7752,6 +7869,75 @@ html[data-theme="dark"] .phone-forum-manage__textarea {
   color: #e8e8e8;
 }
 
+html[data-theme="dark"] .phone-forum-post-row__preview--filled,
+html[data-theme="dark"] .phone-forum-post-row__stat {
+  color: #aaa;
+}
+
+html[data-theme="dark"] .phone-forum-post-row__meta {
+  color: #888;
+}
+
+html[data-theme="dark"] .phone-forum__section-hint--filled {
+  color: #999;
+}
+
+html[data-theme="dark"] .phone-forum-thread__title--filled {
+  color: #ececec;
+}
+
+html[data-theme="dark"] .phone-forum-thread__content--filled {
+  color: #c8c8c8;
+}
+
+html[data-theme="dark"] .phone-forum-thread__time,
+html[data-theme="dark"] .phone-forum-reply__time {
+  color: #888;
+}
+
+html[data-theme="dark"] .phone-forum-reply__text--filled {
+  color: #c8c8c8;
+}
+
+html[data-theme="dark"] .phone-forum-thread__body .phone-forum-post-row__author,
+html[data-theme="dark"] .phone-forum-reply__body .phone-forum-post-row__author {
+  color: #b8b8b8;
+}
+
+html[data-theme="dark"] .phone-forum__empty-text {
+  color: #888;
+}
+
+html[data-theme="dark"] .phone-forum-manage__title {
+  color: #ececec;
+}
+
+html[data-theme="dark"] .phone-forum-manage__close {
+  background: rgba(255, 255, 255, 0.08);
+  color: #aaa;
+}
+
+html[data-theme="dark"] .phone-forum-manage__hint {
+  color: #999;
+}
+
+html[data-theme="dark"] .phone-forum-manage__name {
+  color: #e0e0e0;
+}
+
+html[data-theme="dark"] .phone-forum-manage__desc,
+html[data-theme="dark"] .phone-forum-manage__desc-placeholder {
+  color: #999;
+}
+
+html[data-theme="dark"] .phone-forum-manage__label {
+  color: #aaa;
+}
+
+html[data-theme="dark"] .phone-forum-manage__action {
+  color: #c8c8c8;
+}
+
 /* 查手机 · 浏览器 · 浏览历史 */
 .phone-browser {
   background: #f0f0f0;
@@ -7770,12 +7956,49 @@ html[data-theme="dark"] .phone-forum-manage__textarea {
   gap: 6px;
 }
 
-.phone-browser__count {
+.phone-browser__section-gen-btn,
+.phone-memo__section-gen-btn,
+.phone-jjwxc__category-gen-btn {
   flex-shrink: 0;
-  font-size: 0.72rem;
-  font-weight: 500;
-  color: #aaa;
-  line-height: 1.2;
+  margin: 0;
+  padding: 2px 8px;
+  border: 1px solid rgba(7, 193, 96, 0.28);
+  border-radius: 999px;
+  background: rgba(7, 193, 96, 0.1);
+  color: #059669;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-jjwxc__category-gen-btn {
+  border-color: rgba(226, 70, 107, 0.28);
+  background: rgba(226, 70, 107, 0.1);
+  color: var(--jjwxc-pink-deep, #c93558);
+}
+
+.phone-browser__section-gen-btn:active:not(:disabled),
+.phone-memo__section-gen-btn:active:not(:disabled),
+.phone-jjwxc__category-gen-btn:active:not(:disabled) {
+  opacity: 0.78;
+}
+
+.phone-browser__section-gen-btn:disabled,
+.phone-memo__section-gen-btn:disabled,
+.phone-jjwxc__category-gen-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.phone-browser__section-gen-btn--loading,
+.phone-memo__section-gen-btn--loading,
+.phone-jjwxc__category-gen-btn--loading {
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 .phone-browser__pill-wrap {
@@ -7859,7 +8082,7 @@ html[data-theme="dark"] .phone-forum-manage__textarea {
 
 .phone-browser-entry-item .phone-browser__entry {
   border-bottom: none;
-  padding-right: 52px;
+  padding-right: 12px;
   padding-bottom: 28px;
 }
 
@@ -7899,20 +8122,17 @@ html[data-theme="dark"] .phone-forum-manage__textarea {
 }
 
 .phone-browser__entry-top {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
+  min-width: 0;
 }
 
 .phone-browser__entry-title {
-  flex: 1;
-  min-width: 0;
+  display: block;
   font-size: 0.84rem;
   font-weight: 600;
   color: #bbb;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.4;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .phone-browser__entry-title--filled {
@@ -7921,17 +8141,19 @@ html[data-theme="dark"] .phone-forum-manage__textarea {
 
 .phone-browser__entry-toggle {
   flex-shrink: 0;
+  align-self: flex-start;
   width: 24px;
   height: 24px;
-  margin: -2px -2px 0 0;
+  margin: 0;
   padding: 0;
   border: none;
-  background: transparent;
-  color: #ccc;
+  background: #fff;
+  color: #bbb;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  z-index: 2;
 }
 
 .phone-browser__entry-toggle svg {
@@ -7980,17 +8202,12 @@ html[data-theme="dark"] .phone-forum-manage__textarea {
   font-weight: 600;
 }
 
-.phone-browser__entry-duration {
-  flex-shrink: 0;
-  align-self: flex-start;
-  margin-top: 2px;
-  font-size: 0.68rem;
-  color: #bbb;
-  line-height: 1.2;
+.phone-browser__entry-detail {
+  padding: 0 12px 12px 46px;
 }
 
-.phone-browser__entry-detail {
-  padding: 0 12px 12px 56px;
+.phone-browser__entry-detail[hidden] {
+  display: none !important;
 }
 
 .phone-browser__entry-detail-text {
@@ -8021,6 +8238,20 @@ html[data-theme="dark"] .phone-browser {
   background: #1a1a1a;
 }
 
+html[data-theme="dark"] .phone-browser__section-gen-btn,
+html[data-theme="dark"] .phone-memo__section-gen-btn,
+html[data-theme="dark"] .phone-jjwxc__category-gen-btn {
+  background: rgba(52, 211, 153, 0.12);
+  border-color: rgba(52, 211, 153, 0.28);
+  color: #6ee7b7;
+}
+
+html[data-theme="dark"] .phone-jjwxc__category-gen-btn {
+  background: rgba(244, 114, 182, 0.12);
+  border-color: rgba(244, 114, 182, 0.28);
+  color: #f9a8d4;
+}
+
 html[data-theme="dark"] .phone-browser__bar,
 html[data-theme="dark"] .phone-browser__pill-wrap,
 html[data-theme="dark"] .phone-browser__group-card {
@@ -8042,6 +8273,11 @@ html[data-theme="dark"] .phone-browser__entry {
 
 html[data-theme="dark"] .phone-browser__entry-icon {
   background: #333;
+  color: #888;
+}
+
+html[data-theme="dark"] .phone-browser__entry-toggle {
+  background: #222;
   color: #888;
 }
 
@@ -8067,13 +8303,6 @@ html[data-theme="dark"] .phone-browser__entry-detail-text {
   gap: 6px;
 }
 
-.phone-memo__count {
-  flex-shrink: 0;
-  font-size: 0.72rem;
-  font-weight: 500;
-  color: #aaa;
-  line-height: 1.2;
-}
 
 .phone-memo__pill-wrap {
   flex-shrink: 0;
@@ -8702,7 +8931,7 @@ html[data-theme="dark"] .phone-memo-row__title--filled {
 
 html[data-theme="dark"] .phone-memo-row__preview--filled,
 html[data-theme="dark"] .phone-memo-row__body--filled {
-  color: #aaa;
+  color: #c8c8c8;
 }
 
 html[data-theme="dark"] .phone-memo-row__kind--text {
@@ -8745,6 +8974,117 @@ html[data-theme="dark"] .phone-memo-card--link .phone-memo-card__link-card {
 
 html[data-theme="dark"] .phone-memo-card--location .phone-memo-card__loc-card {
   background: linear-gradient(135deg, #2a2520 0%, #222 100%);
+  border-color: rgba(255, 184, 77, 0.22);
+}
+
+html[data-theme="dark"] .phone-memo-card--receipt .phone-memo-card__receipt-paper::after {
+  background: linear-gradient(135deg, #2a2824 33.33%, transparent 33.33%) 0 0 / 8px 8px,
+    linear-gradient(225deg, #2a2824 33.33%, transparent 33.33%) 0 0 / 8px 8px;
+}
+
+html[data-theme="dark"] .phone-memo-card__receipt-head {
+  color: #ece3d6;
+  border-bottom-color: rgba(255, 255, 255, 0.14);
+}
+
+html[data-theme="dark"] .phone-memo-card__receipt-line {
+  color: #c8b9a8;
+}
+
+html[data-theme="dark"] .phone-memo-card__receipt-total {
+  color: #f2e8da;
+  border-top-color: rgba(255, 255, 255, 0.14);
+}
+
+html[data-theme="dark"] .phone-memo-card__loc-label {
+  color: #f0e6d8;
+}
+
+html[data-theme="dark"] .phone-memo-card__loc-address {
+  color: #b8aca0;
+}
+
+html[data-theme="dark"] .phone-memo-card__transcript,
+html[data-theme="dark"] .phone-memo-card__photo-caption,
+html[data-theme="dark"] .phone-memo-card__link-note {
+  color: #b8b8b8;
+}
+
+html[data-theme="dark"] .phone-memo-card__duration {
+  color: #999;
+}
+
+html[data-theme="dark"] .phone-memo-card__check-item {
+  color: #d0d0d0;
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .phone-memo-card__check-item.is-done {
+  color: #777;
+}
+
+html[data-theme="dark"] .phone-memo-card__link-site {
+  color: #e8e8e8;
+}
+
+html[data-theme="dark"] .phone-memo-card__link-url,
+html[data-theme="dark"] .phone-memo-card__link-icon {
+  color: #90a4c7;
+}
+
+html[data-theme="dark"] .phone-memo-row__kind--receipt {
+  background: rgba(138, 115, 85, 0.22);
+  color: #d4b896;
+}
+
+html[data-theme="dark"] .phone-memo-row__kind--checklist {
+  background: rgba(74, 138, 92, 0.18);
+  color: #81c784;
+}
+
+html[data-theme="dark"] .phone-memo-row__kind--link {
+  background: rgba(106, 90, 154, 0.2);
+  color: #b39ddb;
+}
+
+html[data-theme="dark"] .phone-memo-row__kind--location {
+  background: rgba(184, 134, 58, 0.18);
+  color: #ffb74d;
+}
+
+html[data-theme="dark"] .phone-memo-row__preview,
+html[data-theme="dark"] .phone-memo-row__body {
+  color: #b8b8b8;
+}
+
+html[data-theme="dark"] .phone-memo-row__time {
+  color: #3dd4b8;
+}
+
+html[data-theme="dark"] .phone-memo__empty-text {
+  color: #888;
+}
+
+html[data-theme="dark"] .phone-memo__pill-row .filter-pill {
+  background: #333;
+  color: #bbb;
+}
+
+html[data-theme="dark"] .phone-memo__pill-row .filter-pill.is-active {
+  background: #e8e8e8;
+  color: #111;
+}
+
+html[data-theme="dark"] .phone-memo-row__action {
+  color: #aaa;
+}
+
+html[data-theme="dark"] .phone-memo-row__action--ghost {
+  color: #888;
+}
+
+html[data-theme="dark"] .phone-memo-row__toggle {
+  color: #888;
 }
 
 /* 查手机 · 日记 */
@@ -8755,14 +9095,16 @@ html[data-theme="dark"] .phone-memo-card--location .phone-memo-card__loc-card {
   flex-direction: column;
   min-height: 0;
   --phone-diary-hand-font:
-    "Zhi Mang Xing",
-    "Long Cang",
-    "STXingkai",
-    "华文行楷",
-    "行楷",
-    "KaiTi",
-    "楷体",
-    cursive;
+    "Source Han Serif CN VF",
+    "Noto Serif TC",
+    "思源宋体",
+    "Source Han Serif SC",
+    "Source Han Serif TC",
+    "Songti SC",
+    "Songti TC",
+    "STSong",
+    "SimSun",
+    serif;
 }
 
 .phone-diary__bar {
@@ -13181,6 +13523,10 @@ html[data-theme="dark"] .gen-ready-banner {
   max-width: 58%;
 }
 
+.phone-jjwxc__bar:has(.phone-jjwxc__bar-trail) {
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+}
+
 .phone-jjwxc__scroll {
   flex: 1;
   min-height: 0;
@@ -13238,6 +13584,19 @@ html[data-theme="dark"] .gen-ready-banner {
   align-items: center;
   gap: 4px;
   padding-right: 6px;
+}
+
+.phone-jjwxc__pill-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.phone-jjwxc__pill-row .phone-jjwxc__category-gen-btn {
+  min-height: 26px;
+  padding: 3px 7px;
+  line-height: 1.2;
 }
 
 .phone-jjwxc__pill-scroll {

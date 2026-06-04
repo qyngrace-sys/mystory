@@ -1804,6 +1804,12 @@
   const PLOT_MEMORY_PROMPT_MAX = STORY_PLAY_REF_TURN_LIMIT;
   const PLOT_MEMORY_PROMPT_ITEM_MAX_CHARS = 480;
   const PLOT_MEMORY_CONTEXT_MAX_CHARS = 3800;
+  /** 续写 API 用滚动「至今主线」摘录上限（完整阶段总结仍按 PLAY_SUMMARY_ITEM_MAX_CHARS 存盘） */
+  const STORY_PLAY_MAINLINE_SUMMARY_MAX_CHARS = 2400;
+  /** 已有正文时送入模型的故事开端摘录上限（避免与最近剧情重复占满上下文） */
+  const STORY_PLAY_OPENING_WHEN_PLAYING_MAX_CHARS = 520;
+  const PLOT_MEMORY_MANDATORY_FROM_SUMMARY = 2;
+  const PLOT_MEMORY_MANDATORY_RELEVANT = 3;
 
   function ensureFixedCharCategory() {
     FIXED_CHAR_CATEGORY_DEFS.forEach(function (def, idx) {
@@ -2156,9 +2162,11 @@
   /** 查手机浏览器：key = plotId + \\u001e + holderCharId */
   let phoneBrowserData = {};
   let phoneBrowserGenerating = false;
+  let phoneBrowserSectionGenerating = false;
   /** 查手机备忘录：key = plotId + \\u001e + holderCharId */
   let phoneMemoData = {};
   let phoneMemoGenerating = false;
+  let phoneMemoSectionGenerating = false;
   /** 查手机日记：key = plotId + \\u001e + holderCharId */
   let phoneDiaryData = {};
   let phoneDiaryGenerating = false;
@@ -2171,6 +2179,7 @@
   /** 查手机晋江：key = plotId + \\u001e + holderCharId */
   let phoneJjwxcData = {};
   let phoneJjwxcGenerating = false;
+  let phoneJjwxcCategoryGenerating = false;
   let phoneJjwxcNovelGeneratingId = null;
   let phoneJjwxcChapterGeneratingId = null;
   /** 同人粮 CP：已选两位角色 id（排序后） */
@@ -2178,6 +2187,7 @@
   /** 同人粮晋江：key = charIdA + \\u001e + charIdB（id 已排序） */
   let fanworkJjwxcData = {};
   let fanworkJjwxcGenerating = false;
+  let fanworkJjwxcCategoryGenerating = false;
   let fanworkJjwxcNovelGeneratingId = null;
   let fanworkJjwxcChapterGeneratingId = null;
 
@@ -4092,6 +4102,7 @@
       pendingPlayerTurnAction: null,
       currentTurnIndex: 0,
       summaries: forkSummaries,
+      mainlineSummary: String(plot.mainlineSummary || ""),
       summaryCursorLineId: nextCursor,
       summaryAutoEnabled: !!plot.summaryAutoEnabled,
       summaryInFlight: false,
@@ -4182,7 +4193,41 @@
     if (typeof plot.summaryCursorLineId !== "string") plot.summaryCursorLineId = "";
     if (typeof plot.summaryAutoEnabled !== "boolean") plot.summaryAutoEnabled = true;
     if (typeof plot.summaryInFlight !== "boolean") plot.summaryInFlight = false;
+    if (typeof plot.mainlineSummary !== "string") plot.mainlineSummary = "";
+    if (!String(plot.mainlineSummary || "").trim() && Array.isArray(plot.summaries) && plot.summaries.length) {
+      const ordered = plot.summaries
+        .slice()
+        .sort(function (a, b) {
+          return (a.createdAt || 0) - (b.createdAt || 0);
+        });
+      const merged = ordered
+        .map(function (it) {
+          return String((it && it.content) || "").trim();
+        })
+        .filter(Boolean)
+        .join("\n\n");
+      if (merged) {
+        plot.mainlineSummary =
+          charCountForApiPrompt(merged) > STORY_PLAY_MAINLINE_SUMMARY_MAX_CHARS
+            ? truncateTailCharsWithEllipsis(merged, STORY_PLAY_MAINLINE_SUMMARY_MAX_CHARS)
+            : merged;
+      }
+    }
     reconcileSummaryCursorWithSummaries(plot);
+  }
+
+  /** 每次阶段总结成功后滚动合并「至今主线」，供续写/API 摘录（不替代 summaries 全文存档） */
+  function mergePlotMainlineSummary(plot, newSegmentText) {
+    if (!plot) return;
+    ensurePlotSummaryState(plot);
+    const seg = String(newSegmentText || "").trim();
+    if (!seg) return;
+    const prev = String(plot.mainlineSummary || "").trim();
+    let merged = prev ? prev + "\n\n" + seg : seg;
+    if (charCountForApiPrompt(merged) > STORY_PLAY_MAINLINE_SUMMARY_MAX_CHARS) {
+      merged = truncateTailCharsWithEllipsis(merged, STORY_PLAY_MAINLINE_SUMMARY_MAX_CHARS);
+    }
+    plot.mainlineSummary = merged;
   }
 
   function syncStorySummaryToggleDom(toggleEl, on) {
@@ -4310,6 +4355,7 @@
       };
       plot.summaries.push(item);
       plot.summaryCursorLineId = last.lineId;
+      mergePlotMainlineSummary(plot, finalText);
       schedulePersistNarrative();
       if (!autoMode) showToast("总结已保存", "success");
       return item;
@@ -7119,13 +7165,13 @@
     return -1;
   }
 
-  /** 续写 user 提示过长时优先压缩末尾「阶段总结」「记忆」，保留「最近剧情」与设定头部 */
+  /** 续写 user 提示过长：优先保留「最近剧情」及其后的记忆/总结尾部，设定与世界书从头部压缩 */
   function capStoryPlayUserPromptForApi(userPrompt) {
     const maxC = STORY_PLAY_API_USER_MAX_CHARS;
     let s = String(userPrompt || "");
     if (charCountForApiPrompt(s) <= maxC) return s;
 
-    function capFromMarker(marker) {
+    function capFromMarker(marker, keepTailEnd) {
       const idx = s.indexOf(marker);
       if (idx < 0) return null;
       const head = s.slice(0, idx);
@@ -7133,28 +7179,42 @@
       const headLen = charCountForApiPrompt(head);
       if (headLen >= maxC) return null;
       const tailBudget = Math.max(400, maxC - headLen);
-      return head + truncateCharsWithEllipsis(tail, tailBudget);
+      const cappedTail = keepTailEnd
+        ? truncateTailCharsWithEllipsis(tail, tailBudget)
+        : truncateCharsWithEllipsis(tail, tailBudget);
+      return head + cappedTail;
     }
 
-    let capped = capFromMarker("\n\n【必读·阶段总结】");
+    let capped = capFromMarker("\n\n【必读·阶段总结】", false);
     if (capped && charCountForApiPrompt(capped) <= maxC) return capped;
     if (capped) s = capped;
 
-    capped = capFromMarker("\n\n【必读·记忆】");
+    capped = capFromMarker("\n\n【必读·记忆】", true);
     if (capped && charCountForApiPrompt(capped) <= maxC) return capped;
     if (capped) s = capped;
 
     const contentStart = findStoryPlayRecentHistoryContentStart(s);
     if (contentStart >= 0) {
-      const head = s.slice(0, contentStart);
-      const tail = s.slice(contentStart);
-      const headLen = charCountForApiPrompt(head);
-      if (headLen < maxC) {
-        const tailBudget = Math.max(800, maxC - headLen);
-        return head + truncateCharsWithEllipsis(tail, tailBudget);
+      const prefix = s.slice(0, contentStart);
+      const core = s.slice(contentStart);
+      const omitNote =
+        "【篇幅说明】设定与世界书等前文因过长已省略；须严格依据下列「最近剧情」及后附记忆/总结续写，禁止当作新故事。\n\n";
+      const noteLen = charCountForApiPrompt(omitNote);
+      const coreLen = charCountForApiPrompt(core);
+      const minCoreBudget = Math.min(coreLen, Math.max(9000, Math.floor(maxC * 0.52)));
+      const prefixBudget = Math.max(0, maxC - minCoreBudget - noteLen);
+      const keptCore = truncateTailCharsWithEllipsis(core, Math.min(coreLen, maxC - noteLen));
+      let keptPrefix = prefix;
+      if (charCountForApiPrompt(prefix) > prefixBudget) {
+        keptPrefix =
+          prefixBudget > 360 ? truncateTailCharsWithEllipsis(prefix, prefixBudget) : "";
       }
+      const prefixTrimmed = charCountForApiPrompt(prefix) > prefixBudget;
+      const assembled = (keptPrefix || "") + (prefixTrimmed ? omitNote : "") + keptCore;
+      if (charCountForApiPrompt(assembled) <= maxC) return assembled;
+      return omitNote + keptCore;
     }
-    return truncateCharsWithEllipsis(s, maxC);
+    return truncateTailCharsWithEllipsis(s, maxC);
   }
 
   function compactStoryPlayHistoryForApi(historyText) {
@@ -7163,9 +7223,54 @@
     return raw
       .split("\n")
       .map(function (line) {
-        return truncateCharsWithEllipsis(line, STORY_PLAY_HISTORY_LINE_MAX_CHARS);
+        const maxLine = STORY_PLAY_HISTORY_LINE_MAX_CHARS;
+        const t = String(line || "");
+        const arr = Array.from(t);
+        if (arr.length <= maxLine) return t;
+        return "…" + arr.slice(-(maxLine - 1)).join("");
       })
       .join("\n");
+  }
+
+  function compactStoryPlayTurnForHistoryApi(turn, isLatestTurn) {
+    const lines = Array.isArray(turn && turn.lines) ? turn.lines : [];
+    const mapped = lines
+      .map(function (line) {
+        return storyLineHistoryPrefix(line) + (line.text || "");
+      })
+      .filter(function (ln) {
+        return String(ln || "").trim();
+      });
+    if (!mapped.length) return "";
+    if (isLatestTurn || mapped.length <= 3) return mapped.join("\n");
+    return mapped[0] + "\n…\n" + mapped[mapped.length - 1];
+  }
+
+  /** 剧情续写：拼装送入模型的「最近剧情」正文（含 playTurns 异常时的扁平兜底） */
+  function buildStoryPlayRecentHistoryText(plot) {
+    const recentTurns = (plot.playTurns || []).slice(-STORY_PLAY_REF_TURN_LIMIT);
+    const lastIdx = recentTurns.length - 1;
+    let history = compactStoryPlayHistoryForApi(
+      recentTurns
+        .map(function (turn, ti) {
+          return compactStoryPlayTurnForHistoryApi(turn, ti === lastIdx);
+        })
+        .filter(Boolean)
+        .join("\n\n")
+    );
+    if (!String(history || "").trim() && plotHasRecordedInteractivePlay(plot)) {
+      const flat = flattenPlotLines(plot);
+      const lineCap = Math.max(16, STORY_PLAY_REF_TURN_LIMIT * 8);
+      history = compactStoryPlayHistoryForApi(
+        flat
+          .slice(-lineCap)
+          .map(function (row) {
+            return formatSummaryLineForPrompt(plot, row);
+          })
+          .join("\n")
+      );
+    }
+    return history;
   }
 
   /**
@@ -8458,6 +8563,16 @@
     return arr.slice(0, maxChars).join("") + "...";
   }
 
+  /** 保留文本尾部（续写须优先保留最近剧情末尾，与 truncateCharsWithEllipsis 互补） */
+  function truncateTailCharsWithEllipsis(text, maxChars) {
+    const raw = String(text || "").trim();
+    if (!raw || !maxChars || maxChars < 1) return "";
+    const arr = Array.from(raw);
+    if (arr.length <= maxChars) return raw;
+    if (maxChars < 2) return arr.slice(-maxChars).join("");
+    return "…" + arr.slice(-(maxChars - 1)).join("");
+  }
+
   function buildPlayRoleAppearancePersonaLine(ch) {
     if (!ch) return "";
     const name = String(ch.name || "").trim() || "未命名角色";
@@ -8501,6 +8616,14 @@
 
   function buildPlotSummariesPromptBlock(plot) {
     ensurePlotSummaryState(plot);
+    const parts = [];
+    const mainline = String(plot.mainlineSummary || "").trim();
+    if (mainline) {
+      parts.push(
+        "【至今剧情主线（滚动摘要·优先于更早阶段总结）】\n" +
+          truncateTailCharsWithEllipsis(mainline, STORY_PLAY_MAINLINE_SUMMARY_MAX_CHARS)
+      );
+    }
     const items = (plot.summaries || [])
       .slice()
       .sort(function (a, b) {
@@ -8508,12 +8631,25 @@
       })
       .slice(0, PLAY_SUMMARY_PROMPT_REF_LIMIT)
       .map(function (it, idx) {
-        const txt = truncateCharsWithEllipsis(it && it.content, PLAY_SUMMARY_PROMPT_ITEM_MAX_CHARS);
+        const txt = truncateTailCharsWithEllipsis(
+          String((it && it.content) || "").trim(),
+          PLAY_SUMMARY_PROMPT_ITEM_MAX_CHARS
+        );
         if (!txt) return "";
         return "[总结 " + (idx + 1) + "]\n" + txt;
       })
       .filter(Boolean);
-    return items.join("\n\n");
+    if (items.length) parts.push(items.join("\n\n"));
+    return parts.join("\n\n");
+  }
+
+  /** 已有互动正文时压缩「故事开端」在提示词中的占比，正文连贯以最近剧情为准 */
+  function buildStoryPlayOpeningPromptBlock(openingBlock, hasPriorPlay) {
+    const raw = String(openingBlock || "").trim() || "未设定";
+    if (!hasPriorPlay) return raw;
+    const excerpt = truncateTailCharsWithEllipsis(raw, STORY_PLAY_OPENING_WHEN_PLAYING_MAX_CHARS);
+    if (excerpt === raw) return raw;
+    return excerpt + "（…细节以最近剧情与阶段总结为准，勿按开端重写已发生内容）";
   }
 
   function buildPlotMemoryContextBlob(parts) {
@@ -8592,12 +8728,23 @@
       picked.push(it);
     }
 
+    let summaryPicked = 0;
     all.forEach(function (it) {
-      if (it.sourceType === "summary" && it.sourceSummaryId) tryPick(it);
+      if (summaryPicked >= PLOT_MEMORY_MANDATORY_FROM_SUMMARY) return;
+      if (it.sourceType === "summary" && it.sourceSummaryId) {
+        tryPick(it);
+        summaryPicked++;
+      }
     });
+    let relevantPicked = 0;
     if (ctx) {
       all.forEach(function (it) {
-        if (memoryLooksRelevantToContext(String(it.content || ""), ctx)) tryPick(it);
+        if (relevantPicked >= PLOT_MEMORY_MANDATORY_RELEVANT) return;
+        if (pickedKeys.has(String(it.id || "") || String(it.content || "").slice(0, 48))) return;
+        if (memoryLooksRelevantToContext(String(it.content || ""), ctx)) {
+          tryPick(it);
+          relevantPicked++;
+        }
       });
     }
     all.forEach(function (it) {
@@ -15416,14 +15563,18 @@
       phoneForumGenerating ||
       phoneForumPostGeneratingId ||
       phoneBrowserGenerating ||
+      phoneBrowserSectionGenerating ||
       phoneMemoGenerating ||
+      phoneMemoSectionGenerating ||
       phoneDiaryGenerating ||
       phoneBillGenerating ||
       phoneWereadGenerating ||
       phoneJjwxcGenerating ||
+      phoneJjwxcCategoryGenerating ||
       phoneJjwxcNovelGeneratingId ||
       phoneJjwxcChapterGeneratingId ||
       fanworkJjwxcGenerating ||
+      fanworkJjwxcCategoryGenerating ||
       fanworkJjwxcNovelGeneratingId ||
       fanworkJjwxcChapterGeneratingId
     );
@@ -16355,7 +16506,7 @@
       });
       if (!phoneForumPostHasDetail(hit.post) && phoneForumPostGeneratingId !== hit.post.id) {
         repliesHtml +=
-          '<div class="phone-forum__empty phone-forum__empty--compact"><p class="phone-forum__empty-text">暂无楼层，正在准备生成…</p></div>';
+          '<div class="phone-forum__empty phone-forum__empty--compact"><p class="phone-forum__empty-text">暂无楼层，点击右上角生成</p></div>';
       }
     }
     return (
@@ -16386,7 +16537,7 @@
     renderPhoneScreen(slot);
   }
 
-  async function openPhoneForumPost(slot, postId) {
+  function openPhoneForumPost(slot, postId) {
     const nav = getPhoneNav(slot);
     if (nav.screen !== "forum" && nav.screen !== "forum-post") return;
     const id = String(postId || "").trim();
@@ -16397,10 +16548,6 @@
     nav.forumSectionFormId = null;
     nav.forumInlineEdit = null;
     renderPhoneScreen(slot);
-    const hit = findPhoneForumPost(id);
-    if (hit && !phoneForumPostHasDetail(hit.post) && !isAnyPhoneAiGenerating()) {
-      await generatePhoneForumPostContent(slot, id, false);
-    }
   }
 
   function startPhoneForumInlineEdit(slot, editKey) {
@@ -16670,6 +16817,7 @@
   const PHONE_BROWSER_SECTION_NAME_MAX = 12;
   const PHONE_BROWSER_SECTION_DESC_MAX = 200;
   const PHONE_BROWSER_MIN_ENTRIES_PER_SECTION = 5;
+  const PHONE_BROWSER_SECTION_GENERATE_COUNT = 8;
   const PHONE_BROWSER_MAX_ENTRIES = 200;
   const PHONE_BROWSER_REF_ENTRIES_PER_SECTION = 5;
   const PHONE_BROWSER_TITLE_MAX = 48;
@@ -17010,6 +17158,124 @@
         "字段同首次生成；仅追加新记录，禁止 OOC。"
     );
     return lines.join("\n");
+  }
+
+  function buildPhoneBrowserSectionGeneratePrompt(plot, holder, sectionId, existing) {
+    const sec = findPhoneBrowserSection(sectionId);
+    if (!sec) throw new Error("无效分类");
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const todayKey = getPhoneStoryTodayKey();
+    const entries = (existing && existing.entries) || [];
+    const recent = entries
+      .filter(function (e) {
+        return e.sectionId === sec.id;
+      })
+      .slice(0, PHONE_BROWSER_REF_ENTRIES_PER_SECTION);
+    const lines = [
+      "请为「查手机·浏览器」分类「" +
+        sec.name +
+        "」增量生成 " +
+        PHONE_BROWSER_SECTION_GENERATE_COUNT +
+        " 条新浏览记录。",
+      "视角：手机持有者「" + holderName + "」的浏览器浏览历史。",
+      "今天日期：" + todayKey + "。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【本分类说明（sectionId=" + sec.id + "）】");
+    lines.push(sec.description || "（无简介）");
+    lines.push("");
+    lines.push("【本分类已有记录摘要（请勿重复 id 或实质重复标题）】");
+    if (recent.length) {
+      recent.forEach(function (e) {
+        lines.push(formatPhoneBrowserEntryForPrompt(e));
+      });
+    } else {
+      lines.push("（无）");
+    }
+    lines.push("");
+    lines.push(
+      "输出唯一 JSON：{\"newEntries\":[...]}；须恰好 " +
+        PHONE_BROWSER_SECTION_GENERATE_COUNT +
+        " 条；每条 sectionId 必须为 \"" +
+        sec.id +
+        "\"。\n" +
+        "字段：id（英文短 id 唯一）、sectionId、dateKey（YYYY-MM-DD）、visitTime（HH:mm）、title（≤" +
+        PHONE_BROWSER_TITLE_MAX +
+        " 字）、source（≤" +
+        PHONE_BROWSER_SOURCE_MAX +
+        " 字）、tag（≤" +
+        PHONE_BROWSER_TAG_MAX +
+        " 字）、duration（如 2m）、emoji（单 emoji）、detail（≤" +
+        PHONE_BROWSER_DETAIL_MAX +
+        " 字）。\n" +
+        "须贴合持有者「" +
+        holderName +
+        "」人设与当前剧情；仅追加新记录，禁止 OOC；不要输出真实可访问 URL。"
+    );
+    return lines.join("\n");
+  }
+
+  function mergePhoneBrowserSectionIncrement(existing, raw, sectionId) {
+    const sid = normalizePhoneBrowserSectionId(sectionId);
+    if (!sid) throw new Error("无效分类");
+    const sec = findPhoneBrowserSection(sid);
+    const base = (existing && existing.entries ? existing.entries : []).map(function (e) {
+      return {
+        id: e.id,
+        sectionId: e.sectionId,
+        dateKey: e.dateKey,
+        visitTime: e.visitTime,
+        title: e.title,
+        source: e.source,
+        tag: e.tag,
+        duration: e.duration,
+        emoji: e.emoji,
+        detail: e.detail,
+      };
+    });
+    const seenIds = new Set(
+      base.map(function (e) {
+        return e.id;
+      })
+    );
+    const appendIn =
+      raw && Array.isArray(raw.newEntries)
+        ? raw.newEntries
+        : raw && Array.isArray(raw.entries)
+          ? raw.entries
+          : raw && Array.isArray(raw.history)
+            ? raw.history
+            : [];
+    let added = 0;
+    appendIn.forEach(function (item, idx) {
+      const entry = normalizePhoneBrowserEntryItem(item, idx, seenIds);
+      if (!entry || entry.sectionId !== sid) return;
+      base.unshift(entry);
+      added++;
+    });
+    if (added < PHONE_BROWSER_SECTION_GENERATE_COUNT) {
+      throw new Error(
+        "分类「" +
+          (sec ? sec.name : sid) +
+          "」新记录不足 " +
+          PHONE_BROWSER_SECTION_GENERATE_COUNT +
+          " 条（实际 " +
+          added +
+          " 条）"
+      );
+    }
+    return {
+      sections: mergePhoneBrowserSectionDescriptions((existing && existing.sections) || getPhoneBrowserSections()).map(
+        function (s) {
+          return { id: s.id, name: s.name, description: s.description };
+        }
+      ),
+      entries: sortPhoneBrowserEntries(base).slice(0, PHONE_BROWSER_MAX_ENTRIES),
+      generatedAt: Date.now(),
+    };
   }
 
   function getPhoneBrowserEntryMutable(entryId) {
@@ -17523,9 +17789,12 @@
     return groups;
   }
 
-  function buildPhoneBrowserBarHtml(totalCount) {
+  function buildPhoneBrowserBarHtml(activeSectionId) {
     const loadingCls = phoneBrowserGenerating ? " phone-wechat-gen-btn--loading" : "";
+    const sectionLoadingCls = phoneBrowserSectionGenerating ? " phone-browser__section-gen-btn--loading" : "";
     const disabled = isAnyPhoneAiGenerating();
+    const sec = findPhoneBrowserSection(activeSectionId);
+    const secName = sec ? String(sec.name) : "本类";
     return (
       '<header class="phone-app__bar phone-app__bar--wechat-list phone-browser__bar">' +
       '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
@@ -17533,13 +17802,23 @@
       "</button>" +
       '<div class="phone-browser__title-wrap">' +
       '<h2 class="phone-app__title phone-app__title--left">浏览历史</h2>' +
-      '<span class="phone-browser__count">' +
-      escapeHtml(String(totalCount || 0)) +
-      " 条</span>" +
+      '<button type="button" class="phone-browser__section-gen-btn' +
+      sectionLoadingCls +
+      '" data-phone-browser-section-generate aria-label="为「' +
+      escapeHtml(secName) +
+      "」新增 " +
+      PHONE_BROWSER_SECTION_GENERATE_COUNT +
+      ' 条记录" title="为当前分类新增 ' +
+      PHONE_BROWSER_SECTION_GENERATE_COUNT +
+      ' 条"' +
+      (disabled ? " disabled" : "") +
+      ">+" +
+      PHONE_BROWSER_SECTION_GENERATE_COUNT +
+      "</button>" +
       "</div>" +
       '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
       loadingCls +
-      '" data-phone-browser-generate aria-label="AI 生成浏览记录" title="AI 生成浏览记录"' +
+      '" data-phone-browser-generate aria-label="AI 生成全部浏览记录" title="AI 生成全部浏览记录"' +
       (disabled ? " disabled" : "") +
       ">" +
       buildPhoneWechatStarIconSvg() +
@@ -17608,15 +17887,6 @@
         escapeHtml(String(entry.tag || "")) +
         "</span>"
       : '<span class="phone-browser__entry-tag">' + escapeHtml(String(placeholder ? "…" : entry.tag || "")) + "</span>";
-    const durationHtml = editing
-      ? '<span class="phone-browser__entry-duration phone-forum__editable" contenteditable="true" data-phone-browser-inline-field="duration" data-phone-browser-inline-key="' +
-        escapeHtml(editKey) +
-        '">' +
-        escapeHtml(String(entry.duration || "")) +
-        "</span>"
-      : '<span class="phone-browser__entry-duration">' +
-        escapeHtml(String(placeholder ? "…" : entry.duration || "")) +
-        "</span>";
     const detailText = placeholder ? "…".repeat(300) : String(entry.detail || "");
     const detailHtml = editing
       ? '<p class="phone-browser__entry-detail-text phone-browser__entry-detail-text--filled phone-forum__editable" contenteditable="true" data-phone-browser-inline-field="detail" data-phone-browser-inline-key="' +
@@ -17642,6 +17912,14 @@
       '<div class="phone-browser__entry-main">' +
       '<div class="phone-browser__entry-top">' +
       titleHtml +
+      "</div>" +
+      '<div class="phone-browser__entry-meta">' +
+      timeHtml +
+      '<span class="phone-browser__entry-sep">·</span>' +
+      sourceHtml +
+      tagHtml +
+      "</div>" +
+      "</div>" +
       '<button type="button" class="phone-browser__entry-toggle" data-phone-browser-entry-toggle="' +
       escapeHtml(String(entry.id || "")) +
       '" aria-expanded="' +
@@ -17651,15 +17929,6 @@
       '">' +
       '<svg class="icon-linear" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>' +
       "</button>" +
-      "</div>" +
-      '<div class="phone-browser__entry-meta">' +
-      timeHtml +
-      '<span class="phone-browser__entry-sep">·</span>' +
-      sourceHtml +
-      tagHtml +
-      "</div>" +
-      "</div>" +
-      durationHtml +
       "</div>" +
       '<div class="phone-browser__entry-detail"' +
       (expanded || editing ? "" : " hidden") +
@@ -17690,7 +17959,9 @@
     const entries = getPhoneBrowserEntriesForSection(sectionId);
     if (!entries.length) {
       return (
-        '<div class="phone-browser__empty"><p class="phone-browser__empty-text">暂无记录，点击右上角生成</p></div>'
+        '<div class="phone-browser__empty"><p class="phone-browser__empty-text">暂无记录，点击「+' +
+        PHONE_BROWSER_SECTION_GENERATE_COUNT +
+        "」或右上角生成</p></div>"
       );
     }
     const groups = groupPhoneBrowserEntriesByDate(entries);
@@ -17814,10 +18085,9 @@
   function buildPhoneBrowserHtml(slot) {
     const nav = getPhoneNav(slot);
     const activeSectionId = getPhoneBrowserActiveSectionId(nav);
-    const totalCount = getPhoneBrowserEntriesForSection(activeSectionId).length;
     return (
       '<div class="phone-app phone-browser" aria-label="浏览历史">' +
-      buildPhoneBrowserBarHtml(totalCount) +
+      buildPhoneBrowserBarHtml(activeSectionId) +
       buildPhoneBrowserSectionTabsHtml(activeSectionId) +
       '<div class="phone-browser__scroll">' +
       buildPhoneBrowserHistoryListHtml(activeSectionId, nav) +
@@ -17848,12 +18118,32 @@
     renderPhoneScreen(slot);
   }
 
+  function applyPhoneBrowserEntryExpandState(slot, expandedId) {
+    if (!slot) return;
+    const activeId = String(expandedId || "").trim();
+    slot.querySelectorAll("[data-phone-browser-entry]").forEach(function (entryEl) {
+      const entryKey = String(entryEl.getAttribute("data-phone-browser-entry") || "").trim();
+      const isExpanded = !!activeId && entryKey === activeId;
+      entryEl.classList.toggle("is-expanded", isExpanded);
+      const detail = entryEl.querySelector(".phone-browser__entry-detail");
+      if (detail) {
+        if (isExpanded) detail.removeAttribute("hidden");
+        else detail.setAttribute("hidden", "");
+      }
+      const toggle = entryEl.querySelector("[data-phone-browser-entry-toggle]");
+      if (toggle) {
+        toggle.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+        toggle.setAttribute("aria-label", isExpanded ? "收起详情" : "展开详情");
+      }
+    });
+  }
+
   function togglePhoneBrowserEntryExpand(slot, entryId) {
     const nav = getPhoneNav(slot);
     if (nav.screen !== "browser") return;
     const id = String(entryId || "").trim();
     nav.browserExpandedId = nav.browserExpandedId === id ? null : id;
-    renderPhoneScreen(slot);
+    applyPhoneBrowserEntryExpandState(slot, nav.browserExpandedId);
   }
 
   function openPhoneBrowserManage(slot) {
@@ -17989,6 +18279,73 @@
     }
   }
 
+  async function generatePhoneBrowserSectionContent(slot) {
+    if (isAnyPhoneAiGenerating()) return;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const holder = getPhoneHolderCharacter();
+    if (!plot || !holder) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    const nav = getPhoneNav(slot);
+    const sectionId = getPhoneBrowserActiveSectionId(nav);
+    const sec = findPhoneBrowserSection(sectionId);
+    if (!sec) {
+      showToast("请先选择浏览记录分类。", "warning");
+      return;
+    }
+    preparePhoneStoryDateForGeneration(plot);
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    getPhoneBrowserBundleMutable();
+    const existing = phoneBrowserData[key] || null;
+    phoneBrowserSectionGenerating = true;
+    if (slot && nav.screen === "browser") renderPhoneScreen(slot);
+    try {
+      showToast(
+        "正在为「" + sec.name + "」生成 " + PHONE_BROWSER_SECTION_GENERATE_COUNT + " 条记录…",
+        "info"
+      );
+      setGenCallContext(buildGenCallOpts("phone-browser-section", { slot: slot, sectionId: sectionId }));
+      const systemPrompt =
+        "你是中文互动叙事助手。根据剧情与已有浏览历史，为指定分类增量追加浏览器记录 JSON。\n" +
+        "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+        '格式：{"newEntries":[{"id":"唯一id","sectionId":"' +
+        sec.id +
+        '","dateKey":"YYYY-MM-DD","visitTime":"HH:mm","title":"...","source":"...","tag":"...","duration":"...","emoji":"...","detail":"..."}]}';
+      const userPrompt = buildPhoneBrowserSectionGeneratePrompt(plot, holder, sectionId, existing);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.78,
+        8192
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      if (parsed && parsed.newEntries) {
+        parsed.newEntries = bumpPhoneStoryDateKeysForIncrement(parsed.newEntries, "dateKey");
+      }
+      const bundle = mergePhoneBrowserSectionIncrement(existing, parsed, sectionId);
+      if (!bundle.entries || !bundle.entries.length) {
+        throw new Error("未能解析有效的浏览记录");
+      }
+      phoneBrowserData[key] = bundle;
+      schedulePersistNarrative();
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) renderPhoneScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      phoneBrowserSectionGenerating = false;
+      if (slot && getPhoneNav(slot).screen === "browser") renderPhoneScreen(slot);
+    }
+  }
+
   function startPhoneBrowserInlineEdit(slot, entryId) {
     const nav = getPhoneNav(slot);
     nav.browserInlineEdit = "entry:" + String(entryId || "");
@@ -18116,6 +18473,7 @@
   const PHONE_MEMO_BODY_MAX = 600;
   const PHONE_MEMO_TIME_MAX = 16;
   const PHONE_MEMO_MIN_NOTES_PER_SECTION = 5;
+  const PHONE_MEMO_SECTION_GENERATE_COUNT = 8;
   const PHONE_MEMO_MAX_NOTES = 200;
   const PHONE_MEMO_REF_NOTES_PER_SECTION = 5;
   const PHONE_MEMO_KINDS = ["text", "photo", "audio", "receipt", "checklist", "link", "location"];
@@ -18986,6 +19344,123 @@
     return lines.join("\n");
   }
 
+  function buildPhoneMemoSectionGeneratePrompt(plot, holder, sectionId, existing) {
+    const sec = findPhoneMemoSection(sectionId);
+    if (!sec) throw new Error("无效分类");
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const todayKey = getPhoneStoryTodayKey();
+    const notes = (existing && existing.notes) || [];
+    const recent = sortPhoneMemoNotes(
+      notes.filter(function (n) {
+        return n.sectionId === sec.id;
+      })
+    ).slice(0, PHONE_MEMO_REF_NOTES_PER_SECTION);
+    const lines = [
+      "请为「查手机·备忘录」分类「" +
+        sec.name +
+        "」增量生成 " +
+        PHONE_MEMO_SECTION_GENERATE_COUNT +
+        " 条新备忘录。",
+      "视角：手机持有者「" + holderName + "」的备忘录。",
+      "今天日期：" + todayKey + "。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【本分类说明（sectionId=" + sec.id + "）】");
+    lines.push(sec.description || "（无简介）");
+    lines.push("");
+    lines.push("【本分类已有备忘录摘要（请勿重复 id 或实质重复标题）】");
+    if (recent.length) {
+      recent.forEach(function (n) {
+        lines.push(formatPhoneMemoNoteForPrompt(n));
+      });
+    } else {
+      lines.push("（无）");
+    }
+    lines.push("");
+    lines.push("【备忘录类型】");
+    lines.push(buildPhoneMemoKindRulesBlock());
+    lines.push("");
+    lines.push(
+      "输出唯一 JSON：{\"newNotes\":[...]}；须恰好 " +
+        PHONE_MEMO_SECTION_GENERATE_COUNT +
+        " 条；每条 sectionId 必须为 \"" +
+        sec.id +
+        "\"。\n" +
+        "公共字段：id、sectionId、kind（text|photo|audio|receipt|checklist|link|location）、dateKey（YYYY-MM-DD）、visitTime（HH:mm）、title（≤" +
+        PHONE_MEMO_TITLE_MAX +
+        " 字）、preview（≤" +
+        PHONE_MEMO_PREVIEW_MAX +
+        " 字）、body（≤" +
+        PHONE_MEMO_BODY_MAX +
+        " 字）、meta（按 kind 填写）。\n" +
+        "本批须 kind 多样化，内容完整；须贴合持有者「" +
+        holderName +
+        "」人设与当前剧情；仅追加新备忘录，禁止 OOC。"
+    );
+    return lines.join("\n");
+  }
+
+  function mergePhoneMemoSectionIncrement(existing, raw, sectionId) {
+    const sid = normalizePhoneMemoSectionId(sectionId);
+    if (!sid) throw new Error("无效分类");
+    const sec = findPhoneMemoSection(sid);
+    const base = (existing && existing.notes ? existing.notes : []).map(function (n) {
+      return {
+        id: n.id,
+        sectionId: n.sectionId,
+        kind: n.kind || "text",
+        title: n.title,
+        preview: n.preview,
+        body: n.body,
+        meta: n.meta || {},
+        time: n.time,
+        dateKey: n.dateKey,
+        visitTime: n.visitTime,
+      };
+    });
+    const seenIds = new Set(
+      base.map(function (n) {
+        return n.id;
+      })
+    );
+    const appendIn =
+      raw && Array.isArray(raw.newNotes)
+        ? raw.newNotes
+        : raw && Array.isArray(raw.notes)
+          ? raw.notes
+          : [];
+    let added = 0;
+    appendIn.forEach(function (item, idx) {
+      const note = normalizePhoneMemoNoteItem(item, idx, seenIds);
+      if (!note || note.sectionId !== sid) return;
+      base.unshift(note);
+      added++;
+    });
+    if (added < PHONE_MEMO_SECTION_GENERATE_COUNT) {
+      throw new Error(
+        "分类「" +
+          (sec ? sec.name : sid) +
+          "」新备忘录不足 " +
+          PHONE_MEMO_SECTION_GENERATE_COUNT +
+          " 条（实际 " +
+          added +
+          " 条）"
+      );
+    }
+    return {
+      sections: mergePhoneMemoSectionDescriptions((existing && existing.sections) || getPhoneMemoSections()).map(
+        function (s) {
+          return { id: s.id, name: s.name, description: s.description };
+        }
+      ),
+      notes: sortPhoneMemoNotes(base).slice(0, PHONE_MEMO_MAX_NOTES),
+      generatedAt: Date.now(),
+    };
+  }
+
   function requirePhoneMemoHolderForEdit() {
     sanitizePhoneHolderState();
     if (!getPhoneWechatStorageKeyForCurrentHolder()) {
@@ -18995,9 +19470,12 @@
     return true;
   }
 
-  function buildPhoneMemoBarHtml(totalCount) {
+  function buildPhoneMemoBarHtml(activeSectionId) {
     const loadingCls = phoneMemoGenerating ? " phone-wechat-gen-btn--loading" : "";
+    const sectionLoadingCls = phoneMemoSectionGenerating ? " phone-memo__section-gen-btn--loading" : "";
     const disabled = isAnyPhoneAiGenerating();
+    const sec = findPhoneMemoSection(activeSectionId);
+    const secName = sec ? String(sec.name) : "本类";
     return (
       '<header class="phone-app__bar phone-app__bar--wechat-list phone-memo__bar">' +
       '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
@@ -19005,13 +19483,23 @@
       "</button>" +
       '<div class="phone-memo__title-wrap">' +
       '<h2 class="phone-app__title phone-app__title--left">备忘录</h2>' +
-      '<span class="phone-memo__count">' +
-      escapeHtml(String(totalCount || 0)) +
-      " 条</span>" +
+      '<button type="button" class="phone-memo__section-gen-btn' +
+      sectionLoadingCls +
+      '" data-phone-memo-section-generate aria-label="为「' +
+      escapeHtml(secName) +
+      "」新增 " +
+      PHONE_MEMO_SECTION_GENERATE_COUNT +
+      ' 条备忘录" title="为当前分类新增 ' +
+      PHONE_MEMO_SECTION_GENERATE_COUNT +
+      ' 条"' +
+      (disabled ? " disabled" : "") +
+      ">+" +
+      PHONE_MEMO_SECTION_GENERATE_COUNT +
+      "</button>" +
       "</div>" +
       '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
       loadingCls +
-      '" data-phone-memo-generate aria-label="AI 生成备忘录" title="AI 生成备忘录"' +
+      '" data-phone-memo-generate aria-label="AI 生成全部备忘录" title="AI 生成全部备忘录"' +
       (disabled ? " disabled" : "") +
       ">" +
       buildPhoneWechatStarIconSvg() +
@@ -19159,7 +19647,9 @@
     const placeholder = !hasPhoneMemoGenerated();
     const notes = getPhoneMemoNotesForSection(sectionId);
     if (!notes.length) {
-      return '<div class="phone-memo__empty"><p class="phone-memo__empty-text">暂无备忘录，点击右上角生成</p></div>';
+      return '<div class="phone-memo__empty"><p class="phone-memo__empty-text">暂无备忘录，点击「+' +
+        PHONE_MEMO_SECTION_GENERATE_COUNT +
+        "」或右上角生成</p></div>";
     }
     const rows = notes
       .map(function (note) {
@@ -19278,10 +19768,9 @@
   function buildPhoneMemoHtml(slot) {
     const nav = getPhoneNav(slot);
     const activeSectionId = getPhoneMemoActiveSectionId(nav);
-    const totalCount = getPhoneMemoNotesForSection(activeSectionId).length;
     return (
       '<div class="phone-app phone-memo" aria-label="备忘录">' +
-      buildPhoneMemoBarHtml(totalCount) +
+      buildPhoneMemoBarHtml(activeSectionId) +
       buildPhoneMemoSectionTabsHtml(activeSectionId) +
       '<div class="phone-memo__scroll">' +
       buildPhoneMemoNoteListHtml(activeSectionId, nav) +
@@ -19484,6 +19973,73 @@
     } finally {
       clearGenCallContext();
       phoneMemoGenerating = false;
+      if (slot && getPhoneNav(slot).screen === "memo") renderPhoneScreen(slot);
+    }
+  }
+
+  async function generatePhoneMemoSectionContent(slot) {
+    if (isAnyPhoneAiGenerating()) return;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const holder = getPhoneHolderCharacter();
+    if (!plot || !holder) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    const nav = getPhoneNav(slot);
+    const sectionId = getPhoneMemoActiveSectionId(nav);
+    const sec = findPhoneMemoSection(sectionId);
+    if (!sec) {
+      showToast("请先选择备忘录分类。", "warning");
+      return;
+    }
+    preparePhoneStoryDateForGeneration(plot);
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    getPhoneMemoBundleMutable();
+    const existing = phoneMemoData[key] || null;
+    phoneMemoSectionGenerating = true;
+    if (slot && nav.screen === "memo") renderPhoneScreen(slot);
+    try {
+      showToast(
+        "正在为「" + sec.name + "」生成 " + PHONE_MEMO_SECTION_GENERATE_COUNT + " 条备忘录…",
+        "info"
+      );
+      setGenCallContext(buildGenCallOpts("phone-memo-section", { slot: slot, sectionId: sectionId }));
+      const systemPrompt =
+        "你是中文互动叙事助手。根据剧情与已有备忘录，为指定分类增量追加备忘录 JSON。\n" +
+        "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+        '格式：{"newNotes":[{"id":"唯一id","sectionId":"' +
+        sec.id +
+        '","kind":"text|photo|audio|receipt|checklist|link|location","dateKey":"YYYY-MM-DD","visitTime":"HH:mm","title":"...","preview":"...","body":"...","meta":{...}}]}';
+      const userPrompt = buildPhoneMemoSectionGeneratePrompt(plot, holder, sectionId, existing);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.78,
+        8192
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      if (parsed && parsed.newNotes) {
+        parsed.newNotes = bumpPhoneStoryDateKeysForIncrement(parsed.newNotes, "dateKey");
+      }
+      const bundle = mergePhoneMemoSectionIncrement(existing, parsed, sectionId);
+      if (!bundle.notes || !bundle.notes.length) {
+        throw new Error("未能解析有效的备忘录内容");
+      }
+      phoneMemoData[key] = bundle;
+      schedulePersistNarrative();
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) renderPhoneScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      phoneMemoSectionGenerating = false;
       if (slot && getPhoneNav(slot).screen === "memo") renderPhoneScreen(slot);
     }
   }
@@ -21777,6 +22333,7 @@
   const PHONE_JJWXC_CHAPTER_TITLE_MAX = 20;
   const PHONE_JJWXC_PLACEHOLDER_NOVELS = 6;
   const PHONE_JJWXC_REF_NOVELS = 5;
+  const PHONE_JJWXC_CATEGORY_GENERATE_COUNT = 5;
 
   function purgePhoneJjwxcDataForPlot(plotId) {
     const pid = String(plotId || "").trim();
@@ -22571,6 +23128,102 @@
     return lines.join("\n");
   }
 
+  function buildPhoneJjwxcCategoryGeneratePrompt(plot, holder, categoryId, existing) {
+    const cat = findPhoneJjwxcCategory(categoryId);
+    if (!cat) throw new Error("无效分类");
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const recent = ((existing && existing.novels) || [])
+      .filter(function (n) {
+        return n && n.categoryId === cat.id;
+      })
+      .slice(0, PHONE_JJWXC_REF_NOVELS);
+    const lines = [
+      "请为「查手机·晋江」分类「" +
+        cat.name +
+        "」增量生成 " +
+        PHONE_JJWXC_CATEGORY_GENERATE_COUNT +
+        " 部新作品。",
+      "视角：手机持有者「" + holderName + "」在晋江书城浏览；新作品作者不认识剧情人物。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【本分类说明（categoryId=" + cat.id + "）】");
+    lines.push(cat.description || "（无简介）");
+    lines.push("");
+    lines.push("【本分类已有作品摘要（请勿重复 id 或同标题）】");
+    if (recent.length) {
+      recent.forEach(function (n) {
+        lines.push(formatPhoneJjwxcNovelForPrompt(n));
+      });
+    } else {
+      lines.push("（无）");
+    }
+    lines.push("");
+    lines.push(
+      "输出唯一 JSON：{\"newNovels\":[...]}；须恰好 " +
+        PHONE_JJWXC_CATEGORY_GENERATE_COUNT +
+        " 部；每部 categoryId 必须为 \"" +
+        cat.id +
+        "\"。\n" +
+        "novel 字段：id、categoryId、title（网文风标题≤" +
+        PHONE_JJWXC_TITLE_MAX +
+        "字）、author（笔名）、tags（2～3个）、summary（列表简介≤" +
+        PHONE_JJWXC_SUMMARY_MAX +
+        "字）、status（ongoing/finished）、wordCount（如「18万字」）、collectCount、coverHue（0-359）、onShelf、isFavorite、readProgress（0-100）、lastReadKey。\n" +
+        "不要生成 synopsis/chapters；须贴合持有者「" +
+        holderName +
+        "」人设与分类方向；禁止 OOC。"
+    );
+    return lines.join("\n");
+  }
+
+  function mergePhoneJjwxcCategoryIncrement(existing, raw, categoryId) {
+    const cid = normalizePhoneJjwxcCategoryId(categoryId);
+    const cat = findPhoneJjwxcCategory(cid);
+    if (!cat) throw new Error("无效分类");
+    const base = (existing && existing.novels ? existing.novels : []).map(function (n) {
+      return Object.assign({}, n, {
+        chapters: (n.chapters || []).map(function (c) {
+          return Object.assign({}, c);
+        }),
+      });
+    });
+    const seenIds = new Set(
+      base.map(function (n) {
+        return n.id;
+      })
+    );
+    const appendIn =
+      raw && Array.isArray(raw.newNovels) ? raw.newNovels : raw && Array.isArray(raw.novels) ? raw.novels : [];
+    let added = 0;
+    appendIn.forEach(function (item, idx) {
+      const n = normalizePhoneJjwxcNovelItem(item, idx, seenIds);
+      if (!n || n.categoryId !== cid) return;
+      base.unshift(n);
+      added++;
+    });
+    if (added < PHONE_JJWXC_CATEGORY_GENERATE_COUNT) {
+      throw new Error(
+        "分类「" + cat.name + "」新作品不足 " + PHONE_JJWXC_CATEGORY_GENERATE_COUNT + " 部（实际 " + added + " 部）"
+      );
+    }
+    return {
+      categories: (existing && existing.categories ? existing.categories : clonePhoneJjwxcDefaultCategories()).map(
+        clonePhoneJjwxcCategory
+      ),
+      novels: base,
+      tips: (existing && existing.tips ? existing.tips : []).slice(),
+      readingNotes: (existing && existing.readingNotes ? existing.readingNotes : []).slice(),
+      readerProfile: normalizePhoneJjwxcReaderProfile(
+        (existing && existing.readerProfile) || (raw && raw.readerProfile) || null
+      ),
+      categoriesUserEdited: !!(existing && existing.categoriesUserEdited),
+      generatedAt: Date.now(),
+    };
+  }
+
   function buildPhoneJjwxcNovelPrompt(plot, holder, novel, incremental) {
     const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
     const cat = findPhoneJjwxcCategory(novel.categoryId);
@@ -22727,6 +23380,67 @@
     } finally {
       clearGenCallContext();
       phoneJjwxcGenerating = false;
+      if (slot && String(getPhoneNav(slot).screen || "").indexOf("jjwxc") === 0) renderPhoneScreen(slot);
+    }
+  }
+
+  async function generatePhoneJjwxcCategoryContent(slot) {
+    if (isAnyPhoneAiGenerating()) return;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const holder = getPhoneHolderCharacter();
+    if (!plot || !holder) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    const nav = getPhoneNav(slot);
+    const categoryId = getPhoneJjwxcActiveCategoryId(nav);
+    const cat = findPhoneJjwxcCategory(categoryId);
+    if (!cat) {
+      showToast("请先选择分类。", "warning");
+      return;
+    }
+    preparePhoneStoryDateForGeneration(plot);
+    const key = getPhoneWechatStorageKeyForCurrentHolder();
+    getPhoneJjwxcBundleMutable();
+    const existing = phoneJjwxcData[key] || null;
+    phoneJjwxcCategoryGenerating = true;
+    if (slot && String(nav.screen || "").indexOf("jjwxc") === 0) renderPhoneScreen(slot);
+    try {
+      showToast(
+        "正在为「" + cat.name + "」生成 " + PHONE_JJWXC_CATEGORY_GENERATE_COUNT + " 篇作品…",
+        "info"
+      );
+      setGenCallContext(buildGenCallOpts("phone-jjwxc-category", { slot: slot, categoryId: categoryId }));
+      const systemPrompt =
+        "你是中文互动叙事助手。根据剧情为晋江书城指定分类增量追加作品 JSON。\n" +
+        "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+        '格式：{"newNovels":[{"id":"唯一id","categoryId":"' +
+        cat.id +
+        '","title":"...","author":"...","tags":[],"summary":"...","status":"ongoing","wordCount":"...","collectCount":0,"coverHue":0,"onShelf":false,"isFavorite":false,"readProgress":0,"lastReadKey":"YYYY-MM-DD"}]}';
+      const userPrompt = buildPhoneJjwxcCategoryGeneratePrompt(plot, holder, categoryId, existing);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.78,
+        8192
+      );
+      const parsed = bumpPhoneStoryJjwxcIncrement(parseAssistantJsonObject(raw));
+      const bundle = mergePhoneJjwxcCategoryIncrement(existing, parsed, categoryId);
+      phoneJjwxcData[key] = bundle;
+      flushPersistNarrative();
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) renderPhoneScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      phoneJjwxcCategoryGenerating = false;
       if (slot && String(getPhoneNav(slot).screen || "").indexOf("jjwxc") === 0) renderPhoneScreen(slot);
     }
   }
@@ -22902,18 +23616,19 @@
     const loadingCls = phoneJjwxcGenerating ? " phone-wechat-gen-btn--loading" : "";
     const disabled = isAnyPhoneAiGenerating();
     const title = String(titleText || "晋江文学城").trim() || "晋江文学城";
-    const genBtn =
-      generateAttr !== false
-        ? '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
-          loadingCls +
-          '" ' +
-          (generateAttr || "data-phone-jjwxc-generate") +
-          ' aria-label="AI 生成" title="AI 生成"' +
-          (disabled ? " disabled" : "") +
-          ">" +
-          buildPhoneWechatStarIconSvg() +
-          "</button>"
-        : '<span class="phone-app__bar-side" aria-hidden="true"></span>';
+    const genAttrName =
+      generateAttr !== false ? String(generateAttr || "data-phone-jjwxc-generate").trim() : "";
+    const genBtn = genAttrName
+      ? '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+        loadingCls +
+        '" ' +
+        genAttrName +
+        ' aria-label="AI 生成" title="AI 生成"' +
+        (disabled ? " disabled" : "") +
+        ">" +
+        buildPhoneWechatStarIconSvg() +
+        "</button>"
+      : '<span class="phone-app__bar-side" aria-hidden="true"></span>';
     return (
       '<header class="phone-app__bar phone-jjwxc__bar">' +
       '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
@@ -23067,6 +23782,36 @@
     );
   }
 
+  function buildPhoneJjwxcCategoryGenBtnHtml(activeCategoryId, isFanwork) {
+    const loadingCls =
+      (isFanwork ? fanworkJjwxcCategoryGenerating : phoneJjwxcCategoryGenerating)
+        ? " phone-jjwxc__category-gen-btn--loading"
+        : "";
+    const disabled = isAnyPhoneAiGenerating();
+    const cat = isFanwork
+      ? findFanworkJjwxcCategory(activeCategoryId)
+      : findPhoneJjwxcCategory(activeCategoryId);
+    const catName = cat ? String(cat.name) : "本类";
+    const dataAttr = isFanwork ? "data-fanwork-jjwxc-category-generate" : "data-phone-jjwxc-category-generate";
+    return (
+      '<button type="button" class="phone-jjwxc__category-gen-btn' +
+      loadingCls +
+      '" ' +
+      dataAttr +
+      ' aria-label="为「' +
+      escapeHtml(catName) +
+      "」新增 " +
+      PHONE_JJWXC_CATEGORY_GENERATE_COUNT +
+      ' 篇作品" title="为当前分类新增 ' +
+      PHONE_JJWXC_CATEGORY_GENERATE_COUNT +
+      ' 篇"' +
+      (disabled ? " disabled" : "") +
+      ">+" +
+      PHONE_JJWXC_CATEGORY_GENERATE_COUNT +
+      "</button>"
+    );
+  }
+
   function buildPhoneJjwxcCategoryPillsHtml(activeCategoryId) {
     const sections = getPhoneJjwxcCategories();
     const tabs = sections
@@ -23083,15 +23828,18 @@
         );
       })
       .join("");
+    const catGenBtn = buildPhoneJjwxcCategoryGenBtnHtml(activeCategoryId, false);
     return (
       '<div class="pill-row-wrap phone-jjwxc__pill-wrap phone-jjwxc__pill-wrap--sticky" aria-label="书城分类">' +
       '<div class="phone-jjwxc__pill-row">' +
       '<div class="phone-jjwxc__pill-scroll pill-row">' +
       tabs +
       "</div>" +
+      '<div class="phone-jjwxc__pill-actions">' +
+      catGenBtn +
       '<button type="button" class="phone-jjwxc__cat-manage" data-phone-jjwxc-manage-open aria-label="管理分类" title="管理分类">' +
       '<svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></svg>' +
-      "</button></div></div>"
+      "</button></div></div></div>"
     );
   }
 
@@ -24646,6 +25394,95 @@
     return lines.join("\n");
   }
 
+  function buildFanworkJjwxcCategoryGeneratePrompt(pair, categoryId, existing) {
+    const cat = findFanworkJjwxcCategory(categoryId);
+    if (!cat) throw new Error("无效分类");
+    const recent = ((existing && existing.novels) || [])
+      .filter(function (n) {
+        return n && n.categoryId === cat.id;
+      })
+      .slice(0, 5);
+    const lines = [
+      "请为 CP 同人书城分类「" +
+        cat.name +
+        "」增量生成 " +
+        PHONE_JJWXC_CATEGORY_GENERATE_COUNT +
+        " 部新同人文。",
+      "CP：" + getFanworkCpLabel(pair),
+      "",
+      buildFanworkCpProfileBlock(pair),
+      "",
+      "【本分类说明（categoryId=" + cat.id + "）】",
+      cat.description || "（无简介）",
+      "",
+      "【本分类已有作品摘要（请勿重复 id 或同标题）】",
+    ];
+    if (recent.length) {
+      recent.forEach(function (n) {
+        lines.push(formatFanworkJjwxcNovelForPrompt(n));
+      });
+    } else {
+      lines.push("（无）");
+    }
+    lines.push("");
+    lines.push(
+      "输出唯一 JSON：{\"newNovels\":[...]}；须恰好 " +
+        PHONE_JJWXC_CATEGORY_GENERATE_COUNT +
+        " 部；每部 categoryId 必须为 \"" +
+        cat.id +
+        "\"。\n" +
+        "novel 字段：id、categoryId、title、author（笔名）、tags（2～3个 CP 标签）、summary、authorNote（作者有话说，1～2 句，≤" +
+        FANWORK_JJWXC_CATALOG_AUTHOR_NOTE_MAX +
+        " 字）、status、wordCount、collectCount、coverHue、readProgress。\n" +
+        "onShelf、isFavorite 一律 false 或省略；不要生成 synopsis/chapters；须严格贴合 CP 与分类剧情方向。"
+    );
+    return lines.join("\n");
+  }
+
+  function mergeFanworkJjwxcCategoryIncrement(existing, raw, categoryId) {
+    const cid = normalizePhoneJjwxcCategoryId(categoryId);
+    const cat = findFanworkJjwxcCategory(cid);
+    if (!cat) throw new Error("无效分类");
+    const base = (existing && existing.novels ? existing.novels : []).map(function (n) {
+      return Object.assign({}, n, {
+        chapters: (n.chapters || []).map(function (c) {
+          return Object.assign({}, c);
+        }),
+      });
+    });
+    const seenIds = new Set(
+      base.map(function (n) {
+        return n.id;
+      })
+    );
+    const appendIn =
+      raw && Array.isArray(raw.newNovels) ? raw.newNovels : raw && Array.isArray(raw.novels) ? raw.novels : [];
+    let added = 0;
+    appendIn.forEach(function (item, idx) {
+      const n = normalizeFanworkJjwxcNovelItem(item, idx, seenIds);
+      if (!n || n.categoryId !== cid) return;
+      base.unshift(n);
+      added++;
+    });
+    if (added < PHONE_JJWXC_CATEGORY_GENERATE_COUNT) {
+      throw new Error(
+        "分类「" + cat.name + "」新作品不足 " + PHONE_JJWXC_CATEGORY_GENERATE_COUNT + " 部（实际 " + added + " 部）"
+      );
+    }
+    return {
+      categories: (existing && existing.categories ? existing.categories : []).map(clonePhoneJjwxcCategory),
+      novels: base,
+      tips: (existing && existing.tips ? existing.tips : []).slice(),
+      readingNotes: (existing && existing.readingNotes ? existing.readingNotes : []).slice(),
+      readerProfile: mergeFanworkJjwxcReaderProfile(
+        existing && existing.readerProfile ? existing.readerProfile : null,
+        raw && raw.readerProfile ? raw.readerProfile : null
+      ),
+      categoriesUserEdited: !!(existing && existing.categoriesUserEdited),
+      generatedAt: Date.now(),
+    };
+  }
+
   function buildFanworkJjwxcNovelPrompt(pair, novel) {
     const cat = findFanworkJjwxcCategory(novel.categoryId);
     const lines = [
@@ -24867,6 +25704,71 @@
     } finally {
       clearGenCallContext();
       fanworkJjwxcGenerating = false;
+      if (slot && String(getFanworkNav(slot).screen || "").indexOf("jjwxc") === 0) renderFanworkScreen(slot);
+    }
+  }
+
+  async function generateFanworkJjwxcCategoryContent(slot) {
+    if (isAnyPhoneAiGenerating()) {
+      showToast("正在生成中，请稍候…", "info");
+      return;
+    }
+    const pair = getFanworkCpPair();
+    if (!pair) {
+      showToast("请先选择两位角色组 CP。", "warning");
+      return;
+    }
+    const nav = getFanworkNav(slot);
+    const categoryId = getFanworkJjwxcActiveCategoryId(nav);
+    const cat = findFanworkJjwxcCategory(categoryId);
+    if (!cat) {
+      showToast("请先选择分类。", "warning");
+      return;
+    }
+    const cats = getFanworkJjwxcCategories();
+    if (cats.length < FANWORK_JJWXC_MIN_CATEGORIES) {
+      showToast("请先添加至少 " + FANWORK_JJWXC_MIN_CATEGORIES + " 个分区并填写剧情方向。", "warning");
+      return;
+    }
+    const key = getFanworkCpStorageKey();
+    getFanworkJjwxcBundleMutable();
+    const existing = fanworkJjwxcData[key] || null;
+    fanworkJjwxcCategoryGenerating = true;
+    if (slot && String(nav.screen || "").indexOf("jjwxc") === 0) renderFanworkScreen(slot);
+    try {
+      showToast(
+        "正在为「" + cat.name + "」生成 " + PHONE_JJWXC_CATEGORY_GENERATE_COUNT + " 篇同人文…",
+        "info"
+      );
+      setGenCallContext(buildGenCallOpts("fanwork-jjwxc-category", { slot: slot, categoryId: categoryId }));
+      const systemPrompt =
+        "你是中文同人向叙事助手。为指定 CP 同人分类增量追加 " +
+        PHONE_JJWXC_CATEGORY_GENERATE_COUNT +
+        " 部作品 JSON。\n" +
+        "只输出一个 JSON 对象，不要用 markdown 代码围栏。\n" +
+        '格式：{"newNovels":[{"id":"唯一id","categoryId":"' +
+        cat.id +
+        '","title":"...","author":"...","tags":[],"summary":"...","authorNote":"...","status":"ongoing","wordCount":"...","collectCount":0,"coverHue":0,"readProgress":0}]}';
+      const userPrompt = buildFanworkJjwxcCategoryGeneratePrompt(pair, categoryId, existing);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.78,
+        8192
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const bundle = mergeFanworkJjwxcCategoryIncrement(existing, parsed, categoryId);
+      fanworkJjwxcData[key] = bundle;
+      flushPersistNarrative();
+      if (slot) renderFanworkScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      fanworkJjwxcCategoryGenerating = false;
       if (slot && String(getFanworkNav(slot).screen || "").indexOf("jjwxc") === 0) renderFanworkScreen(slot);
     }
   }
@@ -25430,15 +26332,18 @@
         );
       })
       .join("");
+    const catGenBtn = buildPhoneJjwxcCategoryGenBtnHtml(activeCategoryId, true);
     return (
       '<div class="pill-row-wrap phone-jjwxc__pill-wrap phone-jjwxc__pill-wrap--sticky" aria-label="书城分区">' +
       '<div class="phone-jjwxc__pill-row">' +
       '<div class="phone-jjwxc__pill-scroll pill-row">' +
       (tabs || '<span class="field__hint phone-jjwxc__empty-cat">请先点 ⚙ 添加分区</span>') +
       "</div>" +
+      '<div class="phone-jjwxc__pill-actions">' +
+      catGenBtn +
       '<button type="button" class="phone-jjwxc__cat-manage" data-fanwork-jjwxc-manage-open aria-label="管理分区" title="管理分区">' +
       '<svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></svg>' +
-      "</button></div></div>"
+      "</button></div></div></div>"
     );
   }
 
@@ -27504,7 +28409,9 @@
       "phone-forum-list": "论坛帖子已生成好",
       "phone-forum-post": "论坛帖子详情已生成好",
       "phone-browser": "浏览器内容已生成好",
+      "phone-browser-section": "本分类浏览记录已生成好",
       "phone-memo": "备忘录已生成好",
+      "phone-memo-section": "本分类备忘录已生成好",
       "phone-diary": "日记已生成好",
       "phone-bill": "账单已生成好",
       "phone-weread": "微信读书已生成好",
@@ -28118,7 +29025,15 @@
     });
   }
 
-  async function regenerateStoryBrief(plot) {
+  async function regenerateStoryBrief(plot, opts) {
+    opts = opts || {};
+    if (!opts.skipPlayGuard && plotHasRecordedInteractivePlay(plot)) {
+      const ok = await showConfirm(
+        "本条剧情已有正文回合。重新生成将只更新「时代与场景 / 形象 / 故事开端」等概要，不会清空已玩进度；新概要可能与现有正文不一致。是否继续？\n\n若需从零开局，请新建剧情。",
+        "重新生成概要"
+      );
+      if (!ok) return;
+    }
     const protagonist = getCharById(plot.protagonistId);
     const supporting = (plot.supportingIds || [])
       .map(function (id) {
@@ -30682,17 +31597,7 @@
     const wbs = getWorldBooksForPlot(plot);
 
     const recentTurns = (plot.playTurns || []).slice(-STORY_PLAY_REF_TURN_LIMIT);
-    const history = compactStoryPlayHistoryForApi(
-      recentTurns
-        .map(function (turn) {
-          return (turn.lines || [])
-            .map(function (line) {
-              return storyLineHistoryPrefix(line) + (line.text || "");
-            })
-            .join("\n");
-        })
-        .join("\n\n")
-    );
+    const history = buildStoryPlayRecentHistoryText(plot);
     const latestPlayerAction = (function () {
       const turns = recentTurns;
       for (let ti = turns.length - 1; ti >= 0; ti--) {
@@ -30842,7 +31747,7 @@
       "时代与场景：\n" + eraBlock +
       "\n\n我的形象：\n" + identitySelfBlock +
       "\n\n其他角色：\n" + identityOthersBlock +
-      "\n\n故事开端：\n" + openingBlock +
+      "\n\n故事开端：\n" + buildStoryPlayOpeningPromptBlock(openingBlock, hasPriorPlay) +
       "\n\n花名册（主要角色须优先使用其中姓名；未在册的客串也可用【姓名】起块）：" + (rosterNames || "无") +
       (includeRoleLibrary ? "\n\n【角色库·外貌与性格（仅作扮演参考）】\n" + roleLibraryBlock : "") +
       (pendingPlayerTurnAction && String(pendingPlayerTurnAction.line || "").trim()
@@ -32444,6 +33349,11 @@
       return;
     }
 
+    if (e.target.closest("[data-phone-browser-section-generate]")) {
+      void generatePhoneBrowserSectionContent(slot);
+      return;
+    }
+
     if (e.target.closest("[data-phone-browser-manage-open]")) {
       if (!requirePhoneBrowserHolderForEdit()) return;
       openPhoneBrowserManage(slot);
@@ -32480,6 +33390,7 @@
 
     const browserEntryToggle = e.target.closest("[data-phone-browser-entry-toggle]");
     if (browserEntryToggle) {
+      e.preventDefault();
       togglePhoneBrowserEntryExpand(slot, browserEntryToggle.getAttribute("data-phone-browser-entry-toggle"));
       return;
     }
@@ -32502,6 +33413,11 @@
       return;
     }
 
+    if (e.target.closest("[data-phone-memo-section-generate]")) {
+      void generatePhoneMemoSectionContent(slot);
+      return;
+    }
+
     if (e.target.closest("[data-phone-bill-generate]")) {
       void generatePhoneBillContent(slot);
       return;
@@ -32514,6 +33430,11 @@
 
     if (e.target.closest("[data-phone-jjwxc-generate]")) {
       void generatePhoneJjwxcCatalogContent(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-phone-jjwxc-category-generate]")) {
+      void generatePhoneJjwxcCategoryContent(slot);
       return;
     }
 
@@ -32704,7 +33625,10 @@
 
     if (e.target.closest("[data-phone-forum-post-generate]")) {
       const nav = getPhoneNav(slot);
-      if (nav.forumPostId) void generatePhoneForumPostContent(slot, nav.forumPostId, true);
+      if (!nav.forumPostId) return;
+      const hit = findPhoneForumPost(nav.forumPostId);
+      const incremental = !!(hit && phoneForumPostHasDetail(hit.post));
+      void generatePhoneForumPostContent(slot, nav.forumPostId, incremental);
       return;
     }
 
@@ -32915,6 +33839,11 @@
 
     if (e.target.closest("[data-fanwork-jjwxc-generate]")) {
       void generateFanworkJjwxcCatalogContent(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-fanwork-jjwxc-category-generate]")) {
+      void generateFanworkJjwxcCategoryContent(slot);
       return;
     }
 
