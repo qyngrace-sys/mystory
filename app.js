@@ -26580,6 +26580,15 @@
     return sections.length ? sections[0].id : "";
   }
 
+  function buildFanworkPlotWorldBookBlock(plot) {
+    if (!plot) return "";
+    const wbs = getWorldBooksForPlot(plot);
+    return formatWorldBooksPromptBlock(
+      wbs,
+      "【世界书（所选剧情的设定参考；同人创作须遵守其中的世界观、文风与禁令）】"
+    ).trim();
+  }
+
   function buildFanworkCpProfileBlock(pair) {
     if (!pair) return "";
     const plot = pair.plot;
@@ -26595,6 +26604,11 @@
     lines.push(
       "【" + (pair.charB.name || "角色B") + "】" + buildCharacterProfileFromPlot(plot, pair.charB.id)
     );
+    const wbBlock = buildFanworkPlotWorldBookBlock(plot);
+    if (wbBlock) {
+      lines.push("");
+      lines.push(wbBlock);
+    }
     return lines.filter(Boolean).join("\n");
   }
 
