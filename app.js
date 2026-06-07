@@ -644,6 +644,8 @@
   let globalGenPawKeyStack = [];
   let globalGenPawWatchHandle = 0;
   let pendingGenCallContext = null;
+  /** API 已成功但业务尚未收尾时暂存，在 clearGenCallContext 后统一弹出（与加载态同步） */
+  let deferredGenReadyNotice = null;
   let genReadyBannerEl = null;
   let genReadyBannerTimer = 0;
 
@@ -721,6 +723,21 @@
 
   function clearGenCallContext() {
     pendingGenCallContext = null;
+    flushDeferredGenReadyBanner();
+  }
+
+  function stashGenReadyNotice(notice) {
+    if (notice && notice.message) deferredGenReadyNotice = notice;
+  }
+
+  /** 在 finally 收尾（关 loading、render）之后再弹出「已生成好」横幅 */
+  function flushDeferredGenReadyBanner() {
+    if (!deferredGenReadyNotice) return;
+    const notice = deferredGenReadyNotice;
+    deferredGenReadyNotice = null;
+    setTimeout(function () {
+      showGenReadyBanner(notice);
+    }, 0);
   }
 
   function buildGenReadyPawSvg() {
@@ -1209,7 +1226,7 @@
             "角色、剧情、世界书及分类",
             "剧情正文/总结/记忆/收藏/划线/想法/背景图",
             "查手机各 App 生成内容与壁纸",
-            "小狗饭 CP 与作品数据",
+            "小狗饭剧情、分区与作品数据",
             "点星助手、人设与聊天记录",
             "API 配置与密钥",
             "外观主题、亮度、字体与状态栏等设置",
@@ -1793,6 +1810,10 @@
   const PLAY_SUMMARY_PROMPT_ITEM_MAX_CHARS = 4000;
   /** 剧情续写：最近 N 轮正文 + 最新 N 条总结 + N 条相关记忆（单一窗口，便于控制体积） */
   const STORY_PLAY_REF_TURN_LIMIT = 5;
+  /** 每轮内部概要：续写时前 N-1 轮用概要、最后一轮用全文；送入模型的单条概要上限 */
+  const TURN_DIGEST_PROMPT_MAX_CHARS = 800;
+  /** 每轮内部概要存盘/API 生成硬上限 */
+  const TURN_DIGEST_STORE_MAX_CHARS = 1200;
   /** 续写送入模型的总结条数（总结已压缩，可略多于正文轮数窗口） */
   const PLAY_SUMMARY_PROMPT_REF_LIMIT = PLAY_SUMMARY_REF_LIMIT;
   /** 剧情续写单次请求的用户/系统提示软上限，避免 Gemini 中转因上下文过大返回 empty_response */
@@ -2157,6 +2178,7 @@
   /** 查手机论坛：key = plotId + \\u001e + holderCharId */
   let phoneForumData = {};
   let phoneForumGenerating = false;
+  let phoneForumSectionGenerating = false;
   /** 查手机论坛帖子详情生成中的 postId */
   let phoneForumPostGeneratingId = null;
   /** 查手机浏览器：key = plotId + \\u001e + holderCharId */
@@ -2178,13 +2200,22 @@
   let phoneWereadGenerating = false;
   /** 查手机晋江：key = plotId + \\u001e + holderCharId */
   let phoneJjwxcData = {};
+  /** 查手机可管理分类（按剧情统一，同剧情下各角色共享） */
+  let phoneForumSectionsByPlot = {};
+  let phoneBrowserSectionsByPlot = {};
+  let phoneMemoSectionsByPlot = {};
+  let phoneJjwxcCategoriesByPlot = {};
   let phoneJjwxcGenerating = false;
   let phoneJjwxcCategoryGenerating = false;
   let phoneJjwxcNovelGeneratingId = null;
   let phoneJjwxcChapterGeneratingId = null;
-  /** 同人粮 CP：已选两位角色 id（排序后） */
-  let fanworkCpCharIds = null;
-  /** 同人粮晋江：key = charIdA + \\u001e + charIdB（id 已排序） */
+  /** 同人粮：已选剧情 id（CP 由剧情内主视角 × 配角自动匹配） */
+  let fanworkPlotId = null;
+  /** 同人粮：剧情有多个配角时，指定 CP 另一方（默认首个配角） */
+  let fanworkCpPartnerId = null;
+  /** 同人粮分区（全局预设，不依赖 CP/剧情） */
+  let fanworkJjwxcCategoryStore = { categories: [], userEdited: false };
+  /** 同人粮晋江：key = plotId */
   let fanworkJjwxcData = {};
   let fanworkJjwxcGenerating = false;
   let fanworkJjwxcCategoryGenerating = false;
@@ -2196,8 +2227,8 @@
     "story-phone-slot": { screen: "home", chatId: null },
   };
   const fanworkNavBySlotId = {
-    "fanwork-content-slot": { screen: "jjwxc", cpPickSlot: "a", cpPickOpen: false },
-    "story-fanwork-slot": { screen: "jjwxc", cpPickSlot: "a", cpPickOpen: false },
+    "fanwork-content-slot": { screen: "jjwxc", plotPickOpen: false },
+    "story-fanwork-slot": { screen: "jjwxc", plotPickOpen: false },
   };
 
   function getPhoneNav(slot) {
@@ -2211,7 +2242,7 @@
   function getFanworkNav(slot) {
     if (!slot || !slot.id) return fanworkNavBySlotId["fanwork-content-slot"];
     if (!fanworkNavBySlotId[slot.id]) {
-      fanworkNavBySlotId[slot.id] = { screen: "jjwxc", cpPickSlot: "a", cpPickOpen: false };
+      fanworkNavBySlotId[slot.id] = { screen: "jjwxc", plotPickOpen: false };
     }
     return fanworkNavBySlotId[slot.id];
   }
@@ -2299,6 +2330,8 @@
   /** 从长按菜单进入「编辑」后开启：仅此时在正文划选才弹出复制/划线等气泡（避免与系统长按菜单冲突） */
   let storyPlayAnnotateMode = false;
   const AUTO_SUMMARY_EVERY_TURNS = 6;
+  /** 回合内部概要生成中：plotId:turnId */
+  const turnDigestInflightKeys = new Set();
   let storySummaryEditingId = null;
   let storySummaryEditingDraft = "";
   /** 剧情总结卡片：阅读模式下点击正文展开全文时的 id 集合 */
@@ -2530,12 +2563,156 @@
   function ensureStoryLineIds(plot) {
     if (!plot || !Array.isArray(plot.playTurns)) return;
     plot.playTurns.forEach(function (turn) {
-      if (!turn || !Array.isArray(turn.lines)) return;
+      if (!turn || typeof turn !== "object") return;
+      if (typeof turn.id !== "string" || !turn.id.trim()) turn.id = uid("turn");
+      if (typeof turn.internalDigest !== "string") turn.internalDigest = "";
+      if (!Array.isArray(turn.lines)) return;
       turn.lines.forEach(function (line) {
         if (!line || typeof line !== "object") return;
         if (typeof line.id !== "string" || !line.id.trim()) line.id = uid("ln");
       });
     });
+  }
+
+  function turnDigestInflightKey(plotId, turnId) {
+    return String(plotId || "") + ":" + String(turnId || "");
+  }
+
+  function buildTurnDigestSourceText(plot, turn) {
+    const lines = Array.isArray(turn && turn.lines) ? turn.lines : [];
+    return lines
+      .map(function (line) {
+        return storyLineHistoryPrefix(line) + String(line.text || "");
+      })
+      .filter(function (ln) {
+        return String(ln || "").trim();
+      })
+      .join("\n");
+  }
+
+  function invalidateTurnInternalDigestFrom(plot, fromTurnIndex) {
+    if (!plot || !Array.isArray(plot.playTurns)) return;
+    const start = Math.max(0, fromTurnIndex | 0);
+    for (let i = start; i < plot.playTurns.length; i++) {
+      const t = plot.playTurns[i];
+      if (!t) continue;
+      t.internalDigest = "";
+    }
+  }
+
+  function scheduleTurnInternalDigestByTurnId(plot, turnId) {
+    if (!plot || !turnId) return;
+    const pid = plot.id;
+    const tid = String(turnId);
+    setTimeout(function () {
+      void generateTurnInternalDigestByTurnId(pid, tid);
+    }, 420);
+  }
+
+  /** 旧存档或概要尚未生成时：为最近窗口内缺概要的轮次排队补生成（末轮仍用全文） */
+  function maybeBackfillTurnDigests(plot) {
+    if (!plot || !Array.isArray(plot.playTurns) || plot.playTurns.length < 2) return;
+    ensureStoryLineIds(plot);
+    const allTurns = plot.playTurns;
+    const startIdx = Math.max(0, allTurns.length - STORY_PLAY_REF_TURN_LIMIT);
+    const lastIdx = allTurns.length - 1;
+    for (let i = startIdx; i < lastIdx; i++) {
+      const t = allTurns[i];
+      if (!t || String(t.internalDigest || "").trim() || !t.id) continue;
+      scheduleTurnInternalDigestByTurnId(plot, t.id);
+    }
+  }
+
+  async function generateTurnInternalDigestByTurnId(plotId, turnId) {
+    const plot = plots.find(function (x) {
+      return x && x.id === plotId;
+    });
+    if (!plot || !turnId) return;
+    ensureStoryLineIds(plot);
+    const inflightKey = turnDigestInflightKey(plotId, turnId);
+    if (turnDigestInflightKeys.has(inflightKey)) return;
+    const turnIndex = (plot.playTurns || []).findIndex(function (t) {
+      return t && t.id === turnId;
+    });
+    if (turnIndex < 0) return;
+    const turn = plot.playTurns[turnIndex];
+    const source = buildTurnDigestSourceText(plot, turn);
+    if (!String(source || "").trim()) return;
+
+    turnDigestInflightKeys.add(inflightKey);
+    try {
+      const dynamicMaxTokens = Math.min(
+        1400,
+        Math.max(420, Math.round(Array.from(source).length * 0.14 + 360))
+      );
+      const result = await callChatCompletion(
+        [
+          {
+            role: "system",
+            content:
+              "你是剧情回合摘要助手。根据单轮互动剧情写「内部概要」，供续写 AI 读取（用户不可见）。" +
+              "须准确覆盖：关键事件与因果、人物关系变化、未决悬念、重要约定或信息；禁止杜撰。" +
+              "用简体中文，可分段，禁止编号和小标题。以信息完整为先，通常控制在 " +
+              TURN_DIGEST_PROMPT_MAX_CHARS +
+              " 字以内，必要时可略长但须精炼。",
+          },
+          {
+            role: "user",
+            content:
+              "请为以下第 " +
+              (turnIndex + 1) +
+              " 轮剧情写内部概要（保持准确，不要杜撰）：\n\n" +
+              source +
+              "\n\n输出要求：\n" +
+              "- 保留中间过程里的核心转折，勿只写首尾\n" +
+              "- 聚焦可影响后续续写的要点\n" +
+              "- 避免空洞复述与同义反复",
+          },
+        ],
+        0.32,
+        dynamicMaxTokens
+      );
+      let finalText = String(result || "").trim();
+      if (Array.from(finalText).length > TURN_DIGEST_STORE_MAX_CHARS) {
+        finalText = Array.from(finalText).slice(0, TURN_DIGEST_STORE_MAX_CHARS).join("").trim();
+      }
+      if (!finalText) return;
+      const liveIdx = (plot.playTurns || []).findIndex(function (t) {
+        return t && t.id === turnId;
+      });
+      if (liveIdx < 0) return;
+      plot.playTurns[liveIdx].internalDigest = finalText;
+      schedulePersistNarrative();
+    } catch (err) {
+      console.warn("回合内部概要生成失败:", err);
+    } finally {
+      turnDigestInflightKeys.delete(inflightKey);
+    }
+  }
+
+  /** 续写「最近剧情」：窗口内最后一轮用全文，更早轮次优先用 internalDigest */
+  function buildStoryPlayTurnHistoryForApi(plot, turn, globalTurnIndex, isLatestInWindow) {
+    if (!isLatestInWindow) {
+      const digest = String((turn && turn.internalDigest) || "").trim();
+      if (digest) {
+        return (
+          "[第 " +
+          (globalTurnIndex + 1) +
+          " 轮概要]\n" +
+          truncateCharsWithEllipsis(digest, TURN_DIGEST_PROMPT_MAX_CHARS)
+        );
+      }
+    }
+    const lines = Array.isArray(turn && turn.lines) ? turn.lines : [];
+    const mapped = lines
+      .map(function (line) {
+        return storyLineHistoryPrefix(line) + (line.text || "");
+      })
+      .filter(function (ln) {
+        return String(ln || "").trim();
+      });
+    if (!mapped.length) return "";
+    return mapped.join("\n");
   }
 
   function getLineContext(plotId, turnIndex, lineIndex) {
@@ -3931,6 +4108,8 @@
         return;
       }
       ctx.line.text = normalizeStoryPlainTextForLayout(v);
+      invalidateTurnInternalDigestFrom(plot, ctx.turnIndex);
+      if (ctx.turn && ctx.turn.id) scheduleTurnInternalDigestByTurnId(plot, ctx.turn.id);
       storyLineEditState = null;
       storyPlayAnnotateMode = false;
       flushPersistNarrative();
@@ -3962,8 +4141,10 @@
         });
       }
       out.push({
+        id: typeof srcTurn.id === "string" && srcTurn.id.trim() ? srcTurn.id : uid("turn"),
         lines: lines,
         choices: [],
+        internalDigest: typeof srcTurn.internalDigest === "string" ? srcTurn.internalDigest : "",
       });
     }
     return out;
@@ -4011,6 +4192,9 @@
     turn.lines.splice(ctx.lineIndex, 1);
     if (turn.lines.length === 0) {
       plot.playTurns.splice(ctx.turnIndex, 1);
+    } else {
+      invalidateTurnInternalDigestFrom(plot, ctx.turnIndex);
+      if (turn.id) scheduleTurnInternalDigestByTurnId(plot, turn.id);
     }
     plot.playTurnInFlight = false;
     plot.playChoiceExpandInFlight = false;
@@ -6428,7 +6612,13 @@
       phoneBillData: phoneBillData || {},
       phoneWereadData: phoneWereadData || {},
       phoneJjwxcData: phoneJjwxcData || {},
-      fanworkCpCharIds: fanworkCpCharIds || null,
+      phoneForumSectionsByPlot: phoneForumSectionsByPlot || {},
+      phoneBrowserSectionsByPlot: phoneBrowserSectionsByPlot || {},
+      phoneMemoSectionsByPlot: phoneMemoSectionsByPlot || {},
+      phoneJjwxcCategoriesByPlot: phoneJjwxcCategoriesByPlot || {},
+      fanworkPlotId: fanworkPlotId || null,
+      fanworkCpPartnerId: fanworkCpPartnerId || null,
+      fanworkJjwxcCategoryStore: fanworkJjwxcCategoryStore || { categories: [], userEdited: false },
       fanworkJjwxcData: fanworkJjwxcData || {},
     });
   }
@@ -6686,24 +6876,171 @@
           }
         });
       }
-      fanworkCpCharIds = null;
-      if (Array.isArray(o.fanworkCpCharIds) && o.fanworkCpCharIds.length === 2) {
-        const a = String(o.fanworkCpCharIds[0] || "").trim();
-        const b = String(o.fanworkCpCharIds[1] || "").trim();
-        if (a && b && a !== b && getCharById(a) && getCharById(b)) {
-          fanworkCpCharIds = a < b ? [a, b] : [b, a];
-        }
+      fanworkPlotId = null;
+      fanworkCpPartnerId = null;
+      fanworkJjwxcCategoryStore = { categories: [], userEdited: false };
+      if (o.fanworkJjwxcCategoryStore && typeof o.fanworkJjwxcCategoryStore === "object") {
+        fanworkJjwxcCategoryStore = {
+          categories: Array.isArray(o.fanworkJjwxcCategoryStore.categories)
+            ? o.fanworkJjwxcCategoryStore.categories.map(clonePhoneJjwxcCategory)
+            : [],
+          userEdited: !!o.fanworkJjwxcCategoryStore.userEdited,
+        };
+      }
+      if (typeof o.fanworkPlotId === "string" && o.fanworkPlotId.trim()) {
+        const pid = o.fanworkPlotId.trim();
+        if (plots.some(function (p) { return p && p.id === pid; })) fanworkPlotId = pid;
+      }
+      if (typeof o.fanworkCpPartnerId === "string" && o.fanworkCpPartnerId.trim()) {
+        fanworkCpPartnerId = o.fanworkCpPartnerId.trim();
+      }
+      if (
+        fanworkJjwxcCategoryStore.userEdited &&
+        (!fanworkJjwxcCategoryStore.categories || !fanworkJjwxcCategoryStore.categories.length)
+      ) {
+        fanworkJjwxcCategoryStore.userEdited = false;
       }
       fanworkJjwxcData = {};
       if (o.fanworkJjwxcData && typeof o.fanworkJjwxcData === "object" && !Array.isArray(o.fanworkJjwxcData)) {
         Object.keys(o.fanworkJjwxcData).forEach(function (k) {
           const v = o.fanworkJjwxcData[k];
-          if (v && typeof v === "object" && (Array.isArray(v.categories) || Array.isArray(v.novels))) {
-            fanworkJjwxcData[k] = normalizeFanworkJjwxcBundleOnLoad(v);
+          if (!v || typeof v !== "object") return;
+          const bundle = normalizeFanworkJjwxcBundleOnLoad(v);
+          if (!bundle) return;
+          migrateFanworkCategoriesFromLegacyBundle(v);
+          let plotKey = k;
+          if (k.indexOf("\u001e") >= 0) {
+            const parts = k.split("\u001e");
+            const hitPlot = plots.find(function (p) {
+              if (!p) return false;
+              const cast = new Set(
+                [].concat(p.protagonistId || [], p.supportingIds || []).map(function (id) {
+                  return String(id || "");
+                })
+              );
+              return parts.every(function (part) {
+                return cast.has(String(part || ""));
+              });
+            });
+            if (hitPlot) plotKey = hitPlot.id;
+          }
+          if (!fanworkJjwxcData[plotKey]) {
+            fanworkJjwxcData[plotKey] = bundle;
+          } else {
+            fanworkJjwxcData[plotKey] = mergeFanworkJjwxcPlotBundles(fanworkJjwxcData[plotKey], bundle);
           }
         });
       }
+      if (!fanworkPlotId && Array.isArray(o.fanworkCpCharIds) && o.fanworkCpCharIds.length === 2) {
+        const legacyA = String(o.fanworkCpCharIds[0] || "").trim();
+        const legacyB = String(o.fanworkCpCharIds[1] || "").trim();
+        const legacyPlot = plots.find(function (p) {
+          if (!p) return false;
+          const cast = new Set(
+            [].concat(p.protagonistId || [], p.supportingIds || []).map(function (id) {
+              return String(id || "");
+            })
+          );
+          return cast.has(legacyA) && cast.has(legacyB);
+        });
+        if (legacyPlot) {
+          fanworkPlotId = legacyPlot.id;
+          const protag = String(legacyPlot.protagonistId || "");
+          fanworkCpPartnerId = protag === legacyA ? legacyB : protag === legacyB ? legacyA : legacyB;
+        }
+      }
+      ensureFanworkJjwxcCategoryStore();
+      if (fanworkPlotId && !fanworkPlotHasCp(getFanworkPlotById(fanworkPlotId))) {
+        fanworkPlotId = null;
+        fanworkCpPartnerId = null;
+      }
+      phoneForumSectionsByPlot = {};
+      if (o.phoneForumSectionsByPlot && typeof o.phoneForumSectionsByPlot === "object" && !Array.isArray(o.phoneForumSectionsByPlot)) {
+        Object.keys(o.phoneForumSectionsByPlot).forEach(function (plotId) {
+          const raw = o.phoneForumSectionsByPlot[plotId];
+          const arr = phoneSharedSectionEntrySections(raw);
+          if (!Array.isArray(arr) || !arr.length) return;
+          const sections = arr.map(function (s) {
+            return {
+              id: String((s && s.id) || ""),
+              name: String((s && s.name) || ""),
+              description: String((s && s.description) || ""),
+            };
+          });
+          phoneSharedSectionStoreSetSections(
+            phoneForumSectionsByPlot,
+            plotId,
+            sections,
+            phoneSharedSectionEntryUpdatedAt(raw) || Date.now()
+          );
+        });
+      }
+      phoneBrowserSectionsByPlot = {};
+      if (o.phoneBrowserSectionsByPlot && typeof o.phoneBrowserSectionsByPlot === "object" && !Array.isArray(o.phoneBrowserSectionsByPlot)) {
+        Object.keys(o.phoneBrowserSectionsByPlot).forEach(function (plotId) {
+          const raw = o.phoneBrowserSectionsByPlot[plotId];
+          const arr = phoneSharedSectionEntrySections(raw);
+          if (!Array.isArray(arr) || !arr.length) return;
+          const sections = arr.map(function (s) {
+            return {
+              id: String((s && s.id) || ""),
+              name: String((s && s.name) || ""),
+              description: String((s && s.description) || ""),
+            };
+          });
+          phoneSharedSectionStoreSetSections(
+            phoneBrowserSectionsByPlot,
+            plotId,
+            sections,
+            phoneSharedSectionEntryUpdatedAt(raw) || Date.now()
+          );
+        });
+      }
+      phoneMemoSectionsByPlot = {};
+      if (o.phoneMemoSectionsByPlot && typeof o.phoneMemoSectionsByPlot === "object" && !Array.isArray(o.phoneMemoSectionsByPlot)) {
+        Object.keys(o.phoneMemoSectionsByPlot).forEach(function (plotId) {
+          const raw = o.phoneMemoSectionsByPlot[plotId];
+          const arr = phoneSharedSectionEntrySections(raw);
+          if (!Array.isArray(arr) || !arr.length) return;
+          const sections = arr.map(function (s) {
+            return {
+              id: String((s && s.id) || ""),
+              name: String((s && s.name) || ""),
+              description: String((s && s.description) || ""),
+            };
+          });
+          phoneSharedSectionStoreSetSections(
+            phoneMemoSectionsByPlot,
+            plotId,
+            sections,
+            phoneSharedSectionEntryUpdatedAt(raw) || Date.now()
+          );
+        });
+      }
+      phoneJjwxcCategoriesByPlot = {};
+      if (o.phoneJjwxcCategoriesByPlot && typeof o.phoneJjwxcCategoriesByPlot === "object" && !Array.isArray(o.phoneJjwxcCategoriesByPlot)) {
+        Object.keys(o.phoneJjwxcCategoriesByPlot).forEach(function (plotId) {
+          const v = o.phoneJjwxcCategoriesByPlot[plotId];
+          if (!v || typeof v !== "object") return;
+          const cats = Array.isArray(v.categories) ? v.categories : phoneSharedSectionEntrySections(v);
+          if (!Array.isArray(cats) || !cats.length) return;
+          phoneSharedJjwxcStoreSet(
+            phoneJjwxcCategoriesByPlot,
+            plotId,
+            cats.map(function (c) {
+              return {
+                id: String((c && c.id) || ""),
+                name: String((c && c.name) || ""),
+                description: String((c && c.description) || ""),
+              };
+            }),
+            !!v.userEdited,
+            phoneSharedSectionEntryUpdatedAt(v) || Date.now()
+          );
+        });
+      }
       migratePlotsWorldBookWhitelistOnce();
+      reconcilePhoneSharedSectionsAfterLoad();
     } catch (e) {}
   }
 
@@ -7121,7 +7458,8 @@
     const isGem = apiModelLooksGemini(cfg.model);
     const alreadyRetried = !!(opts && opts.geminiMergedRetry);
     const genExtras = resolveGenCallExtras(opts);
-    beginGlobalGenPawOverlay(genExtras.pawContext);
+    const skipGenPaw = !!(opts && opts.skipGenPaw);
+    if (!skipGenPaw) beginGlobalGenPawOverlay(genExtras.pawContext);
     let ok = false;
     try {
       try {
@@ -7146,8 +7484,8 @@
         }
       }
     } finally {
-      endGlobalGenPawOverlay();
-      if (ok && genExtras.genReady && !(opts && opts.skipGenReady)) showGenReadyBanner(genExtras.genReady);
+      if (!skipGenPaw) endGlobalGenPawOverlay();
+      if (ok && genExtras.genReady && !(opts && opts.skipGenReady)) stashGenReadyNotice(genExtras.genReady);
     }
   }
 
@@ -7248,12 +7586,14 @@
 
   /** 剧情续写：拼装送入模型的「最近剧情」正文（含 playTurns 异常时的扁平兜底） */
   function buildStoryPlayRecentHistoryText(plot) {
-    const recentTurns = (plot.playTurns || []).slice(-STORY_PLAY_REF_TURN_LIMIT);
+    const allTurns = plot.playTurns || [];
+    const startIdx = Math.max(0, allTurns.length - STORY_PLAY_REF_TURN_LIMIT);
+    const recentTurns = allTurns.slice(startIdx);
     const lastIdx = recentTurns.length - 1;
     let history = compactStoryPlayHistoryForApi(
       recentTurns
         .map(function (turn, ti) {
-          return compactStoryPlayTurnForHistoryApi(turn, ti === lastIdx);
+          return buildStoryPlayTurnHistoryForApi(plot, turn, startIdx + ti, ti === lastIdx);
         })
         .filter(Boolean)
         .join("\n\n")
@@ -7450,7 +7790,7 @@
   /** 续写时须严格参照用户消息中的最近正文、记忆与总结 */
   var STORY_PLAY_CONTEXT_REF_GUIDE =
     "【上下文必读·禁失忆】续写前须完整阅读用户消息中的「最近剧情」「记忆」「阶段总结」及世界书；将其视为已发生内容的权威依据，须无缝衔接、不得矛盾、不得当作新故事重写。\n" +
-    "· 最近剧情（最高）：紧接上一场的台词、动作与情绪，从最后一轮收束处自然续写；同层冲突时以本段为准，勿重复上一轮已写过的信息。\n" +
+    "· 最近剧情（最高）：窗口内最后一轮为完整正文；更早轮次若为「轮概要」则与正文同等视为已发生事实。紧接上一场的台词、动作与情绪，从最后一轮收束处自然续写；同层冲突时以本段为准，勿重复上一轮已写过的信息。\n" +
     "· 记忆：用户标记须长期遵守的要点（含自总结钉选），本轮须呼应，不得遗漏或反向处理。\n" +
     "· 阶段总结：覆盖更早回合的概要，补充最近剧情未写明的历史事实与关系；勿与最近剧情及总结中的核心事实相悖，勿凭空改写已确立设定。\n" +
     "· 若阶段总结/记忆与最近剧情细节表面冲突，**以最近剧情为准**；不得推翻总结中的核心事实时，用一两句过渡交代即可。\n";
@@ -8525,6 +8865,25 @@
     return parts.join("\n");
   }
 
+  /** 小狗饭/续写等：以剧情内人设为准（含 myCharacterOverride、characterOverrides） */
+  function buildCharacterProfileFromPlot(plot, characterId) {
+    const cid = String(characterId || "").trim();
+    if (!cid) return "";
+    const ch = getCharById(cid);
+    if (!plot) return buildCharacterProfileFromLibrary(ch);
+    ensurePlotExtendedState(plot);
+    if (cid === String(plot.protagonistId || "")) {
+      const mine =
+        plot.myCharacterOverride && plot.myCharacterOverride.profile
+          ? String(plot.myCharacterOverride.profile).trim()
+          : "";
+      if (mine) return mine;
+    }
+    const ov = getPlotCharacterOverride(plot, cid);
+    if (ov && ov.profile) return String(ov.profile).trim();
+    return buildCharacterProfileFromLibrary(ch);
+  }
+
   function getEffectiveIdentityBlocks(plot) {
     const eraBlock =
       (plot.playIntro && plot.playIntro.era ? plot.playIntro.era : plot.eraBackground || "未设定");
@@ -8561,6 +8920,15 @@
     const arr = Array.from(raw);
     if (arr.length <= maxChars) return raw;
     return arr.slice(0, maxChars).join("") + "...";
+  }
+
+  /** 论坛标题等字段：超长截断但不追加省略号（列表单行省略由 CSS 负责） */
+  function capPhoneForumChars(text, maxChars) {
+    const raw = String(text || "").trim();
+    if (!raw || !maxChars || maxChars < 1) return "";
+    const arr = Array.from(raw);
+    if (arr.length <= maxChars) return raw;
+    return arr.slice(0, maxChars).join("");
   }
 
   /** 保留文本尾部（续写须优先保留最近剧情末尾，与 truncateCharsWithEllipsis 互补） */
@@ -12727,6 +13095,7 @@
         phoneHolderPlotId = phoneHolderModalPlotId;
         phoneHolderCharId = c.id;
         sanitizePhoneHolderState();
+        syncPhoneSharedSectionsGlobal();
         updatePhoneHomeOwnerLabels();
         applyPhoneWallpaperStyles();
         schedulePersistNarrative();
@@ -12946,6 +13315,263 @@
     sanitizePhoneHolderState();
     if (!phoneHolderPlotId || !phoneHolderCharId) return "";
     return phoneWechatStorageKey(phoneHolderPlotId, phoneHolderCharId);
+  }
+
+  const PHONE_SHARED_SECTIONS_GLOBAL_KEY = "__global__";
+
+  function getPhonePlotIdForSharedSections() {
+    sanitizePhoneHolderState();
+    return PHONE_SHARED_SECTIONS_GLOBAL_KEY;
+  }
+
+  function phoneDataKeysAll(dataObj) {
+    return Object.keys(dataObj || {});
+  }
+
+  function getPhonePlotIdFromStorageKey(key) {
+    const idx = String(key || "").indexOf("\u001e");
+    return idx >= 0 ? String(key).slice(0, idx) : "";
+  }
+
+  function phoneDataKeysForPlot(dataObj, plotId) {
+    const pid = String(plotId || "").trim();
+    if (!pid) return [];
+    const prefix = pid + "\u001e";
+    return Object.keys(dataObj).filter(function (k) {
+      return k.indexOf(prefix) === 0;
+    });
+  }
+
+  function phoneSharedSectionEntrySections(entry) {
+    if (!entry) return null;
+    if (Array.isArray(entry)) return entry;
+    if (Array.isArray(entry.sections)) return entry.sections;
+    if (Array.isArray(entry.categories)) return entry.categories;
+    return null;
+  }
+
+  function phoneSharedSectionEntryUpdatedAt(entry) {
+    if (!entry || Array.isArray(entry)) return 0;
+    const ts = Number(entry.updatedAt);
+    return Number.isFinite(ts) && ts > 0 ? ts : 0;
+  }
+
+  function phoneSharedSectionStoreGetSections(store, plotId) {
+    return phoneSharedSectionEntrySections(store[plotId]);
+  }
+
+  function phoneSharedSectionStoreGetUpdatedAt(store, plotId) {
+    return phoneSharedSectionEntryUpdatedAt(store[plotId]);
+  }
+
+  function phoneSharedSectionStoreSetSections(store, plotId, sections, updatedAt) {
+    const ts = updatedAt != null && Number.isFinite(Number(updatedAt)) ? Number(updatedAt) : Date.now();
+    const prev = store[plotId];
+    if (prev && !Array.isArray(prev) && prev.userEdited != null) {
+      store[plotId] = {
+        categories: sections,
+        userEdited: !!prev.userEdited,
+        updatedAt: ts,
+      };
+      return ts;
+    }
+    store[plotId] = { sections: sections, updatedAt: ts };
+    return ts;
+  }
+
+  function phoneSharedJjwxcStoreSet(store, plotId, categories, userEdited, updatedAt) {
+    const ts = updatedAt != null && Number.isFinite(Number(updatedAt)) ? Number(updatedAt) : Date.now();
+    store[plotId] = {
+      categories: categories,
+      userEdited: !!userEdited,
+      updatedAt: ts,
+    };
+    return ts;
+  }
+
+  function scorePhoneSharedSectionsForMigration(sections, defaultSections) {
+    let score = 0;
+    if (!Array.isArray(sections) || !sections.length) return score;
+    const defById = Object.create(null);
+    (defaultSections || []).forEach(function (d) {
+      defById[String(d.id || "")] = d;
+    });
+    score += sections.length * 3;
+    sections.forEach(function (s) {
+      const id = String((s && s.id) || "");
+      const def = defById[id];
+      const name = String((s && s.name) || "").trim();
+      const desc = String((s && s.description) || "").trim();
+      if (!def) {
+        score += 24;
+        return;
+      }
+      if (name && name !== String(def.name || "").trim()) score += 10;
+      if (desc && desc !== String(def.description || "").trim()) score += 6;
+    });
+    return score;
+  }
+
+  function pickLatestSectionsFromAllSources(store, dataObj, fieldName, defaultSections, mergeFn, cloneFn, userEditedBonus) {
+    let best = null;
+    function consider(rawSections, updatedAt, userEdited) {
+      if (!Array.isArray(rawSections) || !rawSections.length) return;
+      const sections = mergeFn(rawSections).map(cloneFn);
+      const at = Number(updatedAt) || 0;
+      let rank = at * 1000000 + scorePhoneSharedSectionsForMigration(sections, defaultSections);
+      if (userEditedBonus && userEdited) rank += 1000000000;
+      if (!best || rank > best.rank) {
+        best = {
+          rank: rank,
+          updatedAt: at || Date.now(),
+          sections: sections,
+          userEdited: !!userEdited,
+        };
+      }
+    }
+    Object.keys(store || {}).forEach(function (key) {
+      const entry = store[key];
+      const sections = phoneSharedSectionEntrySections(entry);
+      const updatedAt = phoneSharedSectionEntryUpdatedAt(entry);
+      const userEdited = !!(entry && !Array.isArray(entry) && entry.userEdited);
+      consider(sections, updatedAt, userEdited);
+    });
+    phoneDataKeysAll(dataObj).forEach(function (k) {
+      const rec = dataObj[k];
+      if (!rec) return;
+      consider(rec[fieldName], rec.sectionsUpdatedAt || rec.categoriesUpdatedAt, rec.categoriesUserEdited);
+    });
+    return best;
+  }
+
+  function pushPhoneSharedSectionsToAllHolders(dataObj, sections, updatedAt, applyFn, timestampField) {
+    if (!sections || !sections.length) return;
+    const field = timestampField || "sectionsUpdatedAt";
+    phoneDataKeysAll(dataObj).forEach(function (k) {
+      const rec = dataObj[k];
+      if (!rec || typeof rec !== "object") return;
+      applyFn(rec, sections);
+      rec[field] = updatedAt;
+    });
+  }
+
+  function syncPhoneSharedSectionsGlobal() {
+    const globalKey = PHONE_SHARED_SECTIONS_GLOBAL_KEY;
+    let dirty = false;
+
+    const forumBest = pickLatestSectionsFromAllSources(
+      phoneForumSectionsByPlot,
+      phoneForumData,
+      "sections",
+      PHONE_FORUM_DEFAULT_SECTIONS,
+      mergePhoneForumSectionDescriptions,
+      clonePhoneForumSection,
+      false
+    );
+    if (forumBest && forumBest.sections.length) {
+      const forumAt = phoneSharedSectionStoreSetSections(
+        phoneForumSectionsByPlot,
+        globalKey,
+        forumBest.sections.map(clonePhoneForumSection),
+        forumBest.updatedAt
+      );
+      pushPhoneSharedSectionsToAllHolders(phoneForumData, forumBest.sections, forumAt, function (rec, sections) {
+        rec.sections = sections.map(clonePhoneForumSection);
+      });
+      dirty = true;
+    }
+
+    const browserBest = pickLatestSectionsFromAllSources(
+      phoneBrowserSectionsByPlot,
+      phoneBrowserData,
+      "sections",
+      PHONE_BROWSER_DEFAULT_SECTIONS,
+      mergePhoneBrowserSectionDescriptions,
+      function (s) {
+        return { id: String(s.id || ""), name: String(s.name || ""), description: String(s.description || "") };
+      },
+      false
+    );
+    if (browserBest && browserBest.sections.length) {
+      const browserAt = phoneSharedSectionStoreSetSections(
+        phoneBrowserSectionsByPlot,
+        globalKey,
+        browserBest.sections,
+        browserBest.updatedAt
+      );
+      pushPhoneSharedSectionsToAllHolders(phoneBrowserData, browserBest.sections, browserAt, function (rec, sections) {
+        rec.sections = sections.map(function (s) {
+          return { id: s.id, name: s.name, description: s.description };
+        });
+      });
+      dirty = true;
+    }
+
+    const memoBest = pickLatestSectionsFromAllSources(
+      phoneMemoSectionsByPlot,
+      phoneMemoData,
+      "sections",
+      PHONE_MEMO_DEFAULT_SECTIONS,
+      mergePhoneMemoSectionDescriptions,
+      function (s) {
+        return { id: String(s.id || ""), name: String(s.name || ""), description: String(s.description || "") };
+      },
+      false
+    );
+    if (memoBest && memoBest.sections.length) {
+      const memoAt = phoneSharedSectionStoreSetSections(
+        phoneMemoSectionsByPlot,
+        globalKey,
+        memoBest.sections,
+        memoBest.updatedAt
+      );
+      pushPhoneSharedSectionsToAllHolders(phoneMemoData, memoBest.sections, memoAt, function (rec, sections) {
+        rec.sections = sections.map(function (s) {
+          return { id: s.id, name: s.name, description: s.description };
+        });
+      });
+      dirty = true;
+    }
+
+    const jjwxcBest = pickLatestSectionsFromAllSources(
+      phoneJjwxcCategoriesByPlot,
+      phoneJjwxcData,
+      "categories",
+      PHONE_JJWXC_DEFAULT_CATEGORIES,
+      mergePhoneJjwxcCategoryDescriptions,
+      clonePhoneJjwxcCategory,
+      true
+    );
+    if (jjwxcBest && jjwxcBest.sections.length) {
+      const jjwxcAt = phoneSharedJjwxcStoreSet(
+        phoneJjwxcCategoriesByPlot,
+        globalKey,
+        jjwxcBest.sections.map(clonePhoneJjwxcCategory),
+        jjwxcBest.userEdited,
+        jjwxcBest.updatedAt
+      );
+      pushPhoneSharedSectionsToAllHolders(
+        phoneJjwxcData,
+        jjwxcBest.sections,
+        jjwxcAt,
+        function (rec, sections) {
+          rec.categories = sections.map(clonePhoneJjwxcCategory);
+          rec.categoriesUserEdited = jjwxcBest.userEdited;
+        },
+        "categoriesUpdatedAt"
+      );
+      dirty = true;
+    }
+
+    if (dirty) schedulePersistNarrative();
+  }
+
+  function syncPhoneSharedSectionsForPlot(_plotId) {
+    syncPhoneSharedSectionsGlobal();
+  }
+
+  function reconcilePhoneSharedSectionsAfterLoad() {
+    syncPhoneSharedSectionsGlobal();
   }
 
   function purgePhoneWechatDataForPlot(plotId) {
@@ -15447,8 +16073,9 @@
   const PHONE_FORUM_SECTION_NAME_MAX = 12;
   const PHONE_FORUM_SECTION_DESC_MAX = 200;
   const PHONE_FORUM_MIN_POSTS_PER_SECTION = 5;
+  const PHONE_FORUM_SECTION_GENERATE_COUNT = 5;
   const PHONE_FORUM_MIN_THREAD_MESSAGES = 25;
-  const PHONE_FORUM_TITLE_MAX = 15;
+  const PHONE_FORUM_TITLE_MAX = 48;
   const PHONE_FORUM_PREVIEW_MAX = 56;
   const PHONE_FORUM_CONTENT_MAX = 600;
   const PHONE_FORUM_REPLY_MAX = 280;
@@ -15466,6 +16093,7 @@
   function purgePhoneForumDataForPlot(plotId) {
     const pid = String(plotId || "").trim();
     if (!pid) return;
+    delete phoneForumSectionsByPlot[pid];
     Object.keys(phoneForumData).forEach(function (k) {
       if (k.indexOf(pid + "\u001e") === 0) delete phoneForumData[k];
     });
@@ -15520,31 +16148,55 @@
     return rec;
   }
 
-  function getPhoneForumSections() {
-    const rec = getPhoneForumBundleRecord();
-    if (rec && rec.sections.length) {
-      return mergePhoneForumSectionDescriptions(rec.sections);
+  function getPhoneForumSectionsForPlot(_plotId) {
+    const stored = phoneSharedSectionStoreGetSections(phoneForumSectionsByPlot, PHONE_SHARED_SECTIONS_GLOBAL_KEY);
+    if (stored && stored.length) {
+      return mergePhoneForumSectionDescriptions(stored);
     }
     return clonePhoneForumDefaultSections();
+  }
+
+  function setPhoneForumSectionsForPlot(_plotId, sections, options) {
+    const merged = mergePhoneForumSectionDescriptions(sections).map(clonePhoneForumSection);
+    phoneSharedSectionStoreSetSections(phoneForumSectionsByPlot, PHONE_SHARED_SECTIONS_GLOBAL_KEY, merged, Date.now());
+    syncPhoneSharedSectionsGlobal();
+    if (options && typeof options.onEachBundle === "function") {
+      phoneDataKeysAll(phoneForumData).forEach(function (k) {
+        const rec = phoneForumData[k];
+        if (rec) options.onEachBundle(rec);
+      });
+    }
+  }
+
+  function getPhoneForumSections() {
+    return getPhoneForumSectionsForPlot(getPhonePlotIdForSharedSections());
   }
 
   function getPhoneForumBundleMutable() {
     const key = getPhoneForumStorageKeyForCurrentHolder();
     if (!key) return null;
+    const plotId = getPhonePlotIdFromStorageKey(key);
+    const sections = getPhoneForumSectionsForPlot(plotId);
     if (!phoneForumData[key] || !Array.isArray(phoneForumData[key].sections)) {
       phoneForumData[key] = {
-        sections: clonePhoneForumDefaultSections(),
+        sections: sections.map(clonePhoneForumSection),
         posts: [],
       };
     }
     if (!Array.isArray(phoneForumData[key].posts)) phoneForumData[key].posts = [];
-    phoneForumData[key].sections = mergePhoneForumSectionDescriptions(phoneForumData[key].sections);
+    phoneForumData[key].sections = sections.map(clonePhoneForumSection);
+    phoneForumData[key].sectionsUpdatedAt = phoneSharedSectionStoreGetUpdatedAt(
+      phoneForumSectionsByPlot,
+      PHONE_SHARED_SECTIONS_GLOBAL_KEY
+    );
     return { key: key, bundle: phoneForumData[key] };
   }
 
   function persistPhoneForumBundle(bundle) {
     const key = getPhoneForumStorageKeyForCurrentHolder();
     if (!key || !bundle) return;
+    bundle.sections = getPhoneForumSectionsForPlot(PHONE_SHARED_SECTIONS_GLOBAL_KEY).map(clonePhoneForumSection);
+    bundle.sectionsUpdatedAt = phoneSharedSectionStoreGetUpdatedAt(phoneForumSectionsByPlot, PHONE_SHARED_SECTIONS_GLOBAL_KEY);
     phoneForumData[key] = bundle;
     schedulePersistNarrative();
   }
@@ -15561,6 +16213,7 @@
       phoneMusicGenerating ||
       phoneAlbumGenerating ||
       phoneForumGenerating ||
+      phoneForumSectionGenerating ||
       phoneForumPostGeneratingId ||
       phoneBrowserGenerating ||
       phoneBrowserSectionGenerating ||
@@ -15580,29 +16233,45 @@
     );
   }
 
-  function normalizePhoneForumSectionId(raw) {
+  function resolvePhoneForumSectionId(raw, sectionList) {
     const id = String(raw || "").trim();
-    const sections = getPhoneForumSections();
-    if (sections.some(function (s) {
-      return s.id === id;
-    })) {
+    const sections = sectionList || getPhoneForumSections();
+    if (
+      sections.some(function (s) {
+        return s && s.id === id;
+      })
+    ) {
       return id;
     }
     const byName = sections.find(function (s) {
-      return s.name === id;
+      return s && s.name === id;
     });
     return byName ? byName.id : null;
   }
 
-  function normalizePhoneForumPostItem(item, idx, seenIds) {
+  function normalizePhoneForumSectionId(raw) {
+    return resolvePhoneForumSectionId(raw, getPhoneForumSections());
+  }
+
+  function findPhoneForumSectionInList(sectionId, sectionList) {
+    const id = resolvePhoneForumSectionId(sectionId, sectionList);
+    if (!id) return null;
+    return (
+      (sectionList || []).find(function (s) {
+        return s && s.id === id;
+      }) || null
+    );
+  }
+
+  function normalizePhoneForumPostItem(item, idx, seenIds, sectionList) {
     if (!item || typeof item !== "object") return null;
-    const sectionId = normalizePhoneForumSectionId(item.sectionId || item.section);
+    const sectionId = resolvePhoneForumSectionId(item.sectionId || item.section, sectionList);
     if (!sectionId) return null;
     let id = String(item.id || "").trim() || "fp-" + String((idx || 0) + 1);
     while (seenIds && seenIds.has(id)) id = id + "-d";
     if (seenIds) seenIds.add(id);
     const authorName = truncateCharsWithEllipsis(String(item.authorName || item.author || "匿名").trim(), 16);
-    const title = truncateCharsWithEllipsis(String(item.title || "").trim(), PHONE_FORUM_TITLE_MAX);
+    const title = capPhoneForumChars(String(item.title || "").trim(), PHONE_FORUM_TITLE_MAX);
     const preview = truncateCharsWithEllipsis(
       String(item.preview || item.summary || item.content || "").trim(),
       PHONE_FORUM_PREVIEW_MAX
@@ -15695,7 +16364,7 @@
     assertPhoneForumMinPostsPerSection(bySection, "");
     const rec = getPhoneForumBundleMutable();
     return {
-      sections: (rec ? rec.bundle.sections : getPhoneForumSections()).map(clonePhoneForumSection),
+      sections: getPhoneForumSectionsForPlot(getPhonePlotIdForSharedSections()).map(clonePhoneForumSection),
       posts: posts,
       generatedAt: Date.now(),
     };
@@ -15737,9 +16406,7 @@
       }
     });
     return {
-      sections: mergePhoneForumSectionDescriptions((existing && existing.sections) || getPhoneForumSections()).map(
-        clonePhoneForumSection
-      ),
+      sections: getPhoneForumSectionsForPlot(getPhonePlotIdForSharedSections()).map(clonePhoneForumSection),
       posts: base,
       generatedAt: Date.now(),
     };
@@ -15761,6 +16428,10 @@
     if (!incremental) {
       if (parsed && parsed.content) {
         post.content = truncateCharsWithEllipsis(String(parsed.content).trim(), PHONE_FORUM_CONTENT_MAX);
+      }
+      if (parsed && parsed.title) {
+        const nextTitle = capPhoneForumChars(String(parsed.title).trim(), PHONE_FORUM_TITLE_MAX);
+        if (nextTitle) post.title = nextTitle;
       }
       post.thread = [];
       seen.clear();
@@ -15837,15 +16508,63 @@
       .join("\n");
   }
 
+  function buildPhoneForumPosterVoiceBlock(plot, holder, ctx) {
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const protagName = (ctx && ctx.protagName) || "主角";
+    const supList = getSupportingCharacters();
+    const otherNames = supList
+      .filter(function (c) {
+        if (!c || !c.id) return false;
+        if (holder && c.id === holder.id) return false;
+        if (plot && c.id === plot.protagonistId) return false;
+        return true;
+      })
+      .map(function (c) {
+        return String(c.name || "").trim();
+      })
+      .filter(Boolean)
+      .slice(0, 8);
+    const lines = [
+      "【论坛发言视角 · 必须遵守】",
+      "1. 这是公共论坛，不是「" +
+        holderName +
+        "」或「" +
+        protagName +
+        "」的个人日记；发帖人与回帖人须身份多元、网名各异。",
+      "2. 手机持有者「" +
+        holderName +
+        "」只是浏览者之一；楼主（authorName）应分散在路人网友、匿名马甲、剧情配角等身份，勿让持有者或主角垄断楼主位。",
+      "3. 同一批生成中，约七成帖子宜由非持有者、非主角身份发帖；持有者与「我的形象」主角「" +
+        protagName +
+        "」各自亲自发帖的占比各宜控制在两成以内。",
+    ];
+    if (otherNames.length) {
+      lines.push(
+        "4. 可合理选用剧情相关角色发帖或参与楼层，如：" +
+          otherNames.join("、") +
+          "；亦可用符合人设的网名、小号代指，不必每次真名出场。"
+      );
+    } else {
+      lines.push("4. 除持有者与主角外，请用符合剧情的路人网名、匿名 ID 营造论坛生态。");
+    }
+    lines.push(
+      "5. 同一批生成中 authorName 不得雷同或清一色；网名风格可幽默、中二、克制各异。",
+      "6. 楼层回复中网友身份同样多元（吃瓜、懂哥、阴阳怪气、理性分析等），勿全员化身主角或持有者。"
+    );
+    return lines.join("\n");
+  }
+
   function buildPhoneForumListPrompt(plot, holder) {
     const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
     const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
     const lines = [
       "请为「查手机·论坛」生成手机持有者「" + holderName + "」浏览的论坛帖子列表 JSON。",
-      "视角：持有者手机里论坛 App 的帖子列表（仅标题与列表预览，无需生成正文楼层）。",
+      "说明：这是公共论坛信息流，帖子来自众多不同网友；持有者只是在刷帖，不代表所有楼主都是 TA。",
       "",
     ];
     lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push(buildPhoneForumPosterVoiceBlock(plot, holder, ctx));
     lines.push("");
     lines.push("【论坛分区及生成规则（sectionId 必须使用下列 id）】");
     lines.push(buildPhoneForumSectionRulesBlock());
@@ -15857,12 +16576,10 @@
         " 条。\n" +
         "2. 每条字段：id（英文短 id 唯一）、sectionId（分区 id）、authorName（网名，界面取首字作头像）、title（≤" +
         PHONE_FORUM_TITLE_MAX +
-        " 字，务必简短）、preview（≤" +
+        " 字，列表单行显示，宜简洁完整）、preview（≤" +
         PHONE_FORUM_PREVIEW_MAX +
         " 字，列表摘要）、time（如 3小时前、昨天）。\n" +
-        "3. 发帖人可为：手机持有者本人、我的形象主角「" +
-        ctx.protagName +
-        "」、剧情相关其他人物或合理路人网友；按分区规则与人设选用网名风格。\n" +
+        "3. 按分区规则与人设选用网名与发帖身份；同一分区内需有多样楼主，禁止整批帖子同一 authorName。\n" +
         "4. 不要生成 content/thread；须与剧情、记忆、总结一致，禁止 OOC。"
     );
     return lines.join("\n");
@@ -15873,10 +16590,12 @@
     const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
     const lines = [
       "请根据最新剧情，在「已有论坛帖子列表」基础上增量追加；不要修改或删除已有帖子。",
-      "视角：持有者「" + holderName + "」手机论坛。",
+      "说明：公共论坛持续有新帖；追加帖子的楼主身份须与已有帖子一样保持多元，勿集中为持有者或主角。",
       "",
     ];
     lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push(buildPhoneForumPosterVoiceBlock(plot, holder, ctx));
     lines.push("");
     lines.push("【分区规则】");
     lines.push(buildPhoneForumSectionRulesBlock());
@@ -15895,18 +16614,118 @@
     return lines.join("\n");
   }
 
+  function buildPhoneForumSectionGeneratePrompt(plot, holder, sectionId, existing) {
+    const sections = getPhoneForumSectionsForPlot(getPhonePlotIdForSharedSections()).map(clonePhoneForumSection);
+    const sec = findPhoneForumSectionInList(sectionId, sections);
+    if (!sec) throw new Error("无效分类");
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const recent = ((existing && existing.posts) || [])
+      .filter(function (p) {
+        return p && p.sectionId === sec.id;
+      })
+      .slice(0, PHONE_FORUM_REF_POSTS);
+    const lines = [
+      "请为「查手机·论坛」分区「" +
+        sec.name +
+        "」增量生成 " +
+        PHONE_FORUM_SECTION_GENERATE_COUNT +
+        " 条新帖子列表项。",
+      "说明：仅生成该分区的列表预览（标题+摘要），无需正文楼层；楼主身份须多元。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push(buildPhoneForumPosterVoiceBlock(plot, holder, ctx));
+    lines.push("");
+    lines.push("【本分区说明（sectionId=" + sec.id + "）】");
+    lines.push(sec.description || "（无简介）");
+    lines.push("");
+    lines.push("【本分区已有帖子摘要（请勿重复 id 或同标题）】");
+    if (recent.length) {
+      recent.forEach(function (p) {
+        lines.push(formatPhoneForumPostForPrompt(p));
+      });
+    } else {
+      lines.push("（无）");
+    }
+    lines.push("");
+    lines.push(
+      "输出唯一 JSON：{\"newPosts\":[...]}；须恰好 " +
+        PHONE_FORUM_SECTION_GENERATE_COUNT +
+        " 条；每条 sectionId 必须为 \"" +
+        sec.id +
+        "\"。\n" +
+        "字段：id、sectionId、authorName（网名）、title（≤" +
+        PHONE_FORUM_TITLE_MAX +
+        " 字）、preview（≤" +
+        PHONE_FORUM_PREVIEW_MAX +
+        " 字）、time。\n" +
+        "不要生成 content/thread；须贴合分区规则与剧情；禁止 OOC。"
+    );
+    return lines.join("\n");
+  }
+
+  function mergePhoneForumSectionIncrement(existing, raw, sectionId) {
+    const sections = getPhoneForumSectionsForPlot(getPhonePlotIdForSharedSections()).map(clonePhoneForumSection);
+    const sec = findPhoneForumSectionInList(sectionId, sections);
+    if (!sec) throw new Error("无效分类");
+    const sid = sec.id;
+    const base = (existing && existing.posts ? existing.posts : []).map(function (p) {
+      return {
+        id: p.id,
+        sectionId: p.sectionId,
+        authorName: p.authorName,
+        title: p.title,
+        preview: p.preview,
+        content: p.content || "",
+        time: p.time,
+        thread: Array.isArray(p.thread) ? p.thread.slice() : [],
+      };
+    });
+    const seenIds = collectPhoneForumPostSeenIds(base);
+    const appendIn =
+      raw && Array.isArray(raw.newPosts) ? raw.newPosts : raw && Array.isArray(raw.posts) ? raw.posts : [];
+    let added = 0;
+    appendIn.forEach(function (item, idx) {
+      const post = normalizePhoneForumPostItem(item, idx, seenIds, sections);
+      if (!post || post.sectionId !== sid) return;
+      base.unshift(post);
+      added++;
+    });
+    if (added < PHONE_FORUM_SECTION_GENERATE_COUNT) {
+      throw new Error(
+        "分区「" + sec.name + "」新帖不足 " + PHONE_FORUM_SECTION_GENERATE_COUNT + " 条（实际 " + added + " 条）"
+      );
+    }
+    return {
+      sections: sections.map(clonePhoneForumSection),
+      posts: base,
+      generatedAt: Date.now(),
+    };
+  }
+
   function buildPhoneForumPostPrompt(plot, holder, post, incremental) {
     const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
     const sec = findPhoneForumSection(post.sectionId);
     const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
+    const opName = String(post.authorName || "").trim() || "楼主";
     const lines = [
       incremental
         ? "请根据最新剧情，在「已有帖子楼层」基础上增量追加楼主新发言与网友回复。"
         : "请为「查手机·论坛」以下帖子生成完整正文与楼层讨论 JSON。",
-      "视角：持有者「" + holderName + "」浏览该帖时的完整内容。",
+      "说明：这是公共论坛帖子；楼主为「" +
+        opName +
+        "」，楼层须由不同网友参与讨论，勿让持有者「" +
+        holderName +
+        "」或主角「" +
+        ctx.protagName +
+        "」垄断全部回复。",
       "",
     ];
     lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push(buildPhoneForumPosterVoiceBlock(plot, holder, ctx));
     lines.push("");
     lines.push("【所在分区】" + (sec ? sec.name : post.sectionId));
     if (sec && sec.description) lines.push("【分区生成规则】" + sec.description);
@@ -15920,7 +16739,9 @@
     }
     lines.push("");
     lines.push(
-      (incremental ? "输出 JSON：{\"newThread\":[...]}" : "输出 JSON：{\"content\":\"首帖正文\",\"thread\":[...]}") +
+      (incremental
+        ? "输出 JSON：{\"newThread\":[...]}"
+        : "输出 JSON：{\"title\":\"完整标题\",\"content\":\"首帖正文\",\"thread\":[...]}") +
         "；thread 中每条为楼主追帖或网友回复，合计至少 " +
         PHONE_FORUM_MIN_THREAD_MESSAGES +
         " 条" +
@@ -15929,9 +16750,16 @@
         "字段：id、authorName（网名）、content（≤" +
         PHONE_FORUM_REPLY_MAX +
         " 字）、time、isOp（boolean，true 表示楼主发言）。\n" +
-        "发言者可为持有者、我的形象主角「" +
+        (incremental
+          ? ""
+          : "title 为完整标题（≤" + PHONE_FORUM_TITLE_MAX + " 字，勿省略号截断，可与列表预览标题一致或略展开）。\n") +
+        "楼主发言 authorName 须与列表一致为「" +
+        opName +
+        "」；网友回复须用多元网名，可含剧情配角、路人；持有者「" +
+        holderName +
+        "」与主角「" +
         ctx.protagName +
-        "」、剧情相关人物或网友；对话须自然连贯，禁止 OOC。"
+        "」仅在有剧情需要时偶尔参与，禁止全员同一口吻；对话须自然连贯，禁止 OOC。"
     );
     return lines.join("\n");
   }
@@ -15989,6 +16817,71 @@
     } finally {
       clearGenCallContext();
       phoneForumGenerating = false;
+      if (slot && getPhoneNav(slot).screen === "forum") renderPhoneScreen(slot);
+    }
+  }
+
+  async function generatePhoneForumSectionContent(slot) {
+    if (isAnyPhoneAiGenerating()) return;
+    sanitizePhoneHolderState();
+    const plot = plots.find(function (p) {
+      return p.id === phoneHolderPlotId;
+    });
+    const holder = getPhoneHolderCharacter();
+    if (!plot || !holder) {
+      showToast("请先在设置中选择剧情与手机持有者。", "warning");
+      return;
+    }
+    const nav = getPhoneNav(slot);
+    const sectionId = getPhoneForumActiveSectionId(nav);
+    const sec = findPhoneForumSection(sectionId);
+    if (!sec) {
+      showToast("请先选择分区。", "warning");
+      return;
+    }
+    preparePhoneStoryDateForGeneration(plot);
+    const key = phoneForumStorageKey(plot.id, holder.id);
+    getPhoneForumBundleMutable();
+    const existing = phoneForumData[key] || null;
+    phoneForumSectionGenerating = true;
+    if (slot && nav.screen === "forum") renderPhoneScreen(slot);
+    try {
+      showToast(
+        "正在为「" + sec.name + "」生成 " + PHONE_FORUM_SECTION_GENERATE_COUNT + " 篇帖子…",
+        "info"
+      );
+      setGenCallContext(buildGenCallOpts("phone-forum-section", { slot: slot, sectionId: sectionId }));
+      const systemPrompt =
+        "你是中文互动叙事助手。根据剧情与已有论坛帖子，为指定分区增量追加列表 JSON。\n" +
+        "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+        '格式：{"newPosts":[{"id":"唯一id","sectionId":"' +
+        sec.id +
+        '","authorName":"网名","title":"...","preview":"...","time":"..."}]}';
+      const userPrompt = buildPhoneForumSectionGeneratePrompt(plot, holder, sectionId, existing);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.76,
+        8192
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      if (getPhoneForumStorageKeyForCurrentHolder() !== key) {
+        showToast("手机持有者已切换，已取消本次生成结果。", "warning");
+        return;
+      }
+      const bundle = mergePhoneForumSectionIncrement(existing, parsed, sectionId);
+      phoneForumData[key] = bundle;
+      schedulePersistNarrative();
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) renderPhoneScreen(slot);
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      phoneForumSectionGenerating = false;
       if (slot && getPhoneNav(slot).screen === "forum") renderPhoneScreen(slot);
     }
   }
@@ -16093,7 +16986,8 @@
       nav &&
       phoneForumPostGeneratingId &&
       phoneForumPostGeneratingId === nav.forumPostId;
-    const loadingCls = phoneForumGenerating || postGen ? " phone-wechat-gen-btn--loading" : "";
+    const loadingCls =
+      phoneForumGenerating || phoneForumSectionGenerating || postGen ? " phone-wechat-gen-btn--loading" : "";
     const disabled = isAnyPhoneAiGenerating();
     return (
       '<header class="phone-app__bar phone-app__bar--wechat-list">' +
@@ -16120,6 +17014,28 @@
     );
   }
 
+  function buildPhoneForumSectionGenBtnHtml(activeSectionId) {
+    const loadingCls = phoneForumSectionGenerating ? " phone-jjwxc__category-gen-btn--loading" : "";
+    const disabled = isAnyPhoneAiGenerating();
+    const sec = findPhoneForumSection(activeSectionId);
+    const secName = sec ? String(sec.name) : "本区";
+    return (
+      '<button type="button" class="phone-jjwxc__category-gen-btn phone-forum__section-gen-btn' +
+      loadingCls +
+      '" data-phone-forum-section-generate aria-label="为「' +
+      escapeHtml(secName) +
+      "」新增 " +
+      PHONE_FORUM_SECTION_GENERATE_COUNT +
+      ' 篇帖子" title="为当前分区新增 ' +
+      PHONE_FORUM_SECTION_GENERATE_COUNT +
+      ' 篇"' +
+      (disabled ? " disabled" : "") +
+      ">+" +
+      PHONE_FORUM_SECTION_GENERATE_COUNT +
+      "</button>"
+    );
+  }
+
   function buildPhoneForumSectionTabsHtml(activeSectionId) {
     const sections = getPhoneForumSections();
     const tabs = sections
@@ -16136,12 +17052,17 @@
         );
       })
       .join("");
+    const secGenBtn = buildPhoneForumSectionGenBtnHtml(activeSectionId);
     return (
       '<div class="pill-row-wrap phone-forum__pill-wrap" aria-label="论坛分区">' +
-      '<div class="pill-row phone-forum__pill-row">' +
+      '<div class="phone-forum__pill-row phone-forum__pill-row--with-actions">' +
+      '<div class="pill-row phone-forum__pill-scroll">' +
       tabs +
+      "</div>" +
+      '<div class="phone-forum__pill-actions">' +
+      secGenBtn +
       '<button type="button" class="filter-pill filter-pill--manage phone-forum__pill-manage" data-phone-forum-manage-open>管理分类</button>' +
-      "</div></div>"
+      "</div></div></div>"
     );
   }
 
@@ -16526,6 +17447,7 @@
   }
 
   function openPhoneForum(slot) {
+    syncPhoneSharedSectionsGlobal();
     const nav = getPhoneNav(slot);
     nav.screen = "forum";
     nav.chatId = null;
@@ -16575,7 +17497,7 @@
         const field = el.getAttribute("data-phone-forum-inline-field");
         const val = String(el.textContent || "").trim();
         if (field === "title") {
-          const next = truncateCharsWithEllipsis(val, PHONE_FORUM_TITLE_MAX);
+          const next = capPhoneForumChars(val, PHONE_FORUM_TITLE_MAX);
           if (next && next !== target.post.title) {
             target.post.title = next;
             changed = true;
@@ -16597,7 +17519,7 @@
         const field = el.getAttribute("data-phone-forum-inline-field");
         const val = String(el.textContent || "").trim();
         if (field === "title") {
-          const next = truncateCharsWithEllipsis(val, PHONE_FORUM_TITLE_MAX);
+          const next = capPhoneForumChars(val, PHONE_FORUM_TITLE_MAX);
           if (next && next !== target.post.title) {
             target.post.title = next;
             changed = true;
@@ -16726,6 +17648,7 @@
     const rec = getPhoneForumBundleMutable();
     if (!rec) return;
     const nav = getPhoneNav(slot);
+    const plotId = getPhonePlotIdForSharedSections();
     const nameInput = slot && slot.querySelector("[data-phone-forum-section-name-input]");
     const descInput = slot && slot.querySelector("[data-phone-forum-section-desc-input]");
     const name = truncateCharsWithEllipsis(String((nameInput && nameInput.value) || "").trim(), PHONE_FORUM_SECTION_NAME_MAX);
@@ -16737,13 +17660,14 @@
       showToast("分区名称不能为空", "warning");
       return;
     }
+    const sections = getPhoneForumSectionsForPlot(plotId).map(clonePhoneForumSection);
     const formId = String(nav.forumSectionFormId || "").trim();
     if (formId === "new") {
       const newId = uid("forum-sec");
-      rec.bundle.sections.push({ id: newId, name: name, description: description });
+      sections.push({ id: newId, name: name, description: description });
       nav.forumSectionId = newId;
     } else {
-      const sec = rec.bundle.sections.find(function (s) {
+      const sec = sections.find(function (s) {
         return s && s.id === formId;
       });
       if (!sec) {
@@ -16753,7 +17677,8 @@
       sec.name = name;
       sec.description = description;
     }
-    persistPhoneForumBundle(rec.bundle);
+    setPhoneForumSectionsForPlot(plotId, sections);
+    rec.bundle.sections = getPhoneForumSectionsForPlot(plotId).map(clonePhoneForumSection);
     nav.forumSectionFormId = null;
     showToast("已保存分区", "success");
     renderPhoneScreen(slot);
@@ -16763,26 +17688,34 @@
     if (!requirePhoneForumHolderForEdit()) return;
     const rec = getPhoneForumBundleMutable();
     if (!rec) return;
+    const plotId = getPhonePlotIdForSharedSections();
     const id = String(sectionId || "").trim();
-    const sec = rec.bundle.sections.find(function (s) {
+    const sec = getPhoneForumSectionsForPlot(plotId).find(function (s) {
       return s && s.id === id;
     });
     if (!sec) return;
-    const ok = await showConfirm("确定删除分区「" + sec.name + "」吗？", "删除分区");
+    const ok = await showConfirm("确定删除分区「" + sec.name + "」吗？同剧情下所有角色的该分区帖子也会一并删除。", "删除分区");
     if (!ok) return;
-    rec.bundle.sections = rec.bundle.sections.filter(function (s) {
+    const sections = getPhoneForumSectionsForPlot(plotId).filter(function (s) {
       return s && s.id !== id;
     });
+    setPhoneForumSectionsForPlot(plotId, sections, {
+      onEachBundle: function (bundle) {
+        bundle.posts = (bundle.posts || []).filter(function (p) {
+          return p && p.sectionId !== id;
+        });
+      },
+    });
+    rec.bundle.sections = getPhoneForumSectionsForPlot(plotId).map(clonePhoneForumSection);
     rec.bundle.posts = (rec.bundle.posts || []).filter(function (p) {
       return p && p.sectionId !== id;
     });
-    persistPhoneForumBundle(rec.bundle);
     const nav = getPhoneNav(slot);
     if (nav.forumSectionId === id) {
-      nav.forumSectionId = rec.bundle.sections.length ? rec.bundle.sections[0].id : "";
+      nav.forumSectionId = sections.length ? sections[0].id : "";
     }
     nav.forumSectionFormId = null;
-    if (!rec.bundle.sections.length) nav.forumManageOpen = false;
+    if (!sections.length) nav.forumManageOpen = false;
     showToast("已删除分区", "success");
     renderPhoneScreen(slot);
   }
@@ -16829,6 +17762,7 @@
   function purgePhoneBrowserDataForPlot(plotId) {
     const pid = String(plotId || "").trim();
     if (!pid) return;
+    delete phoneBrowserSectionsByPlot[pid];
     Object.keys(phoneBrowserData).forEach(function (k) {
       if (k.indexOf(pid + "\u001e") === 0) delete phoneBrowserData[k];
     });
@@ -16978,9 +17912,9 @@
       });
     });
     assertPhoneBrowserMinEntriesPerSection(bySection, "");
-    const rec = getPhoneBrowserBundleMutable();
+    getPhoneBrowserBundleMutable();
     return {
-      sections: (rec ? rec.bundle.sections : getPhoneBrowserSections()).map(function (s) {
+      sections: getPhoneBrowserSectionsForPlot(getPhonePlotIdForSharedSections()).map(function (s) {
         return { id: s.id, name: s.name, description: s.description };
       }),
       entries: sortPhoneBrowserEntries(entries).slice(0, PHONE_BROWSER_MAX_ENTRIES),
@@ -17038,11 +17972,9 @@
       }
     });
     return {
-      sections: mergePhoneBrowserSectionDescriptions((existing && existing.sections) || getPhoneBrowserSections()).map(
-        function (s) {
-          return { id: s.id, name: s.name, description: s.description };
-        }
-      ),
+      sections: getPhoneBrowserSectionsForPlot(getPhonePlotIdForSharedSections()).map(function (s) {
+        return { id: s.id, name: s.name, description: s.description };
+      }),
       entries: sortPhoneBrowserEntries(base).slice(0, PHONE_BROWSER_MAX_ENTRIES),
       generatedAt: Date.now(),
     };
@@ -17268,11 +18200,9 @@
       );
     }
     return {
-      sections: mergePhoneBrowserSectionDescriptions((existing && existing.sections) || getPhoneBrowserSections()).map(
-        function (s) {
-          return { id: s.id, name: s.name, description: s.description };
-        }
-      ),
+      sections: getPhoneBrowserSectionsForPlot(getPhonePlotIdForSharedSections()).map(function (s) {
+        return { id: s.id, name: s.name, description: s.description };
+      }),
       entries: sortPhoneBrowserEntries(base).slice(0, PHONE_BROWSER_MAX_ENTRIES),
       generatedAt: Date.now(),
     };
@@ -17333,27 +18263,51 @@
     return rec;
   }
 
-  function getPhoneBrowserSections() {
-    const key = getPhoneWechatStorageKeyForCurrentHolder();
-    const rec = key ? phoneBrowserData[key] : null;
-    if (rec && Array.isArray(rec.sections) && rec.sections.length) {
-      return mergePhoneBrowserSectionDescriptions(rec.sections);
+  function getPhoneBrowserSectionsForPlot(_plotId) {
+    const stored = phoneSharedSectionStoreGetSections(phoneBrowserSectionsByPlot, PHONE_SHARED_SECTIONS_GLOBAL_KEY);
+    if (stored && stored.length) {
+      return mergePhoneBrowserSectionDescriptions(stored);
     }
     return clonePhoneBrowserDefaultSections();
+  }
+
+  function setPhoneBrowserSectionsForPlot(_plotId, sections) {
+    const merged = mergePhoneBrowserSectionDescriptions(sections).map(function (s) {
+      return { id: String(s.id || ""), name: String(s.name || ""), description: String(s.description || "") };
+    });
+    phoneSharedSectionStoreSetSections(phoneBrowserSectionsByPlot, PHONE_SHARED_SECTIONS_GLOBAL_KEY, merged, Date.now());
+    syncPhoneSharedSectionsGlobal();
+  }
+
+  function getPhoneBrowserSections() {
+    return getPhoneBrowserSectionsForPlot(getPhonePlotIdForSharedSections());
   }
 
   function getPhoneBrowserBundleMutable() {
     const key = getPhoneWechatStorageKeyForCurrentHolder();
     if (!key) return null;
+    const plotId = getPhonePlotIdFromStorageKey(key);
+    const sections = getPhoneBrowserSectionsForPlot(plotId);
     if (!phoneBrowserData[key]) {
-      phoneBrowserData[key] = { sections: clonePhoneBrowserDefaultSections(), entries: [] };
+      phoneBrowserData[key] = { sections: sections.map(function (s) {
+        return { id: s.id, name: s.name, description: s.description };
+      }), entries: [] };
     }
     if (!Array.isArray(phoneBrowserData[key].sections)) {
-      phoneBrowserData[key].sections = clonePhoneBrowserDefaultSections();
+      phoneBrowserData[key].sections = sections.map(function (s) {
+        return { id: s.id, name: s.name, description: s.description };
+      });
     }
     if (!Array.isArray(phoneBrowserData[key].entries)) {
       phoneBrowserData[key].entries = [];
     }
+    phoneBrowserData[key].sections = sections.map(function (s) {
+      return { id: s.id, name: s.name, description: s.description };
+    });
+    phoneBrowserData[key].sectionsUpdatedAt = phoneSharedSectionStoreGetUpdatedAt(
+      phoneBrowserSectionsByPlot,
+      PHONE_SHARED_SECTIONS_GLOBAL_KEY
+    );
     return { key: key, bundle: phoneBrowserData[key] };
   }
 
@@ -17363,6 +18317,10 @@
     if (Array.isArray(bundle.entries)) {
       bundle.entries = sortPhoneBrowserEntries(bundle.entries);
     }
+    bundle.sections = getPhoneBrowserSectionsForPlot(PHONE_SHARED_SECTIONS_GLOBAL_KEY).map(function (s) {
+      return { id: s.id, name: s.name, description: s.description };
+    });
+    bundle.sectionsUpdatedAt = phoneSharedSectionStoreGetUpdatedAt(phoneBrowserSectionsByPlot, PHONE_SHARED_SECTIONS_GLOBAL_KEY);
     phoneBrowserData[key] = bundle;
     schedulePersistNarrative();
   }
@@ -18098,6 +19056,7 @@
   }
 
   function openPhoneBrowser(slot) {
+    syncPhoneSharedSectionsGlobal();
     const nav = getPhoneNav(slot);
     nav.screen = "browser";
     nav.chatId = null;
@@ -18195,13 +19154,20 @@
       showToast("请先在设置中选择剧情与手机持有者。", "warning");
       return;
     }
-    const sec = rec.bundle.sections.find(function (s) {
+    const plotId = getPhonePlotIdForSharedSections();
+    const sections = getPhoneBrowserSectionsForPlot(plotId).map(function (s) {
+      return { id: s.id, name: s.name, description: s.description };
+    });
+    const sec = sections.find(function (s) {
       return s && s.id === nav.browserSectionFormId;
     });
     if (!sec) return;
     sec.name = truncateCharsWithEllipsis(name, PHONE_BROWSER_SECTION_NAME_MAX);
     sec.description = truncateCharsWithEllipsis(desc, PHONE_BROWSER_SECTION_DESC_MAX);
-    persistPhoneBrowserBundle(rec.bundle);
+    setPhoneBrowserSectionsForPlot(plotId, sections);
+    rec.bundle.sections = getPhoneBrowserSectionsForPlot(plotId).map(function (s) {
+      return { id: s.id, name: s.name, description: s.description };
+    });
     nav.browserSectionFormId = null;
     showToast("已保存分类", "success");
     renderPhoneScreen(slot);
@@ -18506,6 +19472,7 @@
   function purgePhoneMemoDataForPlot(plotId) {
     const pid = String(plotId || "").trim();
     if (!pid) return;
+    delete phoneMemoSectionsByPlot[pid];
     Object.keys(phoneMemoData).forEach(function (k) {
       if (k.indexOf(pid + "\u001e") === 0) delete phoneMemoData[k];
     });
@@ -18556,27 +19523,57 @@
     return !!getPhoneMemoBundleRecord();
   }
 
-  function getPhoneMemoSections() {
-    const key = getPhoneWechatStorageKeyForCurrentHolder();
-    const rec = key ? phoneMemoData[key] : null;
-    if (rec && Array.isArray(rec.sections) && rec.sections.length) {
-      return mergePhoneMemoSectionDescriptions(rec.sections);
+  function getPhoneMemoSectionsForPlot(_plotId) {
+    const stored = phoneSharedSectionStoreGetSections(phoneMemoSectionsByPlot, PHONE_SHARED_SECTIONS_GLOBAL_KEY);
+    if (stored && stored.length) {
+      return mergePhoneMemoSectionDescriptions(stored);
     }
     return clonePhoneMemoDefaultSections();
+  }
+
+  function setPhoneMemoSectionsForPlot(_plotId, sections, options) {
+    const merged = mergePhoneMemoSectionDescriptions(sections).map(function (s) {
+      return { id: String(s.id || ""), name: String(s.name || ""), description: String(s.description || "") };
+    });
+    phoneSharedSectionStoreSetSections(phoneMemoSectionsByPlot, PHONE_SHARED_SECTIONS_GLOBAL_KEY, merged, Date.now());
+    syncPhoneSharedSectionsGlobal();
+    if (options && typeof options.onEachBundle === "function") {
+      phoneDataKeysAll(phoneMemoData).forEach(function (k) {
+        const rec = phoneMemoData[k];
+        if (rec) options.onEachBundle(rec);
+      });
+    }
+  }
+
+  function getPhoneMemoSections() {
+    return getPhoneMemoSectionsForPlot(getPhonePlotIdForSharedSections());
   }
 
   function getPhoneMemoBundleMutable() {
     const key = getPhoneWechatStorageKeyForCurrentHolder();
     if (!key) return null;
+    const plotId = getPhonePlotIdFromStorageKey(key);
+    const sections = getPhoneMemoSectionsForPlot(plotId);
     if (!phoneMemoData[key]) {
-      phoneMemoData[key] = { sections: clonePhoneMemoDefaultSections(), notes: [] };
+      phoneMemoData[key] = { sections: sections.map(function (s) {
+        return { id: s.id, name: s.name, description: s.description };
+      }), notes: [] };
     }
     if (!Array.isArray(phoneMemoData[key].sections)) {
-      phoneMemoData[key].sections = clonePhoneMemoDefaultSections();
+      phoneMemoData[key].sections = sections.map(function (s) {
+        return { id: s.id, name: s.name, description: s.description };
+      });
     }
     if (!Array.isArray(phoneMemoData[key].notes)) {
       phoneMemoData[key].notes = [];
     }
+    phoneMemoData[key].sections = sections.map(function (s) {
+      return { id: s.id, name: s.name, description: s.description };
+    });
+    phoneMemoData[key].sectionsUpdatedAt = phoneSharedSectionStoreGetUpdatedAt(
+      phoneMemoSectionsByPlot,
+      PHONE_SHARED_SECTIONS_GLOBAL_KEY
+    );
     return { key: key, bundle: phoneMemoData[key] };
   }
 
@@ -18586,6 +19583,10 @@
     if (Array.isArray(bundle.notes)) {
       bundle.notes = sortPhoneMemoNotes(bundle.notes);
     }
+    bundle.sections = getPhoneMemoSectionsForPlot(PHONE_SHARED_SECTIONS_GLOBAL_KEY).map(function (s) {
+      return { id: s.id, name: s.name, description: s.description };
+    });
+    bundle.sectionsUpdatedAt = phoneSharedSectionStoreGetUpdatedAt(phoneMemoSectionsByPlot, PHONE_SHARED_SECTIONS_GLOBAL_KEY);
     phoneMemoData[key] = bundle;
     schedulePersistNarrative();
   }
@@ -19149,9 +20150,9 @@
       });
     });
     assertPhoneMemoMinNotesPerSection(bySection, "");
-    const rec = getPhoneMemoBundleMutable();
+    getPhoneMemoBundleMutable();
     return {
-      sections: (rec ? rec.bundle.sections : getPhoneMemoSections()).map(function (s) {
+      sections: getPhoneMemoSectionsForPlot(getPhonePlotIdForSharedSections()).map(function (s) {
         return { id: s.id, name: s.name, description: s.description };
       }),
       notes: sortPhoneMemoNotes(notes).slice(0, PHONE_MEMO_MAX_NOTES),
@@ -19207,11 +20208,9 @@
       }
     });
     return {
-      sections: mergePhoneMemoSectionDescriptions((existing && existing.sections) || getPhoneMemoSections()).map(
-        function (s) {
-          return { id: s.id, name: s.name, description: s.description };
-        }
-      ),
+      sections: getPhoneMemoSectionsForPlot(getPhonePlotIdForSharedSections()).map(function (s) {
+        return { id: s.id, name: s.name, description: s.description };
+      }),
       notes: sortPhoneMemoNotes(base).slice(0, PHONE_MEMO_MAX_NOTES),
       generatedAt: Date.now(),
     };
@@ -19451,11 +20450,9 @@
       );
     }
     return {
-      sections: mergePhoneMemoSectionDescriptions((existing && existing.sections) || getPhoneMemoSections()).map(
-        function (s) {
-          return { id: s.id, name: s.name, description: s.description };
-        }
-      ),
+      sections: getPhoneMemoSectionsForPlot(getPhonePlotIdForSharedSections()).map(function (s) {
+        return { id: s.id, name: s.name, description: s.description };
+      }),
       notes: sortPhoneMemoNotes(base).slice(0, PHONE_MEMO_MAX_NOTES),
       generatedAt: Date.now(),
     };
@@ -19781,6 +20778,7 @@
   }
 
   function openPhoneMemo(slot) {
+    syncPhoneSharedSectionsGlobal();
     const nav = getPhoneNav(slot);
     nav.screen = "memo";
     nav.chatId = null;
@@ -19849,6 +20847,7 @@
     const rec = getPhoneMemoBundleMutable();
     if (!rec) return;
     const nav = getPhoneNav(slot);
+    const plotId = getPhonePlotIdForSharedSections();
     const nameInput = slot && slot.querySelector("[data-phone-memo-section-name-input]");
     const descInput = slot && slot.querySelector("[data-phone-memo-section-desc-input]");
     const name = truncateCharsWithEllipsis(String((nameInput && nameInput.value) || "").trim(), PHONE_MEMO_SECTION_NAME_MAX);
@@ -19860,13 +20859,16 @@
       showToast("分类名称不能为空", "warning");
       return;
     }
+    const sections = getPhoneMemoSectionsForPlot(plotId).map(function (s) {
+      return { id: s.id, name: s.name, description: s.description };
+    });
     const formId = String(nav.memoSectionFormId || "").trim();
     if (formId === "new") {
       const newId = uid("memo-sec");
-      rec.bundle.sections.push({ id: newId, name: name, description: description });
+      sections.push({ id: newId, name: name, description: description });
       nav.memoSectionId = newId;
     } else {
-      const sec = rec.bundle.sections.find(function (s) {
+      const sec = sections.find(function (s) {
         return s && s.id === formId;
       });
       if (!sec) {
@@ -19876,7 +20878,10 @@
       sec.name = name;
       sec.description = description;
     }
-    persistPhoneMemoBundle(rec.bundle);
+    setPhoneMemoSectionsForPlot(plotId, sections);
+    rec.bundle.sections = getPhoneMemoSectionsForPlot(plotId).map(function (s) {
+      return { id: s.id, name: s.name, description: s.description };
+    });
     nav.memoSectionFormId = null;
     showToast("已保存分类", "success");
     renderPhoneScreen(slot);
@@ -19886,30 +20891,43 @@
     if (!requirePhoneMemoHolderForEdit()) return;
     const rec = getPhoneMemoBundleMutable();
     if (!rec) return;
+    const plotId = getPhonePlotIdForSharedSections();
     const id = String(sectionId || "").trim();
-    const sec = rec.bundle.sections.find(function (s) {
+    const sections = getPhoneMemoSectionsForPlot(plotId).map(function (s) {
+      return { id: s.id, name: s.name, description: s.description };
+    });
+    const sec = sections.find(function (s) {
       return s && s.id === id;
     });
     if (!sec) return;
-    if (rec.bundle.sections.length <= 1) {
+    if (sections.length <= 1) {
       showToast("至少保留一个分类", "warning");
       return;
     }
-    const ok = await showConfirm("确定删除分类「" + sec.name + "」吗？", "删除分类");
+    const ok = await showConfirm("确定删除分类「" + sec.name + "」吗？同剧情下所有角色的该分类备忘录也会一并删除。", "删除分类");
     if (!ok) return;
-    rec.bundle.sections = rec.bundle.sections.filter(function (s) {
+    const nextSections = sections.filter(function (s) {
       return s && s.id !== id;
+    });
+    setPhoneMemoSectionsForPlot(plotId, nextSections, {
+      onEachBundle: function (bundle) {
+        bundle.notes = (bundle.notes || []).filter(function (n) {
+          return n && n.sectionId !== id;
+        });
+      },
+    });
+    rec.bundle.sections = getPhoneMemoSectionsForPlot(plotId).map(function (s) {
+      return { id: s.id, name: s.name, description: s.description };
     });
     rec.bundle.notes = (rec.bundle.notes || []).filter(function (n) {
       return n && n.sectionId !== id;
     });
-    persistPhoneMemoBundle(rec.bundle);
     const nav = getPhoneNav(slot);
     if (nav.memoSectionId === id) {
-      nav.memoSectionId = rec.bundle.sections.length ? rec.bundle.sections[0].id : "";
+      nav.memoSectionId = nextSections.length ? nextSections[0].id : "";
     }
     nav.memoSectionFormId = null;
-    if (!rec.bundle.sections.length) nav.memoManageOpen = false;
+    if (!nextSections.length) nav.memoManageOpen = false;
     showToast("已删除分类", "success");
     renderPhoneScreen(slot);
   }
@@ -22338,6 +23356,7 @@
   function purgePhoneJjwxcDataForPlot(plotId) {
     const pid = String(plotId || "").trim();
     if (!pid) return;
+    delete phoneJjwxcCategoriesByPlot[pid];
     Object.keys(phoneJjwxcData).forEach(function (k) {
       if (k.indexOf(pid + "\u001e") === 0) delete phoneJjwxcData[k];
     });
@@ -22384,12 +23403,32 @@
     };
   }
 
-  function getPhoneJjwxcCategories() {
-    const rec = getPhoneJjwxcCategoryBundleRecord();
-    if (rec && rec.categories.length) {
-      return mergePhoneJjwxcCategoryDescriptions(rec.categories);
+  function getPhoneJjwxcCategoriesMetaForPlot(_plotId) {
+    const entry = phoneJjwxcCategoriesByPlot[PHONE_SHARED_SECTIONS_GLOBAL_KEY];
+    if (entry && Array.isArray(entry.categories) && entry.categories.length) {
+      return {
+        categories: mergePhoneJjwxcCategoryDescriptions(entry.categories),
+        userEdited: !!entry.userEdited,
+        updatedAt: phoneSharedSectionEntryUpdatedAt(entry),
+      };
     }
-    return clonePhoneJjwxcDefaultCategories();
+    return { categories: clonePhoneJjwxcDefaultCategories(), userEdited: false, updatedAt: 0 };
+  }
+
+  function setPhoneJjwxcCategoriesForPlot(_plotId, categories, userEdited, options) {
+    const merged = mergePhoneJjwxcCategoryDescriptions(categories).map(clonePhoneJjwxcCategory);
+    phoneSharedJjwxcStoreSet(phoneJjwxcCategoriesByPlot, PHONE_SHARED_SECTIONS_GLOBAL_KEY, merged, userEdited, Date.now());
+    syncPhoneSharedSectionsGlobal();
+    if (options && typeof options.onEachBundle === "function") {
+      phoneDataKeysAll(phoneJjwxcData).forEach(function (k) {
+        const rec = phoneJjwxcData[k];
+        if (rec) options.onEachBundle(rec);
+      });
+    }
+  }
+
+  function getPhoneJjwxcCategories() {
+    return getPhoneJjwxcCategoriesMetaForPlot(getPhonePlotIdForSharedSections()).categories;
   }
 
   function getPhoneJjwxcCategoryBundleRecord() {
@@ -22418,24 +23457,27 @@
   function getPhoneJjwxcBundleMutable() {
     const key = getPhoneWechatStorageKeyForCurrentHolder();
     if (!key) return null;
+    const plotId = getPhonePlotIdFromStorageKey(key);
+    const meta = getPhoneJjwxcCategoriesMetaForPlot(plotId);
     if (!phoneJjwxcData[key]) {
       phoneJjwxcData[key] = {
-        categories: clonePhoneJjwxcDefaultCategories(),
+        categories: meta.categories.map(clonePhoneJjwxcCategory),
         novels: [],
         tips: [],
         readingNotes: [],
         readerProfile: {},
-        categoriesUserEdited: false,
+        categoriesUserEdited: meta.userEdited,
       };
     }
     const bundle = phoneJjwxcData[key];
-    if (!Array.isArray(bundle.categories)) bundle.categories = clonePhoneJjwxcDefaultCategories();
+    if (!Array.isArray(bundle.categories)) bundle.categories = meta.categories.map(clonePhoneJjwxcCategory);
     if (!Array.isArray(bundle.novels)) bundle.novels = [];
     if (!Array.isArray(bundle.tips)) bundle.tips = [];
     if (!Array.isArray(bundle.readingNotes)) bundle.readingNotes = [];
     if (!bundle.readerProfile || typeof bundle.readerProfile !== "object") bundle.readerProfile = {};
-    if (bundle.categoriesUserEdited == null) bundle.categoriesUserEdited = false;
-    bundle.categories = mergePhoneJjwxcCategoryDescriptions(bundle.categories);
+    bundle.categories = meta.categories.map(clonePhoneJjwxcCategory);
+    bundle.categoriesUserEdited = meta.userEdited;
+    bundle.categoriesUpdatedAt = meta.updatedAt || phoneSharedSectionEntryUpdatedAt(phoneJjwxcCategoriesByPlot[plotId]);
     return { key: key, bundle: bundle };
   }
 
@@ -22476,15 +23518,19 @@
   }
 
   function resolvePhoneJjwxcCategoriesForCatalog(existing, raw, isFirstGen) {
-    const base = existing && existing.categories ? mergePhoneJjwxcCategoryDescriptions(existing.categories) : clonePhoneJjwxcDefaultCategories();
+    const plotId = getPhonePlotIdForSharedSections();
+    const meta = getPhoneJjwxcCategoriesMetaForPlot(plotId);
+    const base = meta.categories.length ? meta.categories : clonePhoneJjwxcDefaultCategories();
     if (!isFirstGen) {
       return base.map(clonePhoneJjwxcCategory);
     }
-    if (existing && existing.categoriesUserEdited) {
+    if (meta.userEdited) {
       return base.map(clonePhoneJjwxcCategory);
     }
     if (raw && Array.isArray(raw.categories) && raw.categories.length) {
-      return normalizePhoneJjwxcCategoriesList(raw.categories, "");
+      const normalized = normalizePhoneJjwxcCategoriesList(raw.categories, "");
+      if (plotId) setPhoneJjwxcCategoriesForPlot(plotId, normalized, false);
+      return normalized;
     }
     return base.map(clonePhoneJjwxcCategory);
   }
@@ -22526,6 +23572,11 @@
   function persistPhoneJjwxcBundle(bundle, immediate) {
     const key = getPhoneWechatStorageKeyForCurrentHolder();
     if (!key || !bundle) return;
+    const plotId = getPhonePlotIdFromStorageKey(key);
+    const meta = getPhoneJjwxcCategoriesMetaForPlot(plotId);
+    bundle.categories = meta.categories.map(clonePhoneJjwxcCategory);
+    bundle.categoriesUserEdited = meta.userEdited;
+    bundle.categoriesUpdatedAt = meta.updatedAt || phoneSharedSectionEntryUpdatedAt(phoneJjwxcCategoriesByPlot[plotId]);
     phoneJjwxcData[key] = bundle;
     if (immediate) {
       flushPersistNarrative();
@@ -22749,13 +23800,14 @@
     if (readingNotes.length < PHONE_JJWXC_MIN_READING_NOTES) {
       throw new Error("阅读心声不足 " + PHONE_JJWXC_MIN_READING_NOTES + " 条");
     }
+    const jjwxcMeta = getPhoneJjwxcCategoriesMetaForPlot(getPhonePlotIdForSharedSections());
     return {
       categories: categories.map(clonePhoneJjwxcCategory),
       novels: novels,
       tips: tips,
       readingNotes: readingNotes,
       readerProfile: normalizePhoneJjwxcReaderProfile(raw && raw.readerProfile ? raw.readerProfile : null),
-      categoriesUserEdited: !!(existing && existing.categoriesUserEdited),
+      categoriesUserEdited: jjwxcMeta.userEdited,
       generatedAt: Date.now(),
     };
   }
@@ -22812,17 +23864,16 @@
       const note = normalizePhoneJjwxcReadingNoteItem(n, i, noteSeen);
       if (note) readingNotes.unshift(note);
     });
+    const jjwxcMeta = getPhoneJjwxcCategoriesMetaForPlot(getPhonePlotIdForSharedSections());
     return {
-      categories: (existing && existing.categories ? existing.categories : clonePhoneJjwxcDefaultCategories()).map(
-        clonePhoneJjwxcCategory
-      ),
+      categories: jjwxcMeta.categories.map(clonePhoneJjwxcCategory),
       novels: base,
       tips: tips,
       readingNotes: readingNotes,
       readerProfile: normalizePhoneJjwxcReaderProfile(
         (raw && raw.readerProfile) || (existing && existing.readerProfile) || null
       ),
-      categoriesUserEdited: !!(existing && existing.categoriesUserEdited),
+      categoriesUserEdited: jjwxcMeta.userEdited,
       generatedAt: Date.now(),
     };
   }
@@ -23039,7 +24090,7 @@
   function buildPhoneJjwxcCatalogPrompt(plot, holder, existing) {
     const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
     const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
-    const userEdited = !!(existing && existing.categoriesUserEdited);
+    const userEdited = getPhoneJjwxcCategoriesMetaForPlot(getPhonePlotIdForSharedSections()).userEdited;
     const presetCats = getPhoneJjwxcCategories();
     const lines = [
       "请为「查手机·晋江文学城」生成手机持有者「" + holderName + "」作为读者的网文浏览数据 JSON。",
@@ -23209,17 +24260,16 @@
         "分类「" + cat.name + "」新作品不足 " + PHONE_JJWXC_CATEGORY_GENERATE_COUNT + " 部（实际 " + added + " 部）"
       );
     }
+    const jjwxcMeta = getPhoneJjwxcCategoriesMetaForPlot(getPhonePlotIdForSharedSections());
     return {
-      categories: (existing && existing.categories ? existing.categories : clonePhoneJjwxcDefaultCategories()).map(
-        clonePhoneJjwxcCategory
-      ),
+      categories: jjwxcMeta.categories.map(clonePhoneJjwxcCategory),
       novels: base,
       tips: (existing && existing.tips ? existing.tips : []).slice(),
       readingNotes: (existing && existing.readingNotes ? existing.readingNotes : []).slice(),
       readerProfile: normalizePhoneJjwxcReaderProfile(
         (existing && existing.readerProfile) || (raw && raw.readerProfile) || null
       ),
-      categoriesUserEdited: !!(existing && existing.categoriesUserEdited),
+      categoriesUserEdited: jjwxcMeta.userEdited,
       generatedAt: Date.now(),
     };
   }
@@ -24384,6 +25434,7 @@
   }
 
   function openPhoneJjwxc(slot) {
+    syncPhoneSharedSectionsGlobal();
     const nav = getPhoneNav(slot);
     nav.screen = "jjwxc";
     nav.jjwxcNovelId = null;
@@ -24434,6 +25485,7 @@
     const rec = getPhoneJjwxcBundleMutable();
     if (!rec) return;
     const nav = getPhoneNav(slot);
+    const plotId = getPhonePlotIdForSharedSections();
     const nameInput = slot && slot.querySelector("[data-phone-jjwxc-category-name-input]");
     const descInput = slot && slot.querySelector("[data-phone-jjwxc-category-desc-input]");
     const name = truncateCharsWithEllipsis(String((nameInput && nameInput.value) || "").trim(), PHONE_JJWXC_CAT_NAME_MAX);
@@ -24449,17 +25501,18 @@
       showToast("请填写分类简介（生成规则）", "warning");
       return;
     }
+    const categories = getPhoneJjwxcCategoriesMetaForPlot(plotId).categories.map(clonePhoneJjwxcCategory);
     const formId = String(nav.jjwxcCategoryFormId || "").trim();
     if (formId === "new") {
-      if (rec.bundle.categories.length >= PHONE_JJWXC_MAX_CATEGORIES) {
+      if (categories.length >= PHONE_JJWXC_MAX_CATEGORIES) {
         showToast("分类已达上限 " + PHONE_JJWXC_MAX_CATEGORIES + " 个", "warning");
         return;
       }
       const newId = uid("jjc-cat");
-      rec.bundle.categories.push({ id: newId, name: name, description: description });
+      categories.push({ id: newId, name: name, description: description });
       nav.jjwxcCategoryId = newId;
     } else {
-      const sec = rec.bundle.categories.find(function (s) {
+      const sec = categories.find(function (s) {
         return s && s.id === formId;
       });
       if (!sec) {
@@ -24469,8 +25522,9 @@
       sec.name = name;
       sec.description = description;
     }
+    setPhoneJjwxcCategoriesForPlot(plotId, categories, true);
+    rec.bundle.categories = getPhoneJjwxcCategoriesMetaForPlot(plotId).categories.map(clonePhoneJjwxcCategory);
     rec.bundle.categoriesUserEdited = true;
-    persistPhoneJjwxcBundle(rec.bundle, true);
     nav.jjwxcCategoryFormId = null;
     showToast("已保存分类", "success");
     renderPhoneScreen(slot);
@@ -24480,31 +25534,43 @@
     if (!requirePhoneJjwxcHolderForEdit()) return;
     const rec = getPhoneJjwxcBundleMutable();
     if (!rec) return;
+    const plotId = getPhonePlotIdForSharedSections();
     const id = String(categoryId || "").trim();
-    const sec = rec.bundle.categories.find(function (s) {
+    const categories = getPhoneJjwxcCategoriesMetaForPlot(plotId).categories.map(clonePhoneJjwxcCategory);
+    const sec = categories.find(function (s) {
       return s && s.id === id;
     });
     if (!sec) return;
-    if (rec.bundle.categories.length <= PHONE_JJWXC_MIN_CATEGORIES) {
+    if (categories.length <= PHONE_JJWXC_MIN_CATEGORIES) {
       showToast("至少保留 " + PHONE_JJWXC_MIN_CATEGORIES + " 个分类", "warning");
       return;
     }
-    const ok = await showConfirm("确定删除分类「" + sec.name + "」吗？该分类下的作品也会一并移除。", "删除分类");
+    const ok = await showConfirm(
+      "确定删除分类「" + sec.name + "」吗？同剧情下所有角色的该分类作品也会一并移除。",
+      "删除分类"
+    );
     if (!ok) return;
-    rec.bundle.categories = rec.bundle.categories.filter(function (s) {
+    const nextCategories = categories.filter(function (s) {
       return s && s.id !== id;
     });
+    setPhoneJjwxcCategoriesForPlot(plotId, nextCategories, true, {
+      onEachBundle: function (bundle) {
+        bundle.novels = (bundle.novels || []).filter(function (n) {
+          return n && n.categoryId !== id;
+        });
+      },
+    });
+    rec.bundle.categories = getPhoneJjwxcCategoriesMetaForPlot(plotId).categories.map(clonePhoneJjwxcCategory);
+    rec.bundle.categoriesUserEdited = true;
     rec.bundle.novels = (rec.bundle.novels || []).filter(function (n) {
       return n && n.categoryId !== id;
     });
-    rec.bundle.categoriesUserEdited = true;
-    persistPhoneJjwxcBundle(rec.bundle, true);
     const nav = getPhoneNav(slot);
     if (nav.jjwxcCategoryId === id) {
-      nav.jjwxcCategoryId = rec.bundle.categories.length ? rec.bundle.categories[0].id : "";
+      nav.jjwxcCategoryId = nextCategories.length ? nextCategories[0].id : "";
     }
     nav.jjwxcCategoryFormId = null;
-    if (!rec.bundle.categories.length) nav.jjwxcManageOpen = false;
+    if (!nextCategories.length) nav.jjwxcManageOpen = false;
     showToast("已删除分类", "success");
     renderPhoneScreen(slot);
   }
@@ -24638,7 +25704,83 @@
   /* ── 同人粮 · 晋江同人文 ── */
 
   const FANWORK_JJWXC_MIN_CATEGORIES = 1;
-  const FANWORK_JJWXC_MAX_CATEGORIES = 10;
+  const FANWORK_JJWXC_MAX_CATEGORIES = 14;
+
+  /** 小狗饭默认分区：同人文常见题材，首次选 CP 时预填，可编辑/删除 */
+  const FANWORK_JJWXC_DEFAULT_CATEGORIES = [
+    {
+      id: "modern",
+      name: "现代AU",
+      description:
+        "现代都市平行世界，保留 CP 核心性格与关系基调，可改身份职业与初遇场景；偏生活流、都市情感或职场相遇。",
+    },
+    {
+      id: "campus",
+      name: "校园青春",
+      description:
+        "高中/大学校园背景，同班、室友、社团或竹马青梅；写暗恋心动、试探靠近、毕业季抉择等青春向情节，可甜可酸。",
+    },
+    {
+      id: "reunion",
+      name: "破镜重圆",
+      description:
+        "曾相恋或暧昧后因误会、现实压力、性格摩擦而分开；重逢后追妻/追夫、解开心结、重新建立信任，可虐后甜。",
+    },
+    {
+      id: "marriage",
+      name: "先婚后爱",
+      description:
+        "契约婚姻、联姻、政策绑定或意外领证；从客气疏离到日常磨合、日久生情，重点写婚后相处细节与心动瞬间。",
+    },
+    {
+      id: "abo",
+      name: "ABO设定",
+      description:
+        "Alpha/Beta/Omega 世界观，可写信息素、标记、发情期、先天阶级等；用 AO 生理与社会规则制造 CP 张力，设定须逻辑自洽。",
+    },
+    {
+      id: "sentinel",
+      name: "哨向体系",
+      description:
+        "哨兵与向导配对设定，含精神疏导、感官过载、契合度与灵魂链接；可作塔内、战场或末世 AU，强调命定羁绊。",
+    },
+    {
+      id: "showbiz",
+      name: "娱乐圈AU",
+      description:
+        "演员、歌手、导演、编剧、综艺等圈内身份；共演搭子、同居避狗仔、绯闻辟谣、顶峰相见，可写事业线与感情线交织。",
+    },
+    {
+      id: "ancient",
+      name: "古风架空",
+      description:
+        "古代/武侠/仙侠背景，帝王将相、江湖门派、师兄弟、影卫门客等；允许适度 OOC 与架空设定，可权谋可江湖。",
+    },
+    {
+      id: "infinite",
+      name: "无限副本",
+      description:
+        "无限流、规则怪谈、生存游戏副本；双强组队闯关，在绝境中托付后背，可含系统、积分、复活等机制。",
+    },
+    {
+      id: "fluff",
+      name: "甜宠日常",
+      description:
+        "高糖低虐治愈向，同居做饭、节日仪式感、养宠旅行、病号照顾等；节奏轻松，情感细腻，适合纯嗑糖。",
+    },
+    {
+      id: "pwp",
+      name: "纯肉PWP",
+      description:
+        "NSFW 成人向，Plot What Plot，肉体互动为核心或主线；双方皆成年 AU，注重氛围与互动细节，不写非自愿侵害写实描写。",
+    },
+    {
+      id: "dark",
+      name: "强制爱欲",
+      description:
+        "暗黑张力向，含强取豪夺、囚禁、权力差、追妻火葬场边缘；可含支配与臣服氛围，须保持 CP 双向情感内核，不写真实暴力性侵。",
+    },
+  ];
   const FANWORK_JJWXC_GENERATE_NOVEL_COUNT = 15;
   const FANWORK_JJWXC_PLACEHOLDER_NOVELS = 6;
   const FANWORK_JJWXC_CATALOG_AUTHOR_NOTE_MAX = 72;
@@ -24663,47 +25805,147 @@
     );
   }
 
-  function sortFanworkCpCharIds(idA, idB) {
-    const a = String(idA || "").trim();
-    const b = String(idB || "").trim();
-    if (!a || !b || a === b) return null;
-    return a < b ? [a, b] : [b, a];
+  function getFanworkPlotById(plotId) {
+    const id = String(plotId || "").trim();
+    if (!id) return null;
+    return (
+      plots.find(function (p) {
+        return p && p.id === id;
+      }) || null
+    );
+  }
+
+  function getFanworkSelectedPlot() {
+    return fanworkPlotId ? getFanworkPlotById(fanworkPlotId) : null;
+  }
+
+  function getFanworkPlotSupportingIds(plot) {
+    return (plot && plot.supportingIds ? plot.supportingIds : [])
+      .map(function (id) {
+        return String(id || "").trim();
+      })
+      .filter(function (id) {
+        return id && getCharById(id);
+      });
+  }
+
+  function fanworkPlotHasCp(plot) {
+    if (!plot) return false;
+    const protag = getCharById(plot.protagonistId);
+    return !!(protag && getFanworkPlotSupportingIds(plot).length);
+  }
+
+  function resolveFanworkCpPartnerIdForPlot(plot) {
+    const sups = getFanworkPlotSupportingIds(plot);
+    if (!sups.length) return null;
+    const pending = String(fanworkCpPartnerId || "").trim();
+    if (plot && plot.id === fanworkPlotId && pending && sups.indexOf(pending) >= 0) return pending;
+    return sups[0];
   }
 
   function getFanworkCpPair() {
-    if (!Array.isArray(fanworkCpCharIds) || fanworkCpCharIds.length !== 2) return null;
-    const c1 = getCharById(fanworkCpCharIds[0]);
-    const c2 = getCharById(fanworkCpCharIds[1]);
-    if (!c1 || !c2) return null;
-    return { ids: fanworkCpCharIds.slice(), charA: c1, charB: c2 };
+    const plot = getFanworkSelectedPlot();
+    if (!plot) return null;
+    const protagId = String(plot.protagonistId || "").trim();
+    const charA = getCharById(protagId);
+    const partnerId = resolveFanworkCpPartnerIdForPlot(plot);
+    const charB = partnerId ? getCharById(partnerId) : null;
+    if (!charA || !charB || protagId === partnerId) return null;
+    return {
+      plot: plot,
+      protagonistId: protagId,
+      partnerId: partnerId,
+      charA: charA,
+      charB: charB,
+      ids: [protagId, partnerId],
+    };
   }
 
   function getFanworkCpLabel(pair) {
     const p = pair || getFanworkCpPair();
-    if (!p) return "选择 CP";
+    if (!p) return "选CP";
     const n1 = String(p.charA.name || "").trim() || "角色A";
     const n2 = String(p.charB.name || "").trim() || "角色B";
     return n1 + " × " + n2;
   }
 
-  function getFanworkCpStorageKey() {
-    const pair = getFanworkCpPair();
-    if (!pair) return null;
-    return pair.ids[0] + "\u001e" + pair.ids[1];
+  function getFanworkBarLabel() {
+    return getFanworkCpLabel();
   }
 
-  function getFanworkJjwxcBundleRecord() {
-    const key = getFanworkCpStorageKey();
-    if (!key) return null;
-    const rec = fanworkJjwxcData[key];
-    if (!rec || !Array.isArray(rec.categories)) return null;
-    return rec;
+  function listFanworkEligiblePlots() {
+    return plots.filter(function (p) {
+      return fanworkPlotHasCp(p);
+    });
+  }
+
+  function getFanworkPlotStorageKey() {
+    return fanworkPlotId ? String(fanworkPlotId).trim() : null;
+  }
+
+  function getFanworkCpStorageKey() {
+    return getFanworkPlotStorageKey();
+  }
+
+  function cloneFanworkJjwxcDefaultCategories() {
+    return FANWORK_JJWXC_DEFAULT_CATEGORIES.map(function (s) {
+      return clonePhoneJjwxcCategory(s);
+    });
+  }
+
+  function getFanworkJjwxcDefaultCategoryMeta(categoryId) {
+    return FANWORK_JJWXC_DEFAULT_CATEGORIES.find(function (s) {
+      return s.id === categoryId;
+    });
+  }
+
+  function mergeFanworkJjwxcCategoryDescriptions(categories) {
+    return (categories || []).map(function (c) {
+      const def = getFanworkJjwxcDefaultCategoryMeta(c.id);
+      const desc = String(c.description || "").trim();
+      return {
+        id: String(c.id || ""),
+        name: String(c.name || ""),
+        description: desc || (def ? def.description : ""),
+      };
+    });
+  }
+
+  function isFanworkJjwxcPresetCategoriesComplete(categories) {
+    const list = categories || [];
+    if (list.length !== FANWORK_JJWXC_DEFAULT_CATEGORIES.length) return false;
+    return FANWORK_JJWXC_DEFAULT_CATEGORIES.every(function (def) {
+      return list.some(function (c) {
+        return c && c.id === def.id;
+      });
+    });
+  }
+
+  function migrateFanworkCategoriesFromLegacyBundle(raw) {
+    if (!raw || fanworkJjwxcCategoryStore.userEdited) return;
+    if (!Array.isArray(raw.categories) || !raw.categories.length) return;
+    if (fanworkJjwxcCategoryStore.categories.length) return;
+    fanworkJjwxcCategoryStore.categories = raw.categories.map(clonePhoneJjwxcCategory);
+    if (raw.categoriesUserEdited) fanworkJjwxcCategoryStore.userEdited = true;
+  }
+
+  function ensureFanworkJjwxcCategoryStore() {
+    if (fanworkJjwxcCategoryStore.userEdited) return false;
+    if (isFanworkJjwxcPresetCategoriesComplete(fanworkJjwxcCategoryStore.categories)) return false;
+    fanworkJjwxcCategoryStore.categories = cloneFanworkJjwxcDefaultCategories();
+    return true;
   }
 
   function getFanworkJjwxcCategories() {
-    const rec = getFanworkJjwxcBundleRecord();
-    if (rec && rec.categories.length) return rec.categories.map(clonePhoneJjwxcCategory);
-    return [];
+    ensureFanworkJjwxcCategoryStore();
+    if (fanworkJjwxcCategoryStore.userEdited) {
+      return mergeFanworkJjwxcCategoryDescriptions(fanworkJjwxcCategoryStore.categories || []).map(
+        clonePhoneJjwxcCategory
+      );
+    }
+    return mergeFanworkJjwxcCategoryDescriptions(fanworkJjwxcCategoryStore.categories || []).map(
+      clonePhoneJjwxcCategory
+    );
   }
 
   function findFanworkJjwxcCategory(categoryId) {
@@ -24715,21 +25957,50 @@
     );
   }
 
+  function mergeFanworkJjwxcPlotBundles(existing, incoming) {
+    const base = existing && typeof existing === "object" ? existing : {};
+    const add = incoming && typeof incoming === "object" ? incoming : {};
+    const novelIds = new Set(
+      (base.novels || []).map(function (n) {
+        return n && n.id;
+      })
+    );
+    const novels = (base.novels || []).slice();
+    (add.novels || []).forEach(function (n) {
+      if (!n || !n.id || novelIds.has(n.id)) return;
+      novelIds.add(n.id);
+      novels.push(n);
+    });
+    return {
+      novels: novels,
+      tips: (base.tips || []).length ? base.tips : add.tips || [],
+      readingNotes: (base.readingNotes || []).length ? base.readingNotes : add.readingNotes || [],
+      readerProfile:
+        base.readerProfile && Object.keys(base.readerProfile).length ? base.readerProfile : add.readerProfile || {},
+      generatedAt: base.generatedAt || add.generatedAt || null,
+    };
+  }
+
+  function getFanworkJjwxcBundleRecord() {
+    const key = getFanworkPlotStorageKey();
+    if (!key) return null;
+    const rec = fanworkJjwxcData[key];
+    if (!rec) return null;
+    return rec;
+  }
+
   function getFanworkJjwxcBundleMutable() {
-    const key = getFanworkCpStorageKey();
+    const key = getFanworkPlotStorageKey();
     if (!key) return null;
     if (!fanworkJjwxcData[key]) {
       fanworkJjwxcData[key] = {
-        categories: [],
         novels: [],
         tips: [],
         readingNotes: [],
         readerProfile: {},
-        categoriesUserEdited: false,
       };
     }
     const bundle = fanworkJjwxcData[key];
-    if (!Array.isArray(bundle.categories)) bundle.categories = [];
     if (!Array.isArray(bundle.novels)) bundle.novels = [];
     if (!Array.isArray(bundle.tips)) bundle.tips = [];
     if (!Array.isArray(bundle.readingNotes)) bundle.readingNotes = [];
@@ -24738,9 +26009,14 @@
   }
 
   function persistFanworkJjwxcBundle(bundle, immediate) {
-    const key = getFanworkCpStorageKey();
+    const key = getFanworkPlotStorageKey();
     if (!key || !bundle) return;
     fanworkJjwxcData[key] = bundle;
+    if (immediate) flushPersistNarrative();
+    else schedulePersistNarrative();
+  }
+
+  function persistFanworkJjwxcCategoryStore(immediate) {
     if (immediate) flushPersistNarrative();
     else schedulePersistNarrative();
   }
@@ -24750,32 +26026,58 @@
     return !!(rec && rec.novels && rec.novels.length);
   }
 
-  function requireFanworkCpForEdit() {
+  function requireFanworkPlotForEdit() {
+    if (!getFanworkSelectedPlot()) {
+      showToast("请先选择剧情。", "warning");
+      return false;
+    }
     if (!getFanworkCpPair()) {
-      showToast("请先选择两位角色组 CP。", "warning");
+      showToast("该剧情缺少主视角或配角，无法组 CP。", "warning");
       return false;
     }
     return true;
   }
 
-  function normalizeFanworkJjwxcCategoryId(raw) {
+  function resolveFanworkJjwxcCategoryId(raw, categoryList) {
     const id = String(raw || "").trim();
+    const list = categoryList || getFanworkJjwxcCategories();
     if (
-      getFanworkJjwxcCategories().some(function (c) {
-        return c.id === id;
+      list.some(function (c) {
+        return c && c.id === id;
       })
     ) {
       return id;
     }
-    const byName = getFanworkJjwxcCategories().find(function (c) {
-      return c.name === id;
+    const byName = list.find(function (c) {
+      return c && c.name === id;
     });
     return byName ? byName.id : null;
   }
 
+  function normalizeFanworkJjwxcCategoryId(raw) {
+    return resolveFanworkJjwxcCategoryId(raw, getFanworkJjwxcCategories());
+  }
+
+  function findFanworkJjwxcCategoryInList(categoryId, categoryList) {
+    const id = resolveFanworkJjwxcCategoryId(categoryId, categoryList);
+    if (!id) return null;
+    return (
+      (categoryList || []).find(function (c) {
+        return c && c.id === id;
+      }) || null
+    );
+  }
+
   function normalizeFanworkJjwxcBundleOnLoad(raw) {
-    const bundle = normalizePhoneJjwxcBundleOnLoad(raw);
-    if (!bundle) return null;
+    if (!raw || typeof raw !== "object") return null;
+    migrateFanworkCategoriesFromLegacyBundle(raw);
+    const bundle = {
+      novels: Array.isArray(raw.novels) ? raw.novels : [],
+      tips: Array.isArray(raw.tips) ? raw.tips : [],
+      readingNotes: Array.isArray(raw.readingNotes) ? raw.readingNotes : [],
+      readerProfile: raw.readerProfile && typeof raw.readerProfile === "object" ? raw.readerProfile : {},
+      generatedAt: raw.generatedAt || null,
+    };
     bundle.novels = (bundle.novels || []).map(function (novel) {
       if (!novel || typeof novel !== "object") return novel;
       const n = Object.assign({}, novel);
@@ -24812,9 +26114,9 @@
     );
   }
 
-  function normalizeFanworkJjwxcNovelItem(item, idx, seenIds) {
+  function normalizeFanworkJjwxcNovelItem(item, idx, seenIds, categoryList) {
     if (!item || typeof item !== "object") return null;
-    const categoryId = normalizeFanworkJjwxcCategoryId(item.categoryId || item.category);
+    const categoryId = resolveFanworkJjwxcCategoryId(item.categoryId || item.category, categoryList);
     if (!categoryId) return null;
     let id = String(item.id || "").trim() || "fn-" + String((idx || 0) + 1);
     while (seenIds && seenIds.has(id)) id = id + "-d";
@@ -24896,18 +26198,7 @@
   }
 
   function normalizeFanworkJjwxcCatalogBundle(raw, existing) {
-    const categories = (existing && existing.categories ? existing.categories : [])
-      .map(clonePhoneJjwxcCategory)
-      .filter(function (c) {
-        return c && c.id && c.name;
-      });
-    if (!categories.length && raw && Array.isArray(raw.categories) && raw.categories.length) {
-      const seenIds = new Set();
-      raw.categories.forEach(function (item, idx) {
-        const cat = normalizePhoneJjwxcCategoryItem(item, idx, seenIds);
-        if (cat) categories.push(cat);
-      });
-    }
+    const categories = getFanworkJjwxcCategories().map(clonePhoneJjwxcCategory);
     if (categories.length < FANWORK_JJWXC_MIN_CATEGORIES) {
       throw new Error("请先在「管理分类」中添加至少 " + FANWORK_JJWXC_MIN_CATEGORIES + " 个分区并填写剧情方向");
     }
@@ -24915,7 +26206,7 @@
     const seenIds = new Set();
     const novels = [];
     novelsIn.forEach(function (item, idx) {
-      const n = normalizeFanworkJjwxcNovelItem(item, idx, seenIds);
+      const n = normalizeFanworkJjwxcNovelItem(item, idx, seenIds, categories);
       if (n) novels.push(n);
     });
     assertFanworkJjwxcNovelBatchCount(
@@ -24937,7 +26228,6 @@
       })
       .filter(Boolean);
     return {
-      categories: categories.map(clonePhoneJjwxcCategory),
       novels: novels,
       tips: tips,
       readingNotes: readingNotes,
@@ -24945,12 +26235,12 @@
         existing && existing.readerProfile ? existing.readerProfile : null,
         raw && raw.readerProfile ? raw.readerProfile : null
       ),
-      categoriesUserEdited: !!(existing && existing.categoriesUserEdited),
       generatedAt: Date.now(),
     };
   }
 
   function mergeFanworkJjwxcCatalogIncrement(existing, raw) {
+    const categories = getFanworkJjwxcCategories().map(clonePhoneJjwxcCategory);
     const base = (existing && existing.novels ? existing.novels : []).map(function (n) {
       return Object.assign({}, n, {
         chapters: (n.chapters || []).map(function (c) {
@@ -24964,14 +26254,14 @@
       })
     );
     const addedByCat = Object.create(null);
-    getFanworkJjwxcCategories().forEach(function (c) {
+    categories.forEach(function (c) {
       addedByCat[c.id] = 0;
     });
     const addedNovels = [];
     const appendIn =
       raw && Array.isArray(raw.newNovels) ? raw.newNovels : raw && Array.isArray(raw.novels) ? raw.novels : [];
     appendIn.forEach(function (item, idx) {
-      const n = normalizeFanworkJjwxcNovelItem(item, idx, seenIds);
+      const n = normalizeFanworkJjwxcNovelItem(item, idx, seenIds, categories);
       if (!n) return;
       base.unshift(n);
       addedNovels.unshift(n);
@@ -24979,7 +26269,7 @@
     });
     assertFanworkJjwxcNovelBatchCount(
       addedNovels,
-      getFanworkJjwxcCategories(),
+      categories,
       FANWORK_JJWXC_GENERATE_NOVEL_COUNT,
       "本次追加"
     );
@@ -25004,7 +26294,6 @@
       if (note) readingNotes.unshift(note);
     });
     return {
-      categories: (existing && existing.categories ? existing.categories : []).map(clonePhoneJjwxcCategory),
       novels: base,
       tips: tips,
       readingNotes: readingNotes,
@@ -25012,7 +26301,6 @@
         existing && existing.readerProfile ? existing.readerProfile : null,
         raw && raw.readerProfile ? raw.readerProfile : null
       ),
-      categoriesUserEdited: !!(existing && existing.categoriesUserEdited),
       generatedAt: Date.now(),
     };
   }
@@ -25294,11 +26582,19 @@
 
   function buildFanworkCpProfileBlock(pair) {
     if (!pair) return "";
-    const lines = [
-      "【CP 组合】" + getFanworkCpLabel(pair),
-      "【" + (pair.charA.name || "角色A") + "】" + buildCharacterProfileFromLibrary(pair.charA),
-      "【" + (pair.charB.name || "角色B") + "】" + buildCharacterProfileFromLibrary(pair.charB),
-    ];
+    const plot = pair.plot;
+    const lines = ["【CP 组合】" + getFanworkCpLabel(pair)];
+    if (plot) {
+      lines.push("【所属剧情】《" + (String(plot.title || "").trim() || "未命名剧情") + "》");
+      const blocks = getEffectiveIdentityBlocks(plot);
+      if (blocks.eraBlock) lines.push("【时代背景】" + blocks.eraBlock);
+    }
+    lines.push(
+      "【" + (pair.charA.name || "角色A") + "】" + buildCharacterProfileFromPlot(plot, pair.charA.id)
+    );
+    lines.push(
+      "【" + (pair.charB.name || "角色B") + "】" + buildCharacterProfileFromPlot(plot, pair.charB.id)
+    );
     return lines.filter(Boolean).join("\n");
   }
 
@@ -25440,9 +26736,10 @@
   }
 
   function mergeFanworkJjwxcCategoryIncrement(existing, raw, categoryId) {
-    const cid = normalizePhoneJjwxcCategoryId(categoryId);
-    const cat = findFanworkJjwxcCategory(cid);
+    const categories = getFanworkJjwxcCategories().map(clonePhoneJjwxcCategory);
+    const cat = findFanworkJjwxcCategoryInList(categoryId, categories);
     if (!cat) throw new Error("无效分类");
+    const cid = cat.id;
     const base = (existing && existing.novels ? existing.novels : []).map(function (n) {
       return Object.assign({}, n, {
         chapters: (n.chapters || []).map(function (c) {
@@ -25459,7 +26756,7 @@
       raw && Array.isArray(raw.newNovels) ? raw.newNovels : raw && Array.isArray(raw.novels) ? raw.novels : [];
     let added = 0;
     appendIn.forEach(function (item, idx) {
-      const n = normalizeFanworkJjwxcNovelItem(item, idx, seenIds);
+      const n = normalizeFanworkJjwxcNovelItem(item, idx, seenIds, categories);
       if (!n || n.categoryId !== cid) return;
       base.unshift(n);
       added++;
@@ -25470,7 +26767,6 @@
       );
     }
     return {
-      categories: (existing && existing.categories ? existing.categories : []).map(clonePhoneJjwxcCategory),
       novels: base,
       tips: (existing && existing.tips ? existing.tips : []).slice(),
       readingNotes: (existing && existing.readingNotes ? existing.readingNotes : []).slice(),
@@ -25478,7 +26774,6 @@
         existing && existing.readerProfile ? existing.readerProfile : null,
         raw && raw.readerProfile ? raw.readerProfile : null
       ),
-      categoriesUserEdited: !!(existing && existing.categoriesUserEdited),
       generatedAt: Date.now(),
     };
   }
@@ -25652,7 +26947,7 @@
     }
     const pair = getFanworkCpPair();
     if (!pair) {
-      showToast("请先选择两位角色组 CP。", "warning");
+      showToast("请先选择剧情。", "warning");
       return;
     }
     const cats = getFanworkJjwxcCategories();
@@ -25692,6 +26987,10 @@
         16384
       );
       const parsed = parseAssistantJsonObject(raw);
+      if (getFanworkCpStorageKey() !== key) {
+        showToast("剧情已切换，已取消本次生成结果。", "warning");
+        return;
+      }
       const bundle = isRegenerate
         ? mergeFanworkJjwxcCatalogIncrement(existing, parsed)
         : normalizeFanworkJjwxcCatalogBundle(parsed, existing);
@@ -25715,7 +27014,7 @@
     }
     const pair = getFanworkCpPair();
     if (!pair) {
-      showToast("请先选择两位角色组 CP。", "warning");
+      showToast("请先选择剧情。", "warning");
       return;
     }
     const nav = getFanworkNav(slot);
@@ -25759,6 +27058,10 @@
         8192
       );
       const parsed = parseAssistantJsonObject(raw);
+      if (getFanworkCpStorageKey() !== key) {
+        showToast("剧情已切换，已取消本次生成结果。", "warning");
+        return;
+      }
       const bundle = mergeFanworkJjwxcCategoryIncrement(existing, parsed, categoryId);
       fanworkJjwxcData[key] = bundle;
       flushPersistNarrative();
@@ -26008,7 +27311,7 @@
           "</button>"
         : "";
     const showBack = opts.showBack !== false;
-    const cpInline = opts.cpInline ? buildFanworkCpBarInlineHtml() : "";
+    const cpInline = opts.cpInline ? buildFanworkCpBarInlineHtml(opts.nav) : "";
     const backCell = showBack
       ? '<button type="button" class="phone-app__back" data-fanwork-back aria-label="返回">' +
         '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
@@ -26056,142 +27359,146 @@
     );
   }
 
-  function buildFanworkCpShipPreviewHtml(charIdA, charIdB) {
-    const a = charIdA ? getCharById(charIdA) : null;
-    const b = charIdB ? getCharById(charIdB) : null;
-    if (!a || !b || charIdA === charIdB) {
-      return '<div class="fanwork-cp-pick__ship-preview fanwork-cp-pick__ship-preview--empty"><p>选满两位角色，预览你的 CP 组合</p></div>';
+  function buildFanworkPlotCpPreviewHtml(plot, partnerId) {
+    if (!plot) {
+      return '<div class="fanwork-cp-pick__ship-preview fanwork-cp-pick__ship-preview--empty"><p>选择剧情后自动匹配 CP</p></div>';
+    }
+    const protag = getPlotCharacterView(plot, plot.protagonistId);
+    const pid = String(partnerId || resolveFanworkCpPartnerIdForPlot(plot) || "").trim();
+    const partner = pid ? getPlotCharacterView(plot, pid) : null;
+    if (!protag || !partner) {
+      return '<div class="fanwork-cp-pick__ship-preview fanwork-cp-pick__ship-preview--empty"><p>该剧情缺少主视角或配角</p></div>';
     }
     return (
       '<div class="fanwork-cp-pick__ship-preview">' +
       '<span class="avatar fanwork-cp-pick__ship-av" data-char-id="' +
-      escapeHtml(a.id) +
+      escapeHtml(protag.id) +
       '"></span>' +
       '<span class="fanwork-cp-pick__ship-heart" aria-hidden="true">💕</span>' +
       '<span class="avatar fanwork-cp-pick__ship-av" data-char-id="' +
-      escapeHtml(b.id) +
+      escapeHtml(partner.id) +
       '"></span>' +
       '<p class="fanwork-cp-pick__ship-label">' +
-      escapeHtml(getFanworkCpLabel({ charA: a, charB: b })) +
+      escapeHtml((protag.name || "角色A") + " × " + (partner.name || "角色B")) +
       "</p></div>"
     );
   }
 
-  function buildFanworkCpBarInlineHtml() {
+  function buildFanworkCpBarInlineHtml(nav) {
     const pair = getFanworkCpPair();
-    const label = pair
-      ? escapeHtml(getFanworkCpLabel(pair))
-      : '<span class="fanwork-cp-bar__label--empty">选 CP</span>';
+    if (pair) {
+      const cpLabel = getFanworkCpLabel(pair);
+      return (
+        '<button type="button" class="fanwork-cp-bar__btn fanwork-cp-bar__btn--inline fanwork-cp-bar__btn--avatars" data-fanwork-plot-open aria-label="' +
+        escapeHtml(cpLabel) +
+        '" title="' +
+        escapeHtml(cpLabel) +
+        '">' +
+        '<span class="fanwork-cp-bar__avatars fanwork-cp-bar__avatars--inline" aria-hidden="true">' +
+        '<span class="avatar fanwork-cp-bar__avatar" data-char-id="' +
+        escapeHtml(pair.charA.id) +
+        '"></span>' +
+        '<span class="fanwork-cp-bar__x">×</span>' +
+        '<span class="avatar fanwork-cp-bar__avatar" data-char-id="' +
+        escapeHtml(pair.charB.id) +
+        '"></span>' +
+        "</span></button>"
+      );
+    }
     return (
-      '<button type="button" class="fanwork-cp-bar__btn fanwork-cp-bar__btn--inline" data-fanwork-cp-open aria-label="选择或更换 CP" title="切换 CP">' +
+      '<button type="button" class="fanwork-cp-bar__btn fanwork-cp-bar__btn--inline" data-fanwork-plot-open aria-label="选择或更换 CP" title="切换 CP">' +
       '<span class="fanwork-cp-bar__label fanwork-cp-bar__label--inline">' +
-      label +
+      '<span class="fanwork-cp-bar__label--empty">选CP</span>' +
       "</span></button>"
     );
   }
 
-  function buildFanworkCpPickCharBtnHtml(c, pickA, pickB, index) {
-    const selA = pickA === c.id;
-    const selB = pickB === c.id;
-    const selected = selA || selB;
-    let zIndex = index + 1;
-    if (selA) zIndex = 100;
-    if (selB) zIndex = 101;
-    const name = c.name || "未命名";
+  function buildFanworkPlotPartnerPillsHtml(plot, activePartnerId) {
+    const sups = getFanworkPlotSupportingIds(plot);
+    if (sups.length <= 1) return "";
+    const protag = getPlotCharacterView(plot, plot.protagonistId);
     return (
-      '<button type="button" class="char-pick-avatar' +
-      (selected ? " is-selected" : "") +
-      '" data-fanwork-cp-char="' +
-      escapeHtml(c.id) +
-      '" title="' +
-      escapeHtml(name) +
-      '" aria-label="' +
-      escapeHtml(name) +
-      '" style="z-index:' +
-      zIndex +
-      '"><span class="avatar" data-char-id="' +
-      escapeHtml(c.id) +
-      '"></span></button>'
-    );
-  }
-
-  function buildFanworkCpPickCharRowHtml(list, pickA, pickB) {
-    if (!list.length) {
-      return '<p class="field__hint field__hint--tight fanwork-cp-pick__col-empty">暂无</p>';
-    }
-    return (
-      '<div class="h-scroll sheet-char-pick-row sheet-char-pick-row--overlap">' +
-      list
-        .map(function (c, idx) {
-          return buildFanworkCpPickCharBtnHtml(c, pickA, pickB, idx);
+      '<div class="fanwork-plot-pick__partners">' +
+      '<p class="field__label sheet-char-pick-inline__label">CP 另一方（主视角：' +
+      escapeHtml(protag.name || "我的形象") +
+      "）</p>" +
+      '<div class="pill-row fanwork-plot-pick__partner-row">' +
+      sups
+        .map(function (sid) {
+          const c = getPlotCharacterView(plot, sid);
+          const active = sid === activePartnerId;
+          return (
+            '<button type="button" class="filter-pill fanwork-plot-pick__partner' +
+            (active ? " is-active" : "") +
+            '" data-fanwork-plot-partner="' +
+            escapeHtml(sid) +
+            '">' +
+            escapeHtml(c.name || "配角") +
+            "</button>"
+          );
         })
         .join("") +
-      "</div>"
+      "</div></div>"
     );
   }
 
-  function buildFanworkCpPickerOverlayHtml(nav) {
-    if (!nav || !nav.cpPickOpen) return "";
-    const pair = getFanworkCpPair();
-    const pickA = nav.cpPickPendingA != null ? nav.cpPickPendingA : pair ? pair.ids[0] : null;
-    const pickB = nav.cpPickPendingB != null ? nav.cpPickPendingB : pair ? pair.ids[1] : null;
-    const selfList = getSelfCharacters();
-    const supList = getSupportingCharacters();
-    const charsBlock =
-      !selfList.length && !supList.length
-        ? '<p class="fanwork-cp-pick__empty-list">暂无角色，请先在「角色」页创建。</p>'
-        : '<div class="sheet-char-pick-inline sheet-char-pick-inline--in-modal fanwork-cp-pick__chars">' +
-          '<div class="sheet-char-pick-inline__block sheet-char-pick-inline__block--prot">' +
-          '<p class="field__label sheet-char-pick-inline__label">我的形象</p>' +
-          buildFanworkCpPickCharRowHtml(selfList, pickA, pickB) +
-          "</div>" +
-          '<div class="sheet-char-pick-inline__block sheet-char-pick-inline__block--sup">' +
-          '<p class="field__label sheet-char-pick-inline__label">其他角色</p>' +
-          buildFanworkCpPickCharRowHtml(supList, pickA, pickB) +
-          "</div></div>";
-    const canConfirm = !!(pickA && pickB && pickA !== pickB);
-    function slotHtml(label, charId, slotKey) {
-      const c = charId ? getCharById(charId) : null;
-      const active = nav.cpPickSlot === slotKey ? " fanwork-cp-pick__slot--active" : "";
-      return (
-        '<button type="button" class="fanwork-cp-pick__slot' +
-        active +
-        '" data-fanwork-cp-slot="' +
-        escapeHtml(slotKey) +
-        '">' +
-        '<span class="fanwork-cp-pick__slot-label">' +
-        escapeHtml(label) +
-        "</span>" +
-        (c
-          ? '<span class="avatar fanwork-cp-pick__avatar" data-char-id="' +
-            escapeHtml(c.id) +
-            '"></span><span class="fanwork-cp-pick__name">' +
-            escapeHtml(c.name || "未命名") +
-            "</span>"
-          : '<span class="fanwork-cp-pick__empty">点击选择</span>') +
-        "</button>"
-      );
+  function buildFanworkPlotPickerOverlayHtml(nav) {
+    if (!nav || !nav.plotPickOpen) return "";
+    const pendingPlotId =
+      nav.plotPickPendingId != null ? String(nav.plotPickPendingId || "") : fanworkPlotId || "";
+    const pendingPlot = pendingPlotId ? getFanworkPlotById(pendingPlotId) : null;
+    let pendingPartnerId = nav.plotPickPendingPartnerId != null ? nav.plotPickPendingPartnerId : fanworkCpPartnerId;
+    if (pendingPlot) {
+      const sups = getFanworkPlotSupportingIds(pendingPlot);
+      if (!pendingPartnerId || sups.indexOf(String(pendingPartnerId)) < 0) {
+        pendingPartnerId = sups.length ? sups[0] : null;
+      }
     }
+    const eligible = listFanworkEligiblePlots();
+    const rows = eligible
+      .map(function (plot) {
+        const active = plot.id === pendingPlotId;
+        const partnerId = active ? pendingPartnerId : getFanworkPlotSupportingIds(plot)[0];
+        const protag = getPlotCharacterView(plot, plot.protagonistId);
+        const partner = partnerId ? getPlotCharacterView(plot, partnerId) : null;
+        const cpText = partner
+          ? escapeHtml((protag.name || "主视角") + " × " + (partner.name || "配角"))
+          : "—";
+        const title = escapeHtml(String(plot.title || "").trim() || "未命名剧情");
+        return (
+          '<button type="button" class="fanwork-plot-pick__row' +
+          (active ? " is-active" : "") +
+          '" data-fanwork-plot="' +
+          escapeHtml(plot.id) +
+          '">' +
+          '<span class="fanwork-plot-pick__title">' +
+          title +
+          "</span>" +
+          '<span class="fanwork-plot-pick__cp">' +
+          cpText +
+          "</span></button>"
+        );
+      })
+      .join("");
+    const canConfirm = !!(pendingPlot && fanworkPlotHasCp(pendingPlot));
     return (
-      '<div class="phone-forum-manage fanwork-cp-pick-overlay" role="dialog" aria-modal="true" aria-label="选择 CP">' +
-      '<button type="button" class="phone-forum-manage__backdrop" data-fanwork-cp-close aria-label="关闭"></button>' +
+      '<div class="phone-forum-manage fanwork-cp-pick-overlay" role="dialog" aria-modal="true" aria-label="选择剧情">' +
+      '<button type="button" class="phone-forum-manage__backdrop" data-fanwork-plot-close aria-label="关闭"></button>' +
       '<div class="phone-forum-manage__panel fanwork-cp-pick__panel">' +
       '<div class="phone-forum-manage__head">' +
-      '<h3 class="phone-forum-manage__title">组 CP</h3>' +
-      '<button type="button" class="phone-forum-manage__close" data-fanwork-cp-close aria-label="关闭">' +
+      '<h3 class="phone-forum-manage__title">选择剧情</h3>' +
+      '<button type="button" class="phone-forum-manage__close" data-fanwork-plot-close aria-label="关闭">' +
       '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
       "</button></div>" +
-      '<p class="fanwork-cp-pick__hint">选择两位角色组成 CP，书城将生成该组合的同人文。</p>' +
-      buildFanworkCpShipPreviewHtml(pickA, pickB) +
-      '<div class="fanwork-cp-pick__pair">' +
-      slotHtml("角色 A", pickA, "a") +
-      '<span class="fanwork-cp-pick__x" aria-hidden="true">×</span>' +
-      slotHtml("角色 B", pickB, "b") +
+      '<p class="fanwork-cp-pick__hint">选择一条剧情，将自动匹配主视角 × 配角 CP；人设以该剧情内设定为准（含剧情内修改）。</p>' +
+      buildFanworkPlotCpPreviewHtml(pendingPlot, pendingPartnerId) +
+      '<div class="fanwork-plot-pick__list">' +
+      (rows || '<p class="fanwork-cp-pick__empty-list">暂无可用剧情。请先在「剧情」中创建，并设定主视角与至少一名配角。</p>') +
       "</div>" +
-      charsBlock +
+      (pendingPlot ? buildFanworkPlotPartnerPillsHtml(pendingPlot, pendingPartnerId) : "") +
       '<button type="button" class="btn btn--primary btn--pill btn--block fanwork-cp-pick__enter"' +
       (canConfirm ? "" : " disabled") +
-      ' data-fanwork-cp-enter>确认</button>' +
+      ' data-fanwork-plot-enter>确认</button>' +
       "</div></div>"
     );
   }
@@ -26438,7 +27745,7 @@
       if (!novels.length) {
         const noCp = !getFanworkCpPair();
         cards = noCp
-          ? buildFanworkEmptyHtml("cp", "先选一对 CP，再开嗑同人文")
+          ? buildFanworkEmptyHtml("cp", "先选一条剧情，再开嗑同人文")
           : buildFanworkEmptyHtml("cat", "该分区还没有粮 · 点右上角 ✦ 生成");
       } else {
         novels.forEach(function (n, idx) {
@@ -26515,14 +27822,14 @@
     return (
       '<div class="phone-app phone-jjwxc phone-jjwxc--fanwork" aria-label="小狗饭">' +
       '<div class="phone-jjwxc__top">' +
-      buildFanworkJjwxcBarHtml("小狗饭", undefined, { showBack: showMainBack, cpInline: true }) +
+      buildFanworkJjwxcBarHtml("小狗饭", undefined, { showBack: showMainBack, cpInline: true, nav: nav }) +
       buildFanworkJjwxcBottomNavHtml(tab) +
       "</div>" +
       '<div class="phone-jjwxc__scroll">' +
       panelHtml +
       "</div>" +
       buildFanworkJjwxcManageOverlayHtml(nav) +
-      buildFanworkCpPickerOverlayHtml(nav) +
+      buildFanworkPlotPickerOverlayHtml(nav) +
       "</div>"
     );
   }
@@ -26671,8 +27978,14 @@
 
   function fillFanworkAvatarsInSlot(slot) {
     if (!slot) return;
+    const plot = getFanworkSelectedPlot();
     slot.querySelectorAll(".avatar[data-char-id]").forEach(function (el) {
-      const c = getCharById(el.getAttribute("data-char-id"));
+      const cid = el.getAttribute("data-char-id");
+      if (plot && cid) {
+        fillAvatarElement(el, getPlotCharacterView(plot, cid));
+        return;
+      }
+      const c = getCharById(cid);
       if (c) fillAvatarElement(el, c);
     });
   }
@@ -26682,7 +27995,8 @@
     slot.classList.remove("story-placeholder");
     const nav = getFanworkNav(slot);
     if (nav.screen === "jjwxc") {
-      if (getFanworkCpPair()) getFanworkJjwxcBundleMutable();
+      if (ensureFanworkJjwxcCategoryStore()) persistFanworkJjwxcCategoryStore(false);
+      if (getFanworkPlotStorageKey()) getFanworkJjwxcBundleMutable();
       slot.innerHTML = buildFanworkJjwxcMainHtml(slot);
       fillFanworkAvatarsInSlot(slot);
       return;
@@ -26717,7 +28031,7 @@
         nav.jjwxcChapterId = null;
       }
     } else if (nav.screen === "jjwxc") {
-      if (nav.cpPickOpen) nav.cpPickOpen = false;
+      if (nav.plotPickOpen) nav.plotPickOpen = false;
       else if (nav.jjwxcCategoryFormId) nav.jjwxcCategoryFormId = null;
       else if (nav.jjwxcManageOpen) nav.jjwxcManageOpen = false;
       else if (slot && slot.id === "story-fanwork-slot") {
@@ -26728,49 +28042,84 @@
     renderFanworkScreen(slot);
   }
 
-  function openFanworkCpPick(slot) {
+  function openFanworkPlotPick(slot) {
     const nav = getFanworkNav(slot);
-    const pair = getFanworkCpPair();
+    const plot = getFanworkSelectedPlot();
     nav.screen = "jjwxc";
     nav.jjwxcNovelId = null;
     nav.jjwxcChapterId = null;
-    nav.cpPickOpen = true;
-    nav.cpPickSlot = "a";
-    nav.cpPickPendingA = pair ? pair.ids[0] : null;
-    nav.cpPickPendingB = pair ? pair.ids[1] : null;
+    nav.plotPickOpen = true;
+    nav.plotPickPendingId = plot ? plot.id : null;
+    nav.plotPickPendingPartnerId = plot ? resolveFanworkCpPartnerIdForPlot(plot) : null;
     renderFanworkScreen(slot);
   }
 
-  function closeFanworkCpPick(slot) {
+  function closeFanworkPlotPick(slot) {
     const nav = getFanworkNav(slot);
-    nav.cpPickOpen = false;
+    nav.plotPickOpen = false;
     renderFanworkScreen(slot);
   }
 
-  function confirmFanworkCpPick(slot) {
+  function confirmFanworkPlotPick(slot) {
     const nav = getFanworkNav(slot);
-    const a = String(nav.cpPickPendingA || "").trim();
-    const b = String(nav.cpPickPendingB || "").trim();
-    const sorted = sortFanworkCpCharIds(a, b);
-    if (!sorted) {
-      showToast("请选择两位不同的角色。", "warning");
+    const plotId = String(nav.plotPickPendingId || "").trim();
+    const plot = getFanworkPlotById(plotId);
+    if (!plot || !fanworkPlotHasCp(plot)) {
+      showToast("请选择有效剧情。", "warning");
       return;
     }
-    const changed =
-      !fanworkCpCharIds ||
-      fanworkCpCharIds[0] !== sorted[0] ||
-      fanworkCpCharIds[1] !== sorted[1];
-    fanworkCpCharIds = sorted;
+    const sups = getFanworkPlotSupportingIds(plot);
+    let partnerId = String(nav.plotPickPendingPartnerId || "").trim();
+    if (!partnerId || sups.indexOf(partnerId) < 0) partnerId = sups[0];
+    const changed = fanworkPlotId !== plotId || fanworkCpPartnerId !== partnerId;
+    fanworkPlotId = plotId;
+    fanworkCpPartnerId = partnerId;
     schedulePersistNarrative();
-    nav.cpPickOpen = false;
+    nav.plotPickOpen = false;
+    nav.plotPickPendingId = null;
+    nav.plotPickPendingPartnerId = null;
     nav.screen = "jjwxc";
     nav.jjwxcTab = nav.jjwxcTab || "store";
     nav.jjwxcCategoryId = getFanworkJjwxcActiveCategoryId(nav);
     getFanworkJjwxcBundleMutable();
-    renderFanworkScreen(slot);
+    renderAllFanworkScreens(slot);
     if (changed) {
-      showToast("已切换为「" + getFanworkCpLabel() + "」", "success");
+      showToast("已切换为「" + getFanworkBarLabel() + "」", "success");
     }
+  }
+
+  function handleFanworkPlotPick(slot, plotId) {
+    const nav = getFanworkNav(slot);
+    const id = String(plotId || "").trim();
+    const plot = getFanworkPlotById(id);
+    if (!plot) return;
+    nav.plotPickPendingId = id;
+    const sups = getFanworkPlotSupportingIds(plot);
+    const cur = String(nav.plotPickPendingPartnerId || "").trim();
+    nav.plotPickPendingPartnerId = cur && sups.indexOf(cur) >= 0 ? cur : sups.length ? sups[0] : null;
+    renderAllFanworkScreens(slot);
+  }
+
+  function handleFanworkPlotPartnerPick(slot, partnerId) {
+    const nav = getFanworkNav(slot);
+    const plotId = String(nav.plotPickPendingId || fanworkPlotId || "").trim();
+    const plot = getFanworkPlotById(plotId);
+    if (!plot) return;
+    const pid = String(partnerId || "").trim();
+    if (getFanworkPlotSupportingIds(plot).indexOf(pid) < 0) return;
+    nav.plotPickPendingPartnerId = pid;
+    renderAllFanworkScreens(slot);
+  }
+
+  function renderAllFanworkScreens(preferredSlot) {
+    ["fanwork-content-slot", "story-fanwork-slot"].forEach(function (slotId) {
+      const el = document.getElementById(slotId);
+      if (!el) return;
+      if (preferredSlot && el === preferredSlot) return;
+      if (!el.querySelector(".phone-jjwxc--fanwork")) return;
+      renderFanworkScreen(el);
+    });
+    if (preferredSlot) renderFanworkScreen(preferredSlot);
   }
 
   function openFanworkJjwxcManage(slot) {
@@ -26789,9 +28138,6 @@
   }
 
   function saveFanworkJjwxcCategoryForm(slot) {
-    if (!requireFanworkCpForEdit()) return;
-    const rec = getFanworkJjwxcBundleMutable();
-    if (!rec) return;
     const nav = getFanworkNav(slot);
     const nameInput = slot && slot.querySelector("[data-fanwork-jjwxc-category-name-input]");
     const descInput = slot && slot.querySelector("[data-fanwork-jjwxc-category-desc-input]");
@@ -26808,17 +28154,18 @@
       showToast("请填写剧情方向", "warning");
       return;
     }
+    if (!Array.isArray(fanworkJjwxcCategoryStore.categories)) fanworkJjwxcCategoryStore.categories = [];
     const formId = String(nav.jjwxcCategoryFormId || "").trim();
     if (formId === "new") {
-      if (rec.bundle.categories.length >= FANWORK_JJWXC_MAX_CATEGORIES) {
+      if (fanworkJjwxcCategoryStore.categories.length >= FANWORK_JJWXC_MAX_CATEGORIES) {
         showToast("分区已达上限 " + FANWORK_JJWXC_MAX_CATEGORIES + " 个", "warning");
         return;
       }
       const newId = uid("fw-cat");
-      rec.bundle.categories.push({ id: newId, name: name, description: description });
+      fanworkJjwxcCategoryStore.categories.push({ id: newId, name: name, description: description });
       nav.jjwxcCategoryId = newId;
     } else {
-      const sec = rec.bundle.categories.find(function (s) {
+      const sec = fanworkJjwxcCategoryStore.categories.find(function (s) {
         return s && s.id === formId;
       });
       if (!sec) {
@@ -26828,44 +28175,46 @@
       sec.name = name;
       sec.description = description;
     }
-    rec.bundle.categoriesUserEdited = true;
-    persistFanworkJjwxcBundle(rec.bundle, true);
+    fanworkJjwxcCategoryStore.userEdited = true;
+    persistFanworkJjwxcCategoryStore(true);
     nav.jjwxcCategoryFormId = null;
     showToast("已保存分区", "success");
     renderFanworkScreen(slot);
   }
 
   async function handleFanworkJjwxcCategoryDelete(slot, categoryId) {
-    if (!requireFanworkCpForEdit()) return;
-    const rec = getFanworkJjwxcBundleMutable();
-    if (!rec) return;
     const id = String(categoryId || "").trim();
-    const sec = rec.bundle.categories.find(function (s) {
+    const sec = (fanworkJjwxcCategoryStore.categories || []).find(function (s) {
       return s && s.id === id;
     });
     if (!sec) return;
     const ok = await showConfirm("确定删除分区「" + sec.name + "」吗？该分区下的作品也会一并移除。", "删除分区");
     if (!ok) return;
-    rec.bundle.categories = rec.bundle.categories.filter(function (s) {
+    fanworkJjwxcCategoryStore.categories = (fanworkJjwxcCategoryStore.categories || []).filter(function (s) {
       return s && s.id !== id;
     });
-    rec.bundle.novels = (rec.bundle.novels || []).filter(function (n) {
-      return n && n.categoryId !== id;
+    fanworkJjwxcCategoryStore.userEdited = true;
+    Object.keys(fanworkJjwxcData).forEach(function (plotKey) {
+      const bundle = fanworkJjwxcData[plotKey];
+      if (!bundle || !Array.isArray(bundle.novels)) return;
+      bundle.novels = bundle.novels.filter(function (n) {
+        return n && n.categoryId !== id;
+      });
     });
-    rec.bundle.categoriesUserEdited = true;
-    persistFanworkJjwxcBundle(rec.bundle, true);
+    persistFanworkJjwxcCategoryStore(true);
     const nav = getFanworkNav(slot);
     if (nav.jjwxcCategoryId === id) {
-      nav.jjwxcCategoryId = rec.bundle.categories.length ? rec.bundle.categories[0].id : "";
+      const cats = getFanworkJjwxcCategories();
+      nav.jjwxcCategoryId = cats.length ? cats[0].id : "";
     }
     nav.jjwxcCategoryFormId = null;
-    if (!rec.bundle.categories.length) nav.jjwxcManageOpen = false;
+    if (!getFanworkJjwxcCategories().length) nav.jjwxcManageOpen = false;
     showToast("已删除分区", "success");
     renderFanworkScreen(slot);
   }
 
   async function handleFanworkJjwxcNovelDelete(slot, novelId) {
-    if (!requireFanworkCpForEdit()) return;
+    if (!requireFanworkPlotForEdit()) return;
     const hit = findFanworkJjwxcNovel(novelId);
     if (!hit) return;
     const title = String(hit.novel.title || "").trim() || "未命名";
@@ -26943,23 +28292,6 @@
 
   function renderFanworkView() {
     renderFanworkScreen(els.fanworkContentSlot());
-  }
-
-  function handleFanworkCpCharPick(slot, charId) {
-    const nav = getFanworkNav(slot);
-    const id = String(charId || "").trim();
-    if (!id || !getCharById(id)) return;
-    const slotKey = nav.cpPickSlot === "b" ? "b" : "a";
-    if (slotKey === "a") {
-      nav.cpPickPendingA = id;
-      if (nav.cpPickPendingB === id) nav.cpPickPendingB = null;
-      nav.cpPickSlot = "b";
-    } else {
-      nav.cpPickPendingB = id;
-      if (nav.cpPickPendingA === id) nav.cpPickPendingA = null;
-      nav.cpPickSlot = "a";
-    }
-    renderFanworkScreen(slot);
   }
 
   function resetPhoneWechatChatUi(nav) {
@@ -28176,6 +29508,15 @@
     const modal = els.modalStoryFanwork();
     if (!modal) return;
     modal.hidden = false;
+    const routePlot = getPlayModeStoryPlotFromRoute() || getCurrentStoryPlot();
+    if (routePlot && fanworkPlotHasCp(routePlot)) {
+      fanworkPlotId = routePlot.id;
+      const sups = getFanworkPlotSupportingIds(routePlot);
+      if (!fanworkCpPartnerId || sups.indexOf(fanworkCpPartnerId) < 0) {
+        fanworkCpPartnerId = sups.length ? sups[0] : null;
+      }
+      schedulePersistNarrative();
+    }
     renderFanworkScreen(els.storyFanworkSlot());
     syncStoryPlaySideBtnActive();
   }
@@ -28407,6 +29748,7 @@
       "phone-music": "音乐列表已生成好",
       "phone-album": "相册内容已生成好",
       "phone-forum-list": "论坛帖子已生成好",
+      "phone-forum-section": "本分区帖子已生成好",
       "phone-forum-post": "论坛帖子详情已生成好",
       "phone-browser": "浏览器内容已生成好",
       "phone-browser-section": "本分类浏览记录已生成好",
@@ -28430,9 +29772,23 @@
       };
     }
 
+    if (kind === "phone-forum-section" && params.sectionId) {
+      const sectionId = params.sectionId;
+      return {
+        pawContext: buildPhonePawContext(slot),
+        genReady: {
+          message: phoneScreenLabels[kind],
+          navigate: function () {
+            navigateToPhoneView(slotId, { screen: "forum", forumSectionId: sectionId });
+          },
+        },
+      };
+    }
+
     if (phoneScreenLabels[kind]) {
       let screen = kind.replace("phone-", "");
-      if (screen === "forum-list") screen = "forum";
+      if (screen === "forum-list" || screen === "forum-section") screen = "forum";
+      if (screen === "browser-section") screen = "browser";
       const patch = { screen: screen };
       if (kind === "phone-weread" && params.bookId) {
         patch.screen = "weread-book";
@@ -29243,7 +30599,7 @@
         showToast("已收到回复但无法识别小节格式，请点「重新生成」或检查模型输出", "error", 5200);
       } else {
         const setupReady = buildGenCallOpts("story-setup", { plot: plot }).genReady;
-        if (setupReady) showGenReadyBanner(setupReady);
+        if (setupReady) stashGenReadyNotice(setupReady);
         if (missingParts.length) {
           if (missingParts.length === 1 && missingParts[0] === "剧情标题") {
             showToast(
@@ -29393,7 +30749,7 @@
 
   /** 截取用于选项识别的正文（去掉末尾选项区常见标题行，避免误判）。 */
   function sliceStoryRawBeforeChoicesHeader(src) {
-    const s = String(src || "");
+    const s = sliceStoryRawBeforeTurnDigestHeader(src);
     const m = s.match(/\n\s*#{0,6}\s*(?:※\s*)?(?:【\s*)?(?:选项|选择支|玩家选项)/i);
     if (m && typeof m.index === "number") return s.slice(0, m.index).trim();
     const m2 = s.match(/\n\s*【\s*(?:选项|选择支)\s*】/i);
@@ -29401,6 +30757,38 @@
     const m3 = s.match(/\n-{3,}\s*\n/);
     if (m3 && typeof m3.index === "number") return s.slice(0, m3.index).trim();
     return s.trim();
+  }
+
+  /** 去掉文末「本轮概要」区，避免选项解析误读概要正文。 */
+  function sliceStoryRawBeforeTurnDigestHeader(src) {
+    const s = String(src || "");
+    const m = s.match(/\n\s*【\s*(?:本轮概要|内部概要|轮概要)\s*】/i);
+    if (m && typeof m.index === "number") return s.slice(0, m.index).trim();
+    const m2 = s.match(/\n#{1,6}\s*(?:本轮概要|内部概要|轮概要)\s*[：:]?\s*\n/i);
+    if (m2 && typeof m2.index === "number") return s.slice(0, m2.index).trim();
+    return s.trim();
+  }
+
+  /** 从续写 API 全文末尾解析「本轮概要」（仅存内部，界面不展示）。 */
+  function parseTurnInternalDigestBlock(raw) {
+    const s = preprocessStoryPlayModelRaw(String(raw || ""));
+    if (!s) return "";
+    const patterns = [
+      /(?:^|\n)\s*【\s*(?:本轮概要|内部概要|轮概要)\s*】\s*\n?([\s\S]*)$/i,
+      /(?:^|\n)#{1,6}\s*(?:本轮概要|内部概要|轮概要)\s*[：:]?\s*\n?([\s\S]*)$/i,
+    ];
+    for (let i = 0; i < patterns.length; i++) {
+      const m = s.match(patterns[i]);
+      if (!m || !m[1]) continue;
+      let text = String(m[1] || "").trim();
+      text = text.replace(/\n?```\s*$/i, "").trim();
+      if (!text) continue;
+      if (Array.from(text).length > TURN_DIGEST_STORE_MAX_CHARS) {
+        text = Array.from(text).slice(0, TURN_DIGEST_STORE_MAX_CHARS).join("").trim();
+      }
+      return text;
+    }
+    return "";
   }
 
   /** 花名册外客串角色：稳定 id（同显示名同回合可合并），界面用 speakerName + 首字头像。 */
@@ -30097,7 +31485,7 @@
   /** 多种常见「选项」区标题样式（Gemini / Markdown / 分割线）。依次尝试直至解析出 ≥2 条。 */
   function collectStoryChoiceSectionCandidates(src) {
     const out = [];
-    const s = String(src || "");
+    const s = sliceStoryRawBeforeTurnDigestHeader(String(src || ""));
     const patterns = [
       /(?:^|\n)\s*【\s*(?:选项|选择支)\s*】\s*(?:\n|$)/i,
       /\n#{1,6}\s*\*{0,3}\s*(?:※\s*)?(?:选项|玩家选项|PLAYER\s*CHOICES?|玩家抉择|分支选项)\*{0,3}\s*[：:]?\s*\n/i,
@@ -31569,6 +32957,7 @@
     if (!plot || plot.playTurnInFlight || plot.playChoicesRegenerateInFlight) return;
     ensurePlotExtendedState(plot);
     if (plot.playSealed) return;
+    maybeBackfillTurnDigests(plot);
     const ppt0 = plot.pendingPlayerTurnAction;
     const pendingPlayerTurnAction = ppt0
       ? {
@@ -31664,16 +33053,21 @@
       STORY_PLAY_CONTINUITY_GUIDE;
 
     const systemPrompt =
-      "你是中文互动剧情续写助手。只输出剧情块与文末选项；不要开场寒暄；不要用代码围栏（三面反引号）包住全文。\n\n" +
+      "你是中文互动剧情续写助手。输出剧情说话块、文末「【选项】」与全文最末尾「【本轮概要】」（概要供程序内部续写引用，用户界面不展示）；不要开场寒暄；不要用代码围栏（三面反引号）包住全文。\n\n" +
       "【玩家指令优先】当用户消息含「务必优先·玩家指令」时，该段所列点选选项或输入文字为本回合最高约束：后续场面、对白与因果链条必须与之相符，禁止忽略、禁止改写成相反走向，禁止仅用一句话带过再写无关支线。\n" +
-      "【选项区唯一】禁止在正文里（在文末「【选项】」「【选择支】」或「## 选项」等标题出现之前）再写「选项 1.」「选项1.」「2.」等分支罗列或与文末选项雷同的预告；玩家可点选的行动只准许在文末选项区出现一次。\n\n" +
+      "【选项区唯一】禁止在正文里（在文末「【选项】」「【选择支】」或「## 选项」等标题出现之前）再写「选项 1.」「选项1.」「2.」等分支罗列或与文末选项雷同的预告；玩家可点选的行动只准许在文末选项区出现一次。\n" +
+      "【概要区唯一】「【本轮概要】」只准许出现在全文最末尾（选项区之后）；禁止在剧情说话块或选项区中提前写出该标题或同类内部概要。\n\n" +
       "【输出形态·程序依此解析】\n" +
       storyPlayTurnBlockBudgetLine +
       "· 「说话块」按**说话者/视点**切换：换人或换【旁白】时用单独一行的【角色名】/【旁白】/【我】（仅第一人称主角）起头；**优先**使用下方花名册中的姓名；剧情需要的店员、路人等**未建档角色**也可用【显示名】起块，界面会以首字头像与昵称展示。亦可用「姓名：」同一行起段，或与花名册一致的全名单独占一行（下一行起接对白或描写；勿加括号或 Markdown 装饰）。**同一说话者同一场戏不要为每一句对白再起新的【名】行。**\n" +
       "· 【标点】段落开头不要直接使用逗号、句号、冒号等句读——若该段第一句是对白，则用弯引号 “ 起笔。**对白不要使用 「」 作为起止符号。**不要将单个标点单独占成一行；段末不要使用两个连续句号/问号/叹号等（如。。、？？），也不要写成「：。」。\n" +
       "· 结尾留下玩家可介入的局面；最后一格尽量用配角或【旁白】收束。\n" +
       "· 文末单独一行「【选项】」或「【选择支】」，或用 Markdown 「## 选项」等小标题接引；后跟至少两行可选行动。\n" +
-      "可加 1. / - 前缀；一行一条，勿把两段对白挤在同一行。\n\n" +
+      "可加 1. / - 前缀；一行一条，勿把两段对白挤在同一行。\n" +
+      "· **最后一节（必写·程序解析·用户不可见）**：选项区之后另起一行「【本轮概要】」，写本回合内部概要（约 " +
+      TURN_DIGEST_PROMPT_MAX_CHARS +
+      " 字以内，可略长但须精炼）：须覆盖关键事件与因果、关系变化、未决悬念与重要约定；保留中间过程里的核心转折，勿只写首尾；禁止编号与小标题；勿杜撰。\n" +
+      "· **输出顺序固定**：剧情说话块 → 【选项】与选项行 → 【本轮概要】与概要正文；概要必须放在全文最末尾。\n\n" +
       storyPlayChoicePovHint +
       "\n\n" +
       "【篇幅】约 " +
@@ -31758,7 +33152,7 @@
       (hasPriorPlay ? "\n\n" + STORY_PLAY_CONTEXT_REF_GUIDE : "") +
       "\n\n【必读·最近剧情】（仅最近 " +
       STORY_PLAY_REF_TURN_LIMIT +
-      " 轮；**最高优先**，须从最后一轮收束处无缝续写；同层冲突时以本段为准）：\n" +
+      " 轮；**最高优先**，须从最后一轮收束处无缝续写；末轮为完整正文、更早轮次为轮概要；同层冲突时以本段为准）：\n" +
       (history || "故事刚开始。") +
       (memoryBlock
         ? "\n\n【必读·记忆】（最多 " +
@@ -31787,11 +33181,14 @@
     }
 
     let scrollToNewTurnFirstLineId = "";
-    setGenCallContext(buildGenCallOpts("story-play", { plot: plot }));
+    const playGenOpts = buildGenCallOpts("story-play", { plot: plot });
+    setGenCallContext(playGenOpts);
+    beginGlobalGenPawOverlay(playGenOpts.pawContext);
+    let storyTurnGenOk = false;
     try {
       showToast("AI 正在续写剧情…", "info");
       const playTemperature = isGeminiPlay ? 0.56 : 0.72;
-      const storyPlayApiOpts = { skipGenReady: true };
+      const storyPlayApiOpts = { skipGenReady: true, skipGenPaw: true };
       const rawResp = await callChatCompletion(
         [
           { role: "system", content: apiSystemPrompt },
@@ -31802,10 +33199,12 @@
         storyPlayApiOpts
       );
       const rawProcessed = preprocessStoryPlayModelRaw(rawResp);
-      const bodyBeforeChoiceHeader = sliceStoryRawBeforeChoicesHeader(rawProcessed);
-      const parseSource = bodyBeforeChoiceHeader.length >= 16 ? bodyBeforeChoiceHeader : rawProcessed;
+      const rawForPlayParse = sliceStoryRawBeforeTurnDigestHeader(rawProcessed);
+      const turnInternalDigest = parseTurnInternalDigestBlock(rawProcessed);
+      const bodyBeforeChoiceHeader = sliceStoryRawBeforeChoicesHeader(rawForPlayParse);
+      const parseSource = bodyBeforeChoiceHeader.length >= 16 ? bodyBeforeChoiceHeader : rawForPlayParse;
       let lines = parseTurnByCharacterBlocks(parseSource, protagonist, supporting);
-      let choices = parseChoicesBlock(rawResp);
+      let choices = parseChoicesBlock(rawForPlayParse);
       function applyEmbeddedChoiceStrip() {
         if (Array.isArray(lines) && lines.length && Array.isArray(choices) && choices.length >= 2) {
           const stripped = stripEmbeddedChoicePreviewFromStoryLines(lines, choices);
@@ -31816,7 +33215,9 @@
 
       if (!plot.playTurns) plot.playTurns = [];
       if ((lines || []).length && (!Array.isArray(choices) || choices.length < 2)) {
-        const bodyOnly = preprocessStoryPlayModelRaw(String(rawResp || ""))
+        const bodyOnly = sliceStoryRawBeforeTurnDigestHeader(
+          preprocessStoryPlayModelRaw(String(rawResp || ""))
+        )
           .replace(/\n#{1,6}\s*[^\n]*?(?:选项|选择支)[\s\S]*$/im, "")
           .replace(/\n\s*【\s*(?:选项|选择支)\s*】[\s\S]*$/im, "")
           .trim()
@@ -31882,31 +33283,40 @@
             }
           : null;
       plot.playTurns.push({
+        id: uid("turn"),
         lines: linesWithIds,
         choices: choices.slice(),
         triggerPlayerAction: triggerSnap,
+        internalDigest: turnInternalDigest || "",
       });
       plot.lastGeneratedAt = Date.now();
       syncPhoneStoryDateAnchor(plot);
+      const newTurnId = plot.playTurns[plot.playTurns.length - 1].id;
       scrollToNewTurnFirstLineId =
         linesWithIds[0] && linesWithIds[0].id ? String(linesWithIds[0].id) : "";
-      const playReady = buildGenCallOpts("story-play", { plot: plot }).genReady;
-      if (playReady) showGenReadyBanner(playReady);
-      showToast("剧情续写完成", "success");
+      storyTurnGenOk = true;
       flushPersistNarrative();
       setTimeout(function () {
         void maybeAutoSummarizePlot(plot);
       }, 320);
+      if (newTurnId && !turnInternalDigest) scheduleTurnInternalDigestByTurnId(plot, newTurnId);
     } catch (err) {
       console.error("剧情续写失败:", err);
       showToast("续写失败：" + (err && err.message ? err.message : "请重试或换用其他模型"), "error", 4000);
       restoreStoryComposerInputAfterPlayFailureFromPendingSnap(pendingPlayerTurnAction);
     } finally {
-      clearGenCallContext();
       plot.pendingPlayerTurnAction = null;
       plot.playTurnInFlight = false;
       storyAiWakeLockRelease();
       renderStoryPlay(plot);
+      endGlobalGenPawOverlay();
+      if (storyTurnGenOk && playGenOpts.genReady) stashGenReadyNotice(playGenOpts.genReady);
+      clearGenCallContext();
+      if (storyTurnGenOk) {
+        setTimeout(function () {
+          showToast("剧情续写完成", "success");
+        }, 0);
+      }
       flushPersistNarrative();
       const lineIdForScrollTop = scrollToNewTurnFirstLineId;
       requestAnimationFrame(function () {
@@ -33344,6 +34754,11 @@
       return;
     }
 
+    if (e.target.closest("[data-phone-forum-section-generate]")) {
+      void generatePhoneForumSectionContent(slot);
+      return;
+    }
+
     if (e.target.closest("[data-phone-browser-generate]")) {
       void generatePhoneBrowserContent(slot);
       return;
@@ -33898,7 +35313,7 @@
     }
 
     if (e.target.closest("[data-fanwork-jjwxc-manage-open]")) {
-      if (!requireFanworkCpForEdit()) return;
+      if (!requireFanworkPlotForEdit()) return;
       openFanworkJjwxcManage(slot);
       return;
     }
@@ -33909,7 +35324,7 @@
     }
 
     if (e.target.closest("[data-fanwork-jjwxc-category-add]")) {
-      if (!requireFanworkCpForEdit()) return;
+      if (!requireFanworkPlotForEdit()) return;
       const nav = getFanworkNav(slot);
       nav.jjwxcManageOpen = true;
       nav.jjwxcCategoryFormId = "new";
@@ -33919,7 +35334,7 @@
 
     const fwCatEditBtn = e.target.closest("[data-fanwork-jjwxc-category-edit]");
     if (fwCatEditBtn) {
-      if (!requireFanworkCpForEdit()) return;
+      if (!requireFanworkPlotForEdit()) return;
       const nav = getFanworkNav(slot);
       nav.jjwxcManageOpen = true;
       nav.jjwxcCategoryFormId = fwCatEditBtn.getAttribute("data-fanwork-jjwxc-category-edit");
@@ -33976,32 +35391,30 @@
       return;
     }
 
-    if (e.target.closest("[data-fanwork-cp-enter]")) {
-      confirmFanworkCpPick(slot);
+    if (e.target.closest("[data-fanwork-plot-enter]")) {
+      confirmFanworkPlotPick(slot);
       return;
     }
 
-    if (e.target.closest("[data-fanwork-cp-open]")) {
-      openFanworkCpPick(slot);
+    if (e.target.closest("[data-fanwork-plot-open]")) {
+      openFanworkPlotPick(slot);
       return;
     }
 
-    if (e.target.closest("[data-fanwork-cp-close]")) {
-      closeFanworkCpPick(slot);
+    if (e.target.closest("[data-fanwork-plot-close]")) {
+      closeFanworkPlotPick(slot);
       return;
     }
 
-    const cpSlotBtn = e.target.closest("[data-fanwork-cp-slot]");
-    if (cpSlotBtn) {
-      const nav = getFanworkNav(slot);
-      nav.cpPickSlot = cpSlotBtn.getAttribute("data-fanwork-cp-slot") === "b" ? "b" : "a";
-      renderFanworkScreen(slot);
+    const plotBtn = e.target.closest("[data-fanwork-plot]");
+    if (plotBtn) {
+      handleFanworkPlotPick(slot, plotBtn.getAttribute("data-fanwork-plot"));
       return;
     }
 
-    const cpCharBtn = e.target.closest("[data-fanwork-cp-char]");
-    if (cpCharBtn) {
-      handleFanworkCpCharPick(slot, cpCharBtn.getAttribute("data-fanwork-cp-char"));
+    const partnerBtn = e.target.closest("[data-fanwork-plot-partner]");
+    if (partnerBtn) {
+      handleFanworkPlotPartnerPick(slot, partnerBtn.getAttribute("data-fanwork-plot-partner"));
       return;
     }
   });

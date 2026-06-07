@@ -4344,11 +4344,20 @@ select.field__input:-webkit-autofill:focus {
 }
 
 html[data-theme="dark"] .phone-device__shell {
-  background: linear-gradient(165deg, #f5f5f5 0%, #e8e8e8 52%, #d6d6d6 100%);
+  background: linear-gradient(165deg, #4a4a4e 0%, #3a3a3e 52%, #2e2e32 100%);
   box-shadow:
-    0 10px 28px rgba(0, 0, 0, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+    0 10px 28px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme="dark"] .phone-device__shell::before {
+  background: #1a1a1c;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .phone-device__screen {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .phone-device__screen {
@@ -5013,15 +5022,42 @@ html[data-theme="dark"] .phone-device .phone-jjwxc--chapter .phone-jjwxc__genera
   max-width: 100%;
   min-width: 0;
   padding: 5px 10px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
+  border: none;
+  border-radius: 0;
+  background: transparent;
   box-shadow: none;
   flex: 1 1 auto;
 }
 
+.fanwork-cp-bar__btn--inline.fanwork-cp-bar__btn--avatars {
+  padding: 0;
+}
+
 .fanwork-cp-bar__btn--inline:active {
   opacity: 0.72;
+}
+
+.fanwork-cp-bar__avatars--inline {
+  gap: 2px;
+}
+
+.fanwork-cp-bar__btn--inline .fanwork-cp-bar__avatar {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.fanwork-cp-bar__btn--inline .fanwork-cp-bar__avatar.avatar,
+.fanwork-cp-bar__btn--inline .fanwork-cp-bar__avatar .avatar {
+  width: 20px;
+  height: 20px;
+  font-size: 0.62rem;
+}
+
+.fanwork-cp-bar__btn--inline .fanwork-cp-bar__x {
+  font-size: 0.58rem;
+  line-height: 1;
+  margin: 0 1px;
 }
 
 .fanwork-cp-bar__label--inline {
@@ -7114,6 +7150,41 @@ html[data-theme="dark"] .phone-album-detail__edit:focus {
   padding-bottom: 8px;
 }
 
+.phone-forum__pill-row--with-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.phone-forum__pill-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding-bottom: 0;
+  scrollbar-width: none;
+}
+
+.phone-forum__pill-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.phone-forum__pill-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.phone-forum__pill-row .phone-forum__section-gen-btn {
+  min-height: 26px;
+  padding: 3px 7px;
+  line-height: 1.2;
+}
+
 .phone-forum__pill-row .filter-pill {
   padding: 6px 12px;
   font-size: 0.74rem;
@@ -7155,11 +7226,20 @@ html[data-theme="dark"] .phone-album-detail__edit:focus {
   margin-bottom: 8px;
 }
 
-.phone-forum-post-row-item .phone-forum-post-row,
-.phone-forum-thread-item .phone-forum-thread,
-.phone-forum-reply-item .phone-forum-reply {
+.phone-forum-post-row-item .phone-forum-post-row {
   padding-right: 52px;
   padding-bottom: 28px;
+}
+
+.phone-forum-thread-item .phone-forum-thread,
+.phone-forum-reply-item .phone-forum-reply {
+  padding-bottom: 28px;
+}
+
+.phone-forum-thread-item .phone-forum-thread__time,
+.phone-forum-reply-item .phone-forum-reply__time {
+  display: block;
+  padding-right: 48px;
 }
 
 .phone-forum-post-row-item .phone-forum-post-row {
@@ -7497,6 +7577,10 @@ html[data-theme="dark"] .phone-album-detail__edit:focus {
   font-weight: 700;
   line-height: 1.35;
   color: #ccc;
+  white-space: normal;
+  word-break: break-word;
+  overflow: visible;
+  text-overflow: unset;
 }
 
 .phone-forum-thread__title--filled {
@@ -15099,6 +15183,59 @@ html[data-theme="dark"] .phone-jjwxc--fanwork.phone-jjwxc--detail .fanwork-jjwxc
   box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
+.fanwork-plot-pick__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(42vh, 280px);
+  overflow-y: auto;
+  margin: 8px 0 10px;
+}
+
+.fanwork-plot-pick__row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  text-align: left;
+  cursor: pointer;
+}
+
+.fanwork-plot-pick__row.is-active {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+.fanwork-plot-pick__title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.fanwork-plot-pick__cp {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.fanwork-plot-pick__partners {
+  margin: 4px 0 10px;
+}
+
+.fanwork-plot-pick__partner-row {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fanwork-plot-pick__partner.is-active {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
+
 .phone-jjwxc--fanwork .phone-jjwxc__seg-item.is-active {
   font-weight: 800;
 }
@@ -15219,8 +15356,8 @@ html[data-theme="dark"] .phone-jjwxc--fanwork .phone-jjwxc__cat-manage {
 }
 
 html[data-theme="dark"] .phone-jjwxc--fanwork .fanwork-cp-bar__btn--inline {
-  background: color-mix(in srgb, var(--accent) 12%, #2c2c2e);
-  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+  background: transparent;
+  border: none;
 }
 
 html[data-theme="dark"] .phone-jjwxc--fanwork .fanwork-cp-bar__btn--inline .fanwork-cp-bar__label--inline {
