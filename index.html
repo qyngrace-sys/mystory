@@ -69,13 +69,13 @@
                 <span class="workbench-card__desc">按需求产出设定条目</span>
               </span>
             </button>
-            <button type="button" class="workbench-card" data-assistant-action="inspiration" role="listitem">
+            <button type="button" class="workbench-card" data-assistant-action="knock" role="listitem">
               <span class="workbench-card__icon" aria-hidden="true">
-                <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 017 7c0 3.5-3 6-3 9H8c0-3-3-5.5-3-9a7 7 0 017-7z"/></svg>
+                <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/><path d="M8 10h.01"/><path d="M12 10h.01"/><path d="M16 10h.01"/></svg>
               </span>
               <span class="workbench-card__text">
-                <span class="workbench-card__title">灵感汲取</span>
-                <span class="workbench-card__desc">一套可落地的开局方案</span>
+                <span class="workbench-card__title">敲敲</span>
+                <span class="workbench-card__desc">双角色人设模拟私聊</span>
               </span>
             </button>
             <button type="button" class="workbench-card" data-assistant-action="phone" role="listitem">
@@ -151,6 +151,9 @@
         </div>
         <div id="overview-sub-fanwork" class="overview-subview" hidden>
           <div id="fanwork-content-slot" class="feature-view-body" aria-label="小狗饭内容区"></div>
+        </div>
+        <div id="overview-sub-knock" class="overview-subview" hidden>
+          <div id="knock-content-slot" class="feature-view-body" aria-label="敲敲聊天"></div>
         </div>
       </section>
 
@@ -415,35 +418,6 @@
           <div class="story-memory-edit-actions">
             <button type="button" class="btn btn--secondary" id="assistant-gen-wb-cancel">取消</button>
             <button type="button" class="btn btn--primary" id="assistant-gen-wb-submit">提交生成</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 点星 · 灵感汲取 -->
-    <div id="modal-assistant-inspiration" class="overlay overlay--dim" hidden>
-      <div class="modal-sheet modal-sheet--tall">
-        <div class="sheet-handle"></div>
-        <div class="modal-header">
-          <h2 id="assistant-inspiration-modal-title" class="modal-title">灵感汲取</h2>
-          <button type="button" class="icon-btn" id="assistant-inspiration-modal-close" aria-label="关闭"><svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
-        </div>
-        <div id="assistant-inspiration-step-form" class="form-stack assistant-theme-body">
-          <label class="field">
-            <span class="field__label">灵感方向</span>
-            <textarea id="assistant-inspiration-demand" class="field__input field__textarea assistant-inspiration-demand" rows="4" placeholder="例如：偏悬疑、轻奇幻、节奏快、避免校园题材"></textarea>
-          </label>
-          <div class="story-memory-edit-actions">
-            <button type="button" class="btn btn--secondary" id="assistant-inspiration-cancel">取消</button>
-            <button type="button" class="btn btn--primary" id="assistant-inspiration-generate">生成方案</button>
-          </div>
-        </div>
-        <div id="assistant-inspiration-step-result" class="form-stack assistant-theme-body" hidden>
-          <div id="assistant-inspiration-result-body" class="assistant-inspiration-result-body bubble bubble--ai" role="document"></div>
-          <p id="assistant-inspiration-result-hint" class="field__hint assistant-inspiration-result-hint"></p>
-          <div class="bubble-inspiration-actions assistant-inspiration-result-actions">
-            <button type="button" class="btn btn--secondary btn--pill" id="assistant-inspiration-result-dismiss">关闭</button>
-            <button type="button" class="btn btn--primary btn--pill" id="assistant-inspiration-result-accept" hidden>确认创建</button>
           </div>
         </div>
       </div>

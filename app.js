@@ -109,7 +109,7 @@
     "题材方向：帮用户把一团想法收成「可开局的叙事方向」，追问缺失的一环（冲突、视点、 stakes），产出要能被放进剧情表单使用。\n" +
     "改写人设：只做结构化整理与润色建议，尊重用户原有设定；输出需便于填入角色表单，不擅自改成另一个角色。\n" +
     "生成世界书：根据用户给的剧情/设定需求，生成可入库的世界书条目思路（标题、分类倾向、适用范围等），条理清晰、便于粘贴或微调。\n" +
-    "灵感汲取：严格遵循对话里约定的格式（可读摘要 + 分隔符后的 JSON 等）；目标是「一套可落地的方案」，包含角色与开端类信息，方便用户在产品里一步步创建。\n" +
+    "敲敲：双角色人设模拟私聊；仅依据双方角色设定对话，不涉及剧情正文。\n" +
     "在进行以上四类工作时，你克制、干练，少煽情，多可执行；需要用户补信息时，用少量具体问题提问，不写长篇文章。\n\n" +
     "日常笔友式陪聊（用户分享剧情片段、生成结果或读后感触时）\n" +
     "你先承接情绪与印象（一两句即可），再轻量回应：可以点出一两个你读到的意象、节奏或人物选择，偶尔提一个「如果往下写可能会怎样」的开放式想法，不抢戏、不下结论、不教训人。除非用户明确要求，否则不做篇幅巨大的剧情代写或设定盘点。\n" +
@@ -164,7 +164,7 @@
         role: "assistant",
         kind: ASSISTANT_PRESET_WELCOME_KIND,
         content:
-          "点星里六个工具都能直接用：题材方向、改写人设、生成世界书、灵感汲取、查手机、小狗饭。你要结构化结果我就走实用流，要嗑 CP 上同人机我也陪你发疯。",
+          "点星里六个工具都能直接用：题材方向、改写人设、生成世界书、敲敲、查手机、小狗饭。你要结构化结果我就走实用流，要嗑 CP 上同人机我也陪你发疯。",
       },
       {
         role: "assistant",
@@ -636,7 +636,6 @@
     "modal-assistant-theme",
     "modal-assistant-rewrite",
     "modal-assistant-gen-wb",
-    "modal-assistant-inspiration",
     "modal-assistant-plot-reply",
     "modal-assistant-switch",
   ];
@@ -710,6 +709,10 @@
         const slot = document.getElementById("fanwork-content-slot");
         const ctx = buildFanworkPawContext(slot);
         return { key: "overview:" + ctx.key, root: ctx.root };
+      }
+      if (overviewSubView === "knock") {
+        const slot = document.getElementById("knock-content-slot");
+        return { key: "overview:knock", root: slot || document.getElementById("view-overview") };
       }
       return { key: "overview:hub", root: document.getElementById("view-overview") };
     }
@@ -2141,13 +2144,27 @@
     "settings",
   ];
   /** 旧版底栏 tab，hash 兼容重定向到点星子视图 */
-  const LEGACY_OVERVIEW_SUB_TAB_IDS = { phone: "phone", fanwork: "fanwork" };
+  const LEGACY_OVERVIEW_SUB_TAB_IDS = { phone: "phone", fanwork: "fanwork", knock: "knock" };
 
   let activeTab = "overview";
-  /** 点星内嵌子页：null | "phone" | "fanwork" */
+  /** 点星内嵌子页：null | "phone" | "fanwork" | "knock" */
   let overviewSubView = null;
-  /** 灵感汲取弹窗：待采纳的结构化方案 */
-  let assistantInspirationPendingResult = null;
+  /** 敲敲：主视角角色 id（我的形象） */
+  let knockUserCharId = null;
+  /** 敲敲：聊天对象 id（非我的形象） */
+  let knockPartnerCharId = null;
+  /** 敲敲：聊天记录 key = userCharId + \u001e + partnerCharId */
+  let knockChatData = {};
+  /** 敲敲：是否展开人设选择面板 */
+  let knockSetupOpen = false;
+  /** 敲敲：是否正在生成对方回复 */
+  let knockReplyGenerating = false;
+  /** 敲敲：批量选择模式 */
+  let knockSelectMode = false;
+  /** 敲敲：已选消息下标 */
+  let knockSelectedMsgs = [];
+  /** 敲敲生成时纳入上下文的最近消息条数（约 12 轮来回，兼顾连贯与速度） */
+  const KNOCK_CHAT_HISTORY_LIMIT = 24;
   /** 剧情分享后是否在 API 回复完成后弹出读后感 */
   let assistantPlotShareReplyModalPending = false;
   /** 查手机：当前查看的角色 id（须为「我的形象」以外的角色） */
@@ -2393,6 +2410,8 @@
     overviewHub: () => document.getElementById("overview-hub"),
     overviewSubPhone: () => document.getElementById("overview-sub-phone"),
     overviewSubFanwork: () => document.getElementById("overview-sub-fanwork"),
+    overviewSubKnock: () => document.getElementById("overview-sub-knock"),
+    knockContentSlot: () => document.getElementById("knock-content-slot"),
     modalAssistantProfile: () => document.getElementById("modal-assistant-profile"),
     assistantDedicatedApiSelect: () => document.getElementById("assistant-dedicated-api-select"),
     wbFilters: () => document.getElementById("wb-filters"),
@@ -6620,6 +6639,9 @@
       fanworkCpPartnerId: fanworkCpPartnerId || null,
       fanworkJjwxcCategoryStore: fanworkJjwxcCategoryStore || { categories: [], userEdited: false },
       fanworkJjwxcData: fanworkJjwxcData || {},
+      knockUserCharId: knockUserCharId || null,
+      knockPartnerCharId: knockPartnerCharId || null,
+      knockChatData: knockChatData || {},
     });
   }
 
@@ -6953,6 +6975,40 @@
       if (fanworkPlotId && !fanworkPlotHasCp(getFanworkPlotById(fanworkPlotId))) {
         fanworkPlotId = null;
         fanworkCpPartnerId = null;
+      }
+      knockUserCharId =
+        typeof o.knockUserCharId === "string" && o.knockUserCharId.trim() ? o.knockUserCharId.trim() : null;
+      knockPartnerCharId =
+        typeof o.knockPartnerCharId === "string" && o.knockPartnerCharId.trim() ? o.knockPartnerCharId.trim() : null;
+      knockChatData = {};
+      if (o.knockChatData && typeof o.knockChatData === "object" && !Array.isArray(o.knockChatData)) {
+        Object.keys(o.knockChatData).forEach(function (k) {
+          const v = o.knockChatData[k];
+          if (!v || typeof v !== "object" || !Array.isArray(v.messages)) return;
+          const messages = v.messages
+            .filter(function (m) {
+              return m && typeof m === "object" && (m.role === "user" || m.role === "assistant");
+            })
+            .map(function (m) {
+              return {
+                role: m.role === "assistant" ? "assistant" : "user",
+                content: String(m.content || "").trim(),
+                ts: Number.isFinite(m.ts) ? m.ts : Date.now(),
+              };
+            })
+            .filter(function (m) {
+              return !!m.content;
+            });
+          if (messages.length) knockChatData[k] = { messages: messages };
+        });
+      }
+      if (knockUserCharId && !getCharById(knockUserCharId)) knockUserCharId = null;
+      if (knockPartnerCharId && !getCharById(knockPartnerCharId)) knockPartnerCharId = null;
+      if (knockUserCharId && getCharById(knockUserCharId)?.categoryId !== CHAR_CATEGORY_SELF_ID) {
+        knockUserCharId = null;
+      }
+      if (knockPartnerCharId && getCharById(knockPartnerCharId)?.categoryId === CHAR_CATEGORY_SELF_ID) {
+        knockPartnerCharId = null;
       }
       phoneForumSectionsByPlot = {};
       if (o.phoneForumSectionsByPlot && typeof o.phoneForumSectionsByPlot === "object" && !Array.isArray(o.phoneForumSectionsByPlot)) {
@@ -9215,17 +9271,21 @@
     const hub = els.overviewHub();
     const phoneSub = els.overviewSubPhone();
     const fanSub = els.overviewSubFanwork();
+    const knockSub = els.overviewSubKnock();
     const showPhone = overviewSubView === "phone";
     const showFan = overviewSubView === "fanwork";
-    if (hub) hub.hidden = showPhone || showFan;
+    const showKnock = overviewSubView === "knock";
+    if (hub) hub.hidden = showPhone || showFan || showKnock;
     if (phoneSub) phoneSub.hidden = !showPhone;
     if (fanSub) fanSub.hidden = !showFan;
+    if (knockSub) knockSub.hidden = !showKnock;
     syncMainScrollMode();
     syncGlobalGenPawOverlay();
   }
 
   function openOverviewSubView(view) {
-    const v = view === "fanwork" ? "fanwork" : view === "phone" ? "phone" : null;
+    const v =
+      view === "fanwork" ? "fanwork" : view === "phone" ? "phone" : view === "knock" ? "knock" : null;
     if (!v) return;
     overviewSubView = v;
     if (activeTab !== "overview") {
@@ -9242,8 +9302,355 @@
     }
     syncOverviewSubViewUi();
     if (v === "phone") renderPhoneScreen(els.phoneContentSlot());
-    else renderFanworkScreen(els.fanworkContentSlot());
+    else if (v === "fanwork") renderFanworkScreen(els.fanworkContentSlot());
+    else if (v === "knock") renderKnockScreen(els.knockContentSlot());
     syncGlobalGenPawOverlay();
+  }
+
+  function knockChatStorageKey(userCharId, partnerCharId) {
+    return String(userCharId || "") + "\u001e" + String(partnerCharId || "");
+  }
+
+  function isKnockChatReady() {
+    const user = knockUserCharId ? getCharById(knockUserCharId) : null;
+    const partner = knockPartnerCharId ? getCharById(knockPartnerCharId) : null;
+    return (
+      user &&
+      partner &&
+      user.categoryId === CHAR_CATEGORY_SELF_ID &&
+      partner.categoryId !== CHAR_CATEGORY_SELF_ID
+    );
+  }
+
+  function getKnockChatMessages() {
+    if (!isKnockChatReady()) return [];
+    const key = knockChatStorageKey(knockUserCharId, knockPartnerCharId);
+    const rec = knockChatData[key];
+    return rec && Array.isArray(rec.messages) ? rec.messages : [];
+  }
+
+  function knockAwaitingReply() {
+    const msgs = getKnockChatMessages();
+    if (!msgs.length) return false;
+    return msgs[msgs.length - 1].role === "user";
+  }
+
+  function buildKnockCharPickIconSvg() {
+    return (
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<circle cx="9" cy="8" r="3.5"/>' +
+      '<path d="M3.5 20v-1.2a4.5 4.5 0 014.5-4.5H9"/>' +
+      '<circle cx="17" cy="9" r="2.8"/>' +
+      '<path d="M14.2 20v-0.9a3.8 3.8 0 013.1-3.7"/>' +
+      "</svg>"
+    );
+  }
+
+  function closeOverviewKnockView() {
+    knockSetupOpen = false;
+    overviewSubView = null;
+    syncOverviewSubViewUi();
+  }
+
+  async function openOverviewKnockView() {
+    const selfList = getSelfCharacters();
+    const supList = getSupportingCharacters();
+    if (!selfList.length) {
+      await showAlert("请先在「角色」里添加至少 1 个「我的形象」。", "敲敲");
+      setTab("characters");
+      charFilter = CHAR_CATEGORY_SELF_ID;
+      renderDynamic();
+      return;
+    }
+    if (!supList.length) {
+      await showAlert("请先在「角色」里添加至少 1 个非「我的形象」的角色。", "敲敲");
+      setTab("characters");
+      charFilter = "all";
+      renderDynamic();
+      return;
+    }
+    if (knockUserCharId && !selfList.some(function (c) { return c.id === knockUserCharId; })) {
+      knockUserCharId = null;
+    }
+    if (knockPartnerCharId && !supList.some(function (c) { return c.id === knockPartnerCharId; })) {
+      knockPartnerCharId = null;
+    }
+    if (!knockUserCharId && selfList.length) knockUserCharId = selfList[0].id;
+    if (!knockPartnerCharId && supList.length) knockPartnerCharId = supList[0].id;
+    knockSetupOpen = !isKnockChatReady();
+    openOverviewSubView("knock");
+  }
+
+  function buildKnockMessageHtml(msg, userChar, partnerChar) {
+    const isUser = msg.role === "user";
+    const side = isUser ? "out" : "in";
+    const char = isUser ? userChar : partnerChar;
+    const bubbleText = escapeHtml(String(msg.content || ""));
+    const avCls = "avatar phone-wechat-msg__avatar" + (isUser ? " phone-wechat-msg__avatar--out" : "");
+    const avHtml =
+      '<span class="' +
+      avCls +
+      '" data-knock-msg-av="' +
+      escapeHtml(char && char.id ? char.id : "") +
+      '"></span>';
+    if (isUser) {
+      return (
+        '<div class="phone-wechat-msg phone-wechat-msg--out">' +
+        '<span class="phone-wechat-msg__bubble">' +
+        bubbleText +
+        "</span>" +
+        avHtml +
+        "</div>"
+      );
+    }
+    return (
+      '<div class="phone-wechat-msg phone-wechat-msg--in">' +
+      avHtml +
+      '<span class="phone-wechat-msg__bubble">' +
+      bubbleText +
+      "</span>" +
+      "</div>"
+    );
+  }
+
+  function fillKnockAvatarElements(root) {
+    if (!root) return;
+    root.querySelectorAll("[data-knock-msg-av], [data-knock-av]").forEach(function (el) {
+      const id = el.getAttribute("data-knock-msg-av") || el.getAttribute("data-knock-av");
+      const c = id ? getCharById(id) : null;
+      if (c) fillAvatarElement(el, c);
+    });
+  }
+
+  function renderKnockSetupPicks(root) {
+    if (!root) return;
+    const userPick = root.querySelector("[data-knock-user-pick]");
+    const partnerPick = root.querySelector("[data-knock-partner-pick]");
+    const selfList = getSelfCharacters();
+    const supList = getSupportingCharacters();
+    if (userPick) {
+      userPick.innerHTML = "";
+      selfList.forEach(function (c) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "char-pick-avatar" + (c.id === knockUserCharId ? " is-selected" : "");
+        b.dataset.id = c.id;
+        const av = document.createElement("div");
+        av.className = "avatar";
+        b.appendChild(av);
+        fillAvatarElement(av, c);
+        b.addEventListener("click", function () {
+          knockUserCharId = c.id;
+          renderKnockSetupPicks(root);
+        });
+        userPick.appendChild(b);
+      });
+    }
+    if (partnerPick) {
+      partnerPick.innerHTML = "";
+      supList.forEach(function (c) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "char-pick-avatar" + (c.id === knockPartnerCharId ? " is-selected" : "");
+        b.dataset.id = c.id;
+        const av = document.createElement("div");
+        av.className = "avatar";
+        b.appendChild(av);
+        fillAvatarElement(av, c);
+        b.addEventListener("click", function () {
+          knockPartnerCharId = c.id;
+          renderKnockSetupPicks(root);
+        });
+        partnerPick.appendChild(b);
+      });
+    }
+    const confirmBtn = root.querySelector("[data-knock-setup-confirm]");
+    if (confirmBtn) {
+      confirmBtn.disabled = !knockUserCharId || !knockPartnerCharId;
+    }
+  }
+
+  function buildKnockSetupSheetHtml(opts) {
+    opts = opts || {};
+    const overlay = opts.overlay ? " knock-setup-overlay" : "";
+    const hiddenAttr = opts.overlay && !knockSetupOpen ? " hidden" : "";
+    const inner =
+      '<div class="knock-setup-overlay__head">' +
+      '<h3 class="knock-setup-overlay__title">选择聊天角色</h3>' +
+      (opts.overlay
+        ? '<button type="button" class="icon-btn" data-knock-setup-close aria-label="关闭"><svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M18 6L6 18M6 6l12 12"/></svg></button>'
+        : "") +
+      "</div>" +
+      '<div class="knock-setup-overlay__body">' +
+      '<p class="field__hint">主视角为你发送消息的视角；聊天对象将由 AI 扮演回复（后续接入 API 时仅参考双方人设，不读取剧情正文）。</p>' +
+      '<label class="field"><span class="field__label">我的视角（主视角）</span>' +
+      '<div class="h-scroll sheet-char-pick-row sheet-char-pick-row--overlap assistant-theme-char-picks" data-knock-user-pick></div></label>' +
+      '<label class="field"><span class="field__label">聊天对象</span>' +
+      '<div class="h-scroll sheet-char-pick-row sheet-char-pick-row--overlap assistant-theme-char-picks" data-knock-partner-pick></div></label>' +
+      "</div>" +
+      '<div class="knock-setup-page__actions">' +
+      '<button type="button" class="btn btn--primary btn--block btn--pill" data-knock-setup-confirm>开始聊天</button>' +
+      "</div>";
+    if (opts.overlay) {
+      return (
+        '<div class="knock-setup-overlay' +
+        overlay +
+        '"' +
+        hiddenAttr +
+        '" data-knock-setup-overlay><div class="knock-setup-overlay__sheet">' +
+        inner +
+        "</div></div>"
+      );
+    }
+    return (
+      '<div class="knock-setup-page" aria-label="敲敲角色选择">' +
+      '<header class="knock-setup-page__bar">' +
+      '<button type="button" class="phone-app__back" data-knock-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<h2 class="knock-setup-page__title">敲敲</h2>' +
+      '<span class="phone-app__bar-side" aria-hidden="true"></span>' +
+      "</header>" +
+      '<div class="knock-setup-page__body">' +
+      inner +
+      "</div></div>"
+    );
+  }
+
+  function buildKnockChatHtml() {
+    const user = getCharById(knockUserCharId);
+    const partner = getCharById(knockPartnerCharId);
+    const partnerName = partner ? partner.name || "聊天对象" : "聊天对象";
+    const msgs = getKnockChatMessages();
+    let threadHtml = "";
+    if (msgs.length) {
+      threadHtml = msgs
+        .map(function (m) {
+          return buildKnockMessageHtml(m, user, partner);
+        })
+        .join("");
+    } else {
+      threadHtml =
+        '<div class="knock-chat__empty">' +
+        "<p>和「" +
+        escapeHtml(partnerName) +
+        "」聊聊天吧</p>" +
+        "<p class=\"field__hint\">仅依据双方角色人设模拟对话，不涉及剧情正文</p>" +
+        "</div>";
+    }
+    const genLoadingCls = knockReplyGenerating ? " phone-wechat-gen-btn--loading" : "";
+    const genDisabled = !knockAwaitingReply() || knockReplyGenerating;
+    return (
+      '<div class="knock-chat phone-app phone-wechat phone-wechat--chat" aria-label="敲敲聊天">' +
+      '<header class="phone-app__bar phone-app__bar--wechat-chat knock-chat__bar">' +
+      '<button type="button" class="phone-app__back" data-knock-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<div class="phone-wechat-chat-bar__lead">' +
+      '<h2 class="phone-app__title phone-app__title--left phone-app__title--chat">' +
+      escapeHtml(partnerName) +
+      "</h2></div>" +
+      '<div class="phone-wechat-chat-bar__actions knock-chat__actions">' +
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      genLoadingCls +
+      '" data-knock-generate aria-label="生成对方回复" title="生成对方回复"' +
+      (genDisabled ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>" +
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn" data-knock-setup-toggle aria-label="选择聊天角色" title="选择聊天角色">' +
+      buildKnockCharPickIconSvg() +
+      "</button></div>" +
+      "</header>" +
+      '<div class="phone-wechat__thread knock-chat__thread" data-knock-thread>' +
+      threadHtml +
+      "</div>" +
+      '<div class="phone-wechat__composer knock-chat__composer">' +
+      '<textarea class="knock-chat__input" data-knock-input rows="1" placeholder="发消息…" aria-label="消息输入"></textarea>' +
+      '<button type="button" class="knock-chat__send" data-knock-send aria-label="发送" title="发送">' +
+      '<svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>' +
+      "</button></div>" +
+      buildKnockSetupSheetHtml({ overlay: true }) +
+      "</div>"
+    );
+  }
+
+  function scrollKnockThreadToEnd(slot) {
+    const thread = slot && slot.querySelector("[data-knock-thread]");
+    if (thread) thread.scrollTop = thread.scrollHeight;
+  }
+
+  function renderKnockScreen(slot) {
+    if (!slot) return;
+    if (!isKnockChatReady()) {
+      slot.innerHTML = buildKnockSetupSheetHtml({ overlay: false });
+      renderKnockSetupPicks(slot);
+      return;
+    }
+    slot.innerHTML = buildKnockChatHtml();
+    fillKnockAvatarElements(slot);
+    const overlay = slot.querySelector("[data-knock-setup-overlay]");
+    if (overlay) {
+      overlay.hidden = !knockSetupOpen;
+      if (knockSetupOpen) renderKnockSetupPicks(overlay);
+    }
+    scrollKnockThreadToEnd(slot);
+  }
+
+  function confirmKnockSetup(slot) {
+    if (!knockUserCharId || !knockPartnerCharId) {
+      showToast("请先选择主视角与聊天对象。", "info");
+      return;
+    }
+    const user = getCharById(knockUserCharId);
+    const partner = getCharById(knockPartnerCharId);
+    if (!user || user.categoryId !== CHAR_CATEGORY_SELF_ID) {
+      showToast("主视角须为「我的形象」分类中的角色。", "warning");
+      return;
+    }
+    if (!partner || partner.categoryId === CHAR_CATEGORY_SELF_ID) {
+      showToast("聊天对象须为除「我的形象」外的角色。", "warning");
+      return;
+    }
+    knockSetupOpen = false;
+    persistNarrative();
+    renderKnockScreen(slot || els.knockContentSlot());
+    showToast("已切换为「" + (partner.name || "对方") + "」", "success");
+  }
+
+  function sendKnockMessage() {
+    const slot = els.knockContentSlot();
+    const input = slot && slot.querySelector("[data-knock-input]");
+    const text = input && input.value ? String(input.value).trim() : "";
+    if (!text) return;
+    if (!isKnockChatReady()) return;
+    const key = knockChatStorageKey(knockUserCharId, knockPartnerCharId);
+    if (!knockChatData[key]) knockChatData[key] = { messages: [] };
+    knockChatData[key].messages.push({
+      role: "user",
+      content: text,
+      ts: Date.now(),
+    });
+    persistNarrative();
+    if (input) input.value = "";
+    renderKnockScreen(slot);
+  }
+
+  async function generateKnockReply() {
+    if (knockReplyGenerating) return;
+    if (!isKnockChatReady()) return;
+    if (!knockAwaitingReply()) {
+      showToast("请先发送一条消息，再点生成。", "info");
+      return;
+    }
+    knockReplyGenerating = true;
+    renderKnockScreen(els.knockContentSlot());
+    try {
+      showToast("对方回复 API 即将接入，请稍后再试。", "info");
+    } finally {
+      knockReplyGenerating = false;
+      renderKnockScreen(els.knockContentSlot());
+    }
   }
 
   async function openPlotSheet() {
@@ -10257,6 +10664,7 @@
     syncOverviewSubViewUi();
     if (overviewSubView === "phone") renderPhoneScreen(els.phoneContentSlot());
     else if (overviewSubView === "fanwork") renderFanworkScreen(els.fanworkContentSlot());
+    else if (overviewSubView === "knock") renderKnockScreen(els.knockContentSlot());
     if (els.modalAssistantProfile() && !els.modalAssistantProfile().hidden) {
       renderAssistantProfileModal();
     }
@@ -10823,219 +11231,6 @@
     }
   }
 
-  function buildAssistantInspirationUserPrompt(demandText) {
-    const demand = String(demandText || "").trim();
-    const lines = [];
-    lines.push(
-      "请为互动叙事产品生成 **唯一一套**完整灵感方案：必须包含「我的形象」主角、至少 1 名配角（含姓名与完整设定字段）、剧情题材说明，以及一段可直接作为开篇的 **storyOpening（故事开端）**。"
-    );
-    lines.push("");
-    lines.push("输出必须严格分两段（不要调换顺序）：");
-    lines.push(
-      "1）第一段：给用户阅读的简体中文正文：写出方案标题、一句话 premise；逐条列出 **所有角色姓名** 及其一句话设定；再简述故事开端（不要写 JSON）。"
-    );
-    lines.push(
-      '2）第二段：单独一行输出分隔符 <<<INSPIRATION_JSON>>>（必须完全一致、单独成行），紧接着输出 **唯一** JSON 对象。'
-    );
-    lines.push("");
-    lines.push("JSON 可为下列其一（任选其一即可，不要用 Markdown 代码围栏）：");
-    lines.push(
-      'A）根对象即方案：含 title、premise、worldview、plotHook、pov（第一人称|第二人称|第三人称）、theme、storyOpening（故事开端正文）、protagonist、supportings（数组，至少 1 个配角）。'
-    );
-    lines.push(
-      'B）{ "plan": { 同上字段 } } 或 { "options": [ { 同上字段 } ] }（options 数组仅含 1 个元素）。'
-    );
-    lines.push("");
-    lines.push("protagonist / supportings 每项对象字段：name、gender、race、traits（数组或字符串，可空）、bg、style、relationships。");
-    lines.push("其中 style 必须写成「外貌及性格」合并描述，用于后续角色人设读取。");
-    lines.push("");
-    lines.push("【用户偏好】");
-    lines.push(demand || "（未填写，请自由发挥，优先有冲突张力、易扩写）");
-    return lines.join("\n");
-  }
-
-  function splitAssistantInspirationResponse(raw) {
-    const text = String(raw || "").trim();
-    const sep = "<<<INSPIRATION_JSON>>>";
-    const ix = text.indexOf(sep);
-    if (ix < 0) return { display: "", jsonSlice: text };
-    return { display: text.slice(0, ix).trim(), jsonSlice: text.slice(ix + sep.length).trim() };
-  }
-
-  function formatInspirationBubbleFallback(options) {
-    if (!Array.isArray(options) || !options.length) return "";
-    const o = options[0];
-    const lines = ["为你整理了如下灵感方案（摘要）：", "", "《" + String(o.title || "灵感").trim() + "》", String(o.premise || "").trim(), ""];
-    if (o.worldview) lines.push("世界观：" + String(o.worldview).trim(), "");
-    if (o.plotHook) lines.push("冲突/钩子：" + String(o.plotHook).trim(), "");
-    lines.push("【角色】");
-    if (o.protagonist && o.protagonist.name) {
-      lines.push("· 主角（我的形象）：" + o.protagonist.name + " — " + (o.protagonist.style || o.protagonist.bg || "").trim().slice(0, 120));
-    }
-    (o.supportings || []).forEach(function (s, i) {
-      if (!s || !s.name) return;
-      lines.push("· 配角" + (i + 1) + "：" + s.name + " — " + (s.style || s.bg || "").trim().slice(0, 120));
-    });
-    if (o.storyOpening) lines.push("", "【故事开端】", String(o.storyOpening).trim().slice(0, 800));
-    return lines.join("\n");
-  }
-
-  function normalizeInspirationCharacterDraft(rawChar, fallbackName) {
-    const obj = rawChar && typeof rawChar === "object" ? rawChar : {};
-    const name = String(obj.name || fallbackName || "未命名角色").trim() || "未命名角色";
-    return {
-      name: name,
-      gender: normalizeAssistantRewriteGender(obj.gender || ""),
-      race: String(obj.race || "").trim(),
-      traits: normalizeAssistantRewriteTraits(obj.traits || ""),
-      bg: String(obj.bg || "").trim(),
-      style: String(obj.style || "").trim(),
-      relationships: String(obj.relationships || "").trim(),
-    };
-  }
-
-  function coerceInspirationOptionArray(rawObj) {
-    if (!rawObj) return [];
-    if (Array.isArray(rawObj)) return rawObj.filter(Boolean);
-    if (typeof rawObj !== "object") return [];
-    const o = rawObj;
-    if (Array.isArray(o.options)) return o.options.filter(Boolean);
-    if (o.plan && typeof o.plan === "object") return [o.plan];
-    if (o.protagonist || o.main || o.hero) return [o];
-    if (Array.isArray(o.ideas)) return o.ideas.filter(Boolean);
-    if (Array.isArray(o.candidates)) return o.candidates.filter(Boolean);
-    if (Array.isArray(o.results)) return o.results.filter(Boolean);
-    if (o.data && typeof o.data === "object" && Array.isArray(o.data.options)) return o.data.options.filter(Boolean);
-    return [];
-  }
-
-  function coerceInspirationSupportingArray(it) {
-    let arr =
-      it.supportings ||
-      it.supporting ||
-      it.supporting_roles ||
-      it.sideCharacters ||
-      it.secondaryCharacters ||
-      it.side_characters;
-    if (!Array.isArray(arr)) {
-      if (arr && typeof arr === "object") return [arr];
-      return [];
-    }
-    return arr;
-  }
-
-  function normalizeAssistantInspirationPayload(rawObj) {
-    const list = coerceInspirationOptionArray(rawObj);
-    const out = [];
-    list.forEach(function (it, idx) {
-      if (!it || typeof it !== "object") return;
-      const title =
-        String(it.title || it.name || it.label || "灵感方案 " + (idx + 1)).trim() || "灵感方案 " + (idx + 1);
-      const premise = String(it.premise || it.summary || it.one_line || it.tagline || "").trim();
-      const worldview = String(it.worldview || it.world || it.setting || "").trim();
-      const plotHook = String(it.plotHook || it.hook || it.conflict || "").trim();
-      let theme = String(it.theme || it.plot_theme || it.direction || "").trim();
-      const pov = normalizeNarrativePov(it.pov || it.narrative_pov || "第三人称");
-      const protagonist = normalizeInspirationCharacterDraft(it.protagonist || it.main || it.hero || {}, "主角");
-      let supportings = coerceInspirationSupportingArray(it)
-        .slice(0, 4)
-        .map(function (s, i) {
-          return normalizeInspirationCharacterDraft(s, "配角" + (i + 1));
-        })
-        .filter(function (s) {
-          return !!s.name;
-        });
-      const premiseLine = premise || plotHook || worldview || title;
-      const storyOpening = String(it.storyOpening || it.opening || it.story_opening || it.开端 || "").trim();
-      if (!theme) {
-        theme = [premise || plotHook || "", worldview ? "世界观：" + worldview : "", plotHook && premise !== plotHook ? "钩子：" + plotHook : ""]
-          .filter(Boolean)
-          .join("\n\n")
-          .trim();
-      }
-      if (!supportings.length && protagonist.name) {
-        supportings.push(
-          normalizeInspirationCharacterDraft(
-            {
-              name: "同行配角",
-              gender: "其他",
-              traits: ["待定"],
-              bg: "可由你在角色表单中补充。",
-              style: "待定",
-              relationships: "与主角处于同一叙事线。",
-            },
-            "配角"
-          )
-        );
-      }
-      if (!premiseLine || !theme || !supportings.length) return;
-      out.push({
-        id: "insp-" + Date.now() + "-" + idx + "-" + Math.random().toString(36).slice(2, 7),
-        title: title,
-        premise: premise || premiseLine,
-        worldview: worldview,
-        plotHook: plotHook,
-        theme: theme,
-        pov: pov,
-        storyOpening: storyOpening,
-        protagonist: protagonist,
-        supportings: supportings,
-      });
-    });
-    return out.slice(0, 1);
-  }
-
-  function resetAssistantInspirationModalSteps() {
-    assistantInspirationPendingResult = null;
-    const form = document.getElementById("assistant-inspiration-step-form");
-    const result = document.getElementById("assistant-inspiration-step-result");
-    const title = document.getElementById("assistant-inspiration-modal-title");
-    if (form) form.hidden = false;
-    if (result) result.hidden = true;
-    if (title) title.textContent = "灵感汲取";
-    const btn = document.getElementById("assistant-inspiration-generate");
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = "生成方案";
-    }
-  }
-
-  function openAssistantInspirationModal() {
-    resetAssistantInspirationModalSteps();
-    const modal = document.getElementById("modal-assistant-inspiration");
-    if (modal) modal.hidden = false;
-    const input = document.getElementById("assistant-inspiration-demand");
-    if (input) input.value = "";
-  }
-
-  function closeAssistantInspirationModal() {
-    const modal = document.getElementById("modal-assistant-inspiration");
-    if (modal) modal.hidden = true;
-    resetAssistantInspirationModalSteps();
-  }
-
-  function showAssistantInspirationResult(displayBody, options) {
-    const opts = Array.isArray(options) ? options : [];
-    assistantInspirationPendingResult = { options: opts };
-    const form = document.getElementById("assistant-inspiration-step-form");
-    const result = document.getElementById("assistant-inspiration-step-result");
-    const body = document.getElementById("assistant-inspiration-result-body");
-    const hint = document.getElementById("assistant-inspiration-result-hint");
-    const accept = document.getElementById("assistant-inspiration-result-accept");
-    const title = document.getElementById("assistant-inspiration-modal-title");
-    if (form) form.hidden = true;
-    if (result) result.hidden = false;
-    if (title) title.textContent = "灵感方案";
-    if (body) body.textContent = String(displayBody || "");
-    const canAccept = opts.length > 0;
-    if (accept) accept.hidden = !canAccept;
-    if (hint) {
-      hint.textContent = canAccept
-        ? "点「确认创建」将依次引导新建角色，全部完成后再进入新建剧情。"
-        : "结构化数据未解析成功时可参考上文手动创建。";
-    }
-  }
-
   async function acceptAssistantInspirationPlan(option) {
     if (!option || typeof option !== "object") return;
     const supportingCategoryId =
@@ -11093,80 +11288,6 @@
     assistantState.messages = normalizeAssistantMessages(assistantState.messages);
     persistAssistantState();
     renderAssistantChatList();
-    await acceptAssistantInspirationPlan(option);
-  }
-
-  async function submitAssistantInspiration() {
-    if (assistantReplying) return;
-    const demandEl = document.getElementById("assistant-inspiration-demand");
-    const demand = demandEl && demandEl.value ? demandEl.value.trim() : "";
-    if (!demand) {
-      showToast("请先填写灵感方向（或随便写几个字也行）。", "info");
-      return;
-    }
-    const btn = document.getElementById("assistant-inspiration-generate");
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = "生成中…";
-    }
-
-    const systemMsg =
-      "你是互动叙事创意助手。\n" +
-      "遵守用户消息里的输出格式：先可读中文摘要，再单独一行 <<<INSPIRATION_JSON>>>，再输出唯一 JSON。\n" +
-      "不要用 Markdown 代码围栏包裹 JSON。\n" +
-      "语气客观、中规中矩，专注给出可落地方案，不要使用角色扮演或陪聊口吻。";
-    const userMsg = buildAssistantInspirationUserPrompt(demand);
-
-    assistantReplying = true;
-    try {
-      const raw = await callChatCompletion(
-        [
-          { role: "system", content: systemMsg },
-          { role: "user", content: userMsg },
-        ],
-        0.82,
-        2800,
-        { apiConfigId: getWorkbenchApiId() }
-      );
-      const split = splitAssistantInspirationResponse(raw);
-      let options = [];
-      try {
-        options = normalizeAssistantInspirationPayload(parseAssistantJsonObject(split.jsonSlice));
-      } catch (e0) {
-        try {
-          options = normalizeAssistantInspirationPayload(parseAssistantJsonObject(String(raw || "")));
-        } catch (e1) {
-          options = [];
-        }
-      }
-      let displayBody = String(split.display || "").trim();
-      if (!displayBody && options.length) displayBody = formatInspirationBubbleFallback(options);
-      if (!displayBody) displayBody = String(raw || "").trim().slice(0, 1200) || "（未收到可读内容）";
-      showAssistantInspirationResult(displayBody, options);
-      showToast(options.length ? "灵感方案已生成" : "已生成摘要（结构化解析未成功时可手动创建）", options.length ? "success" : "info");
-    } catch (err) {
-      const msg = (err && err.message) || "";
-      showToast(msg || "灵感汲取失败，请检查 API。", "error", 4200);
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = "生成方案";
-      }
-    } finally {
-      assistantReplying = false;
-    }
-  }
-
-  async function acceptAssistantInspirationFromModal() {
-    const opts =
-      assistantInspirationPendingResult && Array.isArray(assistantInspirationPendingResult.options)
-        ? assistantInspirationPendingResult.options
-        : [];
-    const option = opts[0];
-    if (!option) {
-      showToast("没有可自动采纳的结构化方案，请参考上文手动创建。", "info");
-      return;
-    }
-    closeAssistantInspirationModal();
     await acceptAssistantInspirationPlan(option);
   }
 
@@ -11613,8 +11734,8 @@
       openAssistantGenWbModal();
       return;
     }
-    if (id === "inspiration") {
-      openAssistantInspirationModal();
+    if (id === "knock") {
+      void openOverviewKnockView();
       return;
     }
     if (id === "phone") {
@@ -13816,11 +13937,79 @@
     return parts.length ? parts.join("\n") : "未设定";
   }
 
-  function normalizePhoneWechatMessages(msgsIn, allowEmpty) {
+  function normalizePhoneWechatMessageSide(msgObj, holderName, contactName) {
+    if (!msgObj || typeof msgObj !== "object") return "in";
+    if (msgObj.isOut === true || msgObj.outgoing === true || msgObj.isHolder === true) return "out";
+    if (msgObj.isIn === true || msgObj.incoming === true) return "in";
+    let raw =
+      msgObj.side != null
+        ? msgObj.side
+        : msgObj.from != null
+          ? msgObj.from
+          : msgObj.sender != null
+            ? msgObj.sender
+            : msgObj.speaker != null
+              ? msgObj.speaker
+              : msgObj.role;
+    if (typeof raw === "boolean") return raw ? "out" : "in";
+    const s = String(raw || "").trim().toLowerCase();
+    if (
+      s === "out" ||
+      s === "holder" ||
+      s === "me" ||
+      s === "self" ||
+      s === "mine" ||
+      s === "o" ||
+      s === "持有者" ||
+      s === "我" ||
+      s === "本人" ||
+      s === "发出" ||
+      s === "right"
+    ) {
+      return "out";
+    }
+    if (
+      s === "in" ||
+      s === "peer" ||
+      s === "contact" ||
+      s === "them" ||
+      s === "other" ||
+      s === "i" ||
+      s === "对方" ||
+      s === "来" ||
+      s === "收到" ||
+      s === "left"
+    ) {
+      return "in";
+    }
+    const holder = String(holderName || "").trim();
+    const contact = String(contactName || "").trim();
+    const nameRaw = String(msgObj.speaker || msgObj.name || msgObj.who || raw || "").trim();
+    if (nameRaw && holder && nameRaw === holder) return "out";
+    if (nameRaw && contact && nameRaw === contact) return "in";
+    if (holder && s && (s === holder.toLowerCase() || s.indexOf(holder.toLowerCase()) >= 0)) return "out";
+    if (contact && s && (s === contact.toLowerCase() || s.indexOf(contact.toLowerCase()) >= 0)) return "in";
+    if (/out|holder|self|持有|我发|右侧/.test(s)) return "out";
+    if (/in|peer|contact|对方|来信|左侧/.test(s)) return "in";
+    return "in";
+  }
+
+  function buildPhoneWechatSideRuleLines(holder, contactName) {
+    const holderName = holder && holder.name ? String(holder.name).trim() : "手机持有者";
+    const peerName = String(contactName || "").trim() || "会话对方";
+    return [
+      "side 取值只能是 in 或 out（不要用中文、不要用 \"in|out\" 占位符）：",
+      "- out = 「" + holderName + "」（手机持有者）发出，界面为右侧绿色气泡；",
+      "- in = 「" + peerName + "」（本会话列表名）发来，界面为左侧白色气泡；",
+      "同一段对话须按发言者交替使用 in/out，禁止把所有消息都标成 in。",
+    ];
+  }
+
+  function normalizePhoneWechatMessages(msgsIn, allowEmpty, holderName, contactName) {
     const messages = [];
     (Array.isArray(msgsIn) ? msgsIn : []).forEach(function (m) {
       if (!m || typeof m !== "object") return;
-      const side = String(m.side || "").trim().toLowerCase() === "out" ? "out" : "in";
+      const side = normalizePhoneWechatMessageSide(m, holderName, contactName);
       const text = truncateCharsWithEllipsis(String(m.text || "").trim(), 80);
       if (!text) return;
       messages.push({ side: side, text: text });
@@ -13850,7 +14039,7 @@
     );
   }
 
-  function normalizePhoneWechatChatItem(item, plot, idx, seenIds) {
+  function normalizePhoneWechatChatItem(item, plot, idx, seenIds, holder) {
     const protagonist = getCharById(plot.protagonistId);
     const protagName = protagonist && protagonist.name ? String(protagonist.name).trim() : "";
     if (!item || typeof item !== "object") return null;
@@ -13859,7 +14048,8 @@
     if (seenIds) seenIds.add(id);
     const name = String(item.name || "").trim() || "未命名";
     const time = String(item.time || "").trim() || "刚刚";
-    const messages = normalizePhoneWechatMessages(item.messages, false);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "";
+    const messages = normalizePhoneWechatMessages(item.messages, false, holderName, name);
     if (!messages.length) return null;
     const isProtag =
       !!item.isProtagonistChat ||
@@ -13876,11 +14066,14 @@
     return chat;
   }
 
-  function formatPhoneWechatMessagesForPrompt(messages, limit) {
+  function formatPhoneWechatMessagesForPrompt(messages, limit, holderName, contactName) {
+    const holder = String(holderName || "").trim() || "持有者";
+    const contact = String(contactName || "").trim() || "对方";
     return (messages || [])
       .slice(-(limit || PHONE_WECHAT_MSG_HISTORY_REF))
       .map(function (m) {
-        const who = m.side === "out" ? "持有者" : "对方";
+        const who =
+          m.side === "out" ? holder + "（out/右）" : contact + "（in/左）";
         return who + "：" + String(m.text || "").trim();
       })
       .filter(Boolean)
@@ -13944,7 +14137,9 @@
         "2. chats 至少 4 条：必须含与「我的形象」主角的私聊（list 的 name 可为持有者对 TA 的微信备注/昵称，可不同于真名 " +
         ctx.protagName +
         "）；另至少 3 条与当前剧情相关、或与持有者有交际/间接关系的其他人物（参与角色、群聊、订阅号等均可）。\n" +
-        "3. 每条 chat 字段：id（英文短 id，唯一）、name（列表显示名）、preview（列表预览≤24字）、time（如 14:20、昨天）、messages（4～12 条；side 为 in 或 out，in=对方发来，out=持有者发出）；与「我的形象」主角的私聊请加 \"isProtagonistChat\": true。\n" +
+        "3. 每条 chat 字段：id（英文短 id，唯一）、name（列表显示名）、preview（列表预览≤24字）、time（如 14:20、昨天）、messages（4～12 条；side 为 in 或 out）；与「我的形象」主角的私聊请加 \"isProtagonistChat\": true。\n" +
+        buildPhoneWechatSideRuleLines(holder, "各会话的 name").join("\n") +
+        "\n" +
         "4. 对白像真实微信，口语化，可带 emoji；单条 messages.text ≤80 字。\n" +
         "5. 须与上文剧情、人设、记忆、总结一致；头像由界面取 name 首字，无需额外字段。"
     );
@@ -13962,6 +14157,7 @@
     lines.push.apply(lines, ctx.lines);
     lines.push("");
     lines.push("【当前已有微信会话（请勿删除）】");
+    const holderName = holder && holder.name ? String(holder.name).trim() : "手机持有者";
     chats.forEach(function (c) {
       lines.push(
         "- id=" +
@@ -13974,11 +14170,19 @@
           "，time=" +
           (c.time || "")
       );
-      const hist = formatPhoneWechatMessagesForPrompt(c.messages, PHONE_WECHAT_MSG_HISTORY_REF);
+      const hist = formatPhoneWechatMessagesForPrompt(
+        c.messages,
+        PHONE_WECHAT_MSG_HISTORY_REF,
+        holderName,
+        c.name
+      );
       if (hist) {
         lines.push("  最近 " + PHONE_WECHAT_MSG_HISTORY_REF + " 条：");
         lines.push(hist);
       }
+    });
+    const otherChats = chats.filter(function (c) {
+      return c && !c.isProtagonistChat && String(c.name || "").trim() !== "…";
     });
     lines.push("");
     lines.push(
@@ -13987,13 +14191,27 @@
         "规则：\n" +
         "1. appendToChats：在已有会话末尾追加 messages（只含新消息，不要重复旧内容）。与「我的形象」主角的私聊" +
         (protagChat ? "（id=" + protagChat.id + "）" : "") +
-        "必须在 appendToChats 中出现，且新消息须自然衔接该会话最近 " +
+        "须在 appendToChats 中出现，且新消息须自然衔接该会话最近 " +
         PHONE_WECHAT_MSG_HISTORY_REF +
         " 条。\n" +
         "2. newChats：仅当最新剧情需要新对话对象时使用；每条含完整首段 messages（4～12 条）。\n" +
-        "3. 其他已有会话：视剧情决定是在 appendToChats 追加，或保持不动；不要删除任何已有 id。\n" +
+        "3. 其他已有会话：视剧情在 appendToChats 追加，或保持不动；不要删除任何已有 id。" +
+        (otherChats.length
+          ? " 除主角私聊外，还须在 appendToChats 中至少再更新 1 个其他已有会话（如 id=" +
+            otherChats
+              .slice(0, 3)
+              .map(function (c) {
+                return c.id;
+              })
+              .join("、") +
+            "），或在 newChats 新增与剧情相关的新会话；禁止整次只更新一个会话。"
+          : "") +
+        "\n" +
         "4. 若某会话无需更新，可不写入 appendToChats。preview/time 可随最新消息更新。\n" +
-        "5. 对白口语化像微信，单条 text ≤80 字；须与最新剧情、人设、记忆、总结一致。"
+        buildPhoneWechatSideRuleLines(holder, "各 appendToChats/newChats 项的 name").join("\n") +
+        "\n" +
+        "5. 对白口语化像微信，单条 text ≤80 字；须与最新剧情、人设、记忆、总结一致。\n" +
+        "6. 若误用 {\"chats\":[...]} 全量格式，也须保证各 id 与上文一致且 messages 仅追加新内容。"
     );
     return lines.join("\n");
   }
@@ -14005,7 +14223,7 @@
     const out = [];
     const seenIds = new Set();
     chatsIn.forEach(function (item, idx) {
-      const chat = normalizePhoneWechatChatItem(item, plot, idx, seenIds);
+      const chat = normalizePhoneWechatChatItem(item, plot, idx, seenIds, holder);
       if (chat) out.push(chat);
     });
     if (
@@ -14041,6 +14259,40 @@
     return { chats: out, generatedAt: Date.now() };
   }
 
+  function mergePhoneWechatChatsArrayFallback(base, byId, rawChats, plot, holder) {
+    let changed = false;
+    const holderName = holder && holder.name ? String(holder.name).trim() : "";
+    (Array.isArray(rawChats) ? rawChats : []).forEach(function (item, idx) {
+      if (!item || typeof item !== "object") return;
+      const id = String(item.id || "").trim();
+      const contactName = String(item.name || "").trim();
+      const incoming = normalizePhoneWechatMessages(item.messages, false, holderName, contactName);
+      if (!incoming.length) return;
+      let chat = id ? byId[id] : null;
+      if (chat) {
+        const existing = chat.messages || [];
+        if (incoming.length > existing.length) {
+          const append = incoming.slice(existing.length);
+          if (append.length) {
+            chat.messages = existing.concat(append).slice(-PHONE_WECHAT_MAX_MSGS_PER_CHAT);
+            changed = true;
+          }
+        }
+        if (item.preview) chat.preview = truncateCharsWithEllipsis(String(item.preview).trim(), 24);
+        if (item.time) chat.time = String(item.time).trim();
+        syncPhoneWechatChatPreview(chat);
+        return;
+      }
+      const seenIds = new Set(Object.keys(byId));
+      const newChat = normalizePhoneWechatChatItem(item, plot, idx, seenIds, holder);
+      if (!newChat) return;
+      base.push(newChat);
+      byId[newChat.id] = newChat;
+      changed = true;
+    });
+    return changed;
+  }
+
   function mergePhoneWechatIncrement(existing, raw, plot, holder) {
     const base = (existing && existing.chats ? existing.chats : []).map(function (c) {
       return {
@@ -14056,15 +14308,29 @@
     base.forEach(function (c) {
       byId[c.id] = c;
     });
+    const holderName = holder && holder.name ? String(holder.name).trim() : "";
+    let didAppend = false;
+    const appendList =
+      raw && Array.isArray(raw.appendToChats)
+        ? raw.appendToChats
+        : raw && Array.isArray(raw.updates)
+          ? raw.updates
+          : [];
 
-    (raw && Array.isArray(raw.appendToChats) ? raw.appendToChats : []).forEach(function (upd) {
+    appendList.forEach(function (upd) {
       if (!upd || typeof upd !== "object") return;
       const id = String(upd.id || "").trim();
       const chat = byId[id];
       if (!chat) return;
-      const append = normalizePhoneWechatMessages(upd.messages, false);
+      const append = normalizePhoneWechatMessages(
+        upd.messages,
+        false,
+        holderName,
+        chat.name
+      );
       if (append.length) {
         chat.messages = chat.messages.concat(append).slice(-PHONE_WECHAT_MAX_MSGS_PER_CHAT);
+        didAppend = true;
       }
       if (upd.preview) chat.preview = truncateCharsWithEllipsis(String(upd.preview).trim(), 24);
       if (upd.time) chat.time = String(upd.time).trim();
@@ -14073,11 +14339,20 @@
 
     const seenIds = new Set(Object.keys(byId));
     (raw && Array.isArray(raw.newChats) ? raw.newChats : []).forEach(function (item, idx) {
-      const chat = normalizePhoneWechatChatItem(item, plot, idx, seenIds);
+      const chat = normalizePhoneWechatChatItem(item, plot, idx, seenIds, holder);
       if (!chat) return;
       base.push(chat);
       byId[chat.id] = chat;
+      didAppend = true;
     });
+
+    if (!didAppend && raw && Array.isArray(raw.chats) && raw.chats.length) {
+      if (
+        mergePhoneWechatChatsArrayFallback(base, byId, raw.chats, plot, holder)
+      ) {
+        didAppend = true;
+      }
+    }
 
     if (!Object.keys(byId).length && raw && Array.isArray(raw.chats) && raw.chats.length) {
       return preservePhoneSocialAvatarOverrides(normalizePhoneWechatBundle(raw, plot, holder), existing);
@@ -14677,7 +14952,9 @@
       '<span class="phone-moments-post__time">' +
       escapeHtml(String(post.time || "")) +
       "</span>" +
+      '<span class="phone-moments-post__actions">' +
       buildPhoneMomentsPostDeleteBtnHtml(post.id) +
+      "</span>" +
       "</div>" +
       buildPhoneMomentsSocialHtml(post) +
       "</article>"
@@ -14686,24 +14963,32 @@
 
   function buildPhoneMomentsBarHtml() {
     const loadingCls = phoneMomentsGenerating ? " phone-wechat-gen-btn--loading" : "";
+    const disabled =
+      phoneMomentsGenerating ||
+      phoneWechatGenerating ||
+      phoneAlbumGenerating ||
+      phoneForumGenerating ||
+      phoneBrowserGenerating;
+    const genBtn =
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      loadingCls +
+      '" data-phone-moments-generate aria-label="AI 生成朋友圈内容" title="AI 生成朋友圈内容"' +
+      (disabled ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>";
     return (
       '<header class="phone-app__bar phone-app__bar--wechat-list">' +
       '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
       '<h2 class="phone-app__title phone-app__title--left">朋友圈</h2>' +
-      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
-      loadingCls +
-      '" data-phone-moments-generate aria-label="AI 生成朋友圈内容" title="AI 生成朋友圈内容"' +
-      (phoneMomentsGenerating || phoneWechatGenerating || phoneAlbumGenerating || phoneForumGenerating || phoneBrowserGenerating ? " disabled" : "") +
-      ">" +
-      buildPhoneWechatStarIconSvg() +
-      "</button>" +
+      genBtn +
       "</header>"
     );
   }
 
-  function buildPhoneMomentsHtml() {
+  function buildPhoneMomentsHtml(slot) {
     const placeholder = !hasPhoneMomentsGenerated();
     const holder = getPhoneHolderCharacter();
     const coverUrl = getPhoneMomentsCoverUrl();
@@ -15222,7 +15507,6 @@
       return t && t.id === id;
     });
     const label = track ? "《" + track.title + "》" : "该歌曲";
-    closePhoneRowSwipe(slot);
     const ok = await showConfirm("确定从最近播放中删除" + label + "吗？", "删除记录");
     if (!ok) return;
     if (!deletePhoneMusicTrack(id)) {
@@ -15233,21 +15517,31 @@
     if (slot) renderPhoneScreen(slot);
   }
 
-  function buildPhoneMusicBarHtml() {
+  function buildPhoneMusicBarHtml(ui, selectDisabled) {
     const loadingCls = phoneMusicGenerating ? " phone-wechat-gen-btn--loading" : "";
+    const disabled =
+      phoneMusicGenerating ||
+      phoneWechatGenerating ||
+      phoneMomentsGenerating ||
+      phoneAlbumGenerating ||
+      phoneForumGenerating ||
+      phoneBrowserGenerating;
+    const selectBtn = buildPhoneBarListSelectBtnHtml(ui, selectDisabled || disabled);
+    const genBtn =
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      loadingCls +
+      '" data-phone-music-generate aria-label="AI 生成音乐数据" title="AI 生成音乐数据"' +
+      (disabled ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>";
     return (
       '<header class="phone-app__bar phone-app__bar--wechat-list">' +
       '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
       '<h2 class="phone-app__title phone-app__title--left">音乐</h2>' +
-      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
-      loadingCls +
-      '" data-phone-music-generate aria-label="AI 生成音乐数据" title="AI 生成音乐数据"' +
-      (phoneMusicGenerating || phoneWechatGenerating || phoneMomentsGenerating || phoneAlbumGenerating || phoneForumGenerating || phoneBrowserGenerating ? " disabled" : "") +
-      ">" +
-      buildPhoneWechatStarIconSvg() +
-      "</button>" +
+      buildPhoneBarActionsHtml(selectBtn, genBtn) +
       "</header>"
     );
   }
@@ -15347,34 +15641,43 @@
     );
   }
 
-  function buildPhoneMusicRowHtml(track, placeholder) {
+  function buildPhoneMusicRowHtml(track, placeholder, ui) {
     if (placeholder) {
       return buildPhoneMusicRowInnerHtml(track, true);
     }
-    return (
-      '<div class="phone-music-row-wrap">' +
-      '<button type="button" class="phone-music-row__delete" data-phone-music-delete-track="' +
-      escapeHtml(String(track.id || "")) +
-      '" aria-label="删除播放记录">删除</button>' +
-      '<div class="phone-music-row__slide">' +
-      buildPhoneMusicRowInnerHtml(track, false) +
-      "</div>" +
-      "</div>"
+    const selected = phoneListItemSelected(ui, track.id);
+    let rowCls = "phone-music-row";
+    if (ui && ui.selectMode) rowCls += " phone-list-select__row";
+    if (selected) rowCls += " phone-list-select__row--selected";
+    const checkHtml = ui && ui.selectMode ? buildPhoneListSelectCheckHtml(selected) : "";
+    const inner = buildPhoneMusicRowInnerHtml(track, false);
+    return inner.replace(
+      '<div class="phone-music-row">',
+      '<div class="' +
+        rowCls +
+        '" data-phone-list-select-item="' +
+        escapeHtml(String(track.id || "")) +
+        '">' +
+        checkHtml
     );
   }
 
-  function buildPhoneMusicHtml() {
+  function buildPhoneMusicHtml(slot) {
+    const nav = getPhoneNav(slot);
+    const ui = getPhoneListSelectUi(nav);
     const placeholder = !hasPhoneMusicGenerated();
     const tracks = placeholder ? PHONE_MUSIC_PLACEHOLDER_RECENT : getPhoneMusicRecentTracks() || [];
     const rows = tracks
       .map(function (t) {
-        return buildPhoneMusicRowHtml(t, placeholder);
+        return buildPhoneMusicRowHtml(t, placeholder, ui);
       })
       .join("");
     const nowPlaying = placeholder ? null : getPhoneMusicNowPlayingTrack();
     return (
-      '<div class="phone-app phone-music" aria-label="音乐">' +
-      buildPhoneMusicBarHtml() +
+      '<div class="phone-app phone-music' +
+      phoneListSelectAppCls(ui) +
+      '" aria-label="音乐">' +
+      buildPhoneMusicBarHtml(ui, placeholder) +
       '<div class="phone-music__scroll">' +
       '<div class="phone-music__section">' +
       '<h3 class="phone-music__section-title">最近播放</h3>' +
@@ -16989,14 +17292,7 @@
     const loadingCls =
       phoneForumGenerating || phoneForumSectionGenerating || postGen ? " phone-wechat-gen-btn--loading" : "";
     const disabled = isAnyPhoneAiGenerating();
-    return (
-      '<header class="phone-app__bar phone-app__bar--wechat-list">' +
-      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
-      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
-      "</button>" +
-      '<h2 class="phone-app__title phone-app__title--left">' +
-      escapeHtml(title) +
-      "</h2>" +
+    const genBtn =
       '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
       loadingCls +
       '" ' +
@@ -17009,7 +17305,16 @@
       (disabled ? " disabled" : "") +
       ">" +
       buildPhoneWechatStarIconSvg() +
+      "</button>";
+    return (
+      '<header class="phone-app__bar phone-app__bar--wechat-list">' +
+      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
+      '<h2 class="phone-app__title phone-app__title--left">' +
+      escapeHtml(title) +
+      "</h2>" +
+      genBtn +
       "</header>"
     );
   }
@@ -17084,6 +17389,13 @@
     '<svg class="icon-linear" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
 
   function buildPhoneForumCornerActionsHtml(editAttrs, deleteAttrs) {
+    const deleteBtn = deleteAttrs
+      ? '<button type="button" class="phone-forum-row-corner__btn phone-forum-row-corner__btn--delete"' +
+        deleteAttrs +
+        ' aria-label="删除">' +
+        PHONE_FORUM_CORNER_ICON_DELETE +
+        "</button>"
+      : "";
     return (
       '<div class="phone-forum-row-corner">' +
       '<button type="button" class="phone-forum-row-corner__btn phone-forum-row-corner__btn--edit"' +
@@ -17091,11 +17403,7 @@
       ' aria-label="编辑">' +
       PHONE_FORUM_CORNER_ICON_EDIT +
       "</button>" +
-      '<button type="button" class="phone-forum-row-corner__btn phone-forum-row-corner__btn--delete"' +
-      deleteAttrs +
-      ' aria-label="删除">' +
-      PHONE_FORUM_CORNER_ICON_DELETE +
-      "</button>" +
+      deleteBtn +
       "</div>"
     );
   }
@@ -17176,13 +17484,13 @@
 
   function buildPhoneForumPostRowHtml(post, placeholder, nav) {
     if (placeholder) return buildPhoneForumPostRowInnerHtml(post, true, nav);
-    const id = escapeHtml(String(post.id || ""));
+    const id = String(post.id || "");
     const inner = buildPhoneForumPostRowInnerHtml(post, false, nav);
     return (
       '<div class="phone-forum-post-row-item">' +
       inner +
       buildPhoneForumCornerActionsHtml(
-        ' data-phone-forum-post-text-edit="' + id + '"',
+        ' data-phone-forum-post-text-edit="' + escapeHtml(id) + '"',
         ' data-phone-forum-post-delete="' + id + '"'
       ) +
       "</div>"
@@ -17321,7 +17629,7 @@
     const activeSectionId = getPhoneForumActiveSectionId(nav);
     return (
       '<div class="phone-app phone-forum" aria-label="论坛">' +
-      buildPhoneForumBarHtml() +
+      buildPhoneForumBarHtml({ nav: nav }) +
       buildPhoneForumSectionTabsHtml(activeSectionId) +
       '<div class="phone-forum__scroll">' +
       buildPhoneForumPostListHtml(activeSectionId, nav) +
@@ -17475,7 +17783,6 @@
   function startPhoneForumInlineEdit(slot, editKey) {
     const nav = getPhoneNav(slot);
     nav.forumInlineEdit = String(editKey || "");
-    closePhoneRowSwipe(slot);
     renderPhoneScreen(slot);
   }
 
@@ -17569,7 +17876,6 @@
       return p && p.id === id;
     });
     if (!post) return;
-    closePhoneRowSwipe(slot);
     const ok = await showConfirm("确定删除帖子「" + post.title + "」吗？", "删除帖子");
     if (!ok) return;
     rec.bundle.posts = rec.bundle.posts.filter(function (p) {
@@ -17590,7 +17896,6 @@
     const target = getPhoneForumPostMutable(postId);
     if (!target) return;
     const mid = String(msgId || "").trim();
-    closePhoneRowSwipe(slot);
     const ok = await showConfirm("确定删除该条回复吗？", "删除回复");
     if (!ok) return;
     target.post.thread = (target.post.thread || []).filter(function (m) {
@@ -17606,6 +17911,7 @@
     if (nav.screen !== "forum") return;
     const id = String(sectionId || "").trim();
     if (!findPhoneForumSection(id)) return;
+    resetPhoneListSelect(nav);
     nav.forumSectionId = id;
     renderPhoneScreen(slot);
   }
@@ -18753,6 +19059,14 @@
     const disabled = isAnyPhoneAiGenerating();
     const sec = findPhoneBrowserSection(activeSectionId);
     const secName = sec ? String(sec.name) : "本类";
+    const genBtn =
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      loadingCls +
+      '" data-phone-browser-generate aria-label="AI 生成全部浏览记录" title="AI 生成全部浏览记录"' +
+      (disabled ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>";
     return (
       '<header class="phone-app__bar phone-app__bar--wechat-list phone-browser__bar">' +
       '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
@@ -18774,13 +19088,7 @@
       PHONE_BROWSER_SECTION_GENERATE_COUNT +
       "</button>" +
       "</div>" +
-      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
-      loadingCls +
-      '" data-phone-browser-generate aria-label="AI 生成全部浏览记录" title="AI 生成全部浏览记录"' +
-      (disabled ? " disabled" : "") +
-      ">" +
-      buildPhoneWechatStarIconSvg() +
-      "</button>" +
+      genBtn +
       "</header>"
     );
   }
@@ -18900,13 +19208,13 @@
   function buildPhoneBrowserEntryHtml(entry, nav, placeholder) {
     const inner = buildPhoneBrowserEntryInnerHtml(entry, nav, placeholder);
     if (placeholder) return inner;
-    const id = escapeHtml(String(entry.id || ""));
+    const id = String(entry.id || "");
     return (
       '<div class="phone-browser-entry-item">' +
       inner +
       buildPhoneForumCornerActionsHtml(
-        ' data-phone-browser-entry-edit="' + id + '"',
-        ' data-phone-browser-entry-delete="' + id + '"'
+        ' data-phone-browser-entry-edit="' + escapeHtml(id) + '"',
+        ' data-phone-browser-entry-delete="' + escapeHtml(id) + '"'
       ) +
       "</div>"
     );
@@ -19072,6 +19380,7 @@
     if (nav.screen !== "browser") return;
     const id = String(sectionId || "").trim();
     if (!findPhoneBrowserSection(id)) return;
+    resetPhoneListSelect(nav);
     nav.browserSectionId = id;
     nav.browserExpandedId = null;
     renderPhoneScreen(slot);
@@ -19316,7 +19625,6 @@
     const nav = getPhoneNav(slot);
     nav.browserInlineEdit = "entry:" + String(entryId || "");
     nav.browserExpandedId = String(entryId || "");
-    closePhoneRowSwipe(slot);
     renderPhoneScreen(slot);
   }
 
@@ -19395,7 +19703,6 @@
       return e && e.id === id;
     });
     const label = entry && entry.title ? entry.title : "该条";
-    closePhoneRowSwipe(slot);
     const ok = await showConfirm("确定删除浏览记录「" + label + "」吗？", "删除记录");
     if (!ok) return;
     if (!deletePhoneBrowserEntry(id)) {
@@ -20473,6 +20780,14 @@
     const disabled = isAnyPhoneAiGenerating();
     const sec = findPhoneMemoSection(activeSectionId);
     const secName = sec ? String(sec.name) : "本类";
+    const genBtn =
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      loadingCls +
+      '" data-phone-memo-generate aria-label="AI 生成全部备忘录" title="AI 生成全部备忘录"' +
+      (disabled ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>";
     return (
       '<header class="phone-app__bar phone-app__bar--wechat-list phone-memo__bar">' +
       '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
@@ -20494,13 +20809,7 @@
       PHONE_MEMO_SECTION_GENERATE_COUNT +
       "</button>" +
       "</div>" +
-      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
-      loadingCls +
-      '" data-phone-memo-generate aria-label="AI 生成全部备忘录" title="AI 生成全部备忘录"' +
-      (disabled ? " disabled" : "") +
-      ">" +
-      buildPhoneWechatStarIconSvg() +
-      "</button>" +
+      genBtn +
       "</header>"
     );
   }
@@ -20651,7 +20960,9 @@
     const rows = notes
       .map(function (note) {
         return (
-          '<div class="phone-memo__list-card">' + buildPhoneMemoNoteHtml(note, nav, placeholder) + "</div>"
+          '<div class="phone-memo__list-card">' +
+          buildPhoneMemoNoteHtml(note, nav, placeholder) +
+          "</div>"
         );
       })
       .join("");
@@ -20794,6 +21105,7 @@
     if (nav.screen !== "memo") return;
     const id = String(sectionId || "").trim();
     if (!findPhoneMemoSection(id)) return;
+    resetPhoneListSelect(nav);
     nav.memoSectionId = id;
     nav.memoExpandedId = null;
     renderPhoneScreen(slot);
@@ -21066,7 +21378,6 @@
     const nav = getPhoneNav(slot);
     nav.memoInlineEdit = "note:" + String(noteId || "");
     nav.memoExpandedId = String(noteId || "");
-    closePhoneRowSwipe(slot);
     renderPhoneScreen(slot);
   }
 
@@ -21152,7 +21463,6 @@
       return n && n.id === id;
     });
     const label = note && note.title ? note.title : "该条";
-    closePhoneRowSwipe(slot);
     const ok = await showConfirm("确定删除备忘录「" + label + "」吗？", "删除备忘录");
     if (!ok) return;
     if (!deletePhoneMemoNote(id)) {
@@ -21331,51 +21641,75 @@
     const key = getPhoneWechatStorageKeyForCurrentHolder();
     if (!key || !bundle) return;
     if (Array.isArray(bundle.entries)) {
-      bundle.entries = dedupePhoneDiaryEntriesByDateKey(bundle.entries);
+      bundle.entries = normalizePhoneDiaryEntriesList(bundle.entries);
     }
     phoneDiaryData[key] = bundle;
     schedulePersistNarrative();
   }
 
-  function dedupePhoneDiaryEntriesByDateKey(entries) {
+  function sortPhoneDiaryEntries(entries) {
+    return (entries || []).slice().sort(function (a, b) {
+      const byDate = comparePhoneDateKeys(b.dateKey, a.dateKey);
+      if (byDate !== 0) return byDate;
+      return (b.generatedAt || 0) - (a.generatedAt || 0);
+    });
+  }
+
+  function normalizePhoneDiaryEntriesList(entries) {
     const map = {};
     (entries || []).forEach(function (e) {
       if (!e || !e.dateKey) return;
-      const k = normalizePhoneBrowserDateKey(e.dateKey);
-      if (!k) return;
-      const prev = map[k];
+      const dateKey = normalizePhoneBrowserDateKey(e.dateKey);
+      if (!dateKey) return;
+      const id =
+        String(e.id || "").trim() ||
+        "dr-" + dateKey.replace(/-/g, "") + "-" + String(e.generatedAt || 0);
+      const prev = map[id];
       if (!prev || (e.generatedAt || 0) >= (prev.generatedAt || 0)) {
-        map[k] = Object.assign({}, e, { dateKey: k });
+        map[id] = Object.assign({}, e, { id: id, dateKey: dateKey });
       }
     });
-    return Object.keys(map)
-      .map(function (k) {
-        return map[k];
+    return sortPhoneDiaryEntries(
+      Object.keys(map).map(function (id) {
+        return map[id];
       })
-      .sort(function (a, b) {
-        return String(b.dateKey || "").localeCompare(String(a.dateKey || ""));
-      });
+    );
   }
 
   function getPhoneDiaryEntries() {
     const rec = getPhoneDiaryBundleRecord();
     if (!rec) return [];
-    return dedupePhoneDiaryEntriesByDateKey(rec.entries);
+    return normalizePhoneDiaryEntriesList(rec.entries);
   }
 
-  function getPhoneDiaryEntryByDateKey(dateKey) {
-    const key = String(dateKey || "").trim();
-    if (!key) return null;
-    return (
-      getPhoneDiaryEntries().find(function (e) {
-        return e && e.dateKey === key;
-      }) || null
-    );
+  function getPhoneDiaryLatestEntry() {
+    const entries = getPhoneDiaryEntries();
+    return entries.length ? entries[0] : null;
+  }
+
+  function getPhoneDiaryMinDateKeyForNewEntry() {
+    const latest = getPhoneDiaryLatestEntry();
+    if (!latest || !latest.dateKey) return "";
+    return shiftPhoneDiaryDateKey(latest.dateKey, 1);
+  }
+
+  function clampPhoneDiaryNewEntryDateKey(dateKey, minDateKey) {
+    let k = normalizePhoneBrowserDateKey(dateKey);
+    if (!k) k = minDateKey || getPhoneStoryTodayKey();
+    if (minDateKey && comparePhoneDateKeys(k, minDateKey) < 0) k = minDateKey;
+    return k;
   }
 
   function getPhoneDiaryActiveEntryIndex(nav) {
     const entries = getPhoneDiaryEntries();
     if (!entries.length) return -1;
+    const entryId = String((nav && nav.diaryEntryId) || "").trim();
+    if (entryId) {
+      const byId = entries.findIndex(function (e) {
+        return e && e.id === entryId;
+      });
+      if (byId >= 0) return byId;
+    }
     const dk = String((nav && nav.diaryDateKey) || "").trim();
     if (dk) {
       const byDate = entries.findIndex(function (e) {
@@ -21393,10 +21727,6 @@
     const idx = getPhoneDiaryActiveEntryIndex(nav);
     if (idx < 0 || idx >= entries.length) return null;
     return entries[idx] || null;
-  }
-
-  function getPhoneDiaryGenerateDateKey() {
-    return getPhoneDiaryTodayKey();
   }
 
   function getPhoneDiaryViewDateKey(nav) {
@@ -21429,6 +21759,7 @@
     if (!book) {
       nav.diaryEntryIndex = nextIdx;
       nav.diaryDateKey = entries[nextIdx].dateKey;
+      nav.diaryEntryId = entries[nextIdx].id;
       renderPhoneScreen(slot);
       return;
     }
@@ -21439,6 +21770,7 @@
     setTimeout(function () {
       nav.diaryEntryIndex = nextIdx;
       nav.diaryDateKey = entries[nextIdx].dateKey;
+      nav.diaryEntryId = entries[nextIdx].id;
       renderPhoneScreen(slot);
       phoneDiaryFlipLock = false;
       const newBook = slot.querySelector(".phone-diary__book");
@@ -21546,11 +21878,9 @@
     };
   }
 
-  function upsertPhoneDiaryEntry(bundle, entry) {
+  function appendPhoneDiaryEntry(bundle, entry) {
     if (!bundle || !entry) return;
-    bundle.entries = (bundle.entries || []).filter(function (e) {
-      return e && e.dateKey !== entry.dateKey;
-    });
+    if (!Array.isArray(bundle.entries)) bundle.entries = [];
     bundle.entries.push(entry);
   }
 
@@ -21566,18 +21896,71 @@
     );
   }
 
-  function buildPhoneDiaryPrompt(plot, holder, dateKey) {
+  function buildPhoneDiaryStoryDatePromptBlock(plot) {
+    const todayKey = preparePhoneStoryDateForGeneration(plot);
+    const parts = parsePhoneDateKeyParts(todayKey);
+    const cnLabel =
+      parts && parts.y
+        ? parts.y + "年" + parts.m + "月" + parts.d + "日"
+        : getPhoneDiaryDateLabel(todayKey);
+    const weekday = formatPhoneStoryWeekdayLabel(todayKey);
+    const latest = getPhoneDiaryLatestEntry();
+    const lines = [
+      "【剧情时间参考（查手机统一时间轴）】",
+      "剧情当前锚点 dateKey=" +
+        todayKey +
+        "（" +
+        cnLabel +
+        (weekday ? "，星期" + weekday : "") +
+        "）。",
+      "禁止使用真实世界当前日期；dateKey 须与剧情季节、月份一致。",
+    ];
+    if (latest && latest.dateKey) {
+      lines.push(
+        "已有最新日记 dateKey=" +
+          latest.dateKey +
+          "（" +
+          getPhoneDiaryDateLabel(latest.dateKey) +
+          "）；新篇须严格晚于该日期。"
+      );
+      lines.push(
+        "若剧情已推进到新的一天，新篇 dateKey 可以且应当晚于剧情锚点 " +
+          todayKey +
+          "，以体现时间向前流动。"
+      );
+    }
+    return lines.join("\n");
+  }
+
+  function buildPhoneDiaryPrompt(plot, holder, minDateKey) {
     const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
     const holderName = holder && holder.name ? String(holder.name).trim() : "持有者";
     const entries = getPhoneDiaryEntries();
+    const latest = entries.length ? entries[0] : null;
     const lines = [
-      "请为「查手机·日记」生成手机持有者「" + holderName + "」的一天日记 JSON。",
+      "请为「查手机·日记」生成手机持有者「" + holderName + "」的一篇新日记 JSON。",
       "视角：以设置中选定的手机持有者「" +
         holderName +
         "」为第一人称撰写私人日记，记录当天经历、心绪与碎碎念。",
-      "目标日期 dateKey：" + dateKey + "（" + getPhoneDiaryDateLabel(dateKey) + "）。",
       "",
     ];
+    lines.push(buildPhoneDiaryStoryDatePromptBlock(plot));
+    lines.push("");
+    if (minDateKey) {
+      lines.push(
+        "本篇 dateKey 不得早于 " +
+          minDateKey +
+          "（" +
+          getPhoneDiaryDateLabel(minDateKey) +
+          "）。"
+      );
+      lines.push("");
+    } else if (!latest) {
+      lines.push(
+        "这是该持有者的第一篇日记。请根据剧情季节、时代与时间线选择合适的 dateKey。"
+      );
+      lines.push("");
+    }
     lines.push.apply(lines, ctx.lines);
     lines.push("");
     if (entries.length) {
@@ -21587,13 +21970,16 @@
       });
       lines.push("");
     }
+    const dateHint = minDateKey ? minDateKey : getPhoneStoryTodayKey();
     lines.push(
       "写作要求：\n" +
         "1. 须像真实私人日记：语气自然私密，允许口语、停顿与跳跃。\n" +
         "2. 须贴合持有者人设与当前剧情，禁止 OOC；可提及近期剧情中的人物与事件。\n" +
-        "3. entry.dateKey 必须严格等于目标日期 " +
-        dateKey +
-        "，不得写成其他日期；同一 dateKey 在数据里只保留一篇，重新生成即覆盖该日内容。\n" +
+        "3. entry.dateKey 由你根据剧情时间线填写，格式 YYYY-MM-DD；" +
+        (latest && latest.dateKey
+          ? "须严格晚于已有最新一篇 " + latest.dateKey + "。"
+          : "须与剧情季节/月份一致。") +
+        " 每次生成都会追加新篇，不会覆盖旧日记。\n" +
         "4. weather 用一字或二字天气词（如 晴、阴、雨、雪、风、多云），供界面显示图标；mood 为完整心情词（≤" +
         PHONE_DIARY_MOOD_MAX +
         " 字，如 平静、有点累）；body 为正文，约 " +
@@ -21607,13 +21993,13 @@
         "   - [[check:green]] / [[cross:red]] / [[arrow:blue]]：随手打勾、叉或箭头\n" +
         "   标记码须写在正文里，勿破坏语句可读性；不要每段都加；禁止使用波浪线、划线、荧光笔、圈词等画线类标记。\n" +
         "6. 输出唯一 JSON：{\"entry\":{\"dateKey\":\"" +
-        dateKey +
-        "\",\"weather\":\"...\",\"mood\":\"...\",\"body\":\"...\"}}（title 可省略）"
+        dateHint +
+        "\",\"weather\":\"...\",\"mood\":\"...\",\"body\":\"...\"}}（title 可省略；dateKey 须替换为你选定的剧情日期）"
     );
     return lines.join("\n");
   }
 
-  function buildPhoneDiaryBarHtml(dateKey) {
+  function buildPhoneDiaryBarHtml() {
     const loadingCls = phoneDiaryGenerating ? " phone-wechat-gen-btn--loading" : "";
     const disabled = isAnyPhoneAiGenerating();
     return (
@@ -21626,9 +22012,7 @@
       "</div>" +
       '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
       loadingCls +
-      '" data-phone-diary-generate data-phone-diary-date="' +
-      escapeHtml(String(dateKey || "")) +
-      '" aria-label="AI 生成日记" title="AI 生成日记"' +
+      '" data-phone-diary-generate aria-label="AI 生成新日记" title="AI 生成新日记"' +
       (disabled ? " disabled" : "") +
       ">" +
       buildPhoneWechatStarIconSvg() +
@@ -21683,7 +22067,7 @@
       String(idx) +
       '">' +
       '<button type="button" class="phone-diary__tap-zone phone-diary__tap-zone--older"' +
-      ' data-phone-diary-page-older aria-label="前一日"' +
+      ' data-phone-diary-page-older aria-label="上一篇"' +
       (canOlder ? "" : " disabled") +
       "></button>" +
       '<div class="phone-diary__book-wrap">' +
@@ -21694,7 +22078,7 @@
       "</div>" +
       "</div>" +
       '<button type="button" class="phone-diary__tap-zone phone-diary__tap-zone--newer"' +
-      ' data-phone-diary-page-newer aria-label="后一日"' +
+      ' data-phone-diary-page-newer aria-label="下一篇"' +
       (canNewer ? "" : " disabled") +
       "></button>" +
       "</div>" +
@@ -21706,7 +22090,7 @@
     const nav = getPhoneNav(slot);
     return (
       '<div class="phone-app phone-diary" aria-label="日记">' +
-      buildPhoneDiaryBarHtml(getPhoneDiaryViewDateKey(nav)) +
+      buildPhoneDiaryBarHtml() +
       buildPhoneDiaryBookHtml(nav) +
       "</div>"
     );
@@ -21721,14 +22105,16 @@
     if (entries.length) {
       nav.diaryEntryIndex = 0;
       nav.diaryDateKey = entries[0].dateKey;
+      nav.diaryEntryId = entries[0].id;
     } else {
       nav.diaryEntryIndex = -1;
       nav.diaryDateKey = null;
+      nav.diaryEntryId = null;
     }
     renderPhoneScreen(slot);
   }
 
-  async function generatePhoneDiaryContent(slot, dateKeyOverride) {
+  async function generatePhoneDiaryContent(slot) {
     if (isAnyPhoneAiGenerating()) return;
     sanitizePhoneHolderState();
     const plot = plots.find(function (p) {
@@ -21741,35 +22127,21 @@
     }
     preparePhoneStoryDateForGeneration(plot);
     const nav = getPhoneNav(slot);
-    const dateKey = clampPhoneStoryDateKey(
-      normalizePhoneBrowserDateKey(dateKeyOverride || getPhoneDiaryViewDateKey(nav))
-    );
-    if (dateKey > getPhoneDiaryTodayKey()) {
-      showToast("还不能为未来日期写日记。", "warning");
-      return;
-    }
-    const existingEntry = getPhoneDiaryEntryByDateKey(dateKey);
-    if (existingEntry) {
-      const ok = await showConfirm(
-        getPhoneDiaryDateLabel(dateKey) + " 已有日记，重新生成将覆盖原有内容。是否继续？",
-        "覆盖日记"
-      );
-      if (!ok) return;
-    }
+    const minDateKey = getPhoneDiaryMinDateKeyForNewEntry();
     const rec = getPhoneDiaryBundleMutable();
     if (!rec) return;
     phoneDiaryGenerating = true;
-    nav.diaryDateKey = dateKey;
     if (slot && nav.screen === "diary") renderPhoneScreen(slot);
     try {
-      showToast("正在生成日记…", "info");
+      showToast("正在生成新日记…", "info");
       setGenCallContext(buildGenCallOpts("phone-diary", { slot: slot }));
       const systemPrompt =
         "你是中文互动叙事助手。根据剧情与人设，以手机持有者的第一人称撰写私人日记 JSON。\n" +
         "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
         '格式：{"entry":{"dateKey":"YYYY-MM-DD","weather":"晴","mood":"平静","body":"..."}}\n' +
+        "dateKey 须符合剧情季节与时间线；若已有更早的日记，新篇 dateKey 须严格晚于最新一篇。\n" +
         "body 中可穿插少量手账标记码（如 [[note:gray:碎碎念]]、[[star:gold]]、[[heart:pink]]），模拟真实日记里的括号旁注与小符号，1～4 处即可，须自然稀疏；不要使用画线、波浪线、荧光笔、圈词类标记。";
-      const userPrompt = buildPhoneDiaryPrompt(plot, holder, dateKey);
+      const userPrompt = buildPhoneDiaryPrompt(plot, holder, minDateKey);
       const raw = await callChatCompletion(
         [
           { role: "system", content: systemPrompt },
@@ -21785,19 +22157,22 @@
           return e.id;
         })
       );
+      const dateKey = clampPhoneDiaryNewEntryDateKey(
+        item && (item.dateKey || item.date),
+        minDateKey
+      );
       const entry = normalizePhoneDiaryEntryItem(item, dateKey, 0, seenIds);
       if (!entry) throw new Error("未能解析有效的日记内容");
       entry.dateKey = dateKey;
-      upsertPhoneDiaryEntry(rec.bundle, entry);
+      entry.generatedAt = Date.now();
+      appendPhoneDiaryEntry(rec.bundle, entry);
       persistPhoneDiaryBundle(rec.bundle);
-      const sortedEntries = getPhoneDiaryEntries();
-      const newIdx = sortedEntries.findIndex(function (e) {
-        return e && e.dateKey === entry.dateKey;
-      });
-      nav.diaryEntryIndex = newIdx >= 0 ? newIdx : 0;
+      nav.diaryEntryIndex = 0;
       nav.diaryDateKey = entry.dateKey;
+      nav.diaryEntryId = entry.id;
       finalizePhoneStoryDateAfterGeneration(plot);
       if (slot) renderPhoneScreen(slot);
+      showToast("新日记已生成", "success");
     } catch (err) {
       console.error(err);
       showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
@@ -22330,6 +22705,14 @@
   function buildPhoneBillBarHtml() {
     const loadingCls = phoneBillGenerating ? " phone-wechat-gen-btn--loading" : "";
     const disabled = isAnyPhoneAiGenerating();
+    const genBtn =
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      loadingCls +
+      '" data-phone-bill-generate aria-label="AI 生成账单" title="AI 生成账单"' +
+      (disabled ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>";
     return (
       '<header class="phone-app__bar phone-app__bar--wechat-list phone-bill__bar">' +
       '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
@@ -22338,13 +22721,7 @@
       '<div class="phone-bill__title-wrap">' +
       '<h2 class="phone-app__title phone-app__title--left">账单</h2>' +
       "</div>" +
-      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
-      loadingCls +
-      '" data-phone-bill-generate aria-label="AI 生成账单" title="AI 生成账单"' +
-      (disabled ? " disabled" : "") +
-      ">" +
-      buildPhoneWechatStarIconSvg() +
-      "</button>" +
+      genBtn +
       "</header>"
     );
   }
@@ -22876,12 +23253,6 @@
       : "";
     const chapterPart = hl.chapter ? escapeHtml(String(hl.chapter)) + " · " : "";
     const dateLabel = getPhoneBrowserDateGroupLabel(hl.dateKey);
-    const deleteBtn = buildPhoneCardDeleteBtnHtml(
-      "phone-weread__hl-delete",
-      "data-phone-weread-delete-hl",
-      itemKey,
-      "删除该条摘录"
-    );
     return (
       '<article class="phone-weread__hl" data-phone-weread-hl="' +
       escapeHtml(String(hl.id || "")) +
@@ -22904,7 +23275,7 @@
       chapterPart +
       escapeHtml(String(dateLabel)) +
       "</p>" +
-      deleteBtn +
+      buildPhoneCardDeleteBtnHtml("phone-weread__hl-delete", "data-phone-weread-delete-hl", itemKey, "删除摘录") +
       "</div>" +
       "</article>"
     );
@@ -22914,6 +23285,14 @@
     const loadingCls = phoneWereadGenerating ? " phone-wechat-gen-btn--loading" : "";
     const disabled = isAnyPhoneAiGenerating();
     const title = String(titleText || "微信读书").trim() || "微信读书";
+    const genBtn =
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      loadingCls +
+      '" data-phone-weread-generate aria-label="AI 生成阅读记录" title="AI 生成阅读记录"' +
+      (disabled ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>";
     return (
       '<header class="phone-app__bar phone-app__bar--wechat-list phone-weread__bar">' +
       '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
@@ -22924,13 +23303,7 @@
       escapeHtml(title) +
       "</h2>" +
       "</div>" +
-      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
-      loadingCls +
-      '" data-phone-weread-generate aria-label="AI 生成阅读记录" title="AI 生成阅读记录"' +
-      (disabled ? " disabled" : "") +
-      ">" +
-      buildPhoneWechatStarIconSvg() +
-      "</button>" +
+      genBtn +
       "</header>"
     );
   }
@@ -25202,7 +25575,7 @@
     return (
       '<div class="phone-app phone-jjwxc" aria-label="晋江文学城">' +
       '<div class="phone-jjwxc__top">' +
-      buildPhoneJjwxcBarHtml("晋江文学城") +
+      buildPhoneJjwxcBarHtml("晋江文学城", "data-phone-jjwxc-generate") +
       buildPhoneJjwxcBottomNavHtml(tab) +
       "</div>" +
       '<div class="phone-jjwxc__scroll">' +
@@ -25684,6 +26057,7 @@
 
   function switchPhoneJjwxcTab(slot, tabId) {
     const nav = getPhoneNav(slot);
+    resetPhoneListSelect(nav);
     nav.jjwxcTab = String(tabId || "store");
     nav.screen = "jjwxc";
     nav.jjwxcNovelId = null;
@@ -25697,6 +26071,7 @@
     if (nav.screen !== "jjwxc") return;
     const id = String(categoryId || "").trim();
     if (!findPhoneJjwxcCategory(id)) return;
+    resetPhoneListSelect(nav);
     nav.jjwxcCategoryId = id;
     renderPhoneScreen(slot);
   }
@@ -25786,11 +26161,61 @@
   const FANWORK_JJWXC_CATALOG_AUTHOR_NOTE_MAX = 72;
   const FANWORK_JJWXC_MIN_CHAPTERS = 1;
   const FANWORK_JJWXC_APPEND_HINT_MAX = 240;
+  const FANWORK_JJWXC_SYNOPSIS_MAX = 3200;
+  const FANWORK_JJWXC_DETAIL_AUTHOR_NOTE_MAX = 600;
+  const FANWORK_JJWXC_CHAPTER_CONTENT_MAX = 50000;
+  const FANWORK_JJWXC_TARGET_CHAPTER_CHARS = 4500;
+  const FANWORK_JJWXC_MIN_CHAPTER_CHARS = 1800;
+  const FANWORK_JJWXC_COMPLETE_TEXT_RULE =
+    "正文与简介须写完整句子并自然收束，禁止用省略号（…或...）截断半成品，禁止未完成句戛然而止。";
   const FANWORK_JJWXC_AUTHOR_WORDS_LABEL = "✍️ 作者的话";
   const FANWORK_JJWXC_AUTHOR_WORDS_PROMPT =
     "readerThought 为本章「作者的话」：以作者/太太口吻写 2～4 句写文时的想法（如灵感来源、卡文心路、对这章 CP 的期待、埋的彩蛋等），第一人称，语气像在章节末尾跟读者唠嗑，≤" +
     PHONE_JJWXC_READER_THOUGHT_MAX +
     " 字；不要写成读者嗑 CP 的反应";
+
+  function capFanworkJjwxcStorageText(text, maxChars) {
+    return capPhoneForumChars(text, maxChars);
+  }
+
+  function fanworkJjwxcTextCharCount(text) {
+    return Array.from(String(text || "")).length;
+  }
+
+  function normalizeFanworkJjwxcChapterItem(item, idx, seenIds) {
+    if (!item || typeof item !== "object") return null;
+    let id = String(item.id || "").trim() || "ch-" + String((idx || 0) + 1);
+    while (seenIds && seenIds.has(id)) id = id + "-d";
+    if (seenIds) seenIds.add(id);
+    const title = truncateCharsWithEllipsis(String(item.title || item.name || "").trim(), PHONE_JJWXC_CHAPTER_TITLE_MAX);
+    if (!title) return null;
+    let wordCount = Number(item.wordCount || item.words);
+    if (!Number.isFinite(wordCount) || wordCount < 0) wordCount = 0;
+    const content = capFanworkJjwxcStorageText(
+      normalizePhoneJjwxcChapterParagraphs(String(item.content || item.text || "").trim()),
+      FANWORK_JJWXC_CHAPTER_CONTENT_MAX
+    );
+    const readerThought = truncateCharsWithEllipsis(
+      String(
+        item.readerThought || item.authorWords || item.authorNote || item.thought || item.innerVoice || ""
+      ).trim(),
+      PHONE_JJWXC_READER_THOUGHT_MAX
+    );
+    const blurb = truncateCharsWithEllipsis(
+      String(item.blurb || item.synopsis || item.summary || item.hook || "").trim(),
+      PHONE_JJWXC_CHAPTER_BLURB_MAX
+    );
+    const previewReady = !!(blurb && readerThought);
+    return {
+      id: id,
+      title: title,
+      wordCount: Math.round(wordCount),
+      content: content,
+      blurb: blurb,
+      readerThought: readerThought,
+      previewReady: previewReady,
+    };
+  }
 
   function buildFanworkJjwxcAuthorWordsAsideHtml(text) {
     const body = String(text || "").trim();
@@ -25843,8 +26268,8 @@
     return sups[0];
   }
 
-  function getFanworkCpPair() {
-    const plot = getFanworkSelectedPlot();
+  function getFanworkCpPairForPlot(plotId) {
+    const plot = plotId ? getFanworkPlotById(plotId) : null;
     if (!plot) return null;
     const protagId = String(plot.protagonistId || "").trim();
     const charA = getCharById(protagId);
@@ -25859,6 +26284,10 @@
       charB: charB,
       ids: [protagId, partnerId],
     };
+  }
+
+  function getFanworkCpPair() {
+    return getFanworkCpPairForPlot(fanworkPlotId);
   }
 
   function getFanworkCpLabel(pair) {
@@ -26008,8 +26437,8 @@
     return { key: key, bundle: bundle };
   }
 
-  function persistFanworkJjwxcBundle(bundle, immediate) {
-    const key = getFanworkPlotStorageKey();
+  function persistFanworkJjwxcBundle(bundle, immediate, plotKey) {
+    const key = plotKey ? String(plotKey).trim() : getFanworkPlotStorageKey();
     if (!key || !bundle) return;
     fanworkJjwxcData[key] = bundle;
     if (immediate) flushPersistNarrative();
@@ -26024,6 +26453,26 @@
   function hasFanworkJjwxcGenerated() {
     const rec = getFanworkJjwxcBundleRecord();
     return !!(rec && rec.novels && rec.novels.length);
+  }
+
+  function hasAnyFanworkJjwxcGenerated() {
+    return Object.keys(fanworkJjwxcData).some(function (plotKey) {
+      const rec = fanworkJjwxcData[plotKey];
+      return !!(rec && rec.novels && rec.novels.length);
+    });
+  }
+
+  /** 跨剧情汇总：追更/收藏列表展示全部 CP 下标记过的作品 */
+  function collectFanworkJjwxcUserNovels(filterFn) {
+    const list = [];
+    Object.keys(fanworkJjwxcData).forEach(function (plotKey) {
+      const rec = fanworkJjwxcData[plotKey];
+      if (!rec || !Array.isArray(rec.novels)) return;
+      rec.novels.forEach(function (n) {
+        if (n && filterFn(n)) list.push({ novel: n, plotKey: plotKey });
+      });
+    });
+    return list;
   }
 
   function requireFanworkPlotForEdit() {
@@ -26087,6 +26536,20 @@
         String(n.authorNote || n.authorWords || "").trim(),
         FANWORK_JJWXC_CATALOG_AUTHOR_NOTE_MAX
       );
+      if (n.synopsis) {
+        n.synopsis = capFanworkJjwxcStorageText(String(n.synopsis).trim(), FANWORK_JJWXC_SYNOPSIS_MAX);
+      }
+      if (Array.isArray(n.chapters)) {
+        n.chapters = n.chapters.map(function (ch, ci) {
+          if (!ch || typeof ch !== "object") return ch;
+          const normalized = normalizeFanworkJjwxcChapterItem(ch, ci, null);
+          if (!normalized) return ch;
+          return Object.assign({}, ch, {
+            content: normalized.content,
+            readerThought: normalized.readerThought || ch.readerThought,
+          });
+        });
+      }
       return n;
     });
     return bundle;
@@ -26136,7 +26599,7 @@
     const chSeen = new Set();
     const chapters = [];
     chIn.forEach(function (ch, ci) {
-      const c = normalizePhoneJjwxcChapterItem(ch, ci, chSeen);
+      const c = normalizeFanworkJjwxcChapterItem(ch, ci, chSeen);
       if (c) chapters.push(c);
     });
     let readProgress = Number(item.readProgress != null ? item.readProgress : item.progress);
@@ -26153,8 +26616,11 @@
       wordCountLabel: wordCountLabel,
       collectCount: Math.round(collectCount),
       coverHue: Math.max(0, Math.min(359, Math.round(coverHue))),
-      synopsis: truncateCharsWithEllipsis(String(item.synopsis || "").trim(), PHONE_JJWXC_SYNOPSIS_MAX),
-      authorNote: truncateCharsWithEllipsis(String(item.authorNote || item.authorWords || "").trim(), 200),
+      synopsis: capFanworkJjwxcStorageText(String(item.synopsis || "").trim(), FANWORK_JJWXC_SYNOPSIS_MAX),
+      authorNote: capFanworkJjwxcStorageText(
+        String(item.authorNote || item.authorWords || "").trim(),
+        FANWORK_JJWXC_DETAIL_AUTHOR_NOTE_MAX
+      ),
       chapters: chapters,
       onShelf: !!item.onShelf,
       isFavorite: !!(item.isFavorite || item.favorite),
@@ -26333,8 +26799,8 @@
     };
   }
 
-  function markFanworkJjwxcNovelReadProgress(novelId, chapterId) {
-    const target = getFanworkJjwxcNovelMutable(novelId);
+  function markFanworkJjwxcNovelReadProgress(novelId, chapterId, plotKeyHint) {
+    const target = getFanworkJjwxcNovelMutable(novelId, plotKeyHint);
     if (!target) return;
     const novel = target.novel;
     const chapters = novel.chapters || [];
@@ -26348,51 +26814,56 @@
     const nextProgress = Math.round(((idx + 1) / total) * 100);
     if ((novel.readProgress || 0) < nextProgress) novel.readProgress = nextProgress;
     novel.lastReadKey = normalizePhoneBrowserDateKey(new Date().toISOString().slice(0, 10));
-    persistFanworkJjwxcBundle(target.bundle);
+    persistFanworkJjwxcBundle(target.bundle, false, target.plotKey);
   }
 
-  function toggleFanworkJjwxcNovelShelf(slot, novelId) {
-    const target = getFanworkJjwxcNovelMutable(novelId);
+  function toggleFanworkJjwxcNovelShelf(slot, novelId, plotKeyHint) {
+    const target = getFanworkJjwxcNovelMutable(novelId, plotKeyHint);
     if (!target) return;
     target.novel.onShelf = !target.novel.onShelf;
     target.novel.userShelf = !!target.novel.onShelf;
-    persistFanworkJjwxcBundle(target.bundle);
+    persistFanworkJjwxcBundle(target.bundle, false, target.plotKey);
     showToast(target.novel.onShelf ? "已加入在追" : "已取消在追", "success");
     renderFanworkScreen(slot);
   }
 
-  function toggleFanworkJjwxcNovelFavorite(slot, novelId) {
-    const target = getFanworkJjwxcNovelMutable(novelId);
+  function toggleFanworkJjwxcNovelFavorite(slot, novelId, plotKeyHint) {
+    const target = getFanworkJjwxcNovelMutable(novelId, plotKeyHint);
     if (!target) return;
     target.novel.isFavorite = !target.novel.isFavorite;
     target.novel.userFav = !!target.novel.isFavorite;
-    persistFanworkJjwxcBundle(target.bundle);
+    persistFanworkJjwxcBundle(target.bundle, false, target.plotKey);
     showToast(target.novel.isFavorite ? "已收藏" : "已取消收藏", "success");
     renderFanworkScreen(slot);
   }
 
-  function findFanworkJjwxcNovel(novelId) {
-    const key = getFanworkCpStorageKey();
-    if (!key) return null;
-    const rec = fanworkJjwxcData[key];
+  function findFanworkJjwxcNovel(novelId, plotKeyHint) {
     const id = String(novelId || "").trim();
-    if (!rec || !id) return null;
-    const novel = (rec.novels || []).find(function (n) {
-      return n && n.id === id;
+    if (!id) return null;
+    const keys = [];
+    const hint = String(plotKeyHint || "").trim();
+    if (hint) keys.push(hint);
+    const curKey = getFanworkCpStorageKey();
+    if (curKey && keys.indexOf(curKey) < 0) keys.push(curKey);
+    Object.keys(fanworkJjwxcData).forEach(function (k) {
+      if (keys.indexOf(k) < 0) keys.push(k);
     });
-    return novel ? { novel: novel, bundle: rec } : null;
+    for (let i = 0; i < keys.length; i++) {
+      const rec = fanworkJjwxcData[keys[i]];
+      if (!rec) continue;
+      const novel = (rec.novels || []).find(function (n) {
+        return n && n.id === id;
+      });
+      if (novel) return { novel: novel, bundle: rec, plotKey: keys[i] };
+    }
+    return null;
   }
 
-  function getFanworkJjwxcNovelMutable(novelId) {
-    const rec = getFanworkJjwxcBundleMutable();
-    if (!rec) return null;
-    const id = String(novelId || "").trim();
-    const novel = (rec.bundle.novels || []).find(function (n) {
-      return n && n.id === id;
-    });
-    if (!novel) return null;
-    if (!Array.isArray(novel.chapters)) novel.chapters = [];
-    return { bundle: rec.bundle, novel: novel };
+  function getFanworkJjwxcNovelMutable(novelId, plotKeyHint) {
+    const hit = findFanworkJjwxcNovel(novelId, plotKeyHint);
+    if (!hit) return null;
+    if (!Array.isArray(hit.novel.chapters)) hit.novel.chapters = [];
+    return { bundle: hit.bundle, novel: hit.novel, plotKey: hit.plotKey };
   }
 
   function fanworkJjwxcNovelHasDetail(novel) {
@@ -26407,12 +26878,12 @@
   function applyFanworkJjwxcNovelDetail(novel, parsed) {
     if (!novel || !parsed) return;
     if (parsed.synopsis) {
-      novel.synopsis = truncateCharsWithEllipsis(String(parsed.synopsis).trim(), PHONE_JJWXC_SYNOPSIS_MAX);
+      novel.synopsis = capFanworkJjwxcStorageText(String(parsed.synopsis).trim(), FANWORK_JJWXC_SYNOPSIS_MAX);
     }
     if (parsed.authorNote) {
-      novel.authorNote = truncateCharsWithEllipsis(
+      novel.authorNote = capFanworkJjwxcStorageText(
         String(parsed.authorNote).trim(),
-        FANWORK_JJWXC_CATALOG_AUTHOR_NOTE_MAX
+        FANWORK_JJWXC_DETAIL_AUTHOR_NOTE_MAX
       );
     }
     const chIn = Array.isArray(parsed.chapters) ? parsed.chapters : [];
@@ -26420,7 +26891,7 @@
     const seen = new Set();
     chIn.forEach(function (item, idx) {
       if (novel.chapters.length >= FANWORK_JJWXC_MIN_CHAPTERS) return;
-      const ch = normalizePhoneJjwxcChapterItem(item, idx, seen);
+      const ch = normalizeFanworkJjwxcChapterItem(item, idx, seen);
       if (ch) novel.chapters.push(ch);
     });
     if (!fanworkJjwxcNovelHasDetail(novel)) {
@@ -26429,20 +26900,24 @@
     novel.detailReady = true;
   }
 
-  function applyFanworkJjwxcChapterContent(novelId, chapterId, parsed) {
-    const target = getFanworkJjwxcNovelMutable(novelId);
+  function applyFanworkJjwxcChapterContent(novelId, chapterId, parsed, plotKeyHint) {
+    const target = getFanworkJjwxcNovelMutable(novelId, plotKeyHint);
     if (!target) throw new Error("作品不存在");
     const chapter = (target.novel.chapters || []).find(function (c) {
       return c && c.id === chapterId;
     });
     if (!chapter) throw new Error("章节不存在");
-    const content = truncateCharsWithEllipsis(
+    const content = capFanworkJjwxcStorageText(
       normalizePhoneJjwxcChapterParagraphs(String(parsed.content || parsed.text || "").trim()),
-      PHONE_JJWXC_CHAPTER_CONTENT_MAX
+      FANWORK_JJWXC_CHAPTER_CONTENT_MAX
     );
-    if (content.length < PHONE_JJWXC_MIN_CHAPTER_CHARS) {
+    if (fanworkJjwxcTextCharCount(content) < FANWORK_JJWXC_MIN_CHAPTER_CHARS) {
       throw new Error(
-        "章节正文不足 " + PHONE_JJWXC_MIN_CHAPTER_CHARS + " 字（目标约 " + PHONE_JJWXC_TARGET_CHAPTER_CHARS + " 字）"
+        "章节正文不足 " +
+          FANWORK_JJWXC_MIN_CHAPTER_CHARS +
+          " 字（目标约 " +
+          FANWORK_JJWXC_TARGET_CHAPTER_CHARS +
+          " 字）"
       );
     }
     chapter.content = content;
@@ -26473,15 +26948,19 @@
         return c.id;
       })
     );
-    const ch = normalizePhoneJjwxcChapterItem(raw, (novel.chapters || []).length, seen);
+    const ch = normalizeFanworkJjwxcChapterItem(raw, (novel.chapters || []).length, seen);
     if (!ch) throw new Error("章节数据无效");
     const content = normalizePhoneJjwxcChapterParagraphs(ch.content);
-    if (content.length < PHONE_JJWXC_MIN_CHAPTER_CHARS) {
+    if (fanworkJjwxcTextCharCount(content) < FANWORK_JJWXC_MIN_CHAPTER_CHARS) {
       throw new Error(
-        "章节正文不足 " + PHONE_JJWXC_MIN_CHAPTER_CHARS + " 字（目标约 " + PHONE_JJWXC_TARGET_CHAPTER_CHARS + " 字）"
+        "章节正文不足 " +
+          FANWORK_JJWXC_MIN_CHAPTER_CHARS +
+          " 字（目标约 " +
+          FANWORK_JJWXC_TARGET_CHAPTER_CHARS +
+          " 字）"
       );
     }
-    ch.content = truncateCharsWithEllipsis(content, PHONE_JJWXC_CHAPTER_CONTENT_MAX);
+    ch.content = capFanworkJjwxcStorageText(content, FANWORK_JJWXC_CHAPTER_CONTENT_MAX);
     ch.contentReady = true;
     ch.generatedAt = Date.now();
     if (!ch.wordCount) ch.wordCount = Math.round(ch.content.replace(/\s/g, "").length);
@@ -26811,9 +27290,8 @@
       "输出 JSON：{\"synopsis\":\"完整简介\",\"authorNote\":\"作者有话说\",\"chapters\":[{\"id\":\"ch-1\",\"title\":\"第1章 …\",\"wordCount\":0}]}" +
         "；chapters 数组长度必须为 " +
         FANWORK_JJWXC_MIN_CHAPTERS +
-        "（仅第 1 章）；synopsis≤" +
-        PHONE_JJWXC_SYNOPSIS_MAX +
-        "字；须写 CP 互动与情感推进。"
+        "（仅第 1 章）；synopsis 写完整 CP 互动与情感推进，不少于 200 字；" +
+        FANWORK_JJWXC_COMPLETE_TEXT_RULE
     );
     return lines.join("\n");
   }
@@ -26864,10 +27342,12 @@
         (nextIndex + 1) +
         "章 …\",\"content\":\"正文\",\"readerThought\":\"作者的话\",\"wordCount\":0}}\n" +
         "仅生成 1 章；正文约 " +
-        PHONE_JJWXC_TARGET_CHAPTER_CHARS +
+        FANWORK_JJWXC_TARGET_CHAPTER_CHARS +
         " 字（不少于 " +
-        PHONE_JJWXC_MIN_CHAPTER_CHARS +
-        " 字）；段间用\\n\\n分隔；写对话、心理与 CP 张力；禁止 markdown。\n" +
+        FANWORK_JJWXC_MIN_CHAPTER_CHARS +
+        " 字）；段间用\\n\\n分隔；写对话、心理与 CP 张力；禁止 markdown；" +
+        FANWORK_JJWXC_COMPLETE_TEXT_RULE +
+        "\n" +
         FANWORK_JJWXC_AUTHOR_WORDS_PROMPT
     );
     return lines.join("\n");
@@ -26911,10 +27391,12 @@
     lines.push(
       "输出 JSON：{\"content\":\"章节正文\",\"readerThought\":\"作者的话\",\"wordCount\":0}\n" +
         "正文约 " +
-        PHONE_JJWXC_TARGET_CHAPTER_CHARS +
+        FANWORK_JJWXC_TARGET_CHAPTER_CHARS +
         " 字（不少于 " +
-        PHONE_JJWXC_MIN_CHAPTER_CHARS +
+        FANWORK_JJWXC_MIN_CHAPTER_CHARS +
         " 字）；段间用\\n\\n分隔；写对话、心理与 CP 张力；禁止 markdown；禁止改变章节 id 与 title。\n" +
+        FANWORK_JJWXC_COMPLETE_TEXT_RULE +
+        "\n" +
         FANWORK_JJWXC_AUTHOR_WORDS_PROMPT
     );
     return lines.join("\n");
@@ -26945,10 +27427,12 @@
     lines.push(
       "输出 JSON：{\"content\":\"章节正文\",\"readerThought\":\"作者的话\",\"wordCount\":0}\n" +
         "正文约 " +
-        PHONE_JJWXC_TARGET_CHAPTER_CHARS +
+        FANWORK_JJWXC_TARGET_CHAPTER_CHARS +
         " 字（不少于 " +
-        PHONE_JJWXC_MIN_CHAPTER_CHARS +
+        FANWORK_JJWXC_MIN_CHAPTER_CHARS +
         " 字）；段间用\\n\\n分隔；写对话、心理与 CP 张力；禁止 markdown。\n" +
+        FANWORK_JJWXC_COMPLETE_TEXT_RULE +
+        "\n" +
         FANWORK_JJWXC_AUTHOR_WORDS_PROMPT
     );
     return lines.join("\n");
@@ -27092,9 +27576,11 @@
 
   async function generateFanworkJjwxcNovelContent(slot, novelId) {
     if (isAnyPhoneAiGenerating()) return;
-    const hit = findFanworkJjwxcNovel(novelId);
+    const nav = slot ? getFanworkNav(slot) : null;
+    const plotKeyHint = nav ? nav.jjwxcNovelPlotKey : null;
+    const hit = findFanworkJjwxcNovel(novelId, plotKeyHint);
     if (!hit) return;
-    const pair = getFanworkCpPair();
+    const pair = getFanworkCpPairForPlot(hit.plotKey);
     if (!pair) return;
     fanworkJjwxcNovelGeneratingId = String(novelId);
     if (slot) renderFanworkScreen(slot);
@@ -27104,7 +27590,8 @@
       const systemPrompt =
         "你是中文同人向叙事助手。生成 CP 同人文详情 JSON。\n" +
         "只输出 JSON：{\"synopsis\":\"...\",\"authorNote\":\"...\",\"chapters\":[{\"id\":\"ch-1\",\"title\":\"...\",\"wordCount\":0}]}\n" +
-        "chapters 数组长度必须为 1。";
+        "chapters 数组长度必须为 1。\n" +
+        FANWORK_JJWXC_COMPLETE_TEXT_RULE;
       const userPrompt = buildFanworkJjwxcNovelPrompt(pair, hit.novel);
       const raw = await callChatCompletion(
         [
@@ -27112,13 +27599,13 @@
           { role: "user", content: userPrompt },
         ],
         0.76,
-        8192
+        12288
       );
       const parsed = parseAssistantJsonObject(raw);
-      const target = getFanworkJjwxcNovelMutable(novelId);
+      const target = getFanworkJjwxcNovelMutable(novelId, plotKeyHint);
       if (!target) throw new Error("作品不存在");
       applyFanworkJjwxcNovelDetail(target.novel, parsed);
-      persistFanworkJjwxcBundle(target.bundle, true);
+      persistFanworkJjwxcBundle(target.bundle, true, target.plotKey);
       if (slot) renderFanworkScreen(slot);
     } catch (err) {
       console.error(err);
@@ -27132,9 +27619,11 @@
 
   async function generateFanworkJjwxcAppendChapter(slot, novelId, userHint) {
     if (isAnyPhoneAiGenerating()) return;
-    const hit = findFanworkJjwxcNovel(novelId);
+    const nav = slot ? getFanworkNav(slot) : null;
+    const plotKeyHint = nav ? nav.jjwxcNovelPlotKey : null;
+    const hit = findFanworkJjwxcNovel(novelId, plotKeyHint);
     if (!hit || !fanworkJjwxcNovelHasDetail(hit.novel)) return;
-    const pair = getFanworkCpPair();
+    const pair = getFanworkCpPairForPlot(hit.plotKey);
     if (!pair) return;
     fanworkJjwxcNovelGeneratingId = String(novelId);
     if (slot) renderFanworkScreen(slot);
@@ -27144,9 +27633,11 @@
       const systemPrompt =
         "你是中文同人向叙事助手。为 CP 同人文追加下一章，输出含标题与正文的 JSON。\n" +
         "正文约" +
-        PHONE_JJWXC_TARGET_CHAPTER_CHARS +
+        FANWORK_JJWXC_TARGET_CHAPTER_CHARS +
         "字，段间用\\n\\n分隔；须紧接上一章剧情续写。\n" +
         "只输出 JSON：{\"chapter\":{\"id\":\"...\",\"title\":\"...\",\"content\":\"...\",\"readerThought\":\"作者的话\",\"wordCount\":0}}\n" +
+        FANWORK_JJWXC_COMPLETE_TEXT_RULE +
+        "\n" +
         FANWORK_JJWXC_AUTHOR_WORDS_PROMPT;
       const userPrompt = buildFanworkJjwxcAppendChapterPrompt(pair, hit.novel, userHint);
       const raw = await callChatCompletion(
@@ -27158,10 +27649,10 @@
         16384
       );
       const parsed = parseAssistantJsonObject(raw);
-      const target = getFanworkJjwxcNovelMutable(novelId);
+      const target = getFanworkJjwxcNovelMutable(novelId, plotKeyHint);
       if (!target) throw new Error("作品不存在");
       applyFanworkJjwxcAppendChapter(target.novel, parsed);
-      persistFanworkJjwxcBundle(target.bundle, true);
+      persistFanworkJjwxcBundle(target.bundle, true, target.plotKey);
       if (slot) renderFanworkScreen(slot);
     } catch (err) {
       console.error(err);
@@ -27186,12 +27677,14 @@
 
   async function generateFanworkJjwxcRegenerateLatestChapter(slot, novelId, userHint) {
     if (isAnyPhoneAiGenerating()) return;
-    const hit = findFanworkJjwxcNovel(novelId);
+    const nav = slot ? getFanworkNav(slot) : null;
+    const plotKeyHint = nav ? nav.jjwxcNovelPlotKey : null;
+    const hit = findFanworkJjwxcNovel(novelId, plotKeyHint);
     if (!hit || !fanworkJjwxcNovelHasDetail(hit.novel)) return;
     const chapters = hit.novel.chapters || [];
     const chapter = chapters.length ? chapters[chapters.length - 1] : null;
     if (!chapter || !phoneJjwxcChapterHasContent(chapter)) return;
-    const pair = getFanworkCpPair();
+    const pair = getFanworkCpPairForPlot(hit.plotKey);
     if (!pair) return;
     const chapterId = String(chapter.id || "").trim();
     const chapterIndex = chapters.length - 1;
@@ -27205,9 +27698,11 @@
       const systemPrompt =
         "你是中文同人向叙事助手。重写 CP 同人文章节 JSON，覆盖最新章原稿。\n" +
         "正文约" +
-        PHONE_JJWXC_TARGET_CHAPTER_CHARS +
+        FANWORK_JJWXC_TARGET_CHAPTER_CHARS +
         "字，段间用\\n\\n分隔；须与上一章剧情衔接；不得改变章节 id 与 title。\n" +
         "只输出 JSON：{\"content\":\"正文\",\"readerThought\":\"作者的话\",\"wordCount\":0}\n" +
+        FANWORK_JJWXC_COMPLETE_TEXT_RULE +
+        "\n" +
         FANWORK_JJWXC_AUTHOR_WORDS_PROMPT;
       const userPrompt = buildFanworkJjwxcRegenerateChapterPrompt(
         pair,
@@ -27226,9 +27721,9 @@
         16384
       );
       const parsed = parseAssistantJsonObject(raw);
-      applyFanworkJjwxcChapterContent(novelId, chapterId, parsed);
-      const target = getFanworkJjwxcNovelMutable(novelId);
-      if (target) persistFanworkJjwxcBundle(target.bundle, true);
+      applyFanworkJjwxcChapterContent(novelId, chapterId, parsed, plotKeyHint);
+      const target = getFanworkJjwxcNovelMutable(novelId, plotKeyHint);
+      if (target) persistFanworkJjwxcBundle(target.bundle, true, target.plotKey);
       if (slot) renderFanworkScreen(slot);
     } catch (err) {
       console.error(err);
@@ -27253,13 +27748,15 @@
 
   async function generateFanworkJjwxcChapterContent(slot, novelId, chapterId) {
     if (isAnyPhoneAiGenerating()) return;
-    const hit = findFanworkJjwxcNovel(novelId);
+    const nav = slot ? getFanworkNav(slot) : null;
+    const plotKeyHint = nav ? nav.jjwxcNovelPlotKey : null;
+    const hit = findFanworkJjwxcNovel(novelId, plotKeyHint);
     if (!hit) return;
     const chapter = (hit.novel.chapters || []).find(function (c) {
       return c && c.id === chapterId;
     });
     if (!chapter) return;
-    const pair = getFanworkCpPair();
+    const pair = getFanworkCpPairForPlot(hit.plotKey);
     if (!pair) return;
     fanworkJjwxcChapterGeneratingId = novelId + "\u001f" + chapterId;
     if (slot) renderFanworkScreen(slot);
@@ -27273,9 +27770,11 @@
       const systemPrompt =
         "你是中文同人向叙事助手。生成 CP 同人文章节 JSON。\n" +
         "正文约" +
-        PHONE_JJWXC_TARGET_CHAPTER_CHARS +
+        FANWORK_JJWXC_TARGET_CHAPTER_CHARS +
         "字，段间用\\n\\n分隔；非首章须紧接上一章剧情续写。\n" +
         "只输出 JSON：{\"content\":\"正文\",\"readerThought\":\"作者的话\",\"wordCount\":0}\n" +
+        FANWORK_JJWXC_COMPLETE_TEXT_RULE +
+        "\n" +
         FANWORK_JJWXC_AUTHOR_WORDS_PROMPT;
       const userPrompt = buildFanworkJjwxcChapterPrompt(pair, hit.novel, chapter, chIdx, chapters);
       const raw = await callChatCompletion(
@@ -27287,9 +27786,9 @@
         16384
       );
       const parsed = parseAssistantJsonObject(raw);
-      applyFanworkJjwxcChapterContent(novelId, chapterId, parsed);
-      const target = getFanworkJjwxcNovelMutable(novelId);
-      if (target) persistFanworkJjwxcBundle(target.bundle, true);
+      applyFanworkJjwxcChapterContent(novelId, chapterId, parsed, plotKeyHint);
+      const target = getFanworkJjwxcNovelMutable(novelId, plotKeyHint);
+      if (target) persistFanworkJjwxcBundle(target.bundle, true, target.plotKey);
       if (slot) renderFanworkScreen(slot);
     } catch (err) {
       console.error(err);
@@ -27706,10 +28205,15 @@
           novel.readProgress +
           "%</span>"
         : "";
+    const plotAttr = opts.plotKey
+      ? ' data-fanwork-jjwxc-plot="' + escapeHtml(String(opts.plotKey)) + '"'
+      : "";
     return (
       '<div class="phone-jjwxc__card-wrap">' +
       '<button type="button" class="phone-jjwxc__card fanwork-jjwxc__card" data-fanwork-jjwxc-novel="' +
       escapeHtml(String(novel.id || "")) +
+      '"' +
+      plotAttr +
       '">' +
       rankHtml +
       buildPhoneJjwxcCoverHtml(novel, false, "sm") +
@@ -27777,20 +28281,23 @@
   }
 
   function buildFanworkJjwxcShelfPanelHtml() {
-    const placeholder = !hasFanworkJjwxcGenerated();
+    const placeholder = !hasAnyFanworkJjwxcGenerated();
     let cards = "";
-    const key = getFanworkCpStorageKey();
-    const rec = key ? fanworkJjwxcData[key] : null;
     if (placeholder) {
       for (let i = 0; i < 4; i++) cards += buildFanworkJjwxcNovelCardHtml(null, true, { showProgress: true });
     } else {
-      const novels = (rec.novels || []).filter(function (n) {
-        return n && n.onShelf;
+      const entries = collectFanworkJjwxcUserNovels(function (n) {
+        return n.onShelf;
       });
-      cards = novels.length
-        ? novels.map(function (n) {
-            return buildFanworkJjwxcNovelCardHtml(n, false, { showProgress: true });
-          }).join("")
+      cards = entries.length
+        ? entries
+            .map(function (entry) {
+              return buildFanworkJjwxcNovelCardHtml(entry.novel, false, {
+                showProgress: true,
+                plotKey: entry.plotKey,
+              });
+            })
+            .join("")
         : buildFanworkEmptyHtml("shelf", "书架空空，去书城捞点粮");
     }
     return (
@@ -27801,20 +28308,20 @@
   }
 
   function buildFanworkJjwxcFavPanelHtml() {
-    const placeholder = !hasFanworkJjwxcGenerated();
+    const placeholder = !hasAnyFanworkJjwxcGenerated();
     let cards = "";
-    const key = getFanworkCpStorageKey();
-    const rec = key ? fanworkJjwxcData[key] : null;
     if (placeholder) {
       for (let i = 0; i < 4; i++) cards += buildFanworkJjwxcNovelCardHtml(null, true);
     } else {
-      const novels = (rec.novels || []).filter(function (n) {
-        return n && n.isFavorite;
+      const entries = collectFanworkJjwxcUserNovels(function (n) {
+        return n.isFavorite;
       });
-      cards = novels.length
-        ? novels.map(function (n) {
-            return buildFanworkJjwxcNovelCardHtml(n, false);
-          }).join("")
+      cards = entries.length
+        ? entries
+            .map(function (entry) {
+              return buildFanworkJjwxcNovelCardHtml(entry.novel, false, { plotKey: entry.plotKey });
+            })
+            .join("")
         : buildFanworkEmptyHtml("fav", "还没有收藏，看到对味的就星标");
     }
     return (
@@ -27851,7 +28358,7 @@
   function buildFanworkJjwxcNovelDetailHtml(slot) {
     const nav = getFanworkNav(slot);
     const novelId = String(nav.jjwxcNovelId || "").trim();
-    const hit = findFanworkJjwxcNovel(novelId);
+    const hit = findFanworkJjwxcNovel(novelId, nav.jjwxcNovelPlotKey);
     const novel = hit ? hit.novel : null;
     const placeholder = !novel;
     const hasDetail = novel && fanworkJjwxcNovelHasDetail(novel);
@@ -27961,7 +28468,7 @@
     const nav = getFanworkNav(slot);
     const novelId = String(nav.jjwxcNovelId || "").trim();
     const chapterId = String(nav.jjwxcChapterId || "").trim();
-    const hit = findFanworkJjwxcNovel(novelId);
+    const hit = findFanworkJjwxcNovel(novelId, nav.jjwxcNovelPlotKey);
     const novel = hit ? hit.novel : null;
     const chapter =
       novel &&
@@ -28042,6 +28549,7 @@
       } else {
         nav.screen = "jjwxc";
         nav.jjwxcNovelId = null;
+        nav.jjwxcNovelPlotKey = null;
         nav.jjwxcChapterId = null;
       }
     } else if (nav.screen === "jjwxc") {
@@ -28061,6 +28569,7 @@
     const plot = getFanworkSelectedPlot();
     nav.screen = "jjwxc";
     nav.jjwxcNovelId = null;
+    nav.jjwxcNovelPlotKey = null;
     nav.jjwxcChapterId = null;
     nav.plotPickOpen = true;
     nav.plotPickPendingId = plot ? plot.id : null;
@@ -28229,19 +28738,18 @@
 
   async function handleFanworkJjwxcNovelDelete(slot, novelId) {
     if (!requireFanworkPlotForEdit()) return;
-    const hit = findFanworkJjwxcNovel(novelId);
+    const nav = getFanworkNav(slot);
+    const hit = findFanworkJjwxcNovel(novelId, nav.jjwxcNovelPlotKey);
     if (!hit) return;
     const title = String(hit.novel.title || "").trim() || "未命名";
     const ok = await showConfirm("确定删除作品「" + title + "」吗？", "删除作品");
     if (!ok) return;
-    const rec = getFanworkJjwxcBundleMutable();
-    if (!rec) return;
-    removeJjwxcNovelFromBundle(rec.bundle, hit.novel.id);
-    persistFanworkJjwxcBundle(rec.bundle, true);
-    const nav = getFanworkNav(slot);
+    removeJjwxcNovelFromBundle(hit.bundle, hit.novel.id);
+    persistFanworkJjwxcBundle(hit.bundle, true, hit.plotKey);
     if (nav.jjwxcNovelId === hit.novel.id) {
       nav.screen = "jjwxc";
       nav.jjwxcNovelId = null;
+      nav.jjwxcNovelPlotKey = null;
       nav.jjwxcChapterId = null;
       nav.jjwxcAppendOpen = false;
       nav.jjwxcAppendNovelId = null;
@@ -28252,15 +28760,17 @@
     renderFanworkScreen(slot);
   }
 
-  async function openFanworkJjwxcNovel(slot, novelId) {
+  async function openFanworkJjwxcNovel(slot, novelId, plotKeyHint) {
     const nav = getFanworkNav(slot);
     const id = String(novelId || "").trim();
     if (!id) return;
+    const plotKey = String(plotKeyHint || "").trim() || null;
     nav.screen = "jjwxc-novel";
     nav.jjwxcNovelId = id;
+    nav.jjwxcNovelPlotKey = plotKey;
     nav.jjwxcChapterId = null;
     renderFanworkScreen(slot);
-    const hit = findFanworkJjwxcNovel(id);
+    const hit = findFanworkJjwxcNovel(id, plotKey);
     if (hit && !fanworkJjwxcNovelHasDetail(hit.novel) && !isAnyPhoneAiGenerating()) {
       await generateFanworkJjwxcNovelContent(slot, id);
     }
@@ -28272,7 +28782,7 @@
     nav.jjwxcNovelId = String(novelId || "").trim();
     nav.jjwxcChapterId = String(chapterId || "").trim();
     renderFanworkScreen(slot);
-    const hit = findFanworkJjwxcNovel(novelId);
+    const hit = findFanworkJjwxcNovel(novelId, nav.jjwxcNovelPlotKey);
     if (!hit) return;
     const chapter = (hit.novel.chapters || []).find(function (c) {
       return c && c.id === chapterId;
@@ -28281,7 +28791,7 @@
       await generateFanworkJjwxcChapterContent(slot, novelId, chapterId);
     }
     if (chapter && phoneJjwxcChapterHasContent(chapter)) {
-      markFanworkJjwxcNovelReadProgress(novelId, chapterId);
+      markFanworkJjwxcNovelReadProgress(novelId, chapterId, nav.jjwxcNovelPlotKey);
     }
   }
 
@@ -28291,6 +28801,7 @@
     nav.jjwxcTab = tab === "shelf" || tab === "fav" ? tab : "store";
     nav.screen = "jjwxc";
     nav.jjwxcNovelId = null;
+    nav.jjwxcNovelPlotKey = null;
     nav.jjwxcChapterId = null;
     renderFanworkScreen(slot);
   }
@@ -28379,94 +28890,307 @@
     return true;
   }
 
-  const PHONE_ROW_SWIPE_DELETE_WIDTH = 72;
-  const PHONE_WECHAT_ROW_DELETE_WIDTH = PHONE_ROW_SWIPE_DELETE_WIDTH;
-  let phoneWechatRowSwipeDrag = null;
-  let phoneWechatRowSwipeDidMove = false;
-
-  function getPhoneRowSwipeActionWidth(wrap) {
-    if (!wrap) return PHONE_ROW_SWIPE_DELETE_WIDTH;
-    return PHONE_ROW_SWIPE_DELETE_WIDTH;
+  function resetPhoneListSelect(nav) {
+    if (!nav) return;
+    nav.listSelectMode = false;
+    nav.listSelectedIds = [];
   }
 
-  function getPhoneRowSwipeSlide(wrap) {
-    if (!wrap) return null;
-    return wrap.querySelector(".phone-wechat-row__slide, .phone-music-row__slide");
+  function getPhoneListSelectUi(nav) {
+    return {
+      selectMode: !!(nav && nav.listSelectMode),
+      selectedIds: nav && Array.isArray(nav.listSelectedIds) ? nav.listSelectedIds : [],
+    };
   }
 
-  function getPhoneRowSwipeOffset(wrap) {
-    const slide = getPhoneRowSwipeSlide(wrap);
-    const actionW = getPhoneRowSwipeActionWidth(wrap);
-    if (!slide || !slide.style.transform) {
-      return wrap && wrap.classList.contains("is-open") ? -actionW : 0;
-    }
-    const m = slide.style.transform.match(/translateX\((-?\d+(?:\.\d+)?)px\)/);
-    return m ? Number(m[1]) : 0;
+  function phoneListItemSelected(ui, id) {
+    if (!ui || !ui.selectMode) return false;
+    return ui.selectedIds.indexOf(String(id || "")) >= 0;
   }
 
-  function getPhoneWechatRowSwipeOffset(wrap) {
-    return getPhoneRowSwipeOffset(wrap);
+  function phoneListSelectAppCls(ui) {
+    return ui && ui.selectMode ? " phone-list-select--active" : "";
   }
 
-  function setPhoneRowSwipeTransform(slide, px) {
-    if (!slide) return;
-    if (!px) slide.style.transform = "";
-    else slide.style.transform = "translateX(" + px + "px)";
+  function buildPhoneListSelectCheckHtml(selected) {
+    return (
+      '<span class="phone-list-select__check' +
+      (selected ? " phone-list-select__check--on" : "") +
+      '" aria-hidden="true"></span>'
+    );
   }
 
-  function setPhoneWechatRowSwipeTransform(slide, px) {
-    setPhoneRowSwipeTransform(slide, px);
+  const PHONE_LIST_SELECT_ICON_CHECK =
+    '<svg class="icon-linear" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>';
+  const PHONE_LIST_SELECT_ICON_TRASH =
+    '<svg class="icon-linear" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+
+  function buildPhoneBarListSelectBtnHtml(ui, disabled) {
+    const selectActive = ui && ui.selectMode;
+    const selectedCount = ui && ui.selectedIds ? ui.selectedIds.length : 0;
+    const selectCls =
+      "phone-app__bar-action phone-app__bar-action--select" +
+      (selectActive ? " phone-app__bar-action--select-active" : "") +
+      (selectActive && selectedCount ? " phone-app__bar-action--select-delete" : "");
+    const selectLabel =
+      selectActive && selectedCount
+        ? "删除已选 " + selectedCount + " 项"
+        : selectActive
+          ? "取消多选"
+          : "多选删除";
+    const disabledAttr = disabled ? " disabled" : "";
+    return (
+      '<button type="button" class="' +
+      selectCls +
+      '" data-phone-list-select-toggle aria-label="' +
+      escapeHtml(selectLabel) +
+      '" title="' +
+      escapeHtml(selectLabel) +
+      '"' +
+      disabledAttr +
+      ">" +
+      (selectActive && selectedCount ? PHONE_LIST_SELECT_ICON_TRASH : PHONE_LIST_SELECT_ICON_CHECK) +
+      "</button>"
+    );
   }
 
-  function closePhoneRowSwipe(slot) {
-    if (!slot) return;
-    slot
-      .querySelectorAll(
-        ".phone-wechat-row-wrap.is-open, .phone-wechat-row-wrap.is-dragging, .phone-music-row-wrap.is-open, .phone-music-row-wrap.is-dragging"
-      )
-      .forEach(function (wrap) {
-        wrap.classList.remove("is-open", "is-dragging");
-        setPhoneRowSwipeTransform(getPhoneRowSwipeSlide(wrap), 0);
-      });
+  function buildPhoneBarActionsHtml(selectBtnHtml, genBtnHtml) {
+    return (
+      '<div class="phone-app__bar-actions">' + (selectBtnHtml || "") + (genBtnHtml || "") + "</div>"
+    );
   }
 
-  function closePhoneWechatRowSwipe(slot) {
-    closePhoneRowSwipe(slot);
+  function togglePhoneListItemSelection(nav, id) {
+    if (!nav || !nav.listSelectMode) return;
+    const sid = String(id || "").trim();
+    if (!sid) return;
+    if (!Array.isArray(nav.listSelectedIds)) nav.listSelectedIds = [];
+    const pos = nav.listSelectedIds.indexOf(sid);
+    if (pos >= 0) nav.listSelectedIds.splice(pos, 1);
+    else nav.listSelectedIds.push(sid);
   }
 
-  function openPhoneRowSwipe(wrap, slot) {
-    if (!wrap || !slot) return;
-    closePhoneRowSwipe(slot);
-    wrap.classList.add("is-open");
-    const slide = getPhoneRowSwipeSlide(wrap);
-    setPhoneRowSwipeTransform(slide, -getPhoneRowSwipeActionWidth(wrap));
-  }
-
-  function openPhoneWechatRowSwipe(wrap, slot) {
-    openPhoneRowSwipe(wrap, slot);
-  }
-
-  async function handlePhoneWechatDeleteChat(slot, chatId) {
-    if (!hasPhoneWechatGenerated()) return;
-    const id = String(chatId || "").trim();
-    if (!id) return;
-    const chat = getPhoneWechatChat(id);
-    const name = chat && chat.name ? chat.name : "该联系人";
-    closePhoneWechatRowSwipe(slot);
-    const ok = await showConfirm("确定删除与「" + name + "」的全部聊天记录吗？", "删除会话");
-    if (!ok) return;
-    if (!deletePhoneWechatChat(id)) {
-      showToast("删除失败", "error");
-      return;
-    }
+  async function commitPhoneListSelectionDelete(slot, deleteFn, confirmMessage) {
     const nav = getPhoneNav(slot);
-    if (nav.screen === "wechat-chat" && nav.chatId === id) {
-      resetPhoneWechatChatUi(nav);
-      nav.screen = "wechat-list";
-      nav.chatId = null;
+    if (!nav.listSelectMode || !nav.listSelectedIds || !nav.listSelectedIds.length) return false;
+    const ids = nav.listSelectedIds.slice();
+    const count = ids.length;
+    const msg = String(confirmMessage || "确定删除选中的 {count} 项吗？").replace("{count}", String(count));
+    const ok = await showConfirm(msg, "批量删除");
+    if (!ok) return false;
+    if (!deleteFn(ids)) {
+      showToast("删除失败", "error");
+      return false;
     }
-    showToast("已删除会话", "success");
+    resetPhoneListSelect(nav);
+    showToast("已删除 " + count + " 项", "success");
     renderPhoneScreen(slot);
+    return true;
+  }
+
+  async function togglePhoneListSelectMode(slot, options) {
+    const nav = getPhoneNav(slot);
+    const opts = options || {};
+    if (opts.hasGenerated && !opts.hasGenerated()) return;
+    if (nav.listSelectMode && nav.listSelectedIds && nav.listSelectedIds.length) {
+      const count = nav.listSelectedIds.length;
+      const msg = String(opts.confirmMessage || "确定删除选中的 {count} 项吗？").replace(
+        "{count}",
+        String(count)
+      );
+      const ok = await showConfirm(msg, "批量删除");
+      if (!ok) return;
+      const ids = nav.listSelectedIds.slice();
+      if (!opts.deleteFn(ids)) {
+        showToast("删除失败", "error");
+        return;
+      }
+      if (typeof opts.afterDelete === "function") opts.afterDelete(slot, nav, ids);
+      resetPhoneListSelect(nav);
+      showToast("已删除 " + count + " 项", "success");
+      renderPhoneScreen(slot);
+    } else if (nav.listSelectMode) {
+      resetPhoneListSelect(nav);
+      renderPhoneScreen(slot);
+    } else {
+      nav.listSelectMode = true;
+      nav.listSelectedIds = [];
+      renderPhoneScreen(slot);
+    }
+  }
+
+  function deletePhoneWechatChats(chatIds) {
+    const rec = getPhoneWechatBundleForMutation();
+    if (!rec) return false;
+    const remove = {};
+    (chatIds || []).forEach(function (id) {
+      const s = String(id || "").trim();
+      if (s) remove[s] = true;
+    });
+    if (!Object.keys(remove).length) return false;
+    const before = rec.bundle.chats.length;
+    rec.bundle.chats = rec.bundle.chats.filter(function (c) {
+      return c && !remove[c.id];
+    });
+    if (rec.bundle.chats.length === before) return false;
+    persistPhoneWechatBundle(rec.bundle);
+    return true;
+  }
+
+  function deletePhoneMomentsPosts(postIds) {
+    const key = getPhoneMomentsStorageKeyForCurrentHolder();
+    if (!key) return false;
+    const bundle = phoneMomentsData[key];
+    if (!bundle || !Array.isArray(bundle.posts)) return false;
+    const remove = {};
+    (postIds || []).forEach(function (id) {
+      const s = String(id || "").trim();
+      if (s) remove[s] = true;
+    });
+    if (!Object.keys(remove).length) return false;
+    const before = bundle.posts.length;
+    bundle.posts = bundle.posts.filter(function (p) {
+      return p && !remove[p.id];
+    });
+    if (bundle.posts.length === before) return false;
+    persistPhoneMomentsBundle(bundle);
+    return true;
+  }
+
+  function deletePhoneForumPosts(postIds) {
+    const rec = getPhoneForumBundleMutable();
+    if (!rec) return false;
+    const remove = {};
+    (postIds || []).forEach(function (id) {
+      const s = String(id || "").trim();
+      if (s) remove[s] = true;
+    });
+    if (!Object.keys(remove).length) return false;
+    const before = rec.bundle.posts.length;
+    rec.bundle.posts = rec.bundle.posts.filter(function (p) {
+      return p && !remove[p.id];
+    });
+    if (rec.bundle.posts.length === before) return false;
+    persistPhoneForumBundle(rec.bundle);
+    return true;
+  }
+
+  function deletePhoneBrowserEntries(entryIds) {
+    const rec = getPhoneBrowserBundleMutable();
+    if (!rec) return false;
+    const remove = {};
+    (entryIds || []).forEach(function (id) {
+      const s = String(id || "").trim();
+      if (s) remove[s] = true;
+    });
+    if (!Object.keys(remove).length) return false;
+    const before = (rec.bundle.entries || []).length;
+    rec.bundle.entries = (rec.bundle.entries || []).filter(function (e) {
+      return e && !remove[e.id];
+    });
+    if (rec.bundle.entries.length === before) return false;
+    persistPhoneBrowserBundle(rec.bundle);
+    return true;
+  }
+
+  function deletePhoneMemoNotes(noteIds) {
+    const rec = getPhoneMemoBundleMutable();
+    if (!rec) return false;
+    const remove = {};
+    (noteIds || []).forEach(function (id) {
+      const s = String(id || "").trim();
+      if (s) remove[s] = true;
+    });
+    if (!Object.keys(remove).length) return false;
+    const before = (rec.bundle.notes || []).length;
+    rec.bundle.notes = (rec.bundle.notes || []).filter(function (n) {
+      return n && !remove[n.id];
+    });
+    if (rec.bundle.notes.length === before) return false;
+    persistPhoneMemoBundle(rec.bundle);
+    return true;
+  }
+
+  function deletePhoneJjwxcNovels(novelIds) {
+    const rec = getPhoneJjwxcBundleMutable();
+    if (!rec) return false;
+    const remove = {};
+    (novelIds || []).forEach(function (id) {
+      const s = String(id || "").trim();
+      if (s) remove[s] = true;
+    });
+    if (!Object.keys(remove).length) return false;
+    let changed = false;
+    (novelIds || []).forEach(function (id) {
+      const s = String(id || "").trim();
+      if (!s || !remove[s]) return;
+      removeJjwxcNovelFromBundle(rec.bundle, s);
+      changed = true;
+    });
+    if (!changed) return false;
+    persistPhoneJjwxcBundle(rec.bundle, true);
+    return true;
+  }
+
+  function deletePhoneJjwxcMineItems(itemIds) {
+    const rec = getPhoneJjwxcBundleMutable();
+    if (!rec) return false;
+    const remove = {};
+    (itemIds || []).forEach(function (id) {
+      const s = String(id || "").trim();
+      if (s) remove[s] = true;
+    });
+    if (!Object.keys(remove).length) return false;
+    let changed = false;
+    const tips = rec.bundle.tips || [];
+    const tipsBefore = tips.length;
+    let tipAmountRemoved = 0;
+    rec.bundle.tips = tips.filter(function (t) {
+      if (t && remove[t.id]) {
+        tipAmountRemoved += t.amount || 0;
+        changed = true;
+        return false;
+      }
+      return true;
+    });
+    if (tips.length !== tipsBefore && rec.bundle.readerProfile) {
+      const profile = normalizePhoneJjwxcReaderProfile(rec.bundle.readerProfile);
+      profile.totalTips = Math.max(0, profile.totalTips - tipAmountRemoved);
+      rec.bundle.readerProfile = profile;
+    }
+    const notesBefore = (rec.bundle.readingNotes || []).length;
+    rec.bundle.readingNotes = (rec.bundle.readingNotes || []).filter(function (n) {
+      return n && !remove[n.id];
+    });
+    if ((rec.bundle.readingNotes || []).length !== notesBefore) changed = true;
+    if (!changed) return false;
+    persistPhoneJjwxcBundle(rec.bundle, true);
+    return true;
+  }
+
+  function handlePhoneListSelectToggle(slot) {
+    const nav = getPhoneNav(slot);
+    const screen = nav.screen;
+    if (screen === "wechat-list") {
+      void togglePhoneListSelectMode(slot, {
+        hasGenerated: hasPhoneWechatGenerated,
+        deleteFn: deletePhoneWechatChats,
+        confirmMessage: "确定删除选中的 {count} 个会话吗？",
+        afterDelete: function (_slot, n, ids) {
+          if (n.screen === "wechat-chat" && ids.indexOf(String(n.chatId || "")) >= 0) {
+            resetPhoneWechatChatUi(n);
+            n.screen = "wechat-list";
+            n.chatId = null;
+          }
+        },
+      });
+    } else if (screen === "music") {
+      void togglePhoneListSelectMode(slot, {
+        hasGenerated: hasPhoneMusicGenerated,
+        deleteFn: deletePhoneMusicTracks,
+        confirmMessage: "确定删除选中的 {count} 条播放记录吗？",
+      });
+    }
   }
 
   function updatePhoneWechatMessageText(chatId, msgIndex, text) {
@@ -28484,6 +29208,7 @@
 
   function buildPhoneWechatSingleChatPrompt(plot, holder, chat) {
     const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "手机持有者";
     const lines = [
       "请根据最新剧情，为「查手机·微信」中以下单个会话追加新消息；不要重复或改写已有内容，只在末尾追加。",
       "",
@@ -28493,29 +29218,36 @@
     lines.push("【当前会话】");
     lines.push("- id=" + chat.id + "，name=" + chat.name + (chat.isProtagonistChat ? "（与「我的形象」主角的私聊）" : ""));
     lines.push("- 当前 preview=" + (chat.preview || "") + "，time=" + (chat.time || ""));
-    const hist = formatPhoneWechatMessagesForPrompt(chat.messages, PHONE_WECHAT_MSG_HISTORY_REF);
+    const hist = formatPhoneWechatMessagesForPrompt(
+      chat.messages,
+      PHONE_WECHAT_MSG_HISTORY_REF,
+      holderName,
+      chat.name
+    );
     if (hist) {
       lines.push("最近 " + PHONE_WECHAT_MSG_HISTORY_REF + " 条：");
       lines.push(hist);
     }
     lines.push("");
+    lines.push.apply(lines, buildPhoneWechatSideRuleLines(holder, chat.name));
+    lines.push("");
     lines.push(
       "输出唯一 JSON 对象：\n" +
-        '{"messages":[{"side":"in|out","text":"..."}],"preview":"可选更新≤24字","time":"可选更新时间"}\n\n' +
+        '{"messages":[{"side":"in或out","text":"..."}],"preview":"可选更新≤24字","time":"可选更新时间"}\n\n' +
         "规则：\n" +
         "1. messages 仅含本次新增消息（4～12 条），须自然衔接上文最近 " +
         PHONE_WECHAT_MSG_HISTORY_REF +
         " 条。\n" +
-        "2. side：in=对方发来，out=手机持有者发出。\n" +
-        "3. 单条 text ≤80 字，口语化像微信；须与最新剧情、人设、记忆、总结一致。\n" +
-        "4. preview/time 可随最新消息更新，也可省略。"
+        "2. 单条 text ≤80 字，口语化像微信；须与最新剧情、人设、记忆、总结一致。\n" +
+        "3. preview/time 可随最新消息更新，也可省略。"
     );
     return lines.join("\n");
   }
 
-  function mergePhoneWechatSingleChatAppend(chat, raw) {
+  function mergePhoneWechatSingleChatAppend(chat, raw, holder) {
     if (!chat || !raw || typeof raw !== "object") return false;
-    const append = normalizePhoneWechatMessages(raw.messages, false);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "";
+    const append = normalizePhoneWechatMessages(raw.messages, false, holderName, chat.name);
     if (!append.length) return false;
     chat.messages = chat.messages.concat(append).slice(-PHONE_WECHAT_MAX_MSGS_PER_CHAT);
     if (raw.preview) chat.preview = truncateCharsWithEllipsis(String(raw.preview).trim(), 24);
@@ -28556,7 +29288,8 @@
       const systemPrompt =
         "你是中文互动叙事助手。根据用户提供的剧情与单个微信会话上下文，增量追加该会话消息 JSON。\n" +
         "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
-        '格式：{"messages":[{"side":"in|out","text":"..."}],"preview":"可选","time":"可选"}';
+        '格式：{"messages":[{"side":"in或out","text":"..."}],"preview":"可选","time":"可选"}\n' +
+        "side 只能是 in 或 out：in=会话对方（左/白），out=手机持有者（右/绿）；禁止全部标 in，须按发言者交替。";
       const userPrompt = buildPhoneWechatSingleChatPrompt(plot, holder, target.chat);
       const raw = await callChatCompletion(
         [
@@ -28567,7 +29300,7 @@
         4096
       );
       const parsed = parseAssistantJsonObject(raw);
-      if (!mergePhoneWechatSingleChatAppend(target.chat, parsed)) {
+      if (!mergePhoneWechatSingleChatAppend(target.chat, parsed, holder)) {
         throw new Error("未能解析有效的新消息");
       }
       persistPhoneWechatBundle(target.bundle);
@@ -28608,10 +29341,13 @@
       const systemPrompt = isRegenerate
         ? "你是中文互动叙事助手。根据用户提供的剧情与已有微信数据，增量追加微信聊天 JSON。\n" +
           "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
-          '格式：{"appendToChats":[{"id":"已有id","messages":[仅新增消息],"preview":"可选","time":"可选"}],"newChats":[{"id":"新id","name":"...","preview":"...","time":"...","messages":[...]}]}'
+          '优先格式：{"appendToChats":[{"id":"已有id","messages":[仅新增消息],"preview":"可选","time":"可选"}],"newChats":[{"id":"新id","name":"...","preview":"...","time":"...","messages":[...]}]}\n' +
+          "也可使用 {\"chats\":[...]}，但须保持 id 不变且 messages 仅追加新内容。\n" +
+          "side 只能是 in 或 out：in=各会话 name 对方（左/白），out=手机持有者（右/绿）；须覆盖多个会话，禁止整次只更新一个会话。"
         : "你是中文互动叙事助手。根据用户提供的剧情、人设、记忆与总结，生成「查手机·微信」界面用的 JSON。\n" +
           "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
-          '格式：{"chats":[{"id":"唯一英文id","name":"列表名","preview":"预览","time":"时间","messages":[{"side":"in|out","text":"消息"}]}]}';
+          '格式：{"chats":[{"id":"唯一英文id","name":"列表名","preview":"预览","time":"时间","messages":[{"side":"in或out","text":"消息"}]}]}\n' +
+          "side 只能是 in 或 out：in=各会话 name 对方（左/白），out=手机持有者（右/绿）；同一段对话须交替使用。";
       const userPrompt = isRegenerate
         ? buildPhoneWechatRegeneratePrompt(plot, holder, existing)
         : buildPhoneWechatPrompt(plot, holder);
@@ -28739,22 +29475,26 @@
     );
   }
 
-  function buildPhoneWechatListBarHtml() {
+  function buildPhoneWechatListBarHtml(ui, selectDisabled) {
     const loadingCls =
       phoneWechatGenerating && phoneWechatGeneratingTarget === "list" ? " phone-wechat-gen-btn--loading" : "";
+    const disabled = phoneWechatGenerating;
+    const selectBtn = buildPhoneBarListSelectBtnHtml(ui, selectDisabled || disabled);
+    const genBtn =
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      loadingCls +
+      '" data-phone-wechat-generate aria-label="AI 生成微信内容" title="AI 生成微信内容"' +
+      (disabled ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>";
     return (
       '<header class="phone-app__bar phone-app__bar--wechat-list">' +
       '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
       '<h2 class="phone-app__title phone-app__title--left">微信</h2>' +
-      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
-      loadingCls +
-      '" data-phone-wechat-generate aria-label="AI 生成微信内容" title="AI 生成微信内容"' +
-      (phoneWechatGenerating ? " disabled" : "") +
-      ">" +
-      buildPhoneWechatStarIconSvg() +
-      "</button>" +
+      buildPhoneBarActionsHtml(selectBtn, genBtn) +
       "</header>"
     );
   }
@@ -28775,7 +29515,9 @@
     );
   }
 
-  function buildPhoneWechatListHtml() {
+  function buildPhoneWechatListHtml(slot) {
+    const nav = getPhoneNav(slot);
+    const ui = getPhoneListSelectUi(nav);
     const placeholder = !hasPhoneWechatGenerated();
     const rows = getPhoneWechatChats().map(function (chat) {
       const nameText = placeholder ? "…" : chat.name || "…";
@@ -28791,7 +29533,7 @@
             scope: "wechat",
             uploadKind: "contact",
             uploadKey: chat.id,
-            clickable: true,
+            clickable: !ui.selectMode,
           });
       const rowInner =
         avatarHtml +
@@ -28812,35 +29554,29 @@
         escapeHtml(previewText) +
         "</span>" +
         "</span>";
-      if (placeholder) {
-        return (
-          '<button type="button" class="phone-wechat-row" data-wechat-chat-id="' +
-          escapeHtml(chat.id) +
-          '">' +
-          rowInner +
-          "</button>"
-        );
-      }
+      const selected = phoneListItemSelected(ui, chat.id);
+      let rowCls = "phone-wechat-row";
+      if (ui.selectMode) rowCls += " phone-list-select__row";
+      if (selected) rowCls += " phone-list-select__row--selected";
+      const checkHtml = ui.selectMode ? buildPhoneListSelectCheckHtml(selected) : "";
       return (
-        '<div class="phone-wechat-row-wrap">' +
-        '<button type="button" class="phone-wechat-row__delete" data-phone-wechat-delete-chat="' +
+        '<button type="button" class="' +
+        rowCls +
+        '" data-phone-list-select-item="' +
         escapeHtml(chat.id) +
-        '" aria-label="删除与' +
-        escapeHtml(nameText) +
-        '的聊天记录">删除</button>' +
-        '<div class="phone-wechat-row__slide">' +
-        '<button type="button" class="phone-wechat-row" data-wechat-chat-id="' +
+        '" data-wechat-chat-id="' +
         escapeHtml(chat.id) +
         '">' +
+        checkHtml +
         rowInner +
-        "</button>" +
-        "</div>" +
-        "</div>"
+        "</button>"
       );
     }).join("");
     return (
-      '<div class="phone-app phone-wechat" aria-label="微信">' +
-      buildPhoneWechatListBarHtml() +
+      '<div class="phone-app phone-wechat' +
+      phoneListSelectAppCls(ui) +
+      '" aria-label="微信">' +
+      buildPhoneWechatListBarHtml(ui, placeholder) +
       '<div class="phone-wechat__list">' +
       rows +
       "</div>" +
@@ -29038,13 +29774,13 @@
     delete slot.dataset.phoneHomeRendered;
     let innerHtml = "";
     if (nav.screen === "wechat-list") {
-      innerHtml = buildPhoneWechatListHtml();
+      innerHtml = buildPhoneWechatListHtml(slot);
     } else if (nav.screen === "wechat-chat") {
       innerHtml = buildPhoneWechatChatHtml(nav.chatId, slot);
     } else if (nav.screen === "moments") {
-      innerHtml = buildPhoneMomentsHtml();
+      innerHtml = buildPhoneMomentsHtml(slot);
     } else if (nav.screen === "music") {
-      innerHtml = buildPhoneMusicHtml();
+      innerHtml = buildPhoneMusicHtml(slot);
     } else if (nav.screen === "album") {
       innerHtml = buildPhoneAlbumHtml(slot);
     } else if (nav.screen === "forum") {
@@ -29080,6 +29816,7 @@
       tryApplyPhoneWechatChatModesFromBlank(slot);
     }
     resetPhoneWechatChatUi(nav);
+    resetPhoneListSelect(nav);
     nav.screen = "home";
     nav.chatId = null;
     nav.diaryEntryIndex = -1;
@@ -29117,22 +29854,27 @@
       nav.screen = "wechat-list";
       nav.chatId = null;
     } else if (nav.screen === "wechat-list") {
+      resetPhoneListSelect(nav);
       nav.screen = "home";
     } else if (nav.screen === "moments") {
+      resetPhoneListSelect(nav);
       nav.screen = "home";
     } else if (nav.screen === "music") {
+      resetPhoneListSelect(nav);
       nav.screen = "home";
     } else if (nav.screen === "album") {
       if (nav.albumPhotoId) {
         nav.albumPhotoId = null;
         nav.albumPhotoEdit = false;
       } else {
+        resetPhoneListSelect(nav);
         nav.screen = "home";
       }
     } else if (nav.screen === "forum-post") {
       if (nav.forumInlineEdit) {
         nav.forumInlineEdit = null;
       } else {
+        resetPhoneListSelect(nav);
         nav.screen = "forum";
         nav.forumPostId = null;
       }
@@ -29144,6 +29886,7 @@
       } else if (nav.forumManageOpen) {
         nav.forumManageOpen = false;
       } else {
+        resetPhoneListSelect(nav);
         nav.screen = "home";
       }
     } else if (nav.screen === "browser") {
@@ -29154,6 +29897,7 @@
       } else if (nav.browserManageOpen) {
         nav.browserManageOpen = false;
       } else {
+        resetPhoneListSelect(nav);
         nav.screen = "home";
         nav.browserExpandedId = null;
       }
@@ -29165,19 +29909,23 @@
       } else if (nav.memoManageOpen) {
         nav.memoManageOpen = false;
       } else {
+        resetPhoneListSelect(nav);
         nav.screen = "home";
         nav.memoExpandedId = null;
       }
     } else if (nav.screen === "diary") {
+      resetPhoneListSelect(nav);
       nav.screen = "home";
       nav.diaryEntryIndex = -1;
       nav.diaryDateKey = null;
     } else if (nav.screen === "bill") {
+      resetPhoneListSelect(nav);
       nav.screen = "home";
     } else if (nav.screen === "weread-book") {
       nav.screen = "weread";
       nav.wereadBookId = null;
     } else if (nav.screen === "weread") {
+      resetPhoneListSelect(nav);
       nav.screen = "home";
       nav.wereadBookId = null;
     } else if (nav.screen === "jjwxc-chapter") {
@@ -29194,6 +29942,7 @@
       } else if (nav.jjwxcManageOpen) {
         nav.jjwxcManageOpen = false;
       } else {
+        resetPhoneListSelect(nav);
         nav.screen = "home";
         nav.jjwxcNovelId = null;
         nav.jjwxcChapterId = null;
@@ -33951,6 +34700,7 @@
       syncOverviewSubViewUi();
       if (overviewSubView === "phone") renderPhoneScreen(els.phoneContentSlot());
       else if (overviewSubView === "fanwork") renderFanworkScreen(els.fanworkContentSlot());
+      else if (overviewSubView === "knock") renderKnockScreen(els.knockContentSlot());
     }
     if (els.modalAssistantProfile() && !els.modalAssistantProfile().hidden) {
       renderAssistantProfileModal();
@@ -34212,24 +34962,49 @@
     void runAssistantGenWorldBook();
   });
 
-  document.getElementById("assistant-inspiration-modal-close").addEventListener("click", closeAssistantInspirationModal);
-  document.getElementById("assistant-inspiration-cancel").addEventListener("click", closeAssistantInspirationModal);
-  document.getElementById("modal-assistant-inspiration").addEventListener("click", (e) => {
-    if (e.target.id === "modal-assistant-inspiration") closeAssistantInspirationModal();
+  document.addEventListener("click", function (e) {
+    const slot = e.target.closest("#knock-content-slot");
+    if (!slot || !slot.contains(e.target)) return;
+    if (e.target.closest("[data-knock-back]")) {
+      closeOverviewKnockView();
+      return;
+    }
+    if (e.target.closest("[data-knock-generate]")) {
+      void generateKnockReply();
+      return;
+    }
+    if (e.target.closest("[data-knock-setup-toggle]")) {
+      knockSetupOpen = true;
+      const overlay = slot.querySelector("[data-knock-setup-overlay]");
+      if (overlay) {
+        overlay.hidden = false;
+        renderKnockSetupPicks(overlay);
+      }
+      return;
+    }
+    if (e.target.closest("[data-knock-setup-close]")) {
+      knockSetupOpen = false;
+      const overlay = slot.querySelector("[data-knock-setup-overlay]");
+      if (overlay) overlay.hidden = true;
+      return;
+    }
+    if (e.target.closest("[data-knock-setup-confirm]")) {
+      confirmKnockSetup(slot);
+      return;
+    }
+    if (e.target.closest("[data-knock-send]")) {
+      sendKnockMessage();
+      return;
+    }
   });
-  document.getElementById("assistant-inspiration-generate").addEventListener("click", () => {
-    void submitAssistantInspiration();
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" || e.isComposing) return;
+    const input = e.target.closest("[data-knock-input]");
+    if (!input || !input.closest("#knock-content-slot")) return;
+    if (e.shiftKey) return;
+    e.preventDefault();
+    sendKnockMessage();
   });
-  const assistantInspirationResultAccept = document.getElementById("assistant-inspiration-result-accept");
-  if (assistantInspirationResultAccept) {
-    assistantInspirationResultAccept.addEventListener("click", () => {
-      void acceptAssistantInspirationFromModal();
-    });
-  }
-  const assistantInspirationResultDismiss = document.getElementById("assistant-inspiration-result-dismiss");
-  if (assistantInspirationResultDismiss) {
-    assistantInspirationResultDismiss.addEventListener("click", closeAssistantInspirationModal);
-  }
   const modalAssistantPlotReply = document.getElementById("modal-assistant-plot-reply");
   if (modalAssistantPlotReply) {
     modalAssistantPlotReply.addEventListener("click", (e) => {
@@ -34685,24 +35460,19 @@
     const slot = e.target.closest("#phone-content-slot, #story-phone-slot");
     if (!slot || !slot.contains(e.target)) return;
 
-    const deleteChatBtn = e.target.closest("[data-phone-wechat-delete-chat]");
-    if (deleteChatBtn) {
-      void handlePhoneWechatDeleteChat(slot, deleteChatBtn.getAttribute("data-phone-wechat-delete-chat"));
+    if (e.target.closest("[data-phone-list-select-toggle]")) {
+      handlePhoneListSelectToggle(slot);
       return;
     }
 
-    if (
-      e.target.closest(".phone-wechat__list") &&
-      !e.target.closest(".phone-wechat-row-wrap")
-    ) {
-      closePhoneRowSwipe(slot);
-    }
-
-    if (
-      e.target.closest(".phone-music__list") &&
-      !e.target.closest(".phone-music-row-wrap")
-    ) {
-      closePhoneRowSwipe(slot);
+    const listSelectItem = e.target.closest("[data-phone-list-select-item]");
+    if (listSelectItem) {
+      const nav = getPhoneNav(slot);
+      if (nav.listSelectMode) {
+        togglePhoneListItemSelection(nav, listSelectItem.getAttribute("data-phone-list-select-item"));
+        renderPhoneScreen(slot);
+        return;
+      }
     }
 
     if (e.target.closest("[data-phone-wechat-generate]")) {
@@ -34712,6 +35482,12 @@
 
     if (e.target.closest("[data-phone-moments-generate]")) {
       void generatePhoneMomentsContent(slot);
+      return;
+    }
+
+    const momentsDelBtn = e.target.closest("[data-phone-moments-delete-post]");
+    if (momentsDelBtn) {
+      void handlePhoneMomentsDeletePost(slot, momentsDelBtn.getAttribute("data-phone-moments-delete-post"));
       return;
     }
 
@@ -34852,8 +35628,20 @@
       return;
     }
 
+    const billDelBtn = e.target.closest("[data-phone-bill-delete-tx]");
+    if (billDelBtn) {
+      void handlePhoneBillDeleteTransaction(slot, billDelBtn.getAttribute("data-phone-bill-delete-tx"));
+      return;
+    }
+
     if (e.target.closest("[data-phone-weread-generate]")) {
       void generatePhoneWereadContent(slot);
+      return;
+    }
+
+    const wereadDelBtn = e.target.closest("[data-phone-weread-delete-hl]");
+    if (wereadDelBtn) {
+      void handlePhoneWereadDeleteHighlight(slot, wereadDelBtn.getAttribute("data-phone-weread-delete-hl"));
       return;
     }
 
@@ -34927,6 +35715,13 @@
       return;
     }
 
+    const jjwxcNovelBtn = e.target.closest("[data-phone-jjwxc-novel]");
+    if (jjwxcNovelBtn) {
+      if (!hasPhoneJjwxcGenerated()) return;
+      void openPhoneJjwxcNovel(slot, jjwxcNovelBtn.getAttribute("data-phone-jjwxc-novel"));
+      return;
+    }
+
     const jjwxcNovelDelBtn = e.target.closest("[data-phone-jjwxc-novel-delete]");
     if (jjwxcNovelDelBtn) {
       void handlePhoneJjwxcNovelDelete(slot, jjwxcNovelDelBtn.getAttribute("data-phone-jjwxc-novel-delete"));
@@ -34935,24 +35730,13 @@
 
     const jjwxcTipDelBtn = e.target.closest("[data-phone-jjwxc-tip-delete]");
     if (jjwxcTipDelBtn) {
-      e.preventDefault();
-      e.stopPropagation();
       void handlePhoneJjwxcTipDelete(slot, jjwxcTipDelBtn.getAttribute("data-phone-jjwxc-tip-delete"));
       return;
     }
 
     const jjwxcNoteDelBtn = e.target.closest("[data-phone-jjwxc-note-delete]");
     if (jjwxcNoteDelBtn) {
-      e.preventDefault();
-      e.stopPropagation();
       void handlePhoneJjwxcReadingNoteDelete(slot, jjwxcNoteDelBtn.getAttribute("data-phone-jjwxc-note-delete"));
-      return;
-    }
-
-    const jjwxcNovelBtn = e.target.closest("[data-phone-jjwxc-novel]");
-    if (jjwxcNovelBtn) {
-      if (!hasPhoneJjwxcGenerated()) return;
-      void openPhoneJjwxcNovel(slot, jjwxcNovelBtn.getAttribute("data-phone-jjwxc-novel"));
       return;
     }
 
@@ -35038,7 +35822,7 @@
 
     const diaryGenBtn = e.target.closest("[data-phone-diary-generate]");
     if (diaryGenBtn) {
-      void generatePhoneDiaryContent(slot, diaryGenBtn.getAttribute("data-phone-diary-date"));
+      void generatePhoneDiaryContent(slot);
       return;
     }
 
@@ -35152,30 +35936,6 @@
       return;
     }
 
-    const delMusicTrackBtn = e.target.closest("[data-phone-music-delete-track]");
-    if (delMusicTrackBtn) {
-      void handlePhoneMusicDeleteTrack(slot, delMusicTrackBtn.getAttribute("data-phone-music-delete-track"));
-      return;
-    }
-
-    const delBillTxBtn = e.target.closest("[data-phone-bill-delete-tx]");
-    if (delBillTxBtn) {
-      void handlePhoneBillDeleteTransaction(slot, delBillTxBtn.getAttribute("data-phone-bill-delete-tx"));
-      return;
-    }
-
-    const delWereadHlBtn = e.target.closest("[data-phone-weread-delete-hl]");
-    if (delWereadHlBtn) {
-      void handlePhoneWereadDeleteHighlight(slot, delWereadHlBtn.getAttribute("data-phone-weread-delete-hl"));
-      return;
-    }
-
-    const delMomentsPostBtn = e.target.closest("[data-phone-moments-delete-post]");
-    if (delMomentsPostBtn) {
-      void handlePhoneMomentsDeletePost(slot, delMomentsPostBtn.getAttribute("data-phone-moments-delete-post"));
-      return;
-    }
-
     if (e.target.closest("[data-phone-moments-cover-upload]")) {
       openPhoneMomentsCoverPicker(slot);
       return;
@@ -35237,13 +35997,7 @@
     }
 
     const chatRow = e.target.closest(".phone-wechat-row[data-wechat-chat-id]");
-    if (chatRow) {
-      if (phoneWechatRowSwipeDidMove) return;
-      const wrap = chatRow.closest(".phone-wechat-row-wrap");
-      if (wrap && wrap.classList.contains("is-open")) {
-        closePhoneRowSwipe(slot);
-        return;
-      }
+    if (chatRow && !getPhoneNav(slot).listSelectMode) {
       openPhoneWechatChat(slot, chatRow.getAttribute("data-wechat-chat-id"));
       return;
     }
@@ -35382,19 +36136,33 @@
 
     const fwShelfBtn = e.target.closest("[data-fanwork-jjwxc-toggle-shelf]");
     if (fwShelfBtn) {
-      toggleFanworkJjwxcNovelShelf(slot, fwShelfBtn.getAttribute("data-fanwork-jjwxc-toggle-shelf"));
+      const nav = getFanworkNav(slot);
+      toggleFanworkJjwxcNovelShelf(
+        slot,
+        fwShelfBtn.getAttribute("data-fanwork-jjwxc-toggle-shelf"),
+        nav.jjwxcNovelPlotKey
+      );
       return;
     }
 
     const fwFavBtn = e.target.closest("[data-fanwork-jjwxc-toggle-fav]");
     if (fwFavBtn) {
-      toggleFanworkJjwxcNovelFavorite(slot, fwFavBtn.getAttribute("data-fanwork-jjwxc-toggle-fav"));
+      const nav = getFanworkNav(slot);
+      toggleFanworkJjwxcNovelFavorite(
+        slot,
+        fwFavBtn.getAttribute("data-fanwork-jjwxc-toggle-fav"),
+        nav.jjwxcNovelPlotKey
+      );
       return;
     }
 
     const fwNovelBtn = e.target.closest("[data-fanwork-jjwxc-novel]");
     if (fwNovelBtn) {
-      void openFanworkJjwxcNovel(slot, fwNovelBtn.getAttribute("data-fanwork-jjwxc-novel"));
+      void openFanworkJjwxcNovel(
+        slot,
+        fwNovelBtn.getAttribute("data-fanwork-jjwxc-novel"),
+        fwNovelBtn.getAttribute("data-fanwork-jjwxc-plot")
+      );
       return;
     }
 
@@ -35432,85 +36200,6 @@
       return;
     }
   });
-  document.addEventListener(
-    "pointerdown",
-    function (e) {
-      const slide = e.target.closest(".phone-wechat-row__slide, .phone-music-row__slide");
-      if (
-        !slide ||
-        e.target.closest("[data-phone-wechat-delete-chat]") ||
-        e.target.closest("[data-phone-music-delete-track]")
-      )
-        return;
-      const wrap = slide.closest(".phone-wechat-row-wrap, .phone-music-row-wrap");
-      const slot = slide.closest("#phone-content-slot, #story-phone-slot");
-      if (!wrap || !slot) return;
-      if (e.pointerType === "mouse" && e.button !== 0) return;
-      slot
-        .querySelectorAll(".phone-wechat-row-wrap.is-open, .phone-music-row-wrap.is-open")
-        .forEach(function (w) {
-          if (w !== wrap) {
-            w.classList.remove("is-open");
-            setPhoneRowSwipeTransform(getPhoneRowSwipeSlide(w), 0);
-          }
-        });
-      phoneWechatRowSwipeDrag = {
-        slot: slot,
-        wrap: wrap,
-        slide: slide,
-        pointerId: e.pointerId,
-        startX: e.clientX,
-        startY: e.clientY,
-        baseX: getPhoneRowSwipeOffset(wrap),
-        moved: false,
-        locking: null,
-      };
-      wrap.classList.add("is-dragging");
-    },
-    true
-  );
-  document.addEventListener(
-    "pointermove",
-    function (e) {
-      const d = phoneWechatRowSwipeDrag;
-      if (!d || e.pointerId !== d.pointerId) return;
-      const dx = e.clientX - d.startX;
-      const dy = e.clientY - d.startY;
-      if (d.locking === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
-        d.locking = Math.abs(dx) >= Math.abs(dy) ? "x" : "y";
-      }
-      if (d.locking !== "x") return;
-      e.preventDefault();
-      d.moved = true;
-      let next = d.baseX + dx;
-      if (next > 0) next *= 0.28;
-      const actionW = getPhoneRowSwipeActionWidth(d.wrap);
-      next = Math.max(-actionW, Math.min(0, next));
-      setPhoneRowSwipeTransform(d.slide, next);
-    },
-    { passive: false, capture: true }
-  );
-  function finishPhoneWechatRowSwipe(e) {
-    const d = phoneWechatRowSwipeDrag;
-    if (!d || e.pointerId !== d.pointerId) return;
-    d.wrap.classList.remove("is-dragging");
-    if (d.locking === "x" && d.moved) {
-      const offset = getPhoneRowSwipeOffset(d.wrap);
-      const actionW = getPhoneRowSwipeActionWidth(d.wrap);
-      if (offset < -actionW * 0.35) {
-        openPhoneRowSwipe(d.wrap, d.slot);
-      } else {
-        closePhoneRowSwipe(d.slot);
-      }
-      phoneWechatRowSwipeDidMove = true;
-      setTimeout(function () {
-        phoneWechatRowSwipeDidMove = false;
-      }, 320);
-    }
-    phoneWechatRowSwipeDrag = null;
-  }
-  document.addEventListener("pointerup", finishPhoneWechatRowSwipe, true);
-  document.addEventListener("pointercancel", finishPhoneWechatRowSwipe, true);
   document.addEventListener(
     "focusout",
     function (e) {

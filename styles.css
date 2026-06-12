@@ -1126,6 +1126,216 @@ html[data-theme="dark"] .workbench-scene__caption {
   padding-right: 0;
 }
 
+#overview-sub-knock .feature-view-body,
+#overview-sub-knock #knock-content-slot {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+#overview-sub-knock #knock-content-slot .knock-chat,
+#overview-sub-knock #knock-content-slot .knock-setup-page {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.knock-chat {
+  position: relative;
+}
+
+.knock-chat__bar {
+  flex-shrink: 0;
+}
+
+.knock-chat__actions {
+  margin-left: 2px;
+}
+
+.knock-chat__thread {
+  flex: 1;
+  min-height: 0;
+}
+
+.knock-chat__empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 20px;
+  text-align: center;
+  color: #888;
+  font-size: 0.84rem;
+}
+
+.knock-chat__empty p:first-child {
+  color: #555;
+  font-size: 0.9rem;
+}
+
+html[data-theme="dark"] .knock-chat__empty {
+  color: #999;
+}
+
+html[data-theme="dark"] .knock-chat__empty p:first-child {
+  color: #ccc;
+}
+
+.knock-chat__composer {
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.knock-chat__input {
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  max-height: 100px;
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
+  background: #fff;
+  color: #111;
+  font: inherit;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  resize: none;
+  box-sizing: border-box;
+}
+
+.knock-chat__input:focus {
+  outline: none;
+  border-color: rgba(7, 193, 96, 0.45);
+}
+
+html[data-theme="dark"] .knock-chat__input {
+  background: #2c2c2c;
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #f0f0f0;
+}
+
+.knock-chat__send {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: #07c160;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.knock-chat__send:active {
+  background: #06ad56;
+}
+
+.knock-chat__send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.knock-setup-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.knock-setup-overlay[hidden] {
+  display: none !important;
+}
+
+.knock-setup-overlay__sheet {
+  margin: auto 12px 12px;
+  max-height: min(78vh, 520px);
+  padding: 16px 14px calc(14px + env(safe-area-inset-bottom, 0px));
+  border-radius: 14px;
+  background: var(--surface, #fff);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.knock-setup-overlay__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.knock-setup-overlay__title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.knock-setup-overlay__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.knock-setup-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg, #f5f5f5);
+}
+
+.knock-setup-page__bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #f7f7f7;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.knock-setup-page__title {
+  flex: 1;
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-align: center;
+  margin: 0;
+}
+
+.knock-setup-page__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 14px calc(16px + env(safe-area-inset-bottom, 0px));
+  -webkit-overflow-scrolling: touch;
+}
+
+.knock-setup-page__actions {
+  padding-top: 8px;
+}
+
+html[data-theme="dark"] .knock-setup-page {
+  background: #1a1a1a;
+}
+
+html[data-theme="dark"] .knock-setup-page__bar {
+  background: #242424;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
 .assistant-inspiration-result-body {
   max-height: min(52vh, 380px);
   overflow-y: auto;
@@ -4726,12 +4936,6 @@ html[data-theme="dark"] .phone-device--app .phone-device__status-bar {
   overflow-x: hidden;
 }
 
-.phone-device .phone-wechat-row-wrap,
-.phone-device .phone-music-row-wrap {
-  max-width: 100%;
-  overflow: hidden;
-}
-
 .phone-device .phone-music-player__cover {
   animation: none;
 }
@@ -4754,6 +4958,8 @@ html[data-theme="dark"] .phone-device--app .phone-device__status-bar {
 /* 查手机 · 晋江：深夜模式内屏适配 */
 html[data-theme="dark"] .phone-device .phone-jjwxc {
   background: #141210;
+  --jjwxc-pink-soft: rgba(226, 70, 107, 0.16);
+  --jjwxc-pink-deep: #f0a0b4;
 }
 
 html[data-theme="dark"] .phone-device .phone-jjwxc__bar,
@@ -4804,7 +5010,7 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-row .filter-pill.is-act
 }
 
 html[data-theme="dark"] .phone-device .phone-jjwxc__panel-kicker {
-  color: #777;
+  color: color-mix(in srgb, var(--accent) 78%, #fff);
 }
 
 /* 查手机 · 晋江：详情 / 章节深夜模式 */
@@ -4921,6 +5127,122 @@ html[data-theme="dark"] .phone-device .phone-jjwxc--chapter .phone-jjwxc__reader
 }
 
 html[data-theme="dark"] .phone-device .phone-jjwxc--chapter .phone-jjwxc__generating {
+  color: #f0a0b4;
+}
+
+/* 查手机 · 晋江：我的 / 列表通用深夜模式（profile、打赏、心声等） */
+html[data-theme="dark"] .phone-device .phone-jjwxc__scroll {
+  background: #141210;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__top {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.24);
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__bar {
+  background: #1e1c1a;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__section-title {
+  color: #ece6dc;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__section-hint {
+  color: #8a8478;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__profile {
+  background: linear-gradient(135deg, #252320 0%, #2a2226 100%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.22);
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__nick {
+  color: #ece6dc;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__profile-stat {
+  color: #9a9488;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__tip-row,
+html[data-theme="dark"] .phone-device .phone-jjwxc__note {
+  background: #252320;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__note {
+  border-left-color: color-mix(in srgb, var(--accent) 72%, #fff);
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__tip-amt {
+  color: color-mix(in srgb, var(--accent) 82%, #fff);
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__tip-novel {
+  color: #ece6dc;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__tip-msg {
+  color: #b8b0a8;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__tip-date,
+html[data-theme="dark"] .phone-device .phone-jjwxc__note-meta {
+  color: #7a7468;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__note-book {
+  color: color-mix(in srgb, var(--accent) 78%, #fff);
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__note-text {
+  color: #c8c0b8;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__muted {
+  color: #6a645c;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__tag {
+  background: rgba(226, 70, 107, 0.16);
+  color: #f0a0b4;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__badge--ongoing {
+  background: rgba(217, 119, 6, 0.18);
+  color: #fbbf24;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__badge--done {
+  background: rgba(45, 138, 78, 0.16);
+  color: #6ee7a8;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__badge--ph {
+  background: rgba(255, 255, 255, 0.06);
+  color: #666;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__card-progress {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__card-progress-label {
+  color: color-mix(in srgb, var(--accent) 70%, #fff);
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__cover--ph {
+  background: linear-gradient(155deg, #3a3632 0%, #2a2622 100%);
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__empty {
+  color: #777;
+}
+
+html[data-theme="dark"] .phone-device .phone-jjwxc__cat-manage {
+  background: rgba(226, 70, 107, 0.14);
   color: #f0a0b4;
 }
 
@@ -5416,6 +5738,99 @@ html[data-theme="dark"] .phone-device .phone-jjwxc--chapter .phone-jjwxc__genera
   cursor: default;
 }
 
+.phone-app__bar-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1px;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+.phone-app__bar-actions .phone-app__bar-action {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  margin: 0;
+}
+
+.phone-app__bar-actions .phone-app__bar-action svg {
+  width: 17px;
+  height: 17px;
+  display: block;
+}
+
+.phone-app__bar-action--select-active {
+  color: #07c160;
+}
+
+.phone-app__bar-action--select-delete {
+  color: #e54d42;
+}
+
+/* 查手机 · 列表多选（微信会话列表 / 音乐），样式对齐聊天内多选 */
+.phone-list-select__check {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 0, 0, 0.2);
+  background: #fff;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.phone-list-select__check--on {
+  border-color: #07c160;
+  background: #07c160;
+  box-shadow: 0 0 0 2px rgba(7, 193, 96, 0.22);
+}
+
+.phone-list-select__check--on::after {
+  content: "";
+  width: 5px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+.phone-list-select--active .phone-list-select__row {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phone-list-select--active .phone-wechat-row,
+.phone-list-select--active .phone-music-row {
+  position: relative;
+  gap: 10px;
+  padding-left: 14px;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.phone-list-select--active .phone-wechat-row:active:not(.phone-list-select__row--selected),
+.phone-list-select--active .phone-music-row:active:not(.phone-list-select__row--selected) {
+  background: #f2f2f2;
+}
+
+.phone-list-select__row--selected {
+  background: rgba(7, 193, 96, 0.1);
+  box-shadow: inset 3px 0 0 #07c160;
+}
+
+.phone-list-select--active .phone-wechat-row.phone-list-select__row--selected:active,
+.phone-list-select--active .phone-music-row.phone-list-select__row--selected:active {
+  background: rgba(7, 193, 96, 0.16);
+}
+
 .phone-wechat-gen-btn--loading {
   animation: phone-wechat-blink 0.85s ease-in-out infinite;
 }
@@ -5480,49 +5895,6 @@ html[data-theme="dark"] .phone-device .phone-jjwxc--chapter .phone-jjwxc__genera
   background: #fff;
 }
 
-.phone-wechat-row-wrap {
-  position: relative;
-  overflow: hidden;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-}
-
-.phone-wechat-row__slide {
-  position: relative;
-  z-index: 1;
-  background: #fff;
-  transition: transform 0.22s ease;
-  will-change: transform;
-}
-
-.phone-wechat-row-wrap.is-dragging .phone-wechat-row__slide {
-  transition: none;
-}
-
-.phone-wechat-row-wrap.is-open .phone-wechat-row__slide {
-  transform: translateX(-72px);
-}
-
-.phone-wechat-row__delete {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 72px;
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: #e54d42;
-  color: #fff;
-  font-size: 0.88rem;
-  font-weight: 500;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.phone-wechat-row__delete:active {
-  background: #cf4339;
-}
-
 .phone-wechat-row {
   display: flex;
   align-items: center;
@@ -5530,6 +5902,7 @@ html[data-theme="dark"] .phone-device .phone-jjwxc--chapter .phone-jjwxc__genera
   width: 100%;
   padding: 12px 16px;
   border: none;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
   background: #fff;
   text-align: left;
   cursor: pointer;
@@ -5720,6 +6093,40 @@ html[data-theme="dark"] .phone-wechat-chat-action--delete-ready {
   color: #ff6b63;
 }
 
+html[data-theme="dark"] .phone-app__bar-action--select-active {
+  color: #07c160;
+}
+
+html[data-theme="dark"] .phone-app__bar-action--select-delete {
+  color: #ff6b63;
+}
+
+html[data-theme="dark"] .phone-list-select__check {
+  background: #2c2c2c;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+html[data-theme="dark"] .phone-list-select__check--on {
+  background: #07c160;
+  border-color: #07c160;
+  box-shadow: 0 0 0 2px rgba(7, 193, 96, 0.28);
+}
+
+html[data-theme="dark"] .phone-list-select--active .phone-wechat-row:active:not(.phone-list-select__row--selected),
+html[data-theme="dark"] .phone-list-select--active .phone-music-row:active:not(.phone-list-select__row--selected) {
+  background: #2a2a2a;
+}
+
+html[data-theme="dark"] .phone-list-select__row--selected {
+  background: rgba(7, 193, 96, 0.14);
+  box-shadow: inset 3px 0 0 #2fd07a;
+}
+
+html[data-theme="dark"] .phone-list-select--active .phone-wechat-row.phone-list-select__row--selected:active,
+html[data-theme="dark"] .phone-list-select--active .phone-music-row.phone-list-select__row--selected:active {
+  background: rgba(7, 193, 96, 0.2);
+}
+
 .phone-wechat-msg {
   display: flex;
   align-items: flex-start;
@@ -5866,18 +6273,6 @@ html[data-theme="dark"] .phone-wechat__list,
 html[data-theme="dark"] .phone-wechat-row {
   background: #1f1f1f;
   border-color: rgba(255, 255, 255, 0.06);
-}
-
-html[data-theme="dark"] .phone-wechat-row-wrap {
-  border-color: rgba(255, 255, 255, 0.06);
-}
-
-html[data-theme="dark"] .phone-wechat-row__slide {
-  background: #1f1f1f;
-}
-
-html[data-theme="dark"] .phone-wechat-row__delete {
-  background: #c93c32;
 }
 
 html[data-theme="dark"] .phone-wechat-row__delete:active {
@@ -6466,49 +6861,6 @@ html[data-theme="dark"] .phone-moments-post__media-cell {
   flex-direction: column;
 }
 
-.phone-music-row-wrap {
-  position: relative;
-  overflow: hidden;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
-}
-
-.phone-music-row__slide {
-  position: relative;
-  z-index: 1;
-  background: #fff;
-  transition: transform 0.22s ease;
-  will-change: transform;
-}
-
-.phone-music-row-wrap.is-dragging .phone-music-row__slide {
-  transition: none;
-}
-
-.phone-music-row-wrap.is-open .phone-music-row__slide {
-  transform: translateX(-72px);
-}
-
-.phone-music-row__delete {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 72px;
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: #e54d42;
-  color: #fff;
-  font-size: 0.88rem;
-  font-weight: 500;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.phone-music-row__delete:active {
-  background: #cf4339;
-}
-
 .phone-music-row {
   display: flex;
   align-items: center;
@@ -6729,14 +7081,6 @@ html[data-theme="dark"] .phone-music {
 
 html[data-theme="dark"] .phone-music-row {
   border-bottom-color: rgba(255, 255, 255, 0.06);
-}
-
-html[data-theme="dark"] .phone-music-row-wrap {
-  border-bottom-color: rgba(255, 255, 255, 0.06);
-}
-
-html[data-theme="dark"] .phone-music-row__slide {
-  background: #1f1f1f;
 }
 
 html[data-theme="dark"] .phone-music__section-title {
