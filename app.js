@@ -1241,10 +1241,11 @@
       )
     );
     const storageSnap = collectLocalStorageSnapshot();
+    delete storageSnap[STORAGE_NARRATIVE];
+    delete storageSnap[STORAGE_NARRATIVE_SYNC_AT];
     try {
       const nar = await collectBackupNarrativeJson();
       if (typeof nar === "string" && nar.length) {
-        storageSnap[STORAGE_NARRATIVE] = nar;
         zip.file(BACKUP_NARRATIVE_FILE, nar);
       }
     } catch (_eNar) {}
@@ -1303,6 +1304,46 @@
     return out;
   }
 
+  /** 解析 localStorage.json 前去掉超大剧情键，避免移动端 JSON.parse 与 restore 时重复占用内存。 */
+  function stripJsonStringProperty(raw, key) {
+    var s = String(raw);
+    if (!key) return s;
+    var needle = JSON.stringify(key) + ":";
+    var idx = s.indexOf(needle);
+    if (idx < 0) return s;
+    var i = idx + needle.length;
+    while (i < s.length && /\s/.test(s.charAt(i))) i++;
+    if (i >= s.length || s.charAt(i) !== '"') return s;
+    i++;
+    while (i < s.length) {
+      var ch = s.charAt(i);
+      if (ch === "\\") {
+        i += 2;
+        continue;
+      }
+      if (ch === '"') {
+        i++;
+        break;
+      }
+      i++;
+    }
+    var start = idx;
+    while (start > 0 && /\s/.test(s.charAt(start - 1))) start--;
+    if (start > 0 && s.charAt(start - 1) === ",") {
+      start--;
+    } else {
+      while (i < s.length && /\s/.test(s.charAt(i))) i++;
+      if (i < s.length && s.charAt(i) === ",") i++;
+    }
+    return s.slice(0, start) + s.slice(i);
+  }
+
+  function stripBackupStorageNarrativeKeysFromJsonRaw(raw) {
+    var s = stripJsonStringProperty(raw, STORAGE_NARRATIVE);
+    s = stripJsonStringProperty(s, STORAGE_NARRATIVE_SYNC_AT);
+    return s;
+  }
+
   /** 兼容 zip 根路径为「localStorage.json」或「./folder/localStorage.json」等 */
   function zipGetFileInsensitive(zip, wantName) {
     const exact = zip.file(wantName);
@@ -1332,6 +1373,55 @@
     return true;
   }
 
+  function isBrowserStorageQuotaError(e) {
+    if (!e) return false;
+    if (e.name === "QuotaExceededError") return true;
+    if (e.code === 22 || e.code === 1014) return true;
+    return false;
+  }
+
+  /** 导入时恢复 localStorage 快照；大体积剧情只走 IndexedDB，勿写入 localStorage。 */
+  function restoreBackupLocalStorageSnapshot(snapshot) {
+    Object.keys(snapshot).forEach(function (k) {
+      if (k === STORAGE_NARRATIVE || k === STORAGE_NARRATIVE_SYNC_AT) return;
+      try {
+        localStorage.setItem(k, snapshot[k]);
+      } catch (e) {
+        if (isBrowserStorageQuotaError(e)) throw new Error("BACKUP_STORAGE_QUOTA");
+        throw e;
+      }
+    });
+  }
+
+  async function applyImportedNarrativeJson(importedNar) {
+    if (typeof importedNar !== "string" || !importedNar.length) {
+      try {
+        await idbDeleteNarrativeJson();
+      } catch (_eDel) {}
+      try {
+        localStorage.removeItem(STORAGE_NARRATIVE);
+        localStorage.removeItem(STORAGE_NARRATIVE_SYNC_AT);
+      } catch (_eLs) {}
+      return;
+    }
+    try {
+      await idbPutNarrativeJson(importedNar);
+    } catch (_eIdb) {
+      try {
+        localStorage.setItem(STORAGE_NARRATIVE, importedNar);
+        localStorage.setItem(STORAGE_NARRATIVE_SYNC_AT, String(Date.now()));
+      } catch (eLs) {
+        if (isBrowserStorageQuotaError(eLs)) throw new Error("BACKUP_STORAGE_QUOTA");
+        throw new Error("BACKUP_NARRATIVE_PERSIST_FAILED");
+      }
+      return;
+    }
+    try {
+      localStorage.removeItem(STORAGE_NARRATIVE);
+      localStorage.removeItem(STORAGE_NARRATIVE_SYNC_AT);
+    } catch (_eRm) {}
+  }
+
   async function applyBackupFromZipFile(file) {
     if (!file) return;
     if (!/\.zip$/i.test(file.name || "")) {
@@ -1354,8 +1444,18 @@
       if (!storageEntry) {
         throw new Error("BACKUP_FILE_MISSING");
       }
-      const storageRaw = await storageEntry.async("string");
-      const snapshot = parseBackupStorageJson(storageRaw);
+      var importedNar = null;
+      const narrativeEntry = zipGetFileInsensitive(zip, BACKUP_NARRATIVE_FILE);
+      if (narrativeEntry) {
+        try {
+          importedNar = await narrativeEntry.async("string");
+        } catch (_eNarFile) {}
+      }
+      var storageRaw = await storageEntry.async("string");
+      var snapshotParseRaw = importedNar
+        ? stripBackupStorageNarrativeKeysFromJsonRaw(storageRaw)
+        : storageRaw;
+      const snapshot = parseBackupStorageJson(snapshotParseRaw);
       let manifest;
       if (manifestEntry) {
         manifest = JSON.parse(await manifestEntry.async("string"));
@@ -1369,30 +1469,15 @@
         throw new Error("BACKUP_MANIFEST_INVALID");
       }
       clearBackupStorageKeys();
-      Object.keys(snapshot).forEach(function (k) {
-        localStorage.setItem(k, snapshot[k]);
-      });
-      var importedNar = snapshot[STORAGE_NARRATIVE];
-      const narrativeEntry = zipGetFileInsensitive(zip, BACKUP_NARRATIVE_FILE);
-      if (narrativeEntry) {
-        try {
-          const fileNar = await narrativeEntry.async("string");
-          importedNar = pickNewerNarrativeRaw(importedNar, fileNar);
-        } catch (_eNarFile) {}
+      if (!importedNar && snapshot[STORAGE_NARRATIVE]) {
+        importedNar = snapshot[STORAGE_NARRATIVE];
+      } else if (importedNar && snapshot[STORAGE_NARRATIVE]) {
+        importedNar = pickNewerNarrativeRaw(snapshot[STORAGE_NARRATIVE], importedNar);
       }
-      if (typeof importedNar === "string" && importedNar.length) {
-        try {
-          await idbPutNarrativeJson(importedNar);
-        } catch (_eImp) {}
-        try {
-          localStorage.removeItem(STORAGE_NARRATIVE);
-          localStorage.removeItem(STORAGE_NARRATIVE_SYNC_AT);
-        } catch (_eLs) {}
-      } else {
-        try {
-          await idbDeleteNarrativeJson();
-        } catch (_eDel) {}
-      }
+      delete snapshot[STORAGE_NARRATIVE];
+      delete snapshot[STORAGE_NARRATIVE_SYNC_AT];
+      restoreBackupLocalStorageSnapshot(snapshot);
+      await applyImportedNarrativeJson(importedNar);
       /**
        * 必须立刻禁止持久化并向磁盘 flush：否则会话内存仍是「导入前」的空数据，
        * reload 前的 beforeunload/pagehide 会把空 narrative 写回盖掉刚导入的内容。
@@ -1422,6 +1507,11 @@
         msg = "导入备份失败：ZIP 内缺少可用的 localStorage.json。";
       } else if (e && e.message === "BACKUP_STORAGE_INVALID") {
         msg = "导入备份失败：localStorage.json 格式不正确。";
+      } else if (e && e.message === "BACKUP_STORAGE_QUOTA") {
+        msg =
+          "导入备份失败：浏览器本地存储空间不足（剧情数据较大）。请刷新后重试，或换用支持 IndexedDB 的浏览器。";
+      } else if (e && e.message === "BACKUP_NARRATIVE_PERSIST_FAILED") {
+        msg = "导入备份失败：剧情数据无法写入本地，请刷新页面后重试。";
       }
       showToast(msg, "error");
     }
@@ -9348,8 +9438,147 @@
 
   function closeOverviewKnockView() {
     knockSetupOpen = false;
+    knockSelectMode = false;
+    knockSelectedMsgs = [];
     overviewSubView = null;
     syncOverviewSubViewUi();
+  }
+
+  function getKnockChatRecordMutable() {
+    if (!isKnockChatReady()) return null;
+    const key = knockChatStorageKey(knockUserCharId, knockPartnerCharId);
+    if (!knockChatData[key]) knockChatData[key] = { messages: [] };
+    if (!Array.isArray(knockChatData[key].messages)) knockChatData[key].messages = [];
+    return knockChatData[key];
+  }
+
+  function getKnockChatUi() {
+    return {
+      selectMode: knockSelectMode,
+      selectedMsgs: knockSelectedMsgs,
+    };
+  }
+
+  function knockHasTrailingAssistantReply() {
+    const msgs = getKnockChatMessages();
+    return msgs.length > 0 && msgs[msgs.length - 1].role === "assistant";
+  }
+
+  function removeKnockTrailingAssistantReplies() {
+    const rec = getKnockChatRecordMutable();
+    if (!rec || !rec.messages.length) return 0;
+    let removed = 0;
+    while (rec.messages.length && rec.messages[rec.messages.length - 1].role === "assistant") {
+      rec.messages.pop();
+      removed += 1;
+    }
+    return removed;
+  }
+
+  function deleteKnockMessagesAtIndices(indices) {
+    const rec = getKnockChatRecordMutable();
+    if (!rec || !Array.isArray(indices) || !indices.length) return false;
+    const sorted = indices
+      .map(function (x) {
+        return Number(x);
+      })
+      .filter(function (i) {
+        return Number.isFinite(i) && i >= 0 && i < rec.messages.length;
+      })
+      .sort(function (a, b) {
+        return b - a;
+      });
+    if (!sorted.length) return false;
+    sorted.forEach(function (i) {
+      rec.messages.splice(i, 1);
+    });
+    return true;
+  }
+
+  function toggleKnockSelectMode(slot) {
+    if (knockReplyGenerating) return;
+    if (knockSelectMode && knockSelectedMsgs.length) {
+      deleteKnockMessagesAtIndices(knockSelectedMsgs);
+      knockSelectMode = false;
+      knockSelectedMsgs = [];
+      persistNarrative();
+      showToast("已删除选中消息", "success");
+    } else if (knockSelectMode) {
+      knockSelectMode = false;
+      knockSelectedMsgs = [];
+    } else {
+      knockSelectMode = true;
+      knockSelectedMsgs = [];
+    }
+    renderKnockScreen(slot || els.knockContentSlot());
+  }
+
+  function toggleKnockMessageSelection(slot, msgIndex) {
+    if (!knockSelectMode) return;
+    const idx = Number(msgIndex);
+    if (!Number.isFinite(idx)) return;
+    if (!Array.isArray(knockSelectedMsgs)) knockSelectedMsgs = [];
+    const pos = knockSelectedMsgs.indexOf(idx);
+    if (pos >= 0) knockSelectedMsgs.splice(pos, 1);
+    else knockSelectedMsgs.push(idx);
+    renderKnockScreen(slot || els.knockContentSlot());
+  }
+
+  function buildKnockRegenerateIconSvg() {
+    return (
+      '<svg class="icon-linear" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M1 4v6h6"/>' +
+      '<path d="M3.51 15a9 9 0 101.49-8.36L1 10"/>' +
+      "</svg>"
+    );
+  }
+
+  function buildKnockPersonaBlock(char, label) {
+    if (!char) return "";
+    const lines = ["【" + label + "·" + String(char.name || "未命名").trim() + "】"];
+    if (char.gender) lines.push("性别：" + String(char.gender).trim());
+    if (char.race) lines.push("种族：" + String(char.race).trim());
+    const traits = normalizeAssistantRewriteTraits(char.traits || "");
+    if (traits) lines.push("特质：" + traits);
+    const profile = buildCharacterProfileFromLibrary(char);
+    if (profile) lines.push(profile);
+    return lines.join("\n");
+  }
+
+  function buildKnockReplySystemPrompt(userChar, partnerChar) {
+    const userName = String(userChar && userChar.name ? userChar.name : "用户").trim() || "用户";
+    const partnerName = String(partnerChar && partnerChar.name ? partnerChar.name : "对方").trim() || "对方";
+    return (
+      "你是互动叙事产品里的私聊模拟器。你只扮演「" +
+      partnerName +
+      "」，用该角色的人设与口吻回复微信式短消息。\n" +
+      "对话另一方是「" +
+      userName +
+      "」（用户主视角）；回复时要同时考虑双方人设与关系。\n" +
+      "严禁引用或假设任何剧情正文、世界书、章节内容；仅依据下面两位角色设定与已有聊天记录。\n\n" +
+      buildKnockPersonaBlock(partnerChar, "你扮演的角色") +
+      "\n\n" +
+      buildKnockPersonaBlock(userChar, "对话对象（用户）") +
+      "\n\n" +
+      "输出要求：像真人发微信，每条极短（最多一句半）；优先 2～5 条，用 <<<BUBBLE>>> 分隔（整行仅含此 11 字符）。不要用 Markdown，不要前缀角色名。"
+    );
+  }
+
+  function buildKnockReplyApiMessageList(msgs) {
+    const userChar = getCharById(knockUserCharId);
+    const partnerChar = getCharById(knockPartnerCharId);
+    const list = Array.isArray(msgs) ? msgs : [];
+    const apiMsgs = [{ role: "system", content: buildKnockReplySystemPrompt(userChar, partnerChar) }];
+    if (!list.length || list[list.length - 1].role !== "user") return apiMsgs;
+    const history = list.slice(0, -1).slice(-KNOCK_CHAT_HISTORY_LIMIT);
+    history.forEach(function (m) {
+      apiMsgs.push({
+        role: m.role === "user" ? "user" : "assistant",
+        content: String(m.content || "").trim(),
+      });
+    });
+    apiMsgs.push({ role: "user", content: String(list[list.length - 1].content || "").trim() });
+    return apiMsgs;
   }
 
   async function openOverviewKnockView() {
@@ -9381,11 +9610,31 @@
     openOverviewSubView("knock");
   }
 
-  function buildKnockMessageHtml(msg, userChar, partnerChar) {
+  function buildKnockMessageHtml(msg, userChar, partnerChar, msgIndex, ui) {
+    ui = ui || {};
     const isUser = msg.role === "user";
     const side = isUser ? "out" : "in";
     const char = isUser ? userChar : partnerChar;
     const bubbleText = escapeHtml(String(msg.content || ""));
+    const idx = Number(msgIndex);
+    const selectMode = ui.selectMode;
+    const selected =
+      selectMode && ui.selectedMsgs && ui.selectedMsgs.indexOf(idx) >= 0;
+    let msgCls = "phone-wechat-msg phone-wechat-msg--" + side;
+    if (selectMode) msgCls += " phone-wechat-msg--selectable";
+    if (selected) msgCls += " phone-wechat-msg--selected";
+    const msgAttrs =
+      ' data-knock-msg-index="' +
+      idx +
+      '"' +
+      (selectMode ? ' data-knock-msg-select role="button" tabindex="0"' : "");
+    const checkHtml = selectMode
+      ? '<span class="phone-wechat-msg__check" aria-hidden="true">' +
+        (selected
+          ? '<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>'
+          : "") +
+        "</span>"
+      : "";
     const avCls = "avatar phone-wechat-msg__avatar" + (isUser ? " phone-wechat-msg__avatar--out" : "");
     const avHtml =
       '<span class="' +
@@ -9395,7 +9644,12 @@
       '"></span>';
     if (isUser) {
       return (
-        '<div class="phone-wechat-msg phone-wechat-msg--out">' +
+        '<div class="' +
+        msgCls +
+        '"' +
+        msgAttrs +
+        ">" +
+        checkHtml +
         '<span class="phone-wechat-msg__bubble">' +
         bubbleText +
         "</span>" +
@@ -9404,7 +9658,12 @@
       );
     }
     return (
-      '<div class="phone-wechat-msg phone-wechat-msg--in">' +
+      '<div class="' +
+      msgCls +
+      '"' +
+      msgAttrs +
+      ">" +
+      checkHtml +
       avHtml +
       '<span class="phone-wechat-msg__bubble">' +
       bubbleText +
@@ -9521,12 +9780,13 @@
     const user = getCharById(knockUserCharId);
     const partner = getCharById(knockPartnerCharId);
     const partnerName = partner ? partner.name || "聊天对象" : "聊天对象";
+    const ui = getKnockChatUi();
     const msgs = getKnockChatMessages();
     let threadHtml = "";
     if (msgs.length) {
       threadHtml = msgs
-        .map(function (m) {
-          return buildKnockMessageHtml(m, user, partner);
+        .map(function (m, idx) {
+          return buildKnockMessageHtml(m, user, partner, idx, ui);
         })
         .join("");
     } else {
@@ -9539,9 +9799,22 @@
         "</div>";
     }
     const genLoadingCls = knockReplyGenerating ? " phone-wechat-gen-btn--loading" : "";
-    const genDisabled = !knockAwaitingReply() || knockReplyGenerating;
+    const genDisabled = !knockAwaitingReply() || knockReplyGenerating || knockSelectMode;
+    const regenDisabled =
+      !knockHasTrailingAssistantReply() || knockReplyGenerating || knockSelectMode;
+    const selectActive = knockSelectMode;
+    const selectedCount = knockSelectedMsgs ? knockSelectedMsgs.length : 0;
+    const selectCls =
+      " phone-app__bar-action phone-wechat-chat-action phone-wechat-chat-action--select" +
+      (selectActive ? " phone-wechat-chat-action--active" : "") +
+      (selectActive && selectedCount ? " phone-wechat-chat-action--delete-ready" : "");
+    const selectLabel =
+      selectActive && selectedCount ? "删除选中（" + selectedCount + "）" : "选择消息";
+    const barActionDisabled = knockReplyGenerating ? " disabled" : "";
     return (
-      '<div class="knock-chat phone-app phone-wechat phone-wechat--chat" aria-label="敲敲聊天">' +
+      '<div class="knock-chat knock-chat--themed phone-app phone-wechat phone-wechat--chat' +
+      (knockSelectMode ? " phone-wechat--select-mode" : "") +
+      '" aria-label="敲敲聊天">' +
       '<header class="phone-app__bar phone-app__bar--wechat-chat knock-chat__bar">' +
       '<button type="button" class="phone-app__back" data-knock-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
@@ -9551,14 +9824,34 @@
       escapeHtml(partnerName) +
       "</h2></div>" +
       '<div class="phone-wechat-chat-bar__actions knock-chat__actions">' +
-      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn phone-wechat-chat-action" data-knock-regenerate aria-label="重回上一轮回复" title="重回上一轮回复"' +
+      (regenDisabled ? " disabled" : barActionDisabled) +
+      ">" +
+      buildKnockRegenerateIconSvg() +
+      "</button>" +
+      '<button type="button" class="' +
+      selectCls.trim() +
+      '" data-knock-select-toggle aria-label="' +
+      escapeHtml(selectLabel) +
+      '" title="' +
+      escapeHtml(selectLabel) +
+      '"' +
+      barActionDisabled +
+      ">" +
+      (selectActive && selectedCount
+        ? '<svg class="icon-linear" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>'
+        : '<svg class="icon-linear" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>') +
+      "</button>" +
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn phone-wechat-chat-action phone-wechat-chat-action--generate' +
       genLoadingCls +
       '" data-knock-generate aria-label="生成对方回复" title="生成对方回复"' +
       (genDisabled ? " disabled" : "") +
       ">" +
       buildPhoneWechatStarIconSvg() +
       "</button>" +
-      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn" data-knock-setup-toggle aria-label="选择聊天角色" title="选择聊天角色">' +
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn" data-knock-setup-toggle aria-label="选择聊天角色" title="选择聊天角色"' +
+      (knockReplyGenerating || knockSelectMode ? " disabled" : "") +
+      ">" +
       buildKnockCharPickIconSvg() +
       "</button></div>" +
       "</header>" +
@@ -9566,8 +9859,12 @@
       threadHtml +
       "</div>" +
       '<div class="phone-wechat__composer knock-chat__composer">' +
-      '<textarea class="knock-chat__input" data-knock-input rows="1" placeholder="发消息…" aria-label="消息输入"></textarea>' +
-      '<button type="button" class="knock-chat__send" data-knock-send aria-label="发送" title="发送">' +
+      '<textarea class="knock-chat__input" data-knock-input rows="1" placeholder="发消息…" aria-label="消息输入"' +
+      (knockSelectMode || knockReplyGenerating ? " disabled" : "") +
+      "></textarea>" +
+      '<button type="button" class="knock-chat__send" data-knock-send aria-label="发送" title="发送"' +
+      (knockSelectMode || knockReplyGenerating ? " disabled" : "") +
+      ">" +
       '<svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>' +
       "</button></div>" +
       buildKnockSetupSheetHtml({ overlay: true }) +
@@ -9613,12 +9910,15 @@
       return;
     }
     knockSetupOpen = false;
+    knockSelectMode = false;
+    knockSelectedMsgs = [];
     persistNarrative();
     renderKnockScreen(slot || els.knockContentSlot());
     showToast("已切换为「" + (partner.name || "对方") + "」", "success");
   }
 
   function sendKnockMessage() {
+    if (knockSelectMode || knockReplyGenerating) return;
     const slot = els.knockContentSlot();
     const input = slot && slot.querySelector("[data-knock-input]");
     const text = input && input.value ? String(input.value).trim() : "";
@@ -9638,19 +9938,62 @@
 
   async function generateKnockReply() {
     if (knockReplyGenerating) return;
+    if (knockSelectMode) return;
     if (!isKnockChatReady()) return;
     if (!knockAwaitingReply()) {
       showToast("请先发送一条消息，再点生成。", "info");
       return;
     }
+    const rec = getKnockChatRecordMutable();
+    if (!rec) return;
     knockReplyGenerating = true;
     renderKnockScreen(els.knockContentSlot());
     try {
-      showToast("对方回复 API 即将接入，请稍后再试。", "info");
+      const apiMsgs = buildKnockReplyApiMessageList(rec.messages);
+      const raw = await callChatCompletion(apiMsgs, 0.82, 1400, { apiConfigId: getWorkbenchApiId() });
+      const segs = splitAssistantPenpalReply(raw);
+      const fallback = String(raw || "").trim() || "…";
+      const toPush = segs.length ? segs : [fallback];
+      toPush.forEach(function (seg) {
+        const t = String(seg || "").trim();
+        if (!t) return;
+        rec.messages.push({
+          role: "assistant",
+          content: truncateCharsWithEllipsis(t, 500),
+          ts: Date.now(),
+        });
+      });
+      persistNarrative();
+      showToast("对方已回复", "success");
+    } catch (err) {
+      const msg = (err && err.message) || "";
+      showToast(msg || "生成失败，请检查 API 配置后重试。", "error", 4200);
     } finally {
       knockReplyGenerating = false;
       renderKnockScreen(els.knockContentSlot());
     }
+  }
+
+  async function regenerateKnockReply() {
+    if (knockReplyGenerating) return;
+    if (knockSelectMode) return;
+    if (!isKnockChatReady()) return;
+    if (!knockHasTrailingAssistantReply()) {
+      showToast("尚无对方回复可重回。", "info");
+      return;
+    }
+    const removed = removeKnockTrailingAssistantReplies();
+    if (!removed) {
+      showToast("尚无对方回复可重回。", "info");
+      return;
+    }
+    persistNarrative();
+    if (!knockAwaitingReply()) {
+      showToast("已删除上一轮回复，但缺少可重新生成的用户消息。", "warning");
+      renderKnockScreen(els.knockContentSlot());
+      return;
+    }
+    await generateKnockReply();
   }
 
   async function openPlotSheet() {
@@ -34967,6 +35310,19 @@
     if (!slot || !slot.contains(e.target)) return;
     if (e.target.closest("[data-knock-back]")) {
       closeOverviewKnockView();
+      return;
+    }
+    if (e.target.closest("[data-knock-regenerate]")) {
+      void regenerateKnockReply();
+      return;
+    }
+    if (e.target.closest("[data-knock-select-toggle]")) {
+      toggleKnockSelectMode(slot);
+      return;
+    }
+    const msgSelect = e.target.closest("[data-knock-msg-select]");
+    if (msgSelect) {
+      toggleKnockMessageSelection(slot, msgSelect.getAttribute("data-knock-msg-index"));
       return;
     }
     if (e.target.closest("[data-knock-generate]")) {
