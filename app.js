@@ -85,6 +85,7 @@
 
   const STORAGE_API_CONFIGS = "hj-api-configs-v1";
   const STORAGE_ACTIVE_API_ID = "hj-active-api-id-v1";
+  const STORAGE_TTS_SETTINGS = "hj-tts-settings-v1";
   const STORAGE_ASSISTANT = "hj-assistant-v1";
   const STORAGE_POST_CLEAR_ASSISTANT_V1 = "hj-post-clear-assistant-v1";
   const ASSISTANT_MAX_COUNT = 12;
@@ -1910,20 +1911,34 @@
   /** 续写送入模型的总结条数（总结已压缩，可略多于正文轮数窗口） */
   const PLAY_SUMMARY_PROMPT_REF_LIMIT = PLAY_SUMMARY_REF_LIMIT;
   /** 剧情续写单次请求的用户/系统提示软上限，避免 Gemini 中转因上下文过大返回 empty_response */
-  const STORY_PLAY_API_USER_MAX_CHARS = 30000;
+  const STORY_PLAY_API_USER_MAX_CHARS = 22000;
   const STORY_PLAY_API_SYSTEM_MAX_CHARS = 14000;
   const STORY_PLAY_HISTORY_LINE_MAX_CHARS = 900;
   const PLOT_MEMORY_MAX_STORE = 20;
-  /** 续写时送入模型的记忆条数（与 STORY_PLAY_REF_TURN_LIMIT 一致） */
-  const PLOT_MEMORY_PROMPT_MAX = STORY_PLAY_REF_TURN_LIMIT;
+  /** 续写时送入模型的记忆条数上限 */
+  const PLOT_MEMORY_PROMPT_MAX = 4;
   const PLOT_MEMORY_PROMPT_ITEM_MAX_CHARS = 480;
   const PLOT_MEMORY_CONTEXT_MAX_CHARS = 3800;
   /** 续写 API 用滚动「至今主线」摘录上限（完整阶段总结仍按 PLAY_SUMMARY_ITEM_MAX_CHARS 存盘） */
   const STORY_PLAY_MAINLINE_SUMMARY_MAX_CHARS = 2400;
   /** 已有正文时送入模型的故事开端摘录上限（避免与最近剧情重复占满上下文） */
-  const STORY_PLAY_OPENING_WHEN_PLAYING_MAX_CHARS = 520;
+  const STORY_PLAY_OPENING_WHEN_PLAYING_MAX_CHARS = 380;
+  /** 已有正文时人设/时代等设定摘录上限 */
+  const STORY_PLAY_IDENTITY_WHEN_PLAYING_MAX_CHARS = 480;
+  /** 续写时世界书总预算与单条上限（可截断） */
+  const STORY_PLAY_WB_TOTAL_MAX_CHARS = 4500;
+  const STORY_PLAY_WB_ITEM_MAX_CHARS = 1400;
+  /** 剧情续写送入模型的阶段总结条数（已保存 summaries 中按时间取最近 N 条） */
+  const STORY_PLAY_SUMMARY_REF_LIMIT = 3;
+  const STORY_PLAY_SUMMARY_ITEM_MAX_CHARS = 2000;
+  /** 查手机生成：引用最近剧情轮数（小于续写窗口；末轮全文、更早轮摘录） */
+  const PHONE_PLOT_REF_TURN_LIMIT = 3;
+  /** 查手机生成：引用记忆条数 */
+  const PHONE_PLOT_MEMORY_REF_LIMIT = 3;
+  /** 剧情续写优先使用流式输出，按说话块逐条显示（不支持时自动回退为非流式） */
+  const STORY_PLAY_STREAM_ENABLED = true;
   const PLOT_MEMORY_MANDATORY_FROM_SUMMARY = 2;
-  const PLOT_MEMORY_MANDATORY_RELEVANT = 3;
+  const PLOT_MEMORY_MANDATORY_RELEVANT = 2;
 
   function ensureFixedCharCategory() {
     FIXED_CHAR_CATEGORY_DEFS.forEach(function (def, idx) {
@@ -2197,6 +2212,10 @@
         }
         delete c.relations;
         if (!c.categoryId || !charCategories.some((x) => x.id === c.categoryId)) c.categoryId = defC.id;
+        if (!c.voice || typeof c.voice !== "object") c.voice = {};
+        if (typeof c.voice.presetVoice !== "string") c.voice.presetVoice = "";
+        if (typeof c.voice.cloneVoiceId !== "string") c.voice.cloneVoiceId = "";
+        if (typeof c.voice.refAudioKey !== "string") c.voice.refAudioKey = "";
       });
     }
   }
@@ -2221,6 +2240,36 @@
   ];
 
   let activeApiId = "a1";
+  const MINIMAX_REGIONS = [
+    { id: "cn", label: "国内版（api.minimaxi.com）", baseUrl: "https://api.minimaxi.com/v1" },
+    { id: "intl", label: "国际版（api.minimax.io）", baseUrl: "https://api.minimax.io/v1" },
+  ];
+  const MINIMAX_TTS_MODELS = [
+    { id: "speech-2.8-hd", label: "speech-2.8-hd（推荐，口语更自然）" },
+    { id: "speech-2.8-turbo", label: "speech-2.8-turbo（更快）" },
+    { id: "speech-02-hd", label: "speech-02-hd" },
+    { id: "speech-02-turbo", label: "speech-02-turbo" },
+    { id: "speech-01-hd", label: "speech-01-hd" },
+    { id: "speech-01-turbo", label: "speech-01-turbo" },
+  ];
+  const TTS_CACHE_VERSION = "act-v3";
+  const MINIMAX_VOICE_BASE_PROMPT =
+    "你在即兴演对手戏，跟面前的人说话。禁止播音腔、朗诵腔、有声书旁白感。口语化，有呼吸、停顿和情绪起伏，像真实聊天或争执，不是在念稿。";
+  let ttsSettings = {
+    enabled: true,
+    region: "cn",
+    apiKey: "",
+    groupId: "",
+    baseUrl: "",
+    model: "speech-2.8-hd",
+    voiceId: "",
+    clonedVoiceId: "",
+    voicePrompt: "",
+  };
+  let storyTtsAudio = null;
+  let storyTtsPlayingAv = null;
+  let storyTtsObjectUrl = null;
+  const storyTtsBlobMemoryCache = new Map();
   let wbFilter = "all";
   let plotFilter = "all";
   let charFilter = "all";
@@ -2799,7 +2848,7 @@
     }
   }
 
-  /** 续写「最近剧情」：窗口内最后一轮用全文，更早轮次优先用 internalDigest */
+  /** 续写「最近剧情」：窗口内最后一轮用全文；更早轮次优先用已存 internalDigest，否则本地首尾摘录（不另调 API） */
   function buildStoryPlayTurnHistoryForApi(plot, turn, globalTurnIndex, isLatestInWindow) {
     if (!isLatestInWindow) {
       const digest = String((turn && turn.internalDigest) || "").trim();
@@ -2810,6 +2859,10 @@
           " 轮概要]\n" +
           truncateCharsWithEllipsis(digest, TURN_DIGEST_PROMPT_MAX_CHARS)
         );
+      }
+      const compact = compactStoryPlayTurnForHistoryApi(turn, false);
+      if (compact) {
+        return "[第 " + (globalTurnIndex + 1) + " 轮摘录]\n" + compact;
       }
     }
     const lines = Array.isArray(turn && turn.lines) ? turn.lines : [];
@@ -3333,6 +3386,22 @@
       if (!plot || plot.playSealed) return;
       e.preventDefault();
       openStoryLineActionSheet(plot, meta.turnIndex, meta.lineIndex);
+    });
+
+    feed.addEventListener("click", function (e) {
+      const speakAv = e.target.closest(".story-msg__avatar--speakable");
+      if (!speakAv || !feed.contains(speakAv)) return;
+      e.stopPropagation();
+      e.preventDefault();
+      const plotId = String(speakAv.getAttribute("data-story-speak-plot-id") || "").trim();
+      const turnIndex = parseInt(speakAv.getAttribute("data-story-speak-turn-index"), 10);
+      const lineIndex = parseInt(speakAv.getAttribute("data-story-speak-line-index"), 10);
+      if (!plotId || !Number.isFinite(turnIndex) || !Number.isFinite(lineIndex)) return;
+      const plot = plots.find(function (x) {
+        return x.id === plotId;
+      });
+      if (!plot) return;
+      void playStoryLineTts(plot, turnIndex, lineIndex, speakAv);
     });
   }
 
@@ -4218,7 +4287,6 @@
       }
       ctx.line.text = normalizeStoryPlainTextForLayout(v);
       invalidateTurnInternalDigestFrom(plot, ctx.turnIndex);
-      if (ctx.turn && ctx.turn.id) scheduleTurnInternalDigestByTurnId(plot, ctx.turn.id);
       storyLineEditState = null;
       storyPlayAnnotateMode = false;
       flushPersistNarrative();
@@ -4303,7 +4371,6 @@
       plot.playTurns.splice(ctx.turnIndex, 1);
     } else {
       invalidateTurnInternalDigestFrom(plot, ctx.turnIndex);
-      if (turn.id) scheduleTurnInternalDigestByTurnId(plot, turn.id);
     }
     plot.playTurnInFlight = false;
     plot.playChoiceExpandInFlight = false;
@@ -6442,6 +6509,755 @@
     } catch (e) {}
   }
 
+  function loadTtsSettings() {
+    try {
+      const raw = localStorage.getItem(STORAGE_TTS_SETTINGS);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return;
+      if (typeof parsed.enabled === "boolean") ttsSettings.enabled = parsed.enabled;
+      if (typeof parsed.region === "string") ttsSettings.region = parsed.region;
+      if (typeof parsed.apiKey === "string") ttsSettings.apiKey = parsed.apiKey;
+      if (typeof parsed.groupId === "string") ttsSettings.groupId = parsed.groupId;
+      if (typeof parsed.baseUrl === "string") ttsSettings.baseUrl = parsed.baseUrl;
+      if (typeof parsed.model === "string") ttsSettings.model = parsed.model;
+      if (typeof parsed.voiceId === "string") ttsSettings.voiceId = parsed.voiceId;
+      if (typeof parsed.clonedVoiceId === "string") ttsSettings.clonedVoiceId = parsed.clonedVoiceId;
+      if (typeof parsed.voicePrompt === "string") ttsSettings.voicePrompt = parsed.voicePrompt;
+      if (!ttsSettings.voiceId && ttsSettings.clonedVoiceId) {
+        ttsSettings.voiceId = ttsSettings.clonedVoiceId;
+      }
+      if (!ttsSettings.voiceId && typeof parsed.key === "string" && parsed.key) {
+        ttsSettings.apiKey = parsed.key;
+      }
+      if (!ttsSettings.apiKey && typeof parsed.key === "string") ttsSettings.apiKey = parsed.key;
+    } catch (e) {}
+  }
+
+  function persistTtsSettings() {
+    try {
+      localStorage.setItem(
+        STORAGE_TTS_SETTINGS,
+        JSON.stringify({
+          enabled: ttsSettings.enabled,
+          region: ttsSettings.region,
+          apiKey: ttsSettings.apiKey,
+          groupId: ttsSettings.groupId,
+          baseUrl: ttsSettings.baseUrl,
+          model: ttsSettings.model,
+          voiceId: ttsSettings.voiceId,
+          clonedVoiceId: ttsSettings.clonedVoiceId,
+          voicePrompt: ttsSettings.voicePrompt,
+        })
+      );
+    } catch (e) {}
+  }
+
+  function idbPutAsset(key, value) {
+    return idbOpen().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          const tx = db.transaction(IDB_STORE, "readwrite");
+          tx.objectStore(IDB_STORE).put(value, key);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        })
+    );
+  }
+
+  function idbGetAsset(key) {
+    return idbOpen().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          const tx = db.transaction(IDB_STORE, "readonly");
+          const r = tx.objectStore(IDB_STORE).get(key);
+          r.onsuccess = () => resolve(r.result);
+          r.onerror = () => reject(r.error);
+        })
+    );
+  }
+
+  function ttsSimpleHash(str) {
+    let h = 2166136261;
+    const s = String(str || "");
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0).toString(36);
+  }
+
+  function quoteInnerFromStoryText(qfull) {
+    const q = String(qfull || "");
+    if (/^「/.test(q) && /」$/.test(q)) return q.slice(1, -1).trim();
+    if (/^“/.test(q) && /”$/.test(q)) return q.slice(1, -1).trim();
+    if (/^"/.test(q) && /"$/.test(q)) return q.slice(1, -1).trim();
+    return q.trim();
+  }
+
+  function splitStoryParagraphByQuotes(paragraphText) {
+    const text = String(paragraphText || "");
+    const pieces = [];
+    let i = 0;
+    while (i < text.length) {
+      const ch = text[i];
+      if (ch !== "「" && ch !== "“" && ch !== '"') {
+        let j = i + 1;
+        while (j < text.length && text[j] !== "「" && text[j] !== "“" && text[j] !== '"') j++;
+        pieces.push({ kind: "plain", text: text.slice(i, j) });
+        i = j;
+        continue;
+      }
+      const closeCh = ch === "「" ? "」" : ch === "“" ? "”" : '"';
+      let j = i + 1;
+      while (j < text.length && text[j] !== closeCh) j++;
+      if (j >= text.length) {
+        pieces.push({ kind: "plain", text: text.slice(i) });
+        break;
+      }
+      const qfull = text.slice(i, j + 1);
+      const inner = quoteInnerFromStoryText(qfull);
+      const dialoguePunctRe = /[，。！？；：…!?]/;
+      if (dialoguePunctRe.test(inner)) pieces.push({ kind: "dialogue", text: qfull, inner: inner });
+      else pieces.push({ kind: "term", text: qfull, inner: inner });
+      i = j + 1;
+    }
+    return pieces;
+  }
+
+  function extractStoryDialogueTexts(text) {
+    const plain = normalizeStoryPlainTextForLayout(String(text || ""));
+    if (!plain) return [];
+    const paragraphs = plain
+      .split(/\n\s*\n+/)
+      .map(function (seg) {
+        return String(seg || "").trim();
+      })
+      .filter(Boolean);
+    const dialogues = [];
+    paragraphs.forEach(function (para) {
+      splitStoryParagraphByQuotes(para).forEach(function (p) {
+        if (p.kind === "dialogue" && p.inner) dialogues.push(p.inner);
+      });
+    });
+    return dialogues;
+  }
+
+  function extractStoryDialogueContext(text) {
+    const plain = normalizeStoryPlainTextForLayout(String(text || ""));
+    if (!plain) return "";
+    const paragraphs = plain
+      .split(/\n\s*\n+/)
+      .map(function (seg) {
+        return String(seg || "").trim();
+      })
+      .filter(Boolean);
+    const contextParts = [];
+    paragraphs.forEach(function (para) {
+      splitStoryParagraphByQuotes(para).forEach(function (p) {
+        if (p.kind !== "dialogue" && p.text) contextParts.push(String(p.text).trim());
+      });
+    });
+    return contextParts
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 320);
+  }
+
+  function resolveMinimaxRegion() {
+    const hit = MINIMAX_REGIONS.find(function (r) {
+      return r.id === ttsSettings.region;
+    });
+    return hit || MINIMAX_REGIONS[0];
+  }
+
+  function resolveMinimaxBaseUrl() {
+    const custom = String(ttsSettings.baseUrl || "").trim();
+    if (custom) return custom.replace(/\/+$/, "");
+    return resolveMinimaxRegion().baseUrl;
+  }
+
+  function resolveMinimaxAuthHeaders() {
+    const key = String(ttsSettings.apiKey || "").trim();
+    if (!key) return null;
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + key,
+    };
+    const groupId = String(ttsSettings.groupId || "").trim();
+    if (groupId) headers["X-Group-Id"] = groupId;
+    return headers;
+  }
+
+  function buildMinimaxUrl(path) {
+    const base = resolveMinimaxBaseUrl();
+    const p = String(path || "").replace(/^\/+/, "");
+    let url = base + "/" + p;
+    const groupId = String(ttsSettings.groupId || "").trim();
+    if (groupId) {
+      url += (url.indexOf("?") >= 0 ? "&" : "?") + "GroupId=" + encodeURIComponent(groupId);
+    }
+    return url;
+  }
+
+  function resolveGlobalMinimaxVoiceId() {
+    return String(ttsSettings.voiceId || ttsSettings.clonedVoiceId || "").trim();
+  }
+
+  function hexToAudioBlob(hex, mime) {
+    const clean = String(hex || "").trim();
+    if (!clean) throw new Error("MiniMax 未返回音频数据");
+    const len = clean.length;
+    const bytes = new Uint8Array(len / 2);
+    for (let i = 0; i < len; i += 2) {
+      bytes[i / 2] = parseInt(clean.slice(i, i + 2), 16);
+    }
+    return new Blob([bytes], { type: mime || "audio/mpeg" });
+  }
+
+  function isLikelyMinimaxAudioUrl(value) {
+    return /^https?:\/\//i.test(String(value || "").trim());
+  }
+
+  function isLikelyHexAudio(value) {
+    const raw = String(value || "").trim();
+    return raw.length >= 32 && raw.length % 2 === 0 && /^[0-9a-fA-F]+$/.test(raw);
+  }
+
+  async function minimaxAudioPayloadToBlob(payload, mime) {
+    const raw = String(payload || "").trim();
+    if (!raw) throw new Error("MiniMax 未返回音频数据");
+    if (isLikelyMinimaxAudioUrl(raw)) {
+      const audioResp = await fetch(raw);
+      if (!audioResp.ok) throw new Error("下载 MiniMax 音频失败");
+      return await audioResp.blob();
+    }
+    if (isLikelyHexAudio(raw)) return hexToAudioBlob(raw, mime);
+    try {
+      const bin = atob(raw);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new Blob([bytes], { type: mime || "audio/mpeg" });
+    } catch (_e) {
+      throw new Error("无法解析 MiniMax 音频格式");
+    }
+  }
+
+  function formatMinimaxApiError(data, fallback) {
+    if (!data || typeof data !== "object") return fallback || "MiniMax 请求失败";
+    const br = data.base_resp;
+    if (br && br.status_code && br.status_code !== 0) {
+      const msg = String(br.status_msg || "").trim();
+      if (msg) return "MiniMax：" + msg;
+      return "MiniMax 错误码 " + br.status_code;
+    }
+    return fallback || "MiniMax 请求失败";
+  }
+
+  function syncTtsSettingsFromOpenForm() {
+    const rootEl = document.querySelector(".settings-panel--tts");
+    if (rootEl) collectTtsSettingsFromForm(rootEl);
+  }
+
+  function isMinimaxAutoEmotionModel(model) {
+    return /^speech-2\.8-(hd|turbo)$/i.test(String(model || "").trim());
+  }
+
+  function storyTtsLineSpeakerName(line, plot) {
+    if (!line) return "某人";
+    const ch = getCharById(line.characterId);
+    if (ch && ch.name) return String(ch.name).trim();
+    if (plot && line.characterId === plot.protagonistId) return "主视角";
+    return "某人";
+  }
+
+  function appendStoryTtsSceneSnippet(snippets, line, plot) {
+    if (!line || !snippets) return;
+    const dlg = extractStoryDialogueTexts(line.text);
+    const name = storyTtsLineSpeakerName(line, plot);
+    if (dlg.length) {
+      snippets.push(name + "说「" + dlg.join("，").slice(0, 72) + "」");
+      return;
+    }
+    const ctx = extractStoryDialogueContext(line.text);
+    if (ctx) snippets.push("〔" + ctx.slice(0, 56) + "〕");
+  }
+
+  function collectStoryTtsSceneContext(plot, turnIndex, lineIndex) {
+    if (!plot || !Array.isArray(plot.playTurns)) return "";
+    const snippets = [];
+    const turn = plot.playTurns[turnIndex];
+    if (turnIndex > 0) {
+      const prevTurn = plot.playTurns[turnIndex - 1];
+      if (prevTurn && Array.isArray(prevTurn.lines)) {
+        prevTurn.lines.slice(-2).forEach(function (ln) {
+          appendStoryTtsSceneSnippet(snippets, ln, plot);
+        });
+      }
+    }
+    if (turn && Array.isArray(turn.lines)) {
+      const from = Math.max(0, lineIndex - 3);
+      for (let i = from; i < lineIndex; i++) {
+        appendStoryTtsSceneSnippet(snippets, turn.lines[i], plot);
+      }
+    }
+    return snippets.join("；").slice(0, 300);
+  }
+
+  function resolveStoryTtsAddressee(plot, turnIndex, lineIndex, currentCharId) {
+    if (!plot || !Array.isArray(plot.playTurns)) return "";
+    const turn = plot.playTurns[turnIndex];
+    if (!turn || !Array.isArray(turn.lines)) return "";
+    const selfId = String(currentCharId || "").trim();
+    for (let i = lineIndex - 1; i >= 0; i--) {
+      const ln = turn.lines[i];
+      if (!ln || !ln.characterId) continue;
+      if (String(ln.characterId) !== selfId) {
+        return storyTtsLineSpeakerName(ln, plot);
+      }
+    }
+    if (turnIndex > 0) {
+      const prevTurn = plot.playTurns[turnIndex - 1];
+      if (prevTurn && Array.isArray(prevTurn.lines)) {
+        for (let j = prevTurn.lines.length - 1; j >= 0; j--) {
+          const ln = prevTurn.lines[j];
+          if (!ln || !ln.characterId) continue;
+          if (String(ln.characterId) !== selfId) {
+            return storyTtsLineSpeakerName(ln, plot);
+          }
+        }
+      }
+    }
+    const protag = getCharById(plot.protagonistId);
+    return protag && protag.name ? String(protag.name).trim() : "对方";
+  }
+
+  function softenStoryTtsOralFillers(text) {
+    let t = String(text || "");
+    // 啧/切等拟声词：用短停顿暗示，避免 TTS 字正腔圆地念出来
+    t = t.replace(/^啧[，,、。！？!?~]?\s*/u, "<#0.22#>");
+    t = t.replace(/^切[，,、。！？!?~]?\s*/u, "<#0.18#>");
+    t = t.replace(/([，,；;])啧([，,、。！？!?])/gu, "$1<#0.18#>$2");
+    return t;
+  }
+
+  function replaceStoryTtsLaughter(text) {
+    let t = String(text || "").trim();
+    if (!t) return t;
+    // 整句只有笑声：直接合成笑声音效，不念「哈哈哈」
+    if (/^(?:哈{2,}|呵{2,}|嘿嘿+|嘻嘻+)[，,、。！？!?…~\s]*$/u.test(t)) {
+      return "(laughs)";
+    }
+    // 句首笑声：用 (laughs) 替代重复哈/呵，保留后面正文
+    t = t.replace(/^(?:哈{2,}|呵{2,}|嘿嘿+|嘻嘻+)([，,、。！？!?…~]?)/u, "(laughs)$1");
+    t = t.replace(/^(?:哈{2,}|呵{2,}|嘿嘿+|嘻嘻+)(?=[\u4e00-\u9fff])/u, "(laughs)");
+    // 句中独立笑声片段（前后有标点）：同样替换，避免念出「哈哈哈」
+    t = t.replace(
+      /([，,。！？!?>\s])(?:哈{3,}|呵{3,}|嘿嘿+|嘻嘻+)([，,、。！？!?])/gu,
+      "$1(laughs)$2"
+    );
+    return t;
+  }
+
+  function enrichStoryTtsSpeakText(rawText, contextText, model) {
+    if (!isMinimaxAutoEmotionModel(model)) return String(rawText || "").trim();
+    let t = String(rawText || "").trim();
+    if (!t) return t;
+    t = softenStoryTtsOralFillers(t);
+    t = replaceStoryTtsLaughter(t);
+    const mood = String(contextText || "") + " " + t;
+    // 仅保留少量、不易「念标签」的处理
+    if (/^(?:唉|算了|罢了)/.test(t) && !/^\(/.test(t)) {
+      t = "(sighs)" + t;
+    } else if (/低声|悄声|压低声|呢喃|耳边/.test(mood) && t.length > 10 && !/^\(/.test(t)) {
+      t = "(breath)" + t;
+    }
+    t = t.replace(/([，,。！？?!>])(……|…)/g, "$1<#0.25#>$2");
+    t = t.replace(/^(……|…)/, "<#0.2#>$1");
+    return t.slice(0, 9800);
+  }
+
+  function inferMinimaxEmotion(text, contextText) {
+    const src = String(text || "") + " " + String(contextText || "");
+    if (/怕|恐惧|颤抖|别过来|救命|慌/.test(src)) return "fearful";
+    if (/低声|悄|颤|哽咽|哭|泪|心酸|失落|叹/.test(src)) return "sad";
+    if (/哈{2,}|呵{2,}|笑|嘿嘿|嘻嘻|开心|太好了|乐/.test(src)) return "happy";
+    if (/怒|滚|闭嘴|烦死了|讨厌|混蛋|别碰|给我滚|冷声|喝/.test(src)) return "angry";
+    if (/！|!/.test(src) && /别|不准|住手|够了|闭嘴/.test(src)) return "angry";
+    if (/恶心|滚开|别碰我|恶/.test(src)) return "disgusted";
+    if (/…|……|唉|沉默|无话|沉|低落/.test(src)) return "sad";
+    if (/？{2,}|\?{2,}|真的假的|不会吧|难道|怎么可能|什么/.test(src)) return "surprised";
+    if (/？|\?/.test(src)) return "surprised";
+    if (/！|!|哈哈|呵/.test(src)) return "happy";
+    if (/淡淡|平静|冷静|若无其事/.test(src)) return "calm";
+    return "neutral";
+  }
+
+  function buildMinimaxVoicePrompt(char, contextText, plot, speakText, extras) {
+    const meta = extras && typeof extras === "object" ? extras : {};
+    const parts = [MINIMAX_VOICE_BASE_PROMPT];
+    const name = char && char.name ? String(char.name).trim() : "";
+    if (name) parts.push("此刻你是" + name + "，在剧情里开口说话，不是小说旁白。");
+    const addressee = String(meta.addressee || "").trim();
+    if (addressee) parts.push("正在回应或面对" + addressee + "，要有对手戏互动感。");
+    const sceneContext = String(meta.sceneContext || "").trim();
+    if (sceneContext) parts.push("刚才发生的事：" + sceneContext + "。");
+    const mood = String(contextText || "").trim();
+    if (mood) parts.push("本段场景：" + mood.slice(0, 120) + "。");
+    const charId = char && char.id ? String(char.id).trim() : "";
+    if (charId && plot) {
+      const profile = buildCharacterProfileFromPlot(plot, charId);
+      if (profile) parts.push("角色设定：" + profile.slice(0, 130));
+    } else if (char) {
+      const styleHint = buildCharAppearancePersonaHint(char, 100);
+      if (styleHint) parts.push("说话习惯：" + styleHint);
+      const traits = traitsToLine(char);
+      if (traits) parts.push("特质：" + traits.slice(0, 70));
+    }
+    const line = String(speakText || "").trim();
+    if (line) {
+      parts.push(
+        "把「" +
+          line.slice(0, 120) +
+          "」说成当下脱口而出的话：轻重、快慢、停顿随情绪走，不要平直匀速的播报。"
+      );
+    }
+    if (plot && plot.playIntro && plot.playIntro.otherRoles) {
+      parts.push("在场关系：" + String(plot.playIntro.otherRoles || "").slice(0, 90));
+    }
+    const preset = String(ttsSettings.voicePrompt || "").trim();
+    if (preset) parts.push(preset);
+    return parts.join(" ").slice(0, 500);
+  }
+
+  function resolveStoryTtsSpeed(dialogueText, contextText) {
+    const t = String(dialogueText || "");
+    const ctx = String(contextText || "");
+    const src = ctx + " " + t;
+    if (/低声|悄|呢喃|压低声|耳边/.test(src)) return 0.88;
+    if (/吼|怒|急|快|赶紧|厉声/.test(src)) return 1.06;
+    if (/！{2,}|!{2,}/.test(t)) return 1.08;
+    if (/！|!/.test(t)) return 1.05;
+    if (/…|……/.test(t)) return 0.92;
+    if (/？|\?/.test(t)) return 1.0;
+    return 1.03;
+  }
+
+  function resolveStoryTtsVoiceTuning(dialogueText, contextText, model) {
+    const emotion = inferMinimaxEmotion(dialogueText, contextText);
+    let speed = resolveStoryTtsSpeed(dialogueText, contextText);
+    let pitch = 0;
+    let vol = 1;
+    if (emotion === "sad") {
+      pitch = -1;
+      vol = 0.9;
+      speed = Math.min(speed, 0.95);
+    } else if (emotion === "happy") {
+      pitch = 1;
+      speed = Math.max(speed, 1.04);
+    } else if (emotion === "angry") {
+      pitch = -1;
+      speed = Math.min(Math.max(speed, 1.06), 1.12);
+      vol = 1.06;
+    } else if (emotion === "surprised") {
+      pitch = 2;
+      speed = Math.min(speed + 0.04, 1.1);
+    } else if (emotion === "fearful") {
+      pitch = 1;
+      speed = Math.max(speed, 1.02);
+      vol = 0.88;
+    } else if (emotion === "disgusted") {
+      pitch = -2;
+      speed = 0.96;
+      vol = 0.94;
+    } else if (emotion === "calm") {
+      speed = 0.98;
+      vol = 0.96;
+    }
+    const autoEmotion = isMinimaxAutoEmotionModel(model);
+    let apiEmotion = null;
+    if (!autoEmotion) {
+      const allowed = ["happy", "sad", "angry", "fearful", "disgusted", "surprised", "calm"];
+      if (emotion === "neutral") apiEmotion = "calm";
+      else if (allowed.indexOf(emotion) >= 0) apiEmotion = emotion;
+      else apiEmotion = "calm";
+    }
+    return { speed: speed, pitch: pitch, vol: vol, emotion: apiEmotion };
+  }
+
+  function buildStoryTtsCacheKey(speakText, voicePrompt, contextText, sceneContext) {
+    const voiceId = resolveGlobalMinimaxVoiceId();
+    const model = String(ttsSettings.model || "speech-2.8-hd").trim() || "speech-2.8-hd";
+    return (
+      "ttsCache:" +
+      TTS_CACHE_VERSION +
+      ":" +
+      ttsSimpleHash(
+        [voiceId, model, speakText, voicePrompt || "", contextText || "", sceneContext || ""].join("|")
+      )
+    );
+  }
+
+  function setStorySpeakWaveVisible(avEl, visible) {
+    if (!avEl || !avEl.parentElement) return;
+    const wave = avEl.parentElement.querySelector(".story-msg__voice-wave");
+    if (wave) wave.hidden = !visible;
+  }
+
+  function setStorySpeakLoading(avEl, loading) {
+    if (!avEl) return;
+    avEl.classList.toggle("story-msg__avatar--speak-loading", !!loading);
+  }
+
+  function setStorySpeakPlaying(avEl, playing) {
+    if (!avEl) return;
+    avEl.classList.toggle("story-msg__avatar--speak-playing", !!playing);
+    setStorySpeakWaveVisible(avEl, !!playing);
+  }
+
+  function stopStoryTts() {
+    if (storyTtsAudio) {
+      try {
+        storyTtsAudio.pause();
+      } catch (_e) {}
+      storyTtsAudio = null;
+    }
+    if (storyTtsObjectUrl) {
+      try {
+        URL.revokeObjectURL(storyTtsObjectUrl);
+      } catch (_e2) {}
+      storyTtsObjectUrl = null;
+    }
+    if (storyTtsPlayingAv) {
+      setStorySpeakLoading(storyTtsPlayingAv, false);
+      setStorySpeakPlaying(storyTtsPlayingAv, false);
+      storyTtsPlayingAv = null;
+    }
+  }
+
+  async function fetchStoryTtsBlob(speakText, voicePrompt, contextText) {
+    async function requestOnce(withPrompt) {
+      const headers = resolveMinimaxAuthHeaders();
+      if (!headers) throw new Error("请先在设置 → 音色调整中填写 MiniMax API Key");
+      const voiceId = resolveGlobalMinimaxVoiceId();
+      if (!voiceId) throw new Error("请先在设置中选择或填写全局音色 ID");
+      const model = String(ttsSettings.model || "speech-2.8-hd").trim() || "speech-2.8-hd";
+      const tuning = resolveStoryTtsVoiceTuning(speakText, contextText, model);
+      const voiceSetting = {
+        voice_id: voiceId,
+        speed: tuning.speed,
+        vol: tuning.vol,
+        pitch: tuning.pitch,
+      };
+      if (tuning.emotion) voiceSetting.emotion = tuning.emotion;
+      const body = {
+        model: model,
+        text: speakText,
+        stream: false,
+        output_format: "hex",
+        voice_setting: voiceSetting,
+        audio_setting: {
+          sample_rate: 32000,
+          bitrate: 128000,
+          format: "mp3",
+          channel: 1,
+        },
+        language_boost: "Chinese",
+      };
+      if (withPrompt && voicePrompt) body.prompt = voicePrompt;
+      let resp;
+      try {
+        resp = await fetch(buildMinimaxUrl("t2a_v2"), {
+          method: "POST",
+          headers: headers,
+          body: JSON.stringify(body),
+        });
+      } catch (netErr) {
+        const netMsg = netErr && netErr.message ? netErr.message : String(netErr);
+        if (/failed to fetch|networkerror|load failed/i.test(netMsg)) {
+          throw new Error(
+            "无法连接 MiniMax（请检查网络、API Key、Group ID 与国内/国际版是否一致）"
+          );
+        }
+        throw netErr;
+      }
+      const raw = await resp.text();
+      if (!resp.ok) throw new Error(formatApiHttpError(resp.status, raw));
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch (_e) {
+        throw new Error("无法解析 MiniMax 语音响应");
+      }
+      if (data.base_resp && data.base_resp.status_code && data.base_resp.status_code !== 0) {
+        throw new Error(formatMinimaxApiError(data, "MiniMax 合成失败"));
+      }
+      const audioPayload =
+        (data.data && data.data.audio) ||
+        (data.audio && typeof data.audio === "string" ? data.audio : "") ||
+        "";
+      if (audioPayload) return await minimaxAudioPayloadToBlob(audioPayload, "audio/mpeg");
+      if (data.data && data.data.audio_url) {
+        return await minimaxAudioPayloadToBlob(data.data.audio_url, "audio/mpeg");
+      }
+      throw new Error("MiniMax 未返回可用音频");
+    }
+    try {
+      return await requestOnce(true);
+    } catch (err) {
+      if (voicePrompt) return await requestOnce(false);
+      throw err;
+    }
+  }
+
+  async function getOrCreateStoryTtsBlob(speakText, voicePrompt, contextText, sceneContext) {
+    const cacheKey = buildStoryTtsCacheKey(speakText, voicePrompt, contextText, sceneContext);
+    const memCached = storyTtsBlobMemoryCache.get(cacheKey);
+    if (memCached instanceof Blob) return memCached;
+    try {
+      const cached = await idbGetAsset(cacheKey);
+      if (cached instanceof Blob) {
+        storyTtsBlobMemoryCache.set(cacheKey, cached);
+        return cached;
+      }
+    } catch (_e) {}
+    const blob = await fetchStoryTtsBlob(speakText, voicePrompt, contextText);
+    storyTtsBlobMemoryCache.set(cacheKey, blob);
+    try {
+      await idbPutAsset(cacheKey, blob);
+    } catch (_e2) {}
+    return blob;
+  }
+
+  async function storyTtsBlobIsCached(speakText, voicePrompt, contextText, sceneContext) {
+    const cacheKey = buildStoryTtsCacheKey(speakText, voicePrompt, contextText, sceneContext);
+    if (storyTtsBlobMemoryCache.has(cacheKey)) return true;
+    try {
+      const cached = await idbGetAsset(cacheKey);
+      if (cached instanceof Blob) {
+        storyTtsBlobMemoryCache.set(cacheKey, cached);
+        return true;
+      }
+    } catch (_e) {}
+    return false;
+  }
+
+  function storySpeakMetaForLine(plot, turnIndex, lineIndex, isMe, text) {
+    if (isMe) return null;
+    if (!extractStoryDialogueTexts(text).length) return null;
+    return { plotId: plot.id, turnIndex: turnIndex, lineIndex: lineIndex };
+  }
+
+  async function previewMinimaxVoice(btnEl) {
+    syncTtsSettingsFromOpenForm();
+    if (!ttsSettings.apiKey) {
+      showToast("请先填写 MiniMax API Key。", "warning");
+      return;
+    }
+    if (!resolveGlobalMinimaxVoiceId()) {
+      showToast("请填写或选择全局音色 ID。", "warning");
+      return;
+    }
+    if (btnEl) btnEl.disabled = true;
+    stopStoryTts();
+    try {
+      const blob = await fetchStoryTtsBlob("你好，这是一段试听。", "", "");
+      const objUrl = URL.createObjectURL(blob);
+      storyTtsObjectUrl = objUrl;
+      storyTtsAudio = new Audio(objUrl);
+      storyTtsAudio.addEventListener(
+        "ended",
+        function () {
+          stopStoryTts();
+        },
+        { once: true }
+      );
+      storyTtsAudio.addEventListener(
+        "error",
+        function () {
+          stopStoryTts();
+          showToast("试听播放失败，请检查音色 ID 是否有效。", "error");
+        },
+        { once: true }
+      );
+      await storyTtsAudio.play();
+      showToast("试听播放中…", "success", 1800);
+    } catch (err) {
+      showToast("试听失败：" + (err && err.message ? err.message : String(err)), "error", 5600);
+    } finally {
+      if (btnEl) btnEl.disabled = false;
+    }
+  }
+
+  async function playStoryLineTts(plot, turnIndex, lineIndex, avEl) {
+    if (!plot) return;
+    syncTtsSettingsFromOpenForm();
+    const ctx = getLineContext(plot.id, turnIndex, lineIndex);
+    if (!ctx || !ctx.line) return;
+    if (ctx.line.characterId === plot.protagonistId) return;
+    if (!ttsSettings.enabled) {
+      showToast("请先在「设置 → 音色调整」中开启剧情朗读。", "info", 2600);
+      return;
+    }
+    const dialogues = extractStoryDialogueTexts(ctx.line.text);
+    if (!dialogues.length) {
+      showToast("该段没有可朗读的对白（引号内加粗句子）。", "info");
+      return;
+    }
+    if (!resolveGlobalMinimaxVoiceId()) {
+      showToast("请先在设置中配置 MiniMax 全局音色 ID。", "info", 2800);
+      return;
+    }
+    if (storyTtsPlayingAv === avEl && storyTtsAudio) {
+      stopStoryTts();
+      return;
+    }
+    stopStoryTts();
+    const rawSpeakText = dialogues.length > 1 ? dialogues.join("，") : dialogues[0];
+    const contextText = extractStoryDialogueContext(ctx.line.text);
+    const sceneContext = collectStoryTtsSceneContext(plot, turnIndex, lineIndex);
+    const addressee = resolveStoryTtsAddressee(plot, turnIndex, lineIndex, ctx.line.characterId);
+    const model = String(ttsSettings.model || "speech-2.8-hd").trim() || "speech-2.8-hd";
+    const speakText = enrichStoryTtsSpeakText(rawSpeakText, contextText, model);
+    const char = getCharById(ctx.line.characterId);
+    const voicePrompt = buildMinimaxVoicePrompt(char, contextText, plot, rawSpeakText, {
+      sceneContext: sceneContext,
+      addressee: addressee,
+    });
+    const isCached = await storyTtsBlobIsCached(speakText, voicePrompt, contextText, sceneContext);
+    if (!isCached) setStorySpeakLoading(avEl, true);
+    try {
+      const blob = await getOrCreateStoryTtsBlob(speakText, voicePrompt, contextText, sceneContext);
+      const objUrl = URL.createObjectURL(blob);
+      storyTtsObjectUrl = objUrl;
+      storyTtsAudio = new Audio(objUrl);
+      storyTtsPlayingAv = avEl;
+      setStorySpeakLoading(avEl, false);
+      setStorySpeakPlaying(avEl, true);
+      storyTtsAudio.addEventListener(
+        "ended",
+        function () {
+          stopStoryTts();
+        },
+        { once: true }
+      );
+      storyTtsAudio.addEventListener(
+        "error",
+        function () {
+          stopStoryTts();
+          showToast("播放失败，请重试。", "error");
+        },
+        { once: true }
+      );
+      await storyTtsAudio.play();
+    } catch (err) {
+      setStorySpeakLoading(avEl, false);
+      setStorySpeakPlaying(avEl, false);
+      showToast("朗读失败：" + (err && err.message ? err.message : String(err)), "error", 5200);
+    }
+  }
+
   function normalizeAssistantMessages(list) {
     if (!Array.isArray(list)) return [];
     const mapped = list
@@ -7365,6 +8181,31 @@
     );
   }
 
+  /** 剧情续写专用：世界书按总预算与单条上限截断，避免撑爆上下文 */
+  function formatWorldBooksPromptBlockForPlay(wbs) {
+    if (!wbs || !wbs.length) return "";
+    const head = "【世界书（续写摘录；与角色冲突时见采信层级）】";
+    const parts = [];
+    let total = 0;
+    wbs.forEach(function (w) {
+      let content = String(w && w.content != null ? w.content : "").trim();
+      if (!content) return;
+      content = truncateTailCharsWithEllipsis(content, STORY_PLAY_WB_ITEM_MAX_CHARS);
+      const entry = "[" + String(w.title || "未命名") + "] " + content;
+      const entryLen = charCountForApiPrompt(entry);
+      const sep = parts.length > 0 ? 2 : 0;
+      if (parts.length > 0 && total + sep + entryLen > STORY_PLAY_WB_TOTAL_MAX_CHARS) return;
+      if (parts.length === 0 && entryLen > STORY_PLAY_WB_TOTAL_MAX_CHARS) {
+        parts.push(truncateTailCharsWithEllipsis(entry, STORY_PLAY_WB_TOTAL_MAX_CHARS));
+        return;
+      }
+      parts.push(entry);
+      total += sep + entryLen;
+    });
+    if (!parts.length) return "";
+    return head + "\n" + parts.join("\n\n") + "\n";
+  }
+
   /**
    * 旧存档：每条剧情仅存 plot.wbIds；此前生成还隐式并入角色 linkedWb。改为白名单仅此一项后，
    * 初次加载时合并一次写入 wbIds，避免旧剧情突然出现「不加世界书」。
@@ -7415,7 +8256,7 @@
   function storyPlayMaxTokens(plot) {
     const w =
       plot && typeof plot.wordLimit === "number" && Number.isFinite(plot.wordLimit) ? plot.wordLimit : DEFAULT_STORY_WORD_LIMIT;
-    let mul = 3.05;
+    let mul = 2.88;
     let cfg = null;
     if (typeof activeApiId === "string" && apiConfigs && apiConfigs.length) {
       cfg =
@@ -7426,7 +8267,7 @@
     var modelLc = String(cfg && cfg.model ? cfg.model : "").toLowerCase();
     var isGem = modelLc.indexOf("gemini") !== -1;
     if (isGem) {
-      mul = 3.32;
+      mul = 3.1;
     }
     const scaled = Math.round(w * mul);
     /** 保底≈「目标汉字的 ~1.9× tokenizer 粗算」但与 scaled 取大，超长目标仍宽裕 */
@@ -7584,6 +8425,193 @@
     const errEmpty = new Error("API 返回成功但正文为空（empty_response）");
     errEmpty.code = "empty_response";
     throw errEmpty;
+  }
+
+  function extractStreamDeltaChunk(data) {
+    if (!data || typeof data !== "object") return "";
+    const choice = data.choices && data.choices[0];
+    if (choice) {
+      const fromDelta = extractMessageContent(choice.delta);
+      if (fromDelta) return fromDelta;
+      const fromMsg = extractMessageContent(choice.message);
+      if (fromMsg) return fromMsg;
+      if (typeof choice.text === "string" && choice.text) return choice.text;
+    }
+    const cand = data.candidates && data.candidates[0];
+    if (cand && cand.content && Array.isArray(cand.content.parts)) {
+      return cand.content.parts
+        .map(function (p) {
+          return p && typeof p.text === "string" ? p.text : "";
+        })
+        .filter(Boolean)
+        .join("");
+    }
+    if (typeof data.output_text === "string" && data.output_text) return data.output_text;
+    return "";
+  }
+
+  /** 剧情流式：只取正文 content，忽略 reasoning_content / thinking parts */
+  function extractStoryPlayStreamDeltaChunk(data) {
+    if (!data || typeof data !== "object") return "";
+    const choice = data.choices && data.choices[0];
+    if (choice) {
+      const delta = choice.delta || choice.message;
+      if (delta && typeof delta === "object") {
+        if (typeof delta.content === "string" && delta.content) return delta.content;
+        if (Array.isArray(delta.content)) {
+          return delta.content
+            .map(function (part) {
+              if (part && typeof part === "object") {
+                const typ = String(part.type || "").toLowerCase();
+                if (typ.indexOf("reason") >= 0 || typ === "thinking" || part.thought === true) return "";
+              }
+              return extractMessageContentPart(part);
+            })
+            .filter(Boolean)
+            .join("");
+        }
+        if (typeof delta.text === "string" && delta.text) return delta.text;
+      }
+      if (typeof choice.text === "string" && choice.text) return choice.text;
+    }
+    const cand = data.candidates && data.candidates[0];
+    if (cand && cand.content && Array.isArray(cand.content.parts)) {
+      return cand.content.parts
+        .map(function (p) {
+          if (!p || typeof p !== "object") return "";
+          if (p.thought === true) return "";
+          const typ = String(p.type || "").toLowerCase();
+          if (typ === "thinking" || typ.indexOf("reason") >= 0) return "";
+          return typeof p.text === "string" ? p.text : "";
+        })
+        .filter(Boolean)
+        .join("");
+    }
+    return "";
+  }
+
+  function responseLooksLikeChatStream(contentType) {
+    const ct = String(contentType || "").toLowerCase();
+    return (
+      ct.indexOf("text/event-stream") >= 0 ||
+      ct.indexOf("application/x-ndjson") >= 0 ||
+      ct.indexOf("text/plain") >= 0
+    );
+  }
+
+  /**
+   * OpenAI 兼容 SSE 流式 chat；onProgress(delta, fullText)。
+   * 若网关忽略 stream 并返回整段 JSON，则一次性回调后返回全文。
+   */
+  async function callChatCompletionStreamOnce(cfg, messages, temperature, maxTokens, onProgress, streamOpts) {
+    const ep = cfg.endpoint != null ? String(cfg.endpoint).trim() : "";
+    const k = cfg.key != null ? String(cfg.key).trim() : "";
+    const base = ep.replace(/\/+$/, "");
+    let url = base + "/chat/completions";
+    if (/\/chat\/completions$/i.test(base)) {
+      url = base;
+    }
+    const body = buildChatCompletionRequestBody(cfg, messages, temperature, maxTokens);
+    body.stream = true;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + k,
+      },
+      body: JSON.stringify(body),
+    });
+    const ct = resp.headers ? String(resp.headers.get("content-type") || "").toLowerCase() : "";
+    if (!resp.ok) {
+      const rawText = await resp.text();
+      const err = new Error(formatApiHttpError(resp.status, rawText));
+      err.httpStatus = resp.status;
+      err.rawBody = rawText;
+      throw err;
+    }
+    if (!responseLooksLikeChatStream(ct) || !resp.body || typeof resp.body.getReader !== "function") {
+      const rawText = await resp.text();
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch (eJson) {
+        throw new Error("无法解析 API 响应 JSON");
+      }
+      const extracted = extractChatCompletionText(data);
+      if (!extracted.text) {
+        const errEmpty = new Error("API 返回成功但正文为空（empty_response）");
+        errEmpty.code = "empty_response";
+        throw errEmpty;
+      }
+      if (typeof onProgress === "function") onProgress(extracted.text, extracted.text);
+      return extracted.text;
+    }
+
+    function consumeSseLines(buffer, flushDone) {
+      const lineParts = buffer.split(/\r?\n/);
+      const rest = flushDone ? "" : lineParts.pop() || "";
+      let fullDelta = "";
+      const useStoryDelta = !!(streamOpts && streamOpts.storyPlay);
+      for (let i = 0; i < lineParts.length; i++) {
+        let line = String(lineParts[i] || "").trim();
+        if (!line || line.indexOf("data:") !== 0) continue;
+        const payload = line.replace(/^data:\s*/, "").trim();
+        if (!payload || payload === "[DONE]") continue;
+        try {
+          const chunk = JSON.parse(payload);
+          const delta = useStoryDelta
+            ? extractStoryPlayStreamDeltaChunk(chunk)
+            : extractStreamDeltaChunk(chunk);
+          if (delta) fullDelta += delta;
+        } catch (_eChunk) {}
+      }
+      return { rest: rest, delta: fullDelta };
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let fullText = "";
+    while (true) {
+      const step = await reader.read();
+      if (step.done) break;
+      buffer += decoder.decode(step.value, { stream: true });
+      const parsed = consumeSseLines(buffer, false);
+      buffer = parsed.rest;
+      if (parsed.delta) {
+        fullText += parsed.delta;
+        if (typeof onProgress === "function") onProgress(parsed.delta, fullText);
+      }
+    }
+    buffer += decoder.decode();
+    const tail = consumeSseLines(buffer, true);
+    if (tail.delta) {
+      fullText += tail.delta;
+      if (typeof onProgress === "function") onProgress(tail.delta, fullText);
+    }
+    if (!fullText.trim()) {
+      const errEmpty = new Error("API 返回成功但正文为空（empty_response）");
+      errEmpty.code = "empty_response";
+      throw errEmpty;
+    }
+    return fullText;
+  }
+
+  /** 剧情续写：优先流式；失败或不支持时回退非流式（含 Gemini empty 重试） */
+  async function callStoryPlayChatCompletion(cfg, messages, temperature, maxTokens, opts) {
+    const onProgress = opts && typeof opts.onStreamProgress === "function" ? opts.onStreamProgress : null;
+    const apiOpts = Object.assign({ skipGenPaw: true, skipGenReady: true }, opts || {});
+    if (!STORY_PLAY_STREAM_ENABLED || !onProgress) {
+      return callChatCompletion(messages, temperature, maxTokens, apiOpts);
+    }
+    try {
+      return await callChatCompletionStreamOnce(cfg, messages, temperature, maxTokens, onProgress, {
+        storyPlay: true,
+      });
+    } catch (streamErr) {
+      console.warn("剧情流式请求失败，回退非流式:", streamErr);
+      return callChatCompletion(messages, temperature, maxTokens, apiOpts);
+    }
   }
 
   /** 开场概要、剧情续写、剧情标题等默认通过当前「设置 → API」中选中的配置发起请求（activeApiId），也可按需指定配置。 */
@@ -7747,6 +8775,35 @@
     if (!String(history || "").trim() && plotHasRecordedInteractivePlay(plot)) {
       const flat = flattenPlotLines(plot);
       const lineCap = Math.max(16, STORY_PLAY_REF_TURN_LIMIT * 8);
+      history = compactStoryPlayHistoryForApi(
+        flat
+          .slice(-lineCap)
+          .map(function (row) {
+            return formatSummaryLineForPrompt(plot, row);
+          })
+          .join("\n")
+      );
+    }
+    return history;
+  }
+
+  /** 查手机生成：压缩版最近剧情（轮数更少，非末轮用概要/首尾摘录） */
+  function buildPhonePlotRecentHistoryText(plot) {
+    const allTurns = plot.playTurns || [];
+    const startIdx = Math.max(0, allTurns.length - PHONE_PLOT_REF_TURN_LIMIT);
+    const recentTurns = allTurns.slice(startIdx);
+    const lastIdx = recentTurns.length - 1;
+    let history = compactStoryPlayHistoryForApi(
+      recentTurns
+        .map(function (turn, ti) {
+          return buildStoryPlayTurnHistoryForApi(plot, turn, startIdx + ti, ti === lastIdx);
+        })
+        .filter(Boolean)
+        .join("\n\n")
+    );
+    if (!String(history || "").trim() && plotHasRecordedInteractivePlay(plot)) {
+      const flat = flattenPlotLines(plot);
+      const lineCap = Math.max(12, PHONE_PLOT_REF_TURN_LIMIT * 6);
       history = compactStoryPlayHistoryForApi(
         flat
           .slice(-lineCap)
@@ -7936,7 +8993,7 @@
   /** 续写时须严格参照用户消息中的最近正文、记忆与总结 */
   var STORY_PLAY_CONTEXT_REF_GUIDE =
     "【上下文必读·禁失忆】续写前须完整阅读用户消息中的「最近剧情」「记忆」「阶段总结」及世界书；将其视为已发生内容的权威依据，须无缝衔接、不得矛盾、不得当作新故事重写。\n" +
-    "· 最近剧情（最高）：窗口内最后一轮为完整正文；更早轮次若为「轮概要」则与正文同等视为已发生事实。紧接上一场的台词、动作与情绪，从最后一轮收束处自然续写；同层冲突时以本段为准，勿重复上一轮已写过的信息。\n" +
+    "· 最近剧情（最高）：窗口内最后一轮为完整正文；更早轮次若为「轮概要」或「轮摘录」则与正文同等视为已发生事实。紧接上一场的台词、动作与情绪，从最后一轮收束处自然续写；同层冲突时以本段为准，勿重复上一轮已写过的信息。\n" +
     "· 记忆：用户标记须长期遵守的要点（含自总结钉选），本轮须呼应，不得遗漏或反向处理。\n" +
     "· 阶段总结：覆盖更早回合的概要，补充最近剧情未写明的历史事实与关系；勿与最近剧情及总结中的核心事实相悖，勿凭空改写已确立设定。\n" +
     "· 若阶段总结/记忆与最近剧情细节表面冲突，**以最近剧情为准**；不得推翻总结中的核心事实时，用一两句过渡交代即可。\n";
@@ -9157,6 +10214,43 @@
     return parts.join("\n\n");
   }
 
+  /** 剧情续写：有 mainline 时用滚动主线摘录；否则取已保存 summaries 中最近 STORY_PLAY_SUMMARY_REF_LIMIT 条 */
+  function buildPlotSummariesPromptBlockForPlay(plot) {
+    ensurePlotSummaryState(plot);
+    const mainline = String(plot.mainlineSummary || "").trim();
+    if (mainline) {
+      return (
+        "【至今剧情主线（滚动摘要·优先于更早阶段总结）】\n" +
+        truncateTailCharsWithEllipsis(mainline, STORY_PLAY_MAINLINE_SUMMARY_MAX_CHARS)
+      );
+    }
+    const items = (plot.summaries || [])
+      .slice()
+      .sort(function (a, b) {
+        return (b.createdAt || 0) - (a.createdAt || 0);
+      })
+      .slice(0, STORY_PLAY_SUMMARY_REF_LIMIT)
+      .map(function (it, idx) {
+        const txt = truncateTailCharsWithEllipsis(
+          String((it && it.content) || "").trim(),
+          STORY_PLAY_SUMMARY_ITEM_MAX_CHARS
+        );
+        if (!txt) return "";
+        return "[总结 " + (idx + 1) + "]\n" + txt;
+      })
+      .filter(Boolean);
+    return items.join("\n\n");
+  }
+
+  /** 已有互动正文时压缩设定字段，连贯性以最近剧情与阶段总结为准 */
+  function buildStoryPlayIdentityFieldForPrompt(text, hasPriorPlay) {
+    const raw = String(text || "").trim() || "未设定";
+    if (!hasPriorPlay) return raw;
+    const excerpt = truncateTailCharsWithEllipsis(raw, STORY_PLAY_IDENTITY_WHEN_PLAYING_MAX_CHARS);
+    if (excerpt === raw) return raw;
+    return excerpt + "（…细节以最近剧情与阶段总结为准）";
+  }
+
   /** 已有互动正文时压缩「故事开端」在提示词中的占比，正文连贯以最近剧情为准 */
   function buildStoryPlayOpeningPromptBlock(openingBlock, hasPriorPlay) {
     const raw = String(openingBlock || "").trim() || "未设定";
@@ -9681,45 +10775,56 @@
     });
   }
 
+  function getKnockSetupPickRoot(fromEl) {
+    if (!fromEl) return null;
+    return (
+      fromEl.closest("[data-knock-setup-overlay]") ||
+      fromEl.closest(".knock-setup-page") ||
+      fromEl.closest("#knock-content-slot")
+    );
+  }
+
   function renderKnockSetupPicks(root) {
     if (!root) return;
     const userPick = root.querySelector("[data-knock-user-pick]");
     const partnerPick = root.querySelector("[data-knock-partner-pick]");
     const selfList = getSelfCharacters();
     const supList = getSupportingCharacters();
+    if (knockUserCharId && !selfList.some(function (c) { return c.id === knockUserCharId; })) {
+      knockUserCharId = null;
+    }
+    if (knockPartnerCharId && !supList.some(function (c) { return c.id === knockPartnerCharId; })) {
+      knockPartnerCharId = null;
+    }
+    if (!knockUserCharId && selfList.length) knockUserCharId = selfList[0].id;
+    if (!knockPartnerCharId && supList.length) knockPartnerCharId = supList[0].id;
     if (userPick) {
       userPick.innerHTML = "";
-      selfList.forEach(function (c) {
+      selfList.forEach(function (c, idx) {
         const b = document.createElement("button");
         b.type = "button";
         b.className = "char-pick-avatar" + (c.id === knockUserCharId ? " is-selected" : "");
-        b.dataset.id = c.id;
+        b.dataset.knockUserChar = c.id;
+        b.style.zIndex = c.id === knockUserCharId ? "20" : String(idx + 1);
         const av = document.createElement("div");
         av.className = "avatar";
         b.appendChild(av);
         fillAvatarElement(av, c);
-        b.addEventListener("click", function () {
-          knockUserCharId = c.id;
-          renderKnockSetupPicks(root);
-        });
         userPick.appendChild(b);
       });
     }
     if (partnerPick) {
       partnerPick.innerHTML = "";
-      supList.forEach(function (c) {
+      supList.forEach(function (c, idx) {
         const b = document.createElement("button");
         b.type = "button";
         b.className = "char-pick-avatar" + (c.id === knockPartnerCharId ? " is-selected" : "");
-        b.dataset.id = c.id;
+        b.dataset.knockPartnerChar = c.id;
+        b.style.zIndex = c.id === knockPartnerCharId ? "20" : String(idx + 1);
         const av = document.createElement("div");
         av.className = "avatar";
         b.appendChild(av);
         fillAvatarElement(av, c);
-        b.addEventListener("click", function () {
-          knockPartnerCharId = c.id;
-          renderKnockSetupPicks(root);
-        });
         partnerPick.appendChild(b);
       });
     }
@@ -9741,11 +10846,11 @@
         : "") +
       "</div>" +
       '<div class="knock-setup-overlay__body">' +
-      '<p class="field__hint">主视角为你发送消息的视角；聊天对象将由 AI 扮演回复（后续接入 API 时仅参考双方人设，不读取剧情正文）。</p>' +
-      '<label class="field"><span class="field__label">我的视角（主视角）</span>' +
-      '<div class="h-scroll sheet-char-pick-row sheet-char-pick-row--overlap assistant-theme-char-picks" data-knock-user-pick></div></label>' +
-      '<label class="field"><span class="field__label">聊天对象</span>' +
-      '<div class="h-scroll sheet-char-pick-row sheet-char-pick-row--overlap assistant-theme-char-picks" data-knock-partner-pick></div></label>' +
+      '<p class="field__hint knock-setup__hint">主视角为你发送消息的视角；聊天对象将由 AI 扮演回复（后续接入 API 时仅参考双方人设，不读取剧情正文）。</p>' +
+      '<div class="field"><span class="field__label">我的视角（主视角）</span>' +
+      '<div class="h-scroll sheet-char-pick-row knock-setup-char-picks" data-knock-user-pick></div></div>' +
+      '<div class="field"><span class="field__label">聊天对象</span>' +
+      '<div class="h-scroll sheet-char-pick-row knock-setup-char-picks" data-knock-partner-pick></div></div>' +
       "</div>" +
       '<div class="knock-setup-page__actions">' +
       '<button type="button" class="btn btn--primary btn--block btn--pill" data-knock-setup-confirm>开始聊天</button>' +
@@ -9814,6 +10919,7 @@
     return (
       '<div class="knock-chat knock-chat--themed phone-app phone-wechat phone-wechat--chat' +
       (knockSelectMode ? " phone-wechat--select-mode" : "") +
+      (knockSetupOpen ? " knock-chat--setup-open" : "") +
       '" aria-label="敲敲聊天">' +
       '<header class="phone-app__bar phone-app__bar--wechat-chat knock-chat__bar">' +
       '<button type="button" class="phone-app__back" data-knock-back aria-label="返回">' +
@@ -14258,7 +15364,7 @@
       .sort(function (a, b) {
         return (b.updatedAt || 0) - (a.updatedAt || 0);
       })
-      .slice(0, STORY_PLAY_REF_TURN_LIMIT)
+      .slice(0, PHONE_PLOT_MEMORY_REF_LIMIT)
       .map(function (it) {
         return "- " + truncateCharsWithEllipsis(it && it.content, PLOT_MEMORY_PROMPT_ITEM_MAX_CHARS);
       })
@@ -14426,19 +15532,8 @@
   function buildPhoneWechatPlotContextBlocks(plot, holder) {
     const protagonist = getCharById(plot.protagonistId);
     const identityBlocks = getEffectiveIdentityBlocks(plot);
-    const recentTurns = (plot.playTurns || []).slice(-STORY_PLAY_REF_TURN_LIMIT);
-    const history = compactStoryPlayHistoryForApi(
-      recentTurns
-        .map(function (turn) {
-          return (turn.lines || [])
-            .map(function (line) {
-              return storyLineHistoryPrefix(line) + (line.text || "");
-            })
-            .join("\n");
-        })
-        .join("\n\n")
-    );
-    const summaryBlock = buildPlotSummariesPromptBlock(plot);
+    const history = buildPhonePlotRecentHistoryText(plot);
+    const summaryBlock = buildPlotSummariesPromptBlockForPlay(plot);
     const memoryBlock = buildPhoneWechatLatestMemoriesBlock(plot);
     const holderBlock = buildPhoneHolderProfileBlock(holder, plot);
     const protagName = protagonist && protagonist.name ? protagonist.name : "主角";
@@ -14455,16 +15550,20 @@
     lines.push(identityBlocks.identityOthersBlock || "未设定");
     if (summaryBlock) {
       lines.push("");
-      lines.push("【最新 " + STORY_PLAY_REF_TURN_LIMIT + " 条阶段总结】");
+      lines.push(
+        "【阶段总结（主线滚动摘要或已保存最近 " + STORY_PLAY_SUMMARY_REF_LIMIT + " 条）】"
+      );
       lines.push(summaryBlock);
     }
     if (memoryBlock) {
       lines.push("");
-      lines.push("【最新 " + STORY_PLAY_REF_TURN_LIMIT + " 条记忆】");
+      lines.push("【相关记忆（最近 " + PHONE_PLOT_MEMORY_REF_LIMIT + " 条）】");
       lines.push(memoryBlock);
     }
     lines.push("");
-    lines.push("【最近 " + STORY_PLAY_REF_TURN_LIMIT + " 轮剧情】");
+    lines.push(
+      "【最近 " + PHONE_PLOT_REF_TURN_LIMIT + " 轮剧情（末轮全文，更早轮为摘录）】"
+    );
     lines.push(history || "故事刚开始。");
     return { lines: lines, protagName: protagName };
   }
@@ -31838,6 +32937,33 @@
     return cleanStoryLine(out);
   }
 
+  /** 识别模型英文思考/推理前言（如 Gemini thinking、Extended thinking 等） */
+  function looksLikeModelThinkingPreamble(text) {
+    const t = String(text || "").trim();
+    if (!t) return false;
+    const cjk = (t.match(/[\u4e00-\u9fff]/g) || []).length;
+    const latin = (t.match(/[A-Za-z]/g) || []).length;
+    if (latin > 60 && cjk < 16) return true;
+    if (
+      /\b(?:I am|I'm|I've|Analyzing|Observing|Focusing|Processing|Integrating|Considering)\b/i.test(t)
+    )
+      return true;
+    if (/\*\*\.?\s*$/m.test(t) || /\*\*\.\s+/m.test(t)) return true;
+    if (/(?:^|\n)\s*[A-Z][A-Za-z\s]{2,48}\*\*\.\s/m.test(t)) return true;
+    return false;
+  }
+
+  /** 去掉首个【说话块】之前的英文推理前言，保留正文与无【】块时的原名起段格式 */
+  function stripStoryPlayModelThinkingPreamble(raw) {
+    const s = String(raw || "");
+    const blockRe = /(?:^|\n)\s*【\s*(?!选项|选择支)[^】]{1,40}\s*】/;
+    const m = s.match(blockRe);
+    if (!m || typeof m.index !== "number" || m.index <= 0) return s;
+    const preamble = s.slice(0, m.index);
+    if (!looksLikeModelThinkingPreamble(preamble)) return s;
+    return s.slice(m.index).replace(/^\s+/, "");
+  }
+
   /** 规整模型常见问题：围栏、前缀寒暄、Markdown 星号包住【】标题等（利于 Gemini / 多端点）。 */
   function preprocessStoryPlayModelRaw(raw) {
     let s = String(raw || "")
@@ -31850,6 +32976,7 @@
     s = s.replace(/【\s*([^】]{1,48})\s*】/g, function (_whole, inner) {
       return "【" + String(inner || "").replace(/\*+/g, "").trim() + "】";
     });
+    s = stripStoryPlayModelThinkingPreamble(s);
     return s.trim();
   }
 
@@ -33415,7 +34542,7 @@
   }
 
   /** 剧情条：头像与昵称在上，正文在下全宽平铺。 */
-  function buildStoryPlayParticipantShell(isMe, displayChar, ch, extraClasses) {
+  function buildStoryPlayParticipantShell(isMe, displayChar, ch, extraClasses, speakMeta) {
     const row = document.createElement("div");
     row.className =
       "story-msg story-msg--" + (isMe ? "me" : "npc") + (extraClasses ? " " + extraClasses : "");
@@ -33426,10 +34553,31 @@
     const av = document.createElement("div");
     av.className = "avatar";
     fillAvatarElement(av, displayChar);
+    if (speakMeta && !isMe) {
+      av.classList.add("story-msg__avatar--speakable");
+      av.setAttribute("role", "button");
+      av.setAttribute("tabindex", "0");
+      av.setAttribute("aria-label", "点击朗读对白");
+      av.setAttribute("title", "点击朗读");
+      av.setAttribute("data-story-speak-plot-id", speakMeta.plotId);
+      av.setAttribute("data-story-speak-turn-index", String(speakMeta.turnIndex));
+      av.setAttribute("data-story-speak-line-index", String(speakMeta.lineIndex));
+      const asideTop = document.createElement("div");
+      asideTop.className = "story-msg__aside-top";
+      asideTop.appendChild(av);
+      const voiceWave = document.createElement("div");
+      voiceWave.className = "story-msg__voice-wave";
+      voiceWave.hidden = true;
+      voiceWave.setAttribute("aria-hidden", "true");
+      voiceWave.innerHTML = "<span></span><span></span><span></span>";
+      asideTop.appendChild(voiceWave);
+      aside.appendChild(asideTop);
+    } else {
+      aside.appendChild(av);
+    }
     const name = document.createElement("div");
     name.className = "story-msg__name";
     name.textContent = displayChar ? displayChar.name : ch ? ch.name : "未知";
-    aside.appendChild(av);
     aside.appendChild(name);
     const body = document.createElement("div");
     body.className = "story-msg__body";
@@ -33684,7 +34832,8 @@
                 isMe,
                 displayChar,
                 ch,
-                p.playSealed ? "story-msg--readonly" : "story-line-clickable"
+                p.playSealed ? "story-msg--readonly" : "story-line-clickable",
+                storySpeakMetaForLine(p, turnIndex, lineIndex, isMe, mergedParticipantText)
               );
               var mergeRow = shellM.row;
               mergeRow.setAttribute("data-story-line-id", String(line.id || ""));
@@ -33707,21 +34856,22 @@
               }
             }
           }
+          var bubbleDisplayText = rawText;
+          if (turn.choices && turn.choices.length >= 2) {
+            bubbleDisplayText = stripTrailingInlineNumberedChoicesFromText(bubbleDisplayText, turn.choices).trim();
+          }
           const shellN = buildStoryPlayParticipantShell(
             isMe,
             displayChar,
             ch,
-            p.playSealed ? "story-msg--readonly" : "story-line-clickable"
+            p.playSealed ? "story-msg--readonly" : "story-line-clickable",
+            storySpeakMetaForLine(p, turnIndex, lineIndex, isMe, bubbleDisplayText || rawText)
           );
           const row = shellN.row;
           row.setAttribute("data-story-line-id", String(line.id || ""));
           markStoryFeedSegment(row);
           const txt = document.createElement("div");
           txt.className = "story-msg__text story-msg__text--rp";
-          var bubbleDisplayText = rawText;
-          if (turn.choices && turn.choices.length >= 2) {
-            bubbleDisplayText = stripTrailingInlineNumberedChoicesFromText(bubbleDisplayText, turn.choices).trim();
-          }
           txt.innerHTML = renderStoryInlineMarkup(stripNarratorDisplayText(bubbleDisplayText || rawText));
           applyStoryLineDecorations(txt, p, String(line.id || ""));
           shellN.body.appendChild(txt);
@@ -33735,6 +34885,35 @@
           turnGroup.appendChild(row);
           lineIndex = ambSingle.resumeAt;
           continue;
+        }
+        if (turn.streaming && turn.streamPreviewLine) {
+          const pline = turn.streamPreviewLine;
+          const previewBubble = storyTurnLineShowsParticipantBubble(p, pline);
+          const previewText = String(pline.text || "");
+          if (previewBubble) {
+            const pCh = getCharById(pline.characterId);
+            const pDisplayChar = getStoryLineCharacterView(p, pline);
+            const pIsMe = pline.characterId === pid;
+            const shellP = buildStoryPlayParticipantShell(
+              pIsMe,
+              pDisplayChar,
+              pCh,
+              "story-play-stream-preview"
+            );
+            const pRow = shellP.row;
+            markStoryFeedSegment(pRow);
+            const pTxt = document.createElement("div");
+            pTxt.className = "story-msg__text story-msg__text--rp";
+            pTxt.innerHTML = renderStoryInlineMarkup(stripNarratorDisplayText(previewText));
+            shellP.body.appendChild(pTxt);
+            turnGroup.appendChild(pRow);
+          } else {
+            const pNarr = document.createElement("div");
+            pNarr.className = "story-feed-narr story-feed-narr--rp story-play-stream-preview";
+            markStoryFeedSegment(pNarr);
+            pNarr.innerHTML = renderStoryInlineMarkup(stripNarratorDisplayText(previewText));
+            turnGroup.appendChild(pNarr);
+          }
         }
         if (turnGroup.children.length) {
           feed.appendChild(turnGroup);
@@ -33764,6 +34943,16 @@
 
     const isLoadingTurn =
       !!p.playTurnInFlight || !!p.playChoiceExpandInFlight || !!p.playChoicesRegenerateInFlight;
+    const turnsForStream = p.playTurns || [];
+    const streamTurn =
+      p.playTurnInFlight && turnsForStream.length ? turnsForStream[turnsForStream.length - 1] : null;
+    const streamHasVisibleLines =
+      !!(
+        streamTurn &&
+        streamTurn.streaming &&
+        ((streamTurn.lines && streamTurn.lines.length) || streamTurn.streamPreviewLine)
+      );
+    const showChoicesLoading = isLoadingTurn && !streamHasVisibleLines;
     choicesWrap.classList.toggle("story-play-choices--loading", isLoadingTurn);
     const sendBtn = document.getElementById("story-composer-send");
     if (sendBtn) sendBtn.disabled = isLoadingTurn;
@@ -33773,12 +34962,19 @@
     if (input) input.disabled = isLoadingTurn;
     choicesWrap.innerHTML = "";
 
-    if (isLoadingTurn) {
+    if (showChoicesLoading) {
       choicesWrap.hidden = false;
       const prog = document.createElement("div");
       prog.className = "story-progress-indicator";
       prog.setAttribute("role", "status");
       prog.textContent = p.playChoicesRegenerateInFlight ? "正在重新生成选项…" : "正在推动剧情…";
+      choicesWrap.appendChild(prog);
+    } else if (isLoadingTurn && streamHasVisibleLines) {
+      choicesWrap.hidden = false;
+      const prog = document.createElement("div");
+      prog.className = "story-progress-indicator";
+      prog.setAttribute("role", "status");
+      prog.textContent = "正在续写…";
       choicesWrap.appendChild(prog);
     } else {
       const plotRef = p;
@@ -34059,11 +35255,165 @@
     } catch (_) {}
   }
 
+  function getStoryPlayStreamBodyText(raw) {
+    const processed = preprocessStoryPlayModelRaw(String(raw || ""));
+    return sliceStoryRawBeforeChoicesHeader(sliceStoryRawBeforeTurnDigestHeader(processed));
+  }
+
+  function listStoryPlayBlockHeaderPositions(body) {
+    const src = String(body || "");
+    const positions = [];
+    const re = /(?:^|\n)\s*【\s*([^】]{1,40})\s*】/g;
+    let m;
+    while ((m = re.exec(src))) {
+      const title = String(m[1] || "").trim();
+      if (/^(?:选项|选择支)$/i.test(title)) break;
+      positions.push(m.index);
+    }
+    return positions;
+  }
+
+  /** 流式进行中：最后一个【块】尚未收束，故 completed = headers - 1 */
+  function countCompletedStoryBlocksInStream(raw, streamDone) {
+    const body = getStoryPlayStreamBodyText(raw);
+    const positions = listStoryPlayBlockHeaderPositions(body);
+    if (!positions.length) return 0;
+    if (streamDone) return positions.length;
+    return Math.max(0, positions.length - 1);
+  }
+
+  function sliceStoryPlayRawToBlockCount(body, blockCount) {
+    const src = String(body || "");
+    const positions = listStoryPlayBlockHeaderPositions(src);
+    if (!positions.length || blockCount <= 0) return "";
+    if (blockCount >= positions.length) return src.trim();
+    return src.slice(0, positions[blockCount]).trim();
+  }
+
+  function mapParsedStoryLinesToTurnLines(parsed) {
+    return (parsed || []).map(function (line) {
+      const o = {
+        id: line && line.id ? line.id : uid("ln"),
+        characterId: line ? line.characterId : "",
+        text: normalizeStoryPlainTextForLayout(
+          stripNarratorDisplayText(String(line && line.text ? line.text : ""))
+        ),
+      };
+      if (line && String(line.speakerName || "").trim()) o.speakerName = String(line.speakerName).trim();
+      return o;
+    });
+  }
+
+  function parseStoryPlayBodyLinesUpTo(raw, protagonist, supporting, blockCount, streamDone) {
+    const body = getStoryPlayStreamBodyText(raw);
+    if (!body) return [];
+    const total = listStoryPlayBlockHeaderPositions(body).length;
+    const take = streamDone ? total : Math.min(blockCount, total);
+    if (take <= 0) return [];
+    const sliced = sliceStoryPlayRawToBlockCount(body, take);
+    if (!sliced) return [];
+    return parseTurnByCharacterBlocks(sliced, protagonist, supporting);
+  }
+
+  function getLastOpenStoryBlockTitle(raw) {
+    const body = getStoryPlayStreamBodyText(raw);
+    const re = /(?:^|\n)\s*【\s*([^】]{1,40})\s*】/g;
+    let last = "旁白";
+    let m;
+    while ((m = re.exec(body))) {
+      const t = String(m[1] || "").trim();
+      if (!/^(?:选项|选择支)$/i.test(t)) last = t;
+    }
+    return last;
+  }
+
+  function extractStoryPlayStreamDraftText(raw) {
+    const body = getStoryPlayStreamBodyText(raw);
+    if (!body || !listStoryPlayBlockHeaderPositions(body).length) return "";
+    const positions = listStoryPlayBlockHeaderPositions(body);
+    const start = positions[positions.length - 1];
+    const tail = body.slice(start);
+    const m = tail.match(/^【\s*[^】]{1,40}\s*】\s*\n?([\s\S]*)$/);
+    return m ? String(m[1] || "").trim() : "";
+  }
+
+  function buildStoryStreamPreviewLine(raw, draftText, protagonist, supporting) {
+    const draft = String(draftText || "").trim();
+    if (!draft) return null;
+    const body = getStoryPlayStreamBodyText(raw);
+    if (!body || !listStoryPlayBlockHeaderPositions(body).length) return null;
+    const title = getLastOpenStoryBlockTitle(raw);
+    const wrapped = "【" + title + "】\n" + draft;
+    const parsed = parseTurnByCharacterBlocks(wrapped, protagonist, supporting);
+    if (!parsed.length) return null;
+    const mapped = mapParsedStoryLinesToTurnLines(parsed);
+    if (!mapped.length) return null;
+    mapped[0].id = "stream-preview";
+    mapped[0].isStreamPreview = true;
+    return mapped[0];
+  }
+
+  var storyPlayStreamUiRaf = 0;
+
+  function scheduleStoryPlayStreamUi(plot, turnIndex, protagonist, supporting, streamText, streamDone) {
+    if (storyPlayStreamUiRaf) return;
+    storyPlayStreamUiRaf = requestAnimationFrame(function () {
+      storyPlayStreamUiRaf = 0;
+      const turns = plot.playTurns || [];
+      const turn = turns[turnIndex];
+      if (!turn || !turn.streaming) return;
+      const completed = countCompletedStoryBlocksInStream(streamText, !!streamDone);
+      const parsed = parseStoryPlayBodyLinesUpTo(streamText, protagonist, supporting, completed, !!streamDone);
+      turn.lines = mapParsedStoryLinesToTurnLines(parsed);
+      if (!streamDone) {
+        const draft = extractStoryPlayStreamDraftText(streamText);
+        turn.streamPreviewLine = buildStoryStreamPreviewLine(streamText, draft, protagonist, supporting);
+      } else {
+        turn.streamPreviewLine = null;
+      }
+      renderStoryPlay(plot);
+    });
+  }
+
+  function finalizeStoryPlayTurnFromRaw(plot, turn, rawResp, protagonist, supporting, pendingPlayerTurnAction) {
+    const rawProcessed = preprocessStoryPlayModelRaw(rawResp);
+    const rawForPlayParse = sliceStoryRawBeforeTurnDigestHeader(rawProcessed);
+    const bodyBeforeChoiceHeader = sliceStoryRawBeforeChoicesHeader(rawForPlayParse);
+    const parseSource = bodyBeforeChoiceHeader.length >= 16 ? bodyBeforeChoiceHeader : rawForPlayParse;
+    let lines = parseTurnByCharacterBlocks(parseSource, protagonist, supporting);
+    let choices = parseChoicesBlock(rawForPlayParse);
+    if (Array.isArray(lines) && lines.length && Array.isArray(choices) && choices.length >= 2) {
+      const stripped = stripEmbeddedChoicePreviewFromStoryLines(lines, choices);
+      if (stripped.length) lines = stripped;
+    }
+    const linesWithIds = mapParsedStoryLinesToTurnLines(lines);
+    if (!linesWithIds.length) throw new Error("剧情生成失败，请点重生成或换模型重试。");
+    if (!Array.isArray(choices) || choices.length < 2) {
+      throw new Error("生成失败（缺少有效选项），请点重生成或换模型重试。");
+    }
+    const triggerSnap =
+      pendingPlayerTurnAction && String(pendingPlayerTurnAction.line || "").trim()
+        ? {
+            type: String(pendingPlayerTurnAction.type || "text"),
+            line: pendingPlayerTurnAction.line,
+            hint: pendingPlayerTurnAction.hint || "",
+          }
+        : null;
+    turn.lines = linesWithIds;
+    turn.choices = choices.slice();
+    turn.triggerPlayerAction = triggerSnap;
+    turn.internalDigest = "";
+    turn.streaming = false;
+    turn.streamPreviewLine = null;
+    plot.lastGeneratedAt = Date.now();
+    syncPhoneStoryDateAnchor(plot);
+    return linesWithIds[0] && linesWithIds[0].id ? String(linesWithIds[0].id) : "";
+  }
+
   async function requestNextStoryTurn(plot) {
     if (!plot || plot.playTurnInFlight || plot.playChoicesRegenerateInFlight) return;
     ensurePlotExtendedState(plot);
     if (plot.playSealed) return;
-    maybeBackfillTurnDigests(plot);
     const ppt0 = plot.pendingPlayerTurnAction;
     const pendingPlayerTurnAction = ppt0
       ? {
@@ -34159,10 +35509,9 @@
       STORY_PLAY_CONTINUITY_GUIDE;
 
     const systemPrompt =
-      "你是中文互动剧情续写助手。输出剧情说话块、文末「【选项】」与全文最末尾「【本轮概要】」（概要供程序内部续写引用，用户界面不展示）；不要开场寒暄；不要用代码围栏（三面反引号）包住全文。\n\n" +
+      "你是中文互动剧情续写助手。输出剧情说话块与文末「【选项】」；不要开场寒暄；不要用代码围栏（三面反引号）包住全文。\n\n" +
       "【玩家指令优先】当用户消息含「务必优先·玩家指令」时，该段所列点选选项或输入文字为本回合最高约束：后续场面、对白与因果链条必须与之相符，禁止忽略、禁止改写成相反走向，禁止仅用一句话带过再写无关支线。\n" +
-      "【选项区唯一】禁止在正文里（在文末「【选项】」「【选择支】」或「## 选项」等标题出现之前）再写「选项 1.」「选项1.」「2.」等分支罗列或与文末选项雷同的预告；玩家可点选的行动只准许在文末选项区出现一次。\n" +
-      "【概要区唯一】「【本轮概要】」只准许出现在全文最末尾（选项区之后）；禁止在剧情说话块或选项区中提前写出该标题或同类内部概要。\n\n" +
+      "【选项区唯一】禁止在正文里（在文末「【选项】」「【选择支】」或「## 选项」等标题出现之前）再写「选项 1.」「选项1.」「2.」等分支罗列或与文末选项雷同的预告；玩家可点选的行动只准许在文末选项区出现一次。\n\n" +
       "【输出形态·程序依此解析】\n" +
       storyPlayTurnBlockBudgetLine +
       "· 「说话块」按**说话者/视点**切换：换人或换【旁白】时用单独一行的【角色名】/【旁白】/【我】（仅第一人称主角）起头；**优先**使用下方花名册中的姓名；剧情需要的店员、路人等**未建档角色**也可用【显示名】起块，界面会以首字头像与昵称展示。亦可用「姓名：」同一行起段，或与花名册一致的全名单独占一行（下一行起接对白或描写；勿加括号或 Markdown 装饰）。**同一说话者同一场戏不要为每一句对白再起新的【名】行。**\n" +
@@ -34170,10 +35519,7 @@
       "· 结尾留下玩家可介入的局面；最后一格尽量用配角或【旁白】收束。\n" +
       "· 文末单独一行「【选项】」或「【选择支】」，或用 Markdown 「## 选项」等小标题接引；后跟至少两行可选行动。\n" +
       "可加 1. / - 前缀；一行一条，勿把两段对白挤在同一行。\n" +
-      "· **最后一节（必写·程序解析·用户不可见）**：选项区之后另起一行「【本轮概要】」，写本回合内部概要（约 " +
-      TURN_DIGEST_PROMPT_MAX_CHARS +
-      " 字以内，可略长但须精炼）：须覆盖关键事件与因果、关系变化、未决悬念与重要约定；保留中间过程里的核心转折，勿只写首尾；禁止编号与小标题；勿杜撰。\n" +
-      "· **输出顺序固定**：剧情说话块 → 【选项】与选项行 → 【本轮概要】与概要正文；概要必须放在全文最末尾。\n\n" +
+      "· **输出顺序固定**：剧情说话块 → 【选项】与选项行。\n\n" +
       storyPlayChoicePovHint +
       "\n\n" +
       "【篇幅】约 " +
@@ -34188,19 +35534,25 @@
       "【人称】" +
       povConstraintPlay +
       "\n\n" +
-      STORY_PLAY_CONTEXT_REF_GUIDE +
-      "\n【文风】" +
+      "【文风】" +
       STORY_PLAY_PROSE_BRIEF +
       "\n" +
       STORY_PERSONA_PRIORITY_GUIDE +
       "\n\n（若在 Gemini 等平台输出：仍可混用简短 Markdown，但须保留清晰的【】块分界与文末选项区。）";
     const identityBlocks = getEffectiveIdentityBlocks(plot);
-    const eraBlock = identityBlocks.eraBlock || "未设定";
-    const identitySelfBlock = identityBlocks.identitySelfBlock || "未设定";
-    const identityOthersBlock = identityBlocks.identityOthersBlock || "未设定";
+    const hasPriorPlay = (plot.playTurns || []).length > 0;
+    const eraBlock = buildStoryPlayIdentityFieldForPrompt(identityBlocks.eraBlock || "未设定", hasPriorPlay);
+    const identitySelfBlock = buildStoryPlayIdentityFieldForPrompt(
+      identityBlocks.identitySelfBlock || "未设定",
+      hasPriorPlay
+    );
+    const identityOthersBlock = buildStoryPlayIdentityFieldForPrompt(
+      identityBlocks.identityOthersBlock || "未设定",
+      hasPriorPlay
+    );
     const openingBlock = String((plot.playIntro && plot.playIntro.opening) || plot.storyStart || "").trim() || "未设定";
     const roleOverrideBlock = identityBlocks.roleOverrideBlock || "";
-    const summaryBlock = buildPlotSummariesPromptBlock(plot);
+    const summaryBlock = buildPlotSummariesPromptBlockForPlay(plot);
     const roleLibraryBlock = buildPlayRoleLibraryPromptBlock(protagonist, supporting);
     const memoryContext = buildPlotMemoryContextBlob([
       plot.theme,
@@ -34222,7 +35574,7 @@
       )
       .filter(Boolean)
       .join("，");
-    const wbBlockPlay = formatWorldBooksPromptBlock(wbs);
+    const wbBlockPlay = formatWorldBooksPromptBlockForPlay(wbs);
     const includeRoleLibrary =
       roleLibraryBlock && !isPlayRoleLibraryRedundantWithIdentities(roleLibraryBlock, identitySelfBlock, identityOthersBlock);
     const playerActionPriorityLead =
@@ -34237,7 +35589,6 @@
           (pendingPlayerTurnAction.hint ? "\n提示：\n" + String(pendingPlayerTurnAction.hint || "").trim() : "") +
           "\n\n"
         : "";
-    const hasPriorPlay = (plot.playTurns || []).length > 0;
     const userPrompt =
       (wbBlockPlay ? wbBlockPlay + "\n" : "") +
       playerActionPriorityLead +
@@ -34258,7 +35609,7 @@
       (hasPriorPlay ? "\n\n" + STORY_PLAY_CONTEXT_REF_GUIDE : "") +
       "\n\n【必读·最近剧情】（仅最近 " +
       STORY_PLAY_REF_TURN_LIMIT +
-      " 轮；**最高优先**，须从最后一轮收束处无缝续写；末轮为完整正文、更早轮次为轮概要；同层冲突时以本段为准）：\n" +
+      " 轮；**最高优先**，须从最后一轮收束处无缝续写；末轮为完整正文、更早轮次为首尾摘录；同层冲突时以本段为准）：\n" +
       (history || "故事刚开始。") +
       (memoryBlock
         ? "\n\n【必读·记忆】（最多 " +
@@ -34267,8 +35618,8 @@
           memoryBlock
         : "") +
       (summaryBlock
-        ? "\n\n【必读·阶段总结】（最新 " +
-          PLAY_SUMMARY_PROMPT_REF_LIMIT +
+        ? "\n\n【必读·阶段总结】（主线滚动摘要，或已保存最近 " +
+          STORY_PLAY_SUMMARY_REF_LIMIT +
           " 条；补充更早回合背景，须延续核心事实与关系；细节冲突时以「最近剧情」为准）：\n" +
           summaryBlock
         : hasPriorPlay
@@ -34287,6 +35638,7 @@
     }
 
     let scrollToNewTurnFirstLineId = "";
+    let streamTurnIndex = -1;
     const playGenOpts = buildGenCallOpts("story-play", { plot: plot });
     setGenCallContext(playGenOpts);
     beginGlobalGenPawOverlay(playGenOpts.pawContext);
@@ -34294,120 +35646,68 @@
     try {
       showToast("AI 正在续写剧情…", "info");
       const playTemperature = isGeminiPlay ? 0.56 : 0.72;
-      const storyPlayApiOpts = { skipGenReady: true, skipGenPaw: true };
-      const rawResp = await callChatCompletion(
-        [
-          { role: "system", content: apiSystemPrompt },
-          { role: "user", content: apiUserPrompt },
-        ],
+      if (!playApiCfg) throw new Error("未配置 API，请先在设置中添加 API 配置。");
+      if (!plot.playTurns) plot.playTurns = [];
+      const streamingTurn = {
+        id: uid("turn"),
+        lines: [],
+        choices: [],
+        triggerPlayerAction:
+          pendingPlayerTurnAction && String(pendingPlayerTurnAction.line || "").trim()
+            ? {
+                type: String(pendingPlayerTurnAction.type || "text"),
+                line: pendingPlayerTurnAction.line,
+                hint: pendingPlayerTurnAction.hint || "",
+              }
+            : null,
+        internalDigest: "",
+        streaming: true,
+        streamPreviewLine: null,
+      };
+      plot.playTurns.push(streamingTurn);
+      streamTurnIndex = plot.playTurns.length - 1;
+      renderStoryPlay(plot);
+
+      const apiMessages = [
+        { role: "system", content: apiSystemPrompt },
+        { role: "user", content: apiUserPrompt },
+      ];
+      const rawResp = await callStoryPlayChatCompletion(
+        playApiCfg,
+        apiMessages,
         playTemperature,
         storyPlayMaxTokens(plot),
-        storyPlayApiOpts
+        {
+          onStreamProgress: function (_delta, fullText) {
+            scheduleStoryPlayStreamUi(plot, streamTurnIndex, protagonist, supporting, fullText, false);
+          },
+        }
       );
-      const rawProcessed = preprocessStoryPlayModelRaw(rawResp);
-      const rawForPlayParse = sliceStoryRawBeforeTurnDigestHeader(rawProcessed);
-      const turnInternalDigest = parseTurnInternalDigestBlock(rawProcessed);
-      const bodyBeforeChoiceHeader = sliceStoryRawBeforeChoicesHeader(rawForPlayParse);
-      const parseSource = bodyBeforeChoiceHeader.length >= 16 ? bodyBeforeChoiceHeader : rawForPlayParse;
-      let lines = parseTurnByCharacterBlocks(parseSource, protagonist, supporting);
-      let choices = parseChoicesBlock(rawForPlayParse);
-      function applyEmbeddedChoiceStrip() {
-        if (Array.isArray(lines) && lines.length && Array.isArray(choices) && choices.length >= 2) {
-          const stripped = stripEmbeddedChoicePreviewFromStoryLines(lines, choices);
-          if (stripped.length) lines = stripped;
-        }
+      if (storyPlayStreamUiRaf) {
+        cancelAnimationFrame(storyPlayStreamUiRaf);
+        storyPlayStreamUiRaf = 0;
       }
-      applyEmbeddedChoiceStrip();
-
-      if (!plot.playTurns) plot.playTurns = [];
-      if ((lines || []).length && (!Array.isArray(choices) || choices.length < 2)) {
-        const bodyOnly = sliceStoryRawBeforeTurnDigestHeader(
-          preprocessStoryPlayModelRaw(String(rawResp || ""))
-        )
-          .replace(/\n#{1,6}\s*[^\n]*?(?:选项|选择支)[\s\S]*$/im, "")
-          .replace(/\n\s*【\s*(?:选项|选择支)\s*】[\s\S]*$/im, "")
-          .trim()
-          .slice(-2800);
-        if (bodyOnly.length > 96) {
-          try {
-            const rescueRaw = await callChatCompletion(
-              [
-                {
-                  role: "system",
-                  content:
-                    "根据剧情节写玩家可选的行动。每条一行、短即可，可加序号或前缀。不要复述剧情。"
-                    +
-                    povConstraintPlay +
-                    " " +
-                    storyPlayChoicePovHint +
-                    " 不要标题或小标题；不要解释；≥2 行。",
-                },
-                {
-                  role: "user",
-                  content:
-                    "叙事视角：" +
-                    povLine2 +
-                    "\n\n剧情节选（结尾附近）：\n" +
-                    bodyOnly +
-                    "\n\n输出选项（每行一条）：",
-                },
-              ],
-              isGeminiPlay ? 0.45 : 0.62,
-              640,
-              storyPlayApiOpts
-            );
-            const rescued = sanitizeStoryChoices(
-              parseStoryChoices(String(rescueRaw || "").trim(), String(rescueRaw || ""))
-            );
-            if (rescued.length >= 2) choices = rescued;
-          } catch (_) {
-            /* 保持原选项解析结果 */
-          }
-        }
-      }
-
-      applyEmbeddedChoiceStrip();
-
-      const linesWithIds = (lines || []).map(function (line) {
-        const o = {
-          id: line && line.id ? line.id : uid("ln"),
-          characterId: line ? line.characterId : "",
-          text: normalizeStoryPlainTextForLayout(stripNarratorDisplayText(String(line && line.text ? line.text : ""))),
-        };
-        if (line && String(line.speakerName || "").trim()) o.speakerName = String(line.speakerName).trim();
-        return o;
-      });
-
-      if (!linesWithIds.length) throw new Error("剧情生成失败，请点重生成或换模型重试。");
-      if (!Array.isArray(choices) || choices.length < 2) throw new Error("生成失败（缺少有效选项），请点重生成或换模型重试。");
-      const triggerSnap =
-        pendingPlayerTurnAction && String(pendingPlayerTurnAction.line || "").trim()
-          ? {
-              type: String(pendingPlayerTurnAction.type || "text"),
-              line: pendingPlayerTurnAction.line,
-              hint: pendingPlayerTurnAction.hint || "",
-            }
-          : null;
-      plot.playTurns.push({
-        id: uid("turn"),
-        lines: linesWithIds,
-        choices: choices.slice(),
-        triggerPlayerAction: triggerSnap,
-        internalDigest: turnInternalDigest || "",
-      });
-      plot.lastGeneratedAt = Date.now();
-      syncPhoneStoryDateAnchor(plot);
-      const newTurnId = plot.playTurns[plot.playTurns.length - 1].id;
-      scrollToNewTurnFirstLineId =
-        linesWithIds[0] && linesWithIds[0].id ? String(linesWithIds[0].id) : "";
+      scheduleStoryPlayStreamUi(plot, streamTurnIndex, protagonist, supporting, rawResp, true);
+      scrollToNewTurnFirstLineId = finalizeStoryPlayTurnFromRaw(
+        plot,
+        streamingTurn,
+        rawResp,
+        protagonist,
+        supporting,
+        pendingPlayerTurnAction
+      );
       storyTurnGenOk = true;
       flushPersistNarrative();
-      setTimeout(function () {
-        void maybeAutoSummarizePlot(plot);
-      }, 320);
-      if (newTurnId && !turnInternalDigest) scheduleTurnInternalDigestByTurnId(plot, newTurnId);
     } catch (err) {
       console.error("剧情续写失败:", err);
+      if (
+        streamTurnIndex >= 0 &&
+        plot.playTurns &&
+        plot.playTurns[streamTurnIndex] &&
+        plot.playTurns[streamTurnIndex].streaming
+      ) {
+        plot.playTurns.splice(streamTurnIndex, 1);
+      }
       showToast("续写失败：" + (err && err.message ? err.message : "请重试或换用其他模型"), "error", 4000);
       restoreStoryComposerInputAfterPlayFailureFromPendingSnap(pendingPlayerTurnAction);
     } finally {
@@ -34657,6 +35957,157 @@
 
     html += "</div></section>";
     return html;
+  }
+
+  function collectTtsSettingsFromForm(rootEl) {
+    if (!rootEl) return;
+    const apiKey = rootEl.querySelector("#minimax-api-key");
+    const groupId = rootEl.querySelector("#minimax-group-id");
+    const region = rootEl.querySelector("#minimax-region-select");
+    const baseUrl = rootEl.querySelector("#minimax-base-url");
+    const voiceId = rootEl.querySelector("#minimax-voice-id");
+    const model = rootEl.querySelector("#minimax-model-select");
+    const voicePrompt = rootEl.querySelector("#minimax-voice-prompt");
+    if (apiKey) ttsSettings.apiKey = String(apiKey.value || "").trim();
+    if (groupId) ttsSettings.groupId = String(groupId.value || "").trim();
+    if (region) ttsSettings.region = region.value || "cn";
+    if (baseUrl) ttsSettings.baseUrl = String(baseUrl.value || "").trim();
+    if (voiceId) ttsSettings.voiceId = String(voiceId.value || "").trim();
+    if (model) ttsSettings.model = model.value || "speech-2.8-hd";
+    if (voicePrompt) ttsSettings.voicePrompt = String(voicePrompt.value || "").trim();
+  }
+
+  function buildTtsSettingsSectionHtml() {
+    const regionOpts = MINIMAX_REGIONS.map(function (r) {
+      const shortLabel = r.id === "intl" ? "国际" : "国内";
+      return (
+        '<option value="' +
+        escapeHtml(r.id) +
+        '"' +
+        (ttsSettings.region === r.id ? " selected" : "") +
+        ">" +
+        escapeHtml(shortLabel) +
+        "</option>"
+      );
+    }).join("");
+    const modelOpts = MINIMAX_TTS_MODELS.map(function (m) {
+      let shortLabel = m.id;
+      if (m.id === "speech-2.8-hd") shortLabel = "2.8-HD";
+      else if (m.id === "speech-2.8-turbo") shortLabel = "2.8-Turbo";
+      else if (m.id === "speech-02-hd") shortLabel = "HD";
+      else if (m.id === "speech-02-turbo") shortLabel = "Turbo";
+      else if (m.id === "speech-01-hd") shortLabel = "01-HD";
+      else if (m.id === "speech-01-turbo") shortLabel = "01-Turbo";
+      return (
+        '<option value="' +
+        escapeHtml(m.id) +
+        '"' +
+        (ttsSettings.model === m.id ? " selected" : "") +
+        ">" +
+        escapeHtml(shortLabel) +
+        "</option>"
+      );
+    }).join("");
+    const shownVoiceId = String(ttsSettings.voiceId || ttsSettings.clonedVoiceId || "").trim();
+    return (
+      '<section class="settings-panel settings-panel--tts">' +
+      '<div class="settings-panel__head"><h3 class="settings-panel__title">剧情朗读</h3></div>' +
+      '<div class="settings-panel__body tts-settings-compact">' +
+      '<div class="tts-settings-compact__toggle">' +
+      '<button type="button" class="story-summaries-switch' +
+      (ttsSettings.enabled ? " story-summaries-switch--on" : "") +
+      '" id="tts-enabled-toggle" role="switch" aria-checked="' +
+      (ttsSettings.enabled ? "true" : "false") +
+      '" aria-label="启用剧情朗读"><span class="story-summaries-switch__track" aria-hidden="true"><span class="story-summaries-switch__thumb"></span></span></button>' +
+      "</div>" +
+      '<p class="field__hint tts-settings-compact__key-hint">已购 Token Plan 请填控制台「账户管理 → Token Plan」里的<strong>订阅 Key</strong>，走套餐额度；填「API Key 管理」里的按量 Key 会扣账户余额，套餐进度条不会动。</p>' +
+      '<div class="tts-settings-compact__grid">' +
+      '<input class="field__input" id="minimax-api-key" type="password" placeholder="订阅 Key 或按量 API Key" value="' +
+      escapeHtml(ttsSettings.apiKey || "") +
+      '" autocomplete="off" />' +
+      '<input class="field__input" id="minimax-group-id" type="text" placeholder="Group ID" value="' +
+      escapeHtml(ttsSettings.groupId || "") +
+      '" autocomplete="off" />' +
+      '<select class="field__input" id="minimax-region-select" aria-label="MiniMax 版本">' +
+      regionOpts +
+      "</select>" +
+      '<input class="field__input" id="minimax-base-url" type="url" placeholder="Base URL" value="' +
+      escapeHtml(ttsSettings.baseUrl || "") +
+      '" />' +
+      '<input class="field__input" id="minimax-voice-id" type="text" placeholder="音色 ID" value="' +
+      escapeHtml(shownVoiceId) +
+      '" autocomplete="off" />' +
+      '<select class="field__input" id="minimax-model-select" aria-label="语音模型">' +
+      modelOpts +
+      "</select>" +
+      "</div>" +
+      '<textarea class="field__input field__textarea tts-settings-compact__prompt" id="minimax-voice-prompt" rows="3" placeholder="语气补充（可选）">' +
+      escapeHtml(ttsSettings.voicePrompt || "") +
+      "</textarea>" +
+      '<div class="tts-settings-compact__actions">' +
+      '<button type="button" class="btn btn--primary btn--pill" id="minimax-voice-save-btn">保存</button>' +
+      '<button type="button" class="btn btn-secondary btn--pill" id="minimax-voice-preview-btn">试听</button>' +
+      "</div></div></section>"
+    );
+  }
+
+  function bindTtsSettingsHandlers(rootEl) {
+    if (!rootEl) return;
+    const enabledToggle = rootEl.querySelector("#tts-enabled-toggle");
+    if (enabledToggle) {
+      enabledToggle.addEventListener("click", function () {
+        ttsSettings.enabled = !ttsSettings.enabled;
+        persistTtsSettings();
+        renderDynamic();
+      });
+    }
+    const regionSel = rootEl.querySelector("#minimax-region-select");
+    if (regionSel) {
+      regionSel.addEventListener("change", function () {
+        ttsSettings.region = regionSel.value || "cn";
+        persistTtsSettings();
+      });
+    }
+    const saveBtn = rootEl.querySelector("#minimax-voice-save-btn");
+    if (saveBtn) {
+      saveBtn.addEventListener("click", function () {
+        collectTtsSettingsFromForm(rootEl);
+        if (!ttsSettings.apiKey) {
+          showToast("请先填写 API Key。", "warning");
+          return;
+        }
+        if (!resolveGlobalMinimaxVoiceId()) {
+          showToast("请填写音色 ID。", "warning");
+          return;
+        }
+        persistTtsSettings();
+        showToast("已保存", "success");
+      });
+    }
+    const previewBtn = rootEl.querySelector("#minimax-voice-preview-btn");
+    if (previewBtn) {
+      previewBtn.addEventListener("click", function () {
+        collectTtsSettingsFromForm(rootEl);
+        persistTtsSettings();
+        void previewMinimaxVoice(previewBtn);
+      });
+    }
+    rootEl
+      .querySelectorAll(
+        "#minimax-api-key, #minimax-group-id, #minimax-base-url, #minimax-voice-id, #minimax-voice-prompt"
+      )
+      .forEach(function (el) {
+        el.addEventListener("change", function () {
+          collectTtsSettingsFromForm(rootEl);
+          persistTtsSettings();
+        });
+      });
+    rootEl.querySelectorAll("#minimax-region-select, #minimax-model-select").forEach(function (el) {
+      el.addEventListener("change", function () {
+        collectTtsSettingsFromForm(rootEl);
+        persistTtsSettings();
+      });
+    });
   }
 
   function bindApiSettingsHandlers(rootEl) {
@@ -34975,8 +36426,11 @@
       '<p class="field__hint">最左侧为默认大小（100%）；向右拖动可等比例放大全界面文字，设置保存在本机。</p>' +
       "</div></div></section>";
 
+    html += buildTtsSettingsSectionHtml();
+
     el.innerHTML = html;
     bindApiSettingsHandlers(el);
+    bindTtsSettingsHandlers(el);
     enhanceCustomSelectsIn(el);
     void refreshSettingsFontDiagnostics(el);
   }
@@ -35308,51 +36762,85 @@
   document.addEventListener("click", function (e) {
     const slot = e.target.closest("#knock-content-slot");
     if (!slot || !slot.contains(e.target)) return;
+    if (handleKnockContentTap(e, slot)) return;
+  });
+  document.addEventListener(
+    "touchend",
+    function (e) {
+      const slot = e.target.closest("#knock-content-slot");
+      if (!slot || !slot.contains(e.target)) return;
+      if (handleKnockContentTap(e, slot)) {
+        e.preventDefault();
+      }
+    },
+    { passive: false }
+  );
+
+  function handleKnockContentTap(e, slot) {
     if (e.target.closest("[data-knock-back]")) {
       closeOverviewKnockView();
-      return;
+      return true;
     }
     if (e.target.closest("[data-knock-regenerate]")) {
       void regenerateKnockReply();
-      return;
+      return true;
     }
     if (e.target.closest("[data-knock-select-toggle]")) {
       toggleKnockSelectMode(slot);
-      return;
+      return true;
     }
     const msgSelect = e.target.closest("[data-knock-msg-select]");
     if (msgSelect) {
       toggleKnockMessageSelection(slot, msgSelect.getAttribute("data-knock-msg-index"));
-      return;
+      return true;
     }
     if (e.target.closest("[data-knock-generate]")) {
       void generateKnockReply();
-      return;
+      return true;
     }
     if (e.target.closest("[data-knock-setup-toggle]")) {
       knockSetupOpen = true;
       const overlay = slot.querySelector("[data-knock-setup-overlay]");
+      const chatRoot = slot.querySelector(".knock-chat");
+      if (chatRoot) chatRoot.classList.add("knock-chat--setup-open");
       if (overlay) {
         overlay.hidden = false;
         renderKnockSetupPicks(overlay);
       }
-      return;
+      return true;
     }
     if (e.target.closest("[data-knock-setup-close]")) {
       knockSetupOpen = false;
       const overlay = slot.querySelector("[data-knock-setup-overlay]");
+      const chatRoot = slot.querySelector(".knock-chat");
+      if (chatRoot) chatRoot.classList.remove("knock-chat--setup-open");
       if (overlay) overlay.hidden = true;
-      return;
+      return true;
+    }
+    const knockUserPickBtn = e.target.closest("[data-knock-user-char]");
+    if (knockUserPickBtn) {
+      const pickRoot = getKnockSetupPickRoot(knockUserPickBtn);
+      knockUserCharId = knockUserPickBtn.getAttribute("data-knock-user-char") || null;
+      renderKnockSetupPicks(pickRoot);
+      return true;
+    }
+    const knockPartnerPickBtn = e.target.closest("[data-knock-partner-char]");
+    if (knockPartnerPickBtn) {
+      const pickRoot = getKnockSetupPickRoot(knockPartnerPickBtn);
+      knockPartnerCharId = knockPartnerPickBtn.getAttribute("data-knock-partner-char") || null;
+      renderKnockSetupPicks(pickRoot);
+      return true;
     }
     if (e.target.closest("[data-knock-setup-confirm]")) {
       confirmKnockSetup(slot);
-      return;
+      return true;
     }
     if (e.target.closest("[data-knock-send]")) {
       sendKnockMessage();
-      return;
+      return true;
     }
-  });
+    return false;
+  }
   document.addEventListener("keydown", function (e) {
     if (e.key !== "Enter" || e.isComposing) return;
     const input = e.target.closest("[data-knock-input]");
@@ -37558,6 +39046,7 @@
   loadUiFontScaleAndApply();
   loadUiBrightnessAndApply();
   loadApiConfigs();
+  loadTtsSettings();
   loadAssistantState();
   applyPostClearAssistantBlankStateIfNeeded();
   migrateLegacyAssistantDefaultsOnce();
