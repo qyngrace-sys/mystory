@@ -15814,7 +15814,7 @@
       void openOverviewKnockView();
       return;
     }
-    if (id === "dial") {
+    if (id === "dial" || id === "dial-call" || id === "call") {
       void openOverviewDialView();
       return;
     }
@@ -15826,9 +15826,23 @@
       openOverviewSubView("fanwork");
       return;
     }
-    const labelMap = {};
+    const labelMap = {
+      theme: "题材方向",
+      "rewrite-persona": "改写人设",
+      "gen-worldbook": "生成世界书",
+      knock: "敲敲",
+      dial: "拨通",
+      phone: "查手机",
+      fanwork: "小狗饭",
+    };
     const label = labelMap[id] || "该功能";
-    showToast("「" + label + "」即将开放，敬请期待。", "info");
+    showToast(
+      "「" +
+        label +
+        "」暂未加载完成。请刷新页面；若从主屏幕打开，请删掉图标后重新用浏览器打开一次。",
+      "info",
+      5200
+    );
   }
 
   /** 拼装发给 Chat Completions 的消息列表（人设 + 可选额外 system + 当前聊天记录） */
@@ -39594,9 +39608,29 @@
     });
   }
 
+  function bindOverviewWorkbenchActions() {
+    const root = document.getElementById("view-overview");
+    if (!root) return;
+    let lastTapAt = 0;
+    function onWorkbenchAction(e) {
+      const chip = e.target.closest(".workbench-widgets [data-assistant-action]");
+      if (!chip || !root.contains(chip)) return;
+      const now = Date.now();
+      if (now - lastTapAt < 320) return;
+      lastTapAt = now;
+      const action = String(chip.getAttribute("data-assistant-action") || "").trim();
+      if (!action) return;
+      if (e.cancelable) e.preventDefault();
+      handleAssistantQuickAction(action);
+    }
+    root.addEventListener("click", onWorkbenchAction);
+    root.addEventListener("touchend", onWorkbenchAction, { passive: false });
+  }
+
   document.getElementById("view-overview").addEventListener("click", (e) => {
     const chip = e.target.closest("[data-assistant-action]");
     if (!chip || !document.getElementById("view-overview").contains(chip)) return;
+    if (chip.closest(".workbench-widgets")) return;
     const action = chip.getAttribute("data-assistant-action");
     if (action) handleAssistantQuickAction(action);
   });
@@ -42170,6 +42204,7 @@
   initStatusBar();
   bindSettingsDelegation();
   bindNav();
+  bindOverviewWorkbenchActions();
   document.addEventListener("click", dismissIncompleteNewApiIfOutsideClick, false);
 
   try {
