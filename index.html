@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://unpkg.com" crossorigin />
   <link rel="stylesheet" href="https://unpkg.com/@chinese-fonts/syst@3.0.0/dist/SourceHanSerifCN/result.css" />
   <link rel="stylesheet" href="https://unpkg.com/@fontsource/noto-serif-tc@5.2.10/400.css" />
-  <link rel="stylesheet" href="styles.css?v=128" />
+  <link rel="stylesheet" href="styles.css?v=139" />
 </head>
 <body>
   <div class="page-backdrop">
@@ -41,60 +41,125 @@
       <!-- 点星（原助手页：AI 工具与查手机、同人粮入口） -->
       <section id="view-overview" class="view" data-view="overview">
         <div id="overview-hub" class="overview-hub">
-          <div class="workbench-grid" role="list" aria-label="创作工具">
-            <button type="button" class="workbench-card" data-assistant-action="theme" role="listitem">
-              <span class="workbench-card__icon" aria-hidden="true">
-                <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M16.24 7.76l-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"/></svg>
+          <div class="workbench-widgets" role="list" aria-label="创作工具">
+            <button type="button" class="workbench-card workbench-card--theme" data-assistant-action="theme" role="listitem">
+              <span class="workbench-card__visual" aria-hidden="true">
+                <svg class="workbench-glyph" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path class="wb-g__soft" d="M10 20 L32 12 L54 20 V44 L32 52 L10 44 Z"/>
+                  <path class="wb-g__paper" d="M14 22 L30 17 V46 L16 50 Z"/>
+                  <path class="wb-g__paper" d="M34 17 L50 22 V50 L34 46 Z"/>
+                  <path class="wb-g__stroke-soft" d="M32 12 V52"/>
+                  <path class="wb-g__stroke-soft" d="M18 28 H28 M38 32 H48 M20 36 H26"/>
+                  <circle class="wb-g__mid" cx="44" cy="38" r="13"/>
+                  <circle class="wb-g__stroke" cx="44" cy="38" r="13"/>
+                  <path class="wb-g__solid" d="M44 27 L46.2 38 L44 40 L41.8 38 Z"/>
+                  <path class="wb-g__deep" d="M44 49 L41.8 40 L44 38 L46.2 40 Z"/>
+                  <circle class="wb-g__paper" cx="44" cy="38" r="2.2"/>
+                </svg>
               </span>
-              <span class="workbench-card__text">
-                <span class="workbench-card__title">题材方向</span>
-                <span class="workbench-card__desc">生成开局方向</span>
-              </span>
+              <span class="workbench-card__title">题材方向</span>
             </button>
-            <button type="button" class="workbench-card" data-assistant-action="rewrite-persona" role="listitem">
-              <span class="workbench-card__icon" aria-hidden="true">
-                <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            <button type="button" class="workbench-card workbench-card--rewrite" data-assistant-action="rewrite-persona" role="listitem">
+              <span class="workbench-card__visual" aria-hidden="true">
+                <svg class="workbench-glyph" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect class="wb-g__soft" x="9" y="8" width="30" height="44" rx="4"/>
+                  <rect class="wb-g__paper" x="13" y="12" width="13" height="16" rx="2"/>
+                  <circle class="wb-g__mid" cx="19.5" cy="18" r="4"/>
+                  <path class="wb-g__stroke-soft" d="M15 32 H33 M15 37 H30 M15 42 H26"/>
+                  <path class="wb-g__solid" d="M34 46 L52 28 L56.5 32.5 L38.5 50.5 Z"/>
+                  <path class="wb-g__deep" d="M52 28 L56 24 L60 28 L56 32 Z"/>
+                  <rect class="wb-g__mid" x="31" y="43" width="7" height="15" rx="1.5" transform="rotate(-42 34.5 50.5)"/>
+                  <path class="wb-g__stroke-bold" d="M56 24 L58 22"/>
+                </svg>
               </span>
-              <span class="workbench-card__text">
-                <span class="workbench-card__title">改写人设</span>
-                <span class="workbench-card__desc">润色角色外貌与性格</span>
-              </span>
+              <span class="workbench-card__title">改写人设</span>
             </button>
-            <button type="button" class="workbench-card" data-assistant-action="gen-worldbook" role="listitem">
-              <span class="workbench-card__icon" aria-hidden="true">
-                <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><path d="M12 6v12"/><path d="M8 10h8"/></svg>
+            <button type="button" class="workbench-card workbench-card--worldbook" data-assistant-action="gen-worldbook" role="listitem">
+              <span class="workbench-card__visual" aria-hidden="true">
+                <svg class="workbench-glyph" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path class="wb-g__deep" d="M7 15 C7 11 10 9 14 9 H28 V55 H12 C9 55 7 52 7 48 Z"/>
+                  <path class="wb-g__paper" d="M10 13 H26 V53 H13 C10.5 53 10 51 10 48 Z"/>
+                  <path class="wb-g__deep" d="M28 9 H50 C54 9 57 11 57 15 V49 C57 53 54 55 50 55 H28 Z"/>
+                  <path class="wb-g__paper" d="M31 11 H48 V53 H31 Z"/>
+                  <path class="wb-g__solid" d="M28 9 V55"/>
+                  <path class="wb-g__stroke-soft" d="M14 19 H24 M14 24 H22 M14 29 H20"/>
+                  <path class="wb-g__stroke-soft" d="M35 19 H47 M35 24 H46 M35 29 H45 M35 34 H43"/>
+                  <path class="wb-g__solid" d="M45 9 V22 L48.5 19 L52 22 V9 Z"/>
+                </svg>
               </span>
-              <span class="workbench-card__text">
-                <span class="workbench-card__title">生成世界书</span>
-                <span class="workbench-card__desc">按需求产出设定条目</span>
-              </span>
+              <span class="workbench-card__title">生成世界书</span>
             </button>
-            <button type="button" class="workbench-card" data-assistant-action="knock" role="listitem">
-              <span class="workbench-card__icon" aria-hidden="true">
-                <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/><path d="M8 10h.01"/><path d="M12 10h.01"/><path d="M16 10h.01"/></svg>
+            <button type="button" class="workbench-card workbench-card--knock" data-assistant-action="knock" role="listitem">
+              <span class="workbench-card__visual" aria-hidden="true">
+                <svg class="workbench-glyph" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path class="wb-g__soft" d="M6 14 H42 C46 14 50 18 50 22 V34 C50 38 46 42 42 42 H22 L12 50 V42 H6 C2 42 0 38 0 34 V22 C0 18 2 14 6 14 Z" transform="translate(4 4)"/>
+                  <circle class="wb-g__mid" cx="22" cy="30" r="8"/>
+                  <circle class="wb-g__paper" cx="22" cy="28" r="3"/>
+                  <path class="wb-g__stroke-soft" d="M18 34 Q22 32 26 34"/>
+                  <rect class="wb-g__solid" x="34" y="26" width="14" height="5" rx="2.5"/>
+                  <rect class="wb-g__solid" x="34" y="26" width="5" height="12" rx="2.5"/>
+                  <path class="wb-g__deep" d="M36 38 C38 40 42 40 44 38 L44 36 C42 38 38 38 36 36 Z"/>
+                  <path class="wb-g__stroke-soft" d="M46 24 H52 M46 28 H50"/>
+                </svg>
               </span>
-              <span class="workbench-card__text">
-                <span class="workbench-card__title">敲敲</span>
-                <span class="workbench-card__desc">双角色人设模拟私聊</span>
-              </span>
+              <span class="workbench-card__title">敲敲</span>
             </button>
-            <button type="button" class="workbench-card" data-assistant-action="phone" role="listitem">
-              <span class="workbench-card__icon" aria-hidden="true">
-                <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M12 17h.01"/></svg>
+            <button type="button" class="workbench-card workbench-card--dial" data-assistant-action="dial" role="listitem">
+              <span class="workbench-card__visual" aria-hidden="true">
+                <svg class="workbench-glyph" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect class="wb-g__deep" x="8" y="36" width="48" height="20" rx="6"/>
+                  <rect class="wb-g__mid" x="12" y="40" width="40" height="12" rx="3"/>
+                  <circle class="wb-g__paper" cx="20" cy="46" r="2.2"/>
+                  <circle class="wb-g__paper" cx="28" cy="46" r="2.2"/>
+                  <circle class="wb-g__paper" cx="36" cy="46" r="2.2"/>
+                  <circle class="wb-g__paper" cx="44" cy="46" r="2.2"/>
+                  <path class="wb-g__stroke-bold" d="M16 36 C16 24 24 14 36 10 C44 8 50 12 50 20"/>
+                  <path class="wb-g__stroke-bold" d="M50 20 C54 22 56 28 54 34"/>
+                  <path class="wb-g__stroke-soft" d="M22 32 C24 28 28 26 32 26 C36 26 40 28 42 32"/>
+                  <ellipse class="wb-g__solid" cx="36" cy="14" rx="11" ry="7.5"/>
+                  <ellipse class="wb-g__deep" cx="36" cy="14" rx="7" ry="4.5"/>
+                  <ellipse class="wb-g__solid" cx="52" cy="26" rx="5" ry="4"/>
+                  <ellipse class="wb-g__deep" cx="52" cy="26" rx="2.8" ry="2.2"/>
+                </svg>
               </span>
-              <span class="workbench-card__text">
-                <span class="workbench-card__title">查手机</span>
-                <span class="workbench-card__desc">窥探角色手机里的生活</span>
-              </span>
+              <span class="workbench-card__title">拨通</span>
             </button>
-            <button type="button" class="workbench-card" data-assistant-action="fanwork" role="listitem">
-              <span class="workbench-card__icon" aria-hidden="true">
-                <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
+            <button type="button" class="workbench-card workbench-card--phone" data-assistant-action="phone" role="listitem">
+              <span class="workbench-card__visual" aria-hidden="true">
+                <svg class="workbench-glyph" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect class="wb-g__deep" x="20" y="6" width="24" height="46" rx="6"/>
+                  <rect class="wb-g__paper" x="22.5" y="14" width="19" height="32" rx="2"/>
+                  <rect class="wb-g__mid" x="28" y="9" width="8" height="2.5" rx="1.2"/>
+                  <rect class="wb-g__mid" x="27" y="44" width="10" height="2.5" rx="1.2"/>
+                  <circle class="wb-g__soft" cx="27" cy="22" r="2"/>
+                  <circle class="wb-g__soft" cx="32" cy="22" r="2"/>
+                  <circle class="wb-g__soft" cx="37" cy="22" r="2"/>
+                  <circle class="wb-g__soft" cx="27" cy="28" r="2"/>
+                  <circle class="wb-g__soft" cx="32" cy="28" r="2"/>
+                  <circle class="wb-g__soft" cx="37" cy="28" r="2"/>
+                  <circle class="wb-g__stroke" cx="48" cy="42" r="10"/>
+                  <path class="wb-g__stroke-bold" d="M55 49 L60 54"/>
+                  <circle class="wb-g__soft" cx="48" cy="42" r="6"/>
+                </svg>
               </span>
-              <span class="workbench-card__text">
-                <span class="workbench-card__title">小狗饭</span>
-                <span class="workbench-card__desc">CP 向晋江风格同人阅读</span>
+              <span class="workbench-card__title">查手机</span>
+            </button>
+            <button type="button" class="workbench-card workbench-card--fanwork" data-assistant-action="fanwork" role="listitem">
+              <span class="workbench-card__visual" aria-hidden="true">
+                <svg class="workbench-glyph" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect class="wb-g__mid" x="43" y="5" width="2.4" height="30" rx="1.2" transform="rotate(14 44.2 20)"/>
+                  <rect class="wb-g__solid" x="48" y="3" width="2.4" height="32" rx="1.2" transform="rotate(10 49.2 19)"/>
+                  <ellipse class="wb-g__soft" cx="32" cy="50" rx="21" ry="5"/>
+                  <path class="wb-g__mid" d="M11 44 C11 44 12 56 32 57 C52 56 53 44 53 44 C52 51 43 55 32 55 C21 55 12 51 11 44 Z"/>
+                  <ellipse class="wb-g__deep" cx="32" cy="44" rx="19" ry="4.8"/>
+                  <path class="wb-g__paper" d="M15 44 C15 36 22 28 32 27 C42 28 49 36 49 44 C49 40 40 37 32 37 C24 37 15 40 15 44 Z"/>
+                  <path class="wb-g__soft" d="M18 41 C24 39 28 38 32 38 C36 38 40 39 46 41 C42 36 37 34 32 34 C27 34 22 36 18 41 Z"/>
+                  <path class="wb-g__stroke-soft" d="M24 36 Q26 34 28 36 M30 35 Q32 33 34 35 M36 36 Q38 34 40 36"/>
+                  <path class="wb-g__stroke-soft" d="M26 40 Q28 38 30 40 M34 40 Q36 38 38 40"/>
+                  <ellipse class="wb-g__stroke" cx="32" cy="44" rx="19" ry="4.8"/>
+                </svg>
               </span>
+              <span class="workbench-card__title">小狗饭</span>
             </button>
           </div>
           <div class="workbench-scene" aria-hidden="true">
@@ -154,6 +219,9 @@
         </div>
         <div id="overview-sub-knock" class="overview-subview" hidden>
           <div id="knock-content-slot" class="feature-view-body" aria-label="敲敲聊天"></div>
+        </div>
+        <div id="overview-sub-dial" class="overview-subview" hidden>
+          <div id="dial-content-slot" class="feature-view-body" aria-label="拨通通讯录与通话"></div>
         </div>
       </section>
 
@@ -1230,6 +1298,7 @@
   </div>
 
   <script src="jszip.min.js"></script>
+  <script src="vendor/sherpa-stt.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

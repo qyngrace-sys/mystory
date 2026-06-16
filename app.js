@@ -86,6 +86,7 @@
   const STORAGE_API_CONFIGS = "hj-api-configs-v1";
   const STORAGE_ACTIVE_API_ID = "hj-active-api-id-v1";
   const STORAGE_TTS_SETTINGS = "hj-tts-settings-v1";
+  const STORAGE_CALL_SETTINGS = "hj-call-settings-v1";
   const STORAGE_ASSISTANT = "hj-assistant-v1";
   const STORAGE_POST_CLEAR_ASSISTANT_V1 = "hj-post-clear-assistant-v1";
   const ASSISTANT_MAX_COUNT = 12;
@@ -714,6 +715,10 @@
       if (overviewSubView === "knock") {
         const slot = document.getElementById("knock-content-slot");
         return { key: "overview:knock", root: slot || document.getElementById("view-overview") };
+      }
+      if (overviewSubView === "dial") {
+        const slot = document.getElementById("dial-content-slot");
+        return { key: "overview:dial", root: slot || document.getElementById("view-overview") };
       }
       return { key: "overview:hub", root: document.getElementById("view-overview") };
     }
@@ -2252,9 +2257,9 @@
     { id: "speech-01-hd", label: "speech-01-hd" },
     { id: "speech-01-turbo", label: "speech-01-turbo" },
   ];
-  const TTS_CACHE_VERSION = "act-v3";
+  const TTS_CACHE_VERSION = "act-v4";
   const MINIMAX_VOICE_BASE_PROMPT =
-    "你在即兴演对手戏，跟面前的人说话。禁止播音腔、朗诵腔、有声书旁白感。口语化，有呼吸、停顿和情绪起伏，像真实聊天或争执，不是在念稿。";
+    "严格保持克隆音色的声线与音高，不要因情绪而改变嗓音特质。口语化自然说话，语气可随台词轻微变化，禁止尖声、假嗓、播音腔或朗诵腔。";
   let ttsSettings = {
     enabled: true,
     region: "cn",
@@ -2283,10 +2288,11 @@
     "settings",
   ];
   /** 旧版底栏 tab，hash 兼容重定向到点星子视图 */
-  const LEGACY_OVERVIEW_SUB_TAB_IDS = { phone: "phone", fanwork: "fanwork", knock: "knock" };
+  const LEGACY_OVERVIEW_SUB_TAB_IDS = { phone: "phone", fanwork: "fanwork", knock: "knock", dial: "dial" };
+  const DIAL_PHONE_PLOT_PREFIX = "__dial__";
 
   let activeTab = "overview";
-  /** 点星内嵌子页：null | "phone" | "fanwork" | "knock" */
+  /** 点星内嵌子页：null | "phone" | "fanwork" | "knock" | "dial" */
   let overviewSubView = null;
   /** 敲敲：主视角角色 id（我的形象） */
   let knockUserCharId = null;
@@ -2302,8 +2308,69 @@
   let knockSelectMode = false;
   /** 敲敲：已选消息下标 */
   let knockSelectedMsgs = [];
+  /** 敲敲：设定阶段 select | context_review */
+  let knockSetupPhase = "select";
+  /** 敲敲：是否正在生成契机背景 */
+  let knockContextGenerating = false;
+  /** 敲敲：人设编辑目标 user | partner | null */
+  let knockPersonaEditTarget = null;
   /** 敲敲生成时纳入上下文的最近消息条数（约 12 轮来回，兼顾连贯与速度） */
   const KNOCK_CHAT_HISTORY_LIMIT = 24;
+  /** 敲敲契机背景：目标篇幅（过长的输出易触顶 max_tokens 被截断，也拖慢生成） */
+  const KNOCK_CONTEXT_TARGET_MIN_CHARS = 380;
+  const KNOCK_CONTEXT_TARGET_MAX_CHARS = 520;
+  /** 拨通：当前主视角（我的形象）id */
+  let dialUserCharId = null;
+  /** 拨通：通讯录搜索关键词 */
+  let dialContactQuery = "";
+  /** 拨通：手机页签 recent | contacts | recordings */
+  let dialPhoneTab = "recent";
+  /** 拨通：是否展开「我的形象」选择/编辑面板 */
+  let dialIdentityOpen = false;
+  /** 拨通：形象面板内正在编辑人设的角色 id */
+  let dialIdentityEditCharId = null;
+  /** 拨通：各「我的形象」在本功能内的人设覆盖 */
+  let dialPersonaOverrides = {};
+  /** 拨通：通话记录，key = selfCharId */
+  let dialCallHistory = {};
+  /** 拨通：当前通话会话（仅内存，不落盘） */
+  let dialCallSession = null;
+  /** 拨通：通话录音 data URL，key = noteId */
+  let dialCallRecordingBlobs = {};
+  let dialCallTimerId = null;
+  let dialCallRingTimerId = null;
+  let dialMediaRecorder = null;
+  let dialMediaStream = null;
+  let dialRecordedChunks = [];
+  let callSettings = {
+    sttEnabled: false,
+    sttProvider: "sherpa-ncnn",
+    sttApiKey: "",
+    sttEndpoint: "",
+    sttLanguage: "zh-CN",
+    autoRecord: false,
+    aiEnabled: true,
+    autoGreeting: true,
+    voiceReply: true,
+    useTurboTts: true,
+    replyMaxTokens: 380,
+    replyTemperature: 0.78,
+    contextMessageLimit: 10,
+    ringDelayMs: 1800,
+  };
+  const DIAL_CALL_PERSONA_FIELD_MAX_CHARS = 200;
+  let dialCallTtsAudio = null;
+  let dialCallTtsObjectUrl = null;
+  let dialSttRecognition = null;
+  let dialSttListening = false;
+  let dialSttVoiceRecorder = null;
+  let dialSttVoiceStream = null;
+  let dialSttVoiceChunks = [];
+  let dialSttTranscribing = false;
+  /** 敲敲契机背景：输出 token 上限（中文约 1.5～2.5 token/字，留足余量） */
+  const KNOCK_CONTEXT_OUTPUT_MAX_TOKENS = 1800;
+  /** 敲敲契机生成时每人设字段纳入 prompt 的上限 */
+  const KNOCK_CONTEXT_PERSONA_FIELD_MAX_CHARS = 220;
   /** 剧情分享后是否在 API 回复完成后弹出读后感 */
   let assistantPlotShareReplyModalPending = false;
   /** 查手机：当前查看的角色 id（须为「我的形象」以外的角色） */
@@ -2550,7 +2617,9 @@
     overviewSubPhone: () => document.getElementById("overview-sub-phone"),
     overviewSubFanwork: () => document.getElementById("overview-sub-fanwork"),
     overviewSubKnock: () => document.getElementById("overview-sub-knock"),
+    overviewSubDial: () => document.getElementById("overview-sub-dial"),
     knockContentSlot: () => document.getElementById("knock-content-slot"),
+    dialContentSlot: () => document.getElementById("dial-content-slot"),
     modalAssistantProfile: () => document.getElementById("modal-assistant-profile"),
     assistantDedicatedApiSelect: () => document.getElementById("assistant-dedicated-api-select"),
     wbFilters: () => document.getElementById("wb-filters"),
@@ -6534,6 +6603,64 @@
     } catch (e) {}
   }
 
+  function loadCallSettings() {
+    try {
+      const raw = localStorage.getItem(STORAGE_CALL_SETTINGS);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return;
+      if (typeof parsed.sttEnabled === "boolean") callSettings.sttEnabled = parsed.sttEnabled;
+      if (typeof parsed.sttProvider === "string") callSettings.sttProvider = parsed.sttProvider;
+      if (typeof parsed.sttApiKey === "string") callSettings.sttApiKey = parsed.sttApiKey;
+      if (typeof parsed.sttEndpoint === "string") callSettings.sttEndpoint = parsed.sttEndpoint;
+      if (typeof parsed.sttLanguage === "string") callSettings.sttLanguage = parsed.sttLanguage;
+      if (callSettings.sttProvider === "minimax" && !String(callSettings.sttApiKey || "").trim()) {
+        callSettings.sttProvider = "sherpa-ncnn";
+      }
+      if (typeof parsed.autoRecord === "boolean") callSettings.autoRecord = parsed.autoRecord;
+      if (typeof parsed.aiEnabled === "boolean") callSettings.aiEnabled = parsed.aiEnabled;
+      if (typeof parsed.autoGreeting === "boolean") callSettings.autoGreeting = parsed.autoGreeting;
+      if (typeof parsed.voiceReply === "boolean") callSettings.voiceReply = parsed.voiceReply;
+      if (typeof parsed.useTurboTts === "boolean") callSettings.useTurboTts = parsed.useTurboTts;
+      if (typeof parsed.replyMaxTokens === "number" && parsed.replyMaxTokens > 0) {
+        callSettings.replyMaxTokens = Math.min(600, Math.floor(parsed.replyMaxTokens));
+      }
+      if (typeof parsed.replyTemperature === "number" && Number.isFinite(parsed.replyTemperature)) {
+        callSettings.replyTemperature = Math.max(0.3, Math.min(1.2, parsed.replyTemperature));
+      }
+      if (typeof parsed.contextMessageLimit === "number" && parsed.contextMessageLimit > 0) {
+        callSettings.contextMessageLimit = Math.min(24, Math.floor(parsed.contextMessageLimit));
+      }
+      if (typeof parsed.ringDelayMs === "number" && parsed.ringDelayMs >= 0) {
+        callSettings.ringDelayMs = Math.min(8000, Math.floor(parsed.ringDelayMs));
+      }
+    } catch (e) {}
+  }
+
+  function persistCallSettings() {
+    try {
+      localStorage.setItem(
+        STORAGE_CALL_SETTINGS,
+        JSON.stringify({
+          sttEnabled: callSettings.sttEnabled,
+          sttProvider: callSettings.sttProvider,
+          sttApiKey: callSettings.sttApiKey,
+          sttEndpoint: callSettings.sttEndpoint,
+          sttLanguage: callSettings.sttLanguage,
+          autoRecord: callSettings.autoRecord,
+          aiEnabled: callSettings.aiEnabled,
+          autoGreeting: callSettings.autoGreeting,
+          voiceReply: callSettings.voiceReply,
+          useTurboTts: callSettings.useTurboTts,
+          replyMaxTokens: callSettings.replyMaxTokens,
+          replyTemperature: callSettings.replyTemperature,
+          contextMessageLimit: callSettings.contextMessageLimit,
+          ringDelayMs: callSettings.ringDelayMs,
+        })
+      );
+    } catch (e) {}
+  }
+
   function persistTtsSettings() {
     try {
       localStorage.setItem(
@@ -6866,11 +6993,10 @@
     if (!t) return t;
     t = softenStoryTtsOralFillers(t);
     t = replaceStoryTtsLaughter(t);
-    const mood = String(contextText || "") + " " + t;
-    // 仅保留少量、不易「念标签」的处理
+    // 仅保留少量、不易「念标签」的处理（只看台词，不揣摩旁白剧情）
     if (/^(?:唉|算了|罢了)/.test(t) && !/^\(/.test(t)) {
       t = "(sighs)" + t;
-    } else if (/低声|悄声|压低声|呢喃|耳边/.test(mood) && t.length > 10 && !/^\(/.test(t)) {
+    } else if (/低声|悄声|压低声|呢喃|耳边/.test(t) && t.length > 10 && !/^\(/.test(t)) {
       t = "(breath)" + t;
     }
     t = t.replace(/([，,。！？?!>])(……|…)/g, "$1<#0.25#>$2");
@@ -6878,102 +7004,65 @@
     return t.slice(0, 9800);
   }
 
-  function inferMinimaxEmotion(text, contextText) {
-    const src = String(text || "") + " " + String(contextText || "");
+  function inferMinimaxEmotion(text) {
+    const src = String(text || "");
     if (/怕|恐惧|颤抖|别过来|救命|慌/.test(src)) return "fearful";
-    if (/低声|悄|颤|哽咽|哭|泪|心酸|失落|叹/.test(src)) return "sad";
-    if (/哈{2,}|呵{2,}|笑|嘿嘿|嘻嘻|开心|太好了|乐/.test(src)) return "happy";
+    if (/哽咽|哭|泪/.test(src)) return "sad";
+    if (/哈{2,}|呵{2,}|嘿嘿|嘻嘻/.test(src)) return "happy";
     if (/怒|滚|闭嘴|烦死了|讨厌|混蛋|别碰|给我滚|冷声|喝/.test(src)) return "angry";
     if (/！|!/.test(src) && /别|不准|住手|够了|闭嘴/.test(src)) return "angry";
-    if (/恶心|滚开|别碰我|恶/.test(src)) return "disgusted";
-    if (/…|……|唉|沉默|无话|沉|低落/.test(src)) return "sad";
-    if (/？{2,}|\?{2,}|真的假的|不会吧|难道|怎么可能|什么/.test(src)) return "surprised";
-    if (/？|\?/.test(src)) return "surprised";
-    if (/！|!|哈哈|呵/.test(src)) return "happy";
-    if (/淡淡|平静|冷静|若无其事/.test(src)) return "calm";
+    if (/恶心|滚开|别碰我/.test(src)) return "disgusted";
+    if (/？{2,}|\?{2,}|真的假的|不会吧|难道|怎么可能/.test(src)) return "surprised";
     return "neutral";
   }
 
   function buildMinimaxVoicePrompt(char, contextText, plot, speakText, extras) {
-    const meta = extras && typeof extras === "object" ? extras : {};
     const parts = [MINIMAX_VOICE_BASE_PROMPT];
     const name = char && char.name ? String(char.name).trim() : "";
-    if (name) parts.push("此刻你是" + name + "，在剧情里开口说话，不是小说旁白。");
-    const addressee = String(meta.addressee || "").trim();
-    if (addressee) parts.push("正在回应或面对" + addressee + "，要有对手戏互动感。");
-    const sceneContext = String(meta.sceneContext || "").trim();
-    if (sceneContext) parts.push("刚才发生的事：" + sceneContext + "。");
-    const mood = String(contextText || "").trim();
-    if (mood) parts.push("本段场景：" + mood.slice(0, 120) + "。");
-    const charId = char && char.id ? String(char.id).trim() : "";
-    if (charId && plot) {
-      const profile = buildCharacterProfileFromPlot(plot, charId);
-      if (profile) parts.push("角色设定：" + profile.slice(0, 130));
-    } else if (char) {
-      const styleHint = buildCharAppearancePersonaHint(char, 100);
-      if (styleHint) parts.push("说话习惯：" + styleHint);
-      const traits = traitsToLine(char);
-      if (traits) parts.push("特质：" + traits.slice(0, 70));
-    }
+    if (name) parts.push("你是" + name + "，用本人声线说对白。");
     const line = String(speakText || "").trim();
     if (line) {
       parts.push(
         "把「" +
           line.slice(0, 120) +
-          "」说成当下脱口而出的话：轻重、快慢、停顿随情绪走，不要平直匀速的播报。"
+          "」自然说出来：保持克隆音色与音高，仅语气随台词略作起伏，不要夸张表演或改变声线。"
       );
-    }
-    if (plot && plot.playIntro && plot.playIntro.otherRoles) {
-      parts.push("在场关系：" + String(plot.playIntro.otherRoles || "").slice(0, 90));
     }
     const preset = String(ttsSettings.voicePrompt || "").trim();
     if (preset) parts.push(preset);
     return parts.join(" ").slice(0, 500);
   }
 
-  function resolveStoryTtsSpeed(dialogueText, contextText) {
+  function resolveStoryTtsSpeed(dialogueText) {
     const t = String(dialogueText || "");
-    const ctx = String(contextText || "");
-    const src = ctx + " " + t;
-    if (/低声|悄|呢喃|压低声|耳边/.test(src)) return 0.88;
-    if (/吼|怒|急|快|赶紧|厉声/.test(src)) return 1.06;
-    if (/！{2,}|!{2,}/.test(t)) return 1.08;
-    if (/！|!/.test(t)) return 1.05;
-    if (/…|……/.test(t)) return 0.92;
-    if (/？|\?/.test(t)) return 1.0;
-    return 1.03;
+    if (/低声|悄|呢喃|压低声|耳边/.test(t)) return 0.94;
+    if (/吼|怒|急|赶紧|厉声/.test(t)) return 1.02;
+    if (/！{2,}|!{2,}/.test(t)) return 1.02;
+    if (/…|……/.test(t)) return 0.96;
+    return 0.98;
   }
 
   function resolveStoryTtsVoiceTuning(dialogueText, contextText, model) {
-    const emotion = inferMinimaxEmotion(dialogueText, contextText);
-    let speed = resolveStoryTtsSpeed(dialogueText, contextText);
+    const emotion = inferMinimaxEmotion(dialogueText);
+    let speed = resolveStoryTtsSpeed(dialogueText);
     let pitch = 0;
-    let vol = 1;
+    let vol = 0.95;
     if (emotion === "sad") {
-      pitch = -1;
-      vol = 0.9;
-      speed = Math.min(speed, 0.95);
+      speed = Math.min(speed, 0.96);
+      vol = 0.92;
     } else if (emotion === "happy") {
-      pitch = 1;
-      speed = Math.max(speed, 1.04);
+      speed = Math.min(Math.max(speed, 1.0), 1.02);
     } else if (emotion === "angry") {
-      pitch = -1;
-      speed = Math.min(Math.max(speed, 1.06), 1.12);
-      vol = 1.06;
-    } else if (emotion === "surprised") {
-      pitch = 2;
-      speed = Math.min(speed + 0.04, 1.1);
-    } else if (emotion === "fearful") {
-      pitch = 1;
-      speed = Math.max(speed, 1.02);
-      vol = 0.88;
-    } else if (emotion === "disgusted") {
-      pitch = -2;
-      speed = 0.96;
-      vol = 0.94;
-    } else if (emotion === "calm") {
-      speed = 0.98;
+      speed = Math.min(Math.max(speed, 1.0), 1.04);
       vol = 0.96;
+    } else if (emotion === "surprised") {
+      speed = Math.min(speed + 0.02, 1.02);
+    } else if (emotion === "fearful") {
+      speed = Math.max(speed, 0.96);
+      vol = 0.9;
+    } else if (emotion === "disgusted") {
+      speed = 0.96;
+      vol = 0.92;
     }
     const autoEmotion = isMinimaxAutoEmotionModel(model);
     let apiEmotion = null;
@@ -7548,6 +7637,10 @@
       knockUserCharId: knockUserCharId || null,
       knockPartnerCharId: knockPartnerCharId || null,
       knockChatData: knockChatData || {},
+      dialUserCharId: dialUserCharId || null,
+      dialCallRecordingBlobs: dialCallRecordingBlobs || {},
+      dialCallHistory: dialCallHistory || {},
+      dialPersonaOverrides: dialPersonaOverrides || {},
     });
   }
 
@@ -7890,22 +7983,18 @@
       if (o.knockChatData && typeof o.knockChatData === "object" && !Array.isArray(o.knockChatData)) {
         Object.keys(o.knockChatData).forEach(function (k) {
           const v = o.knockChatData[k];
-          if (!v || typeof v !== "object" || !Array.isArray(v.messages)) return;
-          const messages = v.messages
-            .filter(function (m) {
-              return m && typeof m === "object" && (m.role === "user" || m.role === "assistant");
-            })
-            .map(function (m) {
-              return {
-                role: m.role === "assistant" ? "assistant" : "user",
-                content: String(m.content || "").trim(),
-                ts: Number.isFinite(m.ts) ? m.ts : Date.now(),
-              };
-            })
-            .filter(function (m) {
-              return !!m.content;
-            });
-          if (messages.length) knockChatData[k] = { messages: messages };
+          if (!v || typeof v !== "object") return;
+          const rec = normalizeKnockChatRecord(v);
+          if (
+            rec.messages.length ||
+            rec.contextConfirmed ||
+            rec.contextBackground ||
+            rec.contextDraft ||
+            rec.contextSeed ||
+            (rec.personaOverrides.user.traits || rec.personaOverrides.user.style || rec.personaOverrides.partner.traits || rec.personaOverrides.partner.style)
+          ) {
+            knockChatData[k] = rec;
+          }
         });
       }
       if (knockUserCharId && !getCharById(knockUserCharId)) knockUserCharId = null;
@@ -7915,6 +8004,52 @@
       }
       if (knockPartnerCharId && getCharById(knockPartnerCharId)?.categoryId === CHAR_CATEGORY_SELF_ID) {
         knockPartnerCharId = null;
+      }
+      dialUserCharId =
+        typeof o.dialUserCharId === "string" && o.dialUserCharId.trim() ? o.dialUserCharId.trim() : null;
+      if (dialUserCharId && !getCharById(dialUserCharId)) dialUserCharId = null;
+      if (dialUserCharId && getCharById(dialUserCharId)?.categoryId !== CHAR_CATEGORY_SELF_ID) {
+        dialUserCharId = null;
+      }
+      dialCallRecordingBlobs = {};
+      if (o.dialCallRecordingBlobs && typeof o.dialCallRecordingBlobs === "object" && !Array.isArray(o.dialCallRecordingBlobs)) {
+        Object.keys(o.dialCallRecordingBlobs).forEach(function (k) {
+          const v = o.dialCallRecordingBlobs[k];
+          if (!v || typeof v !== "object") return;
+          const dataUrl = typeof v.dataUrl === "string" ? v.dataUrl.trim() : "";
+          if (!dataUrl) return;
+          dialCallRecordingBlobs[k] = {
+            dataUrl: dataUrl,
+            mime: typeof v.mime === "string" ? v.mime : "audio/webm",
+            durationMs: typeof v.durationMs === "number" ? v.durationMs : 0,
+            partnerCharId: typeof v.partnerCharId === "string" ? v.partnerCharId : "",
+            savedAt: typeof v.savedAt === "number" ? v.savedAt : Date.now(),
+          };
+        });
+      }
+      dialCallHistory = {};
+      if (o.dialCallHistory && typeof o.dialCallHistory === "object" && !Array.isArray(o.dialCallHistory)) {
+        Object.keys(o.dialCallHistory).forEach(function (k) {
+          const arr = o.dialCallHistory[k];
+          if (!Array.isArray(arr)) return;
+          dialCallHistory[k] = arr
+            .map(function (item) {
+              return normalizeDialCallHistoryEntry(item);
+            })
+            .filter(Boolean)
+            .slice(0, 200);
+        });
+      }
+      dialPersonaOverrides = {};
+      if (o.dialPersonaOverrides && typeof o.dialPersonaOverrides === "object" && !Array.isArray(o.dialPersonaOverrides)) {
+        Object.keys(o.dialPersonaOverrides).forEach(function (k) {
+          const v = o.dialPersonaOverrides[k];
+          if (!v || typeof v !== "object") return;
+          dialPersonaOverrides[k] = {
+            traits: v.traits != null ? String(v.traits).trim() : "",
+            style: v.style != null ? String(v.style).trim() : "",
+          };
+        });
       }
       phoneForumSectionsByPlot = {};
       if (o.phoneForumSectionsByPlot && typeof o.phoneForumSectionsByPlot === "object" && !Array.isArray(o.phoneForumSectionsByPlot)) {
@@ -8646,7 +8781,7 @@
           (firstErr && firstErr.code === "empty_response") ||
           raw.indexOf("empty_response") >= 0 ||
           raw.indexOf("empty response") >= 0;
-        if (!isGem || alreadyRetried || !isEmpty) throw firstErr;
+        if (alreadyRetried || !isEmpty) throw firstErr;
         const merged = mergeSystemIntoUserMessages(messages);
         const retryMax = Math.min(maxTokens, Math.max(1024, Math.round(maxTokens * 0.88)));
         try {
@@ -10394,6 +10529,7 @@
   }
 
   function traitsToLine(c) {
+    if (!c) return "";
     if (Array.isArray(c.traits)) return c.traits.join(" · ");
     return String(c.traits || "");
   }
@@ -10424,9 +10560,15 @@
       return;
     }
     if (tab !== "overview") {
+      closeKnockSetupPortal();
+      if (dialCallSession) void endDialCallSession({ saveRecording: true });
       overviewSubView = null;
-    } else if (activeTab === "overview" && overviewSubView) {
-      overviewSubView = null;
+    } else if (activeTab === "overview") {
+      closeKnockSetupPortal();
+      if (overviewSubView) {
+        if (overviewSubView === "dial" && dialCallSession) void endDialCallSession({ saveRecording: true });
+        overviewSubView = null;
+      }
     }
     activeTab = tab;
     els.views().forEach((v) => {
@@ -10456,21 +10598,34 @@
     const phoneSub = els.overviewSubPhone();
     const fanSub = els.overviewSubFanwork();
     const knockSub = els.overviewSubKnock();
+    const dialSub = els.overviewSubDial();
     const showPhone = overviewSubView === "phone";
     const showFan = overviewSubView === "fanwork";
     const showKnock = overviewSubView === "knock";
-    if (hub) hub.hidden = showPhone || showFan || showKnock;
+    const showDial = overviewSubView === "dial";
+    if (hub) hub.hidden = showPhone || showFan || showKnock || showDial;
     if (phoneSub) phoneSub.hidden = !showPhone;
     if (fanSub) fanSub.hidden = !showFan;
     if (knockSub) knockSub.hidden = !showKnock;
+    if (dialSub) dialSub.hidden = !showDial;
     syncMainScrollMode();
     syncGlobalGenPawOverlay();
   }
 
   function openOverviewSubView(view) {
     const v =
-      view === "fanwork" ? "fanwork" : view === "phone" ? "phone" : view === "knock" ? "knock" : null;
+      view === "fanwork"
+        ? "fanwork"
+        : view === "phone"
+          ? "phone"
+          : view === "knock"
+            ? "knock"
+            : view === "dial"
+              ? "dial"
+              : null;
     if (!v) return;
+    if (v === "knock") prepareKnockSession();
+    if (v === "dial") prepareDialSession();
     overviewSubView = v;
     if (activeTab !== "overview") {
       activeTab = "overview";
@@ -10480,19 +10635,67 @@
       els.navItems().forEach(function (btn) {
         btn.classList.toggle("is-active", btn.dataset.tab === "overview");
       });
-      if (!location.hash.startsWith("#/story")) {
-        location.hash = "#/tab/overview";
-      }
+    }
+    if (!location.hash.startsWith("#/story")) {
+      const nextHash = "#/tab/" + v;
+      if (location.hash !== nextHash) location.hash = nextHash;
     }
     syncOverviewSubViewUi();
     if (v === "phone") renderPhoneScreen(els.phoneContentSlot());
     else if (v === "fanwork") renderFanworkScreen(els.fanworkContentSlot());
     else if (v === "knock") renderKnockScreen(els.knockContentSlot());
+    else if (v === "dial") renderDialScreen(els.dialContentSlot());
     syncGlobalGenPawOverlay();
   }
 
   function knockChatStorageKey(userCharId, partnerCharId) {
     return String(userCharId || "") + "\u001e" + String(partnerCharId || "");
+  }
+
+  function normalizeKnockPersonaOverride(raw) {
+    if (!raw || typeof raw !== "object") return { traits: "", style: "" };
+    return {
+      traits: raw.traits != null ? String(raw.traits).trim() : "",
+      style: raw.style != null ? String(raw.style).trim() : "",
+    };
+  }
+
+  function normalizeKnockChatRecord(raw) {
+    const src = raw && typeof raw === "object" ? raw : {};
+    const messages = Array.isArray(src.messages)
+      ? src.messages
+          .filter(function (m) {
+            return m && typeof m === "object" && (m.role === "user" || m.role === "assistant");
+          })
+          .map(function (m) {
+            return {
+              role: m.role === "assistant" ? "assistant" : "user",
+              content: String(m.content || "").trim(),
+              ts: Number.isFinite(m.ts) ? m.ts : Date.now(),
+            };
+          })
+          .filter(function (m) {
+            return !!m.content;
+          })
+      : [];
+    const personaOverrides = src.personaOverrides && typeof src.personaOverrides === "object" ? src.personaOverrides : {};
+    const contextBackground = src.contextBackground != null ? String(src.contextBackground).trim() : "";
+    const contextDraft = src.contextDraft != null ? String(src.contextDraft).trim() : "";
+    const contextSeed = src.contextSeed != null ? String(src.contextSeed).trim() : "";
+    let contextConfirmed = !!src.contextConfirmed;
+    if (!contextConfirmed && messages.length > 0) contextConfirmed = true;
+    if (!contextConfirmed && contextBackground) contextConfirmed = true;
+    return {
+      messages: messages,
+      contextBackground: contextBackground,
+      contextSeed: contextSeed,
+      contextDraft: contextDraft,
+      contextConfirmed: contextConfirmed,
+      personaOverrides: {
+        user: normalizeKnockPersonaOverride(personaOverrides.user),
+        partner: normalizeKnockPersonaOverride(personaOverrides.partner),
+      },
+    };
   }
 
   function isKnockChatReady() {
@@ -10530,20 +10733,2063 @@
     );
   }
 
+  function getKnockSetupPortalEl() {
+    return document.getElementById("knock-setup-portal");
+  }
+
+  function closeKnockSetupPortal() {
+    const portal = getKnockSetupPortalEl();
+    if (portal) {
+      portal.hidden = true;
+      portal.innerHTML = "";
+    }
+    knockPersonaEditTarget = null;
+  }
+
+  function getKnockUiRoot() {
+    return els.knockContentSlot();
+  }
+
+  function rerenderKnockSetupUi() {
+    renderKnockScreen(els.knockContentSlot());
+  }
+
+  function prepareKnockSession() {
+    const selfList = getSelfCharacters();
+    const supList = getSupportingCharacters();
+    if (!selfList.length || !supList.length) return false;
+    if (knockUserCharId && !selfList.some(function (c) { return c.id === knockUserCharId; })) {
+      knockUserCharId = null;
+    }
+    if (knockPartnerCharId && !supList.some(function (c) { return c.id === knockPartnerCharId; })) {
+      knockPartnerCharId = null;
+    }
+    if (!knockUserCharId && selfList.length) knockUserCharId = selfList[0].id;
+    if (!knockPartnerCharId && supList.length) knockPartnerCharId = supList[0].id;
+    const rec = isKnockChatReady() ? getKnockChatRecordMutable() : null;
+    if (rec && rec.contextDraft && !rec.contextConfirmed) knockSetupPhase = "context_review";
+    else if (!rec || !rec.contextConfirmed) knockSetupPhase = "select";
+    return true;
+  }
+
   function closeOverviewKnockView() {
+    closeKnockSetupPortal();
     knockSetupOpen = false;
+    knockSetupPhase = "select";
+    knockPersonaEditTarget = null;
     knockSelectMode = false;
     knockSelectedMsgs = [];
     overviewSubView = null;
+    if (!location.hash.startsWith("#/story") && location.hash !== "#/tab/overview") {
+      location.hash = "#/tab/overview";
+    }
     syncOverviewSubViewUi();
+  }
+
+  function formatDialDurationMmSs(totalSec) {
+    const sec = Math.max(0, Math.floor(Number(totalSec) || 0));
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return m + ":" + String(s).padStart(2, "0");
+  }
+
+  function getDialMemoDateKey() {
+    const d = new Date();
+    return (
+      d.getFullYear() +
+      "-" +
+      String(d.getMonth() + 1).padStart(2, "0") +
+      "-" +
+      String(d.getDate()).padStart(2, "0")
+    );
+  }
+
+  function getDialMemoVisitTime() {
+    const d = new Date();
+    return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  }
+
+  function buildDialWaveGlyph(seed) {
+    const glyphs = "▁▂▃▄▅▆▇▅▃";
+    let out = "";
+    const base = Math.abs(Number(seed) || 0);
+    for (let i = 0; i < 18; i++) {
+      out += glyphs[(base + i * 3) % glyphs.length];
+    }
+    return out;
+  }
+
+  function dialPhoneStorageKey(selfCharId) {
+    return phoneWechatStorageKey(DIAL_PHONE_PLOT_PREFIX, String(selfCharId || "").trim());
+  }
+
+  function ensureDialPhoneMemoBundle(selfCharId) {
+    const key = dialPhoneStorageKey(selfCharId);
+    if (!key || key.indexOf("\u001e") < 0) return null;
+    const sections = getPhoneMemoSectionsForPlot(PHONE_SHARED_SECTIONS_GLOBAL_KEY);
+    if (!phoneMemoData[key]) {
+      phoneMemoData[key] = {
+        sections: sections.map(function (s) {
+          return { id: s.id, name: s.name, description: s.description };
+        }),
+        notes: [],
+      };
+    }
+    if (!Array.isArray(phoneMemoData[key].notes)) phoneMemoData[key].notes = [];
+    phoneMemoData[key].sections = sections.map(function (s) {
+      return { id: s.id, name: s.name, description: s.description };
+    });
+    return { key: key, bundle: phoneMemoData[key] };
+  }
+
+  function blobToDataUrl(blob) {
+    return new Promise(function (resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function () {
+        resolve(String(reader.result || ""));
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function resolveSttBrowserLanguage(lang) {
+    const s = String(lang || "zh-CN").trim();
+    return s || "zh-CN";
+  }
+
+  function resolveSttWhisperLanguage(lang) {
+    const s = String(lang || "zh-CN").trim().toLowerCase();
+    if (!s) return "zh";
+    if (s.indexOf("zh") === 0) return "zh";
+    return s.split("-")[0] || s;
+  }
+
+  function resolveSttApiKeyForProvider(provider) {
+    const custom = String(callSettings.sttApiKey || "").trim();
+    if (custom) return custom;
+    if (provider === "minimax") {
+      return String(ttsSettings.apiKey || "").trim();
+    }
+    if (provider === "openai") {
+      const cfg = apiConfigs.find(function (a) {
+        return a.id === activeApiId;
+      });
+      if (cfg && cfg.key) return String(cfg.key).trim();
+    }
+    return "";
+  }
+
+  function resolveSttEndpointForProvider(provider) {
+    const custom = String(callSettings.sttEndpoint || "").trim();
+    if (custom) return normalizeApiBase(custom);
+    if (provider === "minimax") return resolveMinimaxBaseUrl();
+    if (provider === "openai") {
+      const cfg = apiConfigs.find(function (a) {
+        return a.id === activeApiId;
+      });
+      if (cfg && cfg.endpoint) return normalizeApiBase(cfg.endpoint);
+      return "https://api.openai.com/v1";
+    }
+    return "";
+  }
+
+  function resolveSttApiKey() {
+    return resolveSttApiKeyForProvider(callSettings.sttProvider || "browser");
+  }
+
+  function resolveSttEndpoint() {
+    return resolveSttEndpointForProvider(callSettings.sttProvider || "browser");
+  }
+
+  function isBrowserSttSupported() {
+    return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  }
+
+  function createDialSpeechRecognition() {
+    const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Ctor) return null;
+    const rec = new Ctor();
+    rec.lang = resolveSttBrowserLanguage(callSettings.sttLanguage);
+    rec.continuous = false;
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+    return rec;
+  }
+
+  function stopDialSttVoiceCapture() {
+    if (dialSttVoiceRecorder && dialSttVoiceRecorder.state !== "inactive") {
+      try {
+        dialSttVoiceRecorder.stop();
+      } catch (_e) {}
+    }
+    dialSttVoiceRecorder = null;
+    if (dialSttVoiceStream) {
+      dialSttVoiceStream.getTracks().forEach(function (t) {
+        try {
+          t.stop();
+        } catch (_e2) {}
+      });
+    }
+    dialSttVoiceStream = null;
+  }
+
+  function stopDialBrowserStt() {
+    if (dialSttRecognition) {
+      try {
+        dialSttRecognition.onresult = null;
+        dialSttRecognition.onerror = null;
+        dialSttRecognition.onend = null;
+        dialSttRecognition.stop();
+      } catch (_e) {}
+    }
+    dialSttRecognition = null;
+    dialSttListening = false;
+  }
+
+  function stopDialSttAll() {
+    stopDialBrowserStt();
+    stopDialSttVoiceCapture();
+    if (typeof SherpaStt !== "undefined" && SherpaStt.stopMic) SherpaStt.stopMic();
+    dialSttVoiceChunks = [];
+    dialSttTranscribing = false;
+  }
+
+  function parseWhisperTranscriptionResponse(data, rawText) {
+    if (data && typeof data.text === "string") return data.text.trim();
+    if (typeof rawText === "string" && rawText.trim()) {
+      try {
+        const parsed = JSON.parse(rawText);
+        if (parsed && typeof parsed.text === "string") return parsed.text.trim();
+      } catch (_e) {}
+      return rawText.trim();
+    }
+    return "";
+  }
+
+  async function transcribeAudioBlobWithWhisper(blob, opts) {
+    opts = opts || {};
+    const provider = opts.provider || callSettings.sttProvider || "browser";
+    const key = resolveSttApiKeyForProvider(provider);
+    if (!key) {
+      throw new Error(
+        provider === "minimax"
+          ? "请填写 STT API Key，或在上方 MiniMax 配置中填写订阅 Key"
+          : "请填写 STT API Key，或在设置 → API 中配置 Key"
+      );
+    }
+    const base = resolveSttEndpointForProvider(provider);
+    if (!base) throw new Error("请填写 STT API 站点地址");
+    const lang = resolveSttWhisperLanguage(callSettings.sttLanguage);
+    const mime = String((blob && blob.type) || "audio/webm");
+    let ext = "webm";
+    if (mime.indexOf("mp4") >= 0 || mime.indexOf("m4a") >= 0) ext = "mp4";
+    else if (mime.indexOf("wav") >= 0) ext = "wav";
+    else if (mime.indexOf("mpeg") >= 0 || mime.indexOf("mp3") >= 0) ext = "mp3";
+    const form = new FormData();
+    form.append("file", blob, "audio." + ext);
+    form.append("model", "whisper-1");
+    if (lang) form.append("language", lang);
+    form.append("response_format", "json");
+    const headers = { Authorization: "Bearer " + key };
+    if (provider === "minimax") {
+      const groupId = String(ttsSettings.groupId || "").trim();
+      if (groupId) headers["X-Group-Id"] = groupId;
+    }
+    let url = base + "/audio/transcriptions";
+    if (provider === "minimax") {
+      const groupId = String(ttsSettings.groupId || "").trim();
+      if (groupId) {
+        url += (url.indexOf("?") >= 0 ? "&" : "?") + "GroupId=" + encodeURIComponent(groupId);
+      }
+    }
+    let resp;
+    try {
+      resp = await fetch(url, { method: "POST", headers: headers, body: form });
+    } catch (netErr) {
+      const netMsg = netErr && netErr.message ? netErr.message : String(netErr);
+      if (/failed to fetch|networkerror|load failed/i.test(netMsg)) {
+        throw new Error("无法连接 STT 服务（请检查网络、Key 与 API 地址）");
+      }
+      throw netErr;
+    }
+    const raw = await resp.text();
+    if (!resp.ok) throw new Error(formatApiHttpError(resp.status, raw));
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (_e) {
+      data = null;
+    }
+    const text = parseWhisperTranscriptionResponse(data, raw);
+    if (!text) throw new Error("未识别到语音内容");
+    return text;
+  }
+
+  async function transcribeDialRecordingBlob(blob) {
+    if (!blob || !blob.size) throw new Error("音频为空");
+    const provider = callSettings.sttProvider || "browser";
+    if (provider === "sherpa-ncnn") {
+      if (typeof SherpaStt === "undefined") throw new Error("sherpa-ncnn 未加载");
+      return SherpaStt.transcribeBlob(blob);
+    }
+    if (provider === "openai" || provider === "minimax") {
+      return transcribeAudioBlobWithWhisper(blob, { provider: provider });
+    }
+    if (resolveSttApiKeyForProvider("minimax") && resolveSttEndpointForProvider("minimax")) {
+      return transcribeAudioBlobWithWhisper(blob, { provider: "minimax" });
+    }
+    if (resolveSttApiKeyForProvider("openai") && resolveSttEndpointForProvider("openai")) {
+      return transcribeAudioBlobWithWhisper(blob, { provider: "openai" });
+    }
+    if (typeof SherpaStt !== "undefined") {
+      return SherpaStt.transcribeBlob(blob);
+    }
+    throw new Error("浏览器 STT 不支持录音转写，请改用 sherpa-ncnn 或 Whisper");
+  }
+
+  async function transcribeAudioBlob(blob) {
+    return transcribeDialRecordingBlob(blob);
+  }
+
+  function applyDialSttTextToComposer(text, slot, autoSend) {
+    if (!dialCallSession) return;
+    const line = String(text || "").trim();
+    if (!line) return;
+    dialCallSession.composerDraft = line;
+    renderDialScreen(slot || els.dialContentSlot());
+    if (autoSend && !dialCallSession.replyGenerating) {
+      void generateDialPartnerReply(line, slot || els.dialContentSlot());
+    }
+  }
+
+  async function startDialVoiceInputRecording() {
+    if (dialCallSession && dialCallSession.isRecording) {
+      throw new Error("请先停止通话录音，再使用语音输入");
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error("当前浏览器不支持麦克风");
+    }
+    stopDialSttVoiceCapture();
+    dialSttVoiceChunks = [];
+    dialSttVoiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mimeCandidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", ""];
+    let mimeType = "";
+    for (let i = 0; i < mimeCandidates.length; i++) {
+      const m = mimeCandidates[i];
+      if (!m || (window.MediaRecorder && MediaRecorder.isTypeSupported(m))) {
+        mimeType = m;
+        break;
+      }
+    }
+    dialSttVoiceRecorder = mimeType
+      ? new MediaRecorder(dialSttVoiceStream, { mimeType: mimeType })
+      : new MediaRecorder(dialSttVoiceStream);
+    dialSttVoiceRecorder.addEventListener("dataavailable", function (ev) {
+      if (ev.data && ev.data.size > 0) dialSttVoiceChunks.push(ev.data);
+    });
+    dialSttVoiceRecorder.start(250);
+    return true;
+  }
+
+  function stopDialVoiceInputRecordingCollectBlob() {
+    return new Promise(function (resolve) {
+      if (!dialSttVoiceRecorder || dialSttVoiceRecorder.state === "inactive") {
+        stopDialSttVoiceCapture();
+        if (!dialSttVoiceChunks.length) {
+          resolve(null);
+          return;
+        }
+        const blob = new Blob(dialSttVoiceChunks, { type: dialSttVoiceChunks[0].type || "audio/webm" });
+        dialSttVoiceChunks = [];
+        resolve(blob);
+        return;
+      }
+      const rec = dialSttVoiceRecorder;
+      rec.addEventListener(
+        "stop",
+        function () {
+          stopDialSttVoiceCapture();
+          if (!dialSttVoiceChunks.length) {
+            resolve(null);
+            return;
+          }
+          const blob = new Blob(dialSttVoiceChunks, { type: dialSttVoiceChunks[0].type || rec.mimeType || "audio/webm" });
+          dialSttVoiceChunks = [];
+          resolve(blob);
+        },
+        { once: true }
+      );
+      try {
+        rec.stop();
+      } catch (_e) {
+        stopDialSttVoiceCapture();
+        resolve(null);
+      }
+    });
+  }
+
+  async function finishDialApiVoiceInput(slot) {
+    if (!dialCallSession || dialSttTranscribing) return;
+    dialSttTranscribing = true;
+    renderDialScreen(slot || els.dialContentSlot());
+    try {
+      const blob = await stopDialVoiceInputRecordingCollectBlob();
+      dialSttListening = false;
+      if (!blob || !blob.size) {
+        showToast("未采集到语音，请再试一次。", "info", 2200);
+        return;
+      }
+      const text = await transcribeAudioBlobWithWhisper(blob);
+      applyDialSttTextToComposer(text, slot, true);
+    } catch (err) {
+      const msg = (err && err.message) || "语音识别失败";
+      showToast(msg, "warning", 3600);
+    } finally {
+      dialSttTranscribing = false;
+      dialSttListening = false;
+      renderDialScreen(slot || els.dialContentSlot());
+    }
+  }
+
+  async function startDialSherpaStt(slot) {
+    if (typeof SherpaStt === "undefined") {
+      showToast("sherpa-ncnn 未加载，请确认 vendor/sherpa-ncnn 资源完整。", "warning", 3600);
+      return;
+    }
+    if (dialCallSession && dialCallSession.isRecording) {
+      showToast("请先停止通话录音，再使用语音输入。", "warning", 2800);
+      return;
+    }
+    try {
+      await SherpaStt.startMic({
+        onStatus: function (text) {
+          if (text && /downloading|loading|下载/i.test(text)) {
+            showToast(String(text).replace(/\s+/g, " ").trim(), "info", 1800);
+          }
+        },
+        onPartial: function (text) {
+          if (!dialCallSession) return;
+          dialCallSession.composerDraft = String(text || "").trim();
+          const input = (slot || els.dialContentSlot()).querySelector("[data-dial-call-input]");
+          if (input) input.value = dialCallSession.composerDraft;
+        },
+        onFinal: function (text) {
+          applyDialSttTextToComposer(text, slot, true);
+          stopDialSherpaStt(slot, false);
+        },
+      });
+      dialSttListening = true;
+      showToast("正在聆听…再次点击结束", "info", 2200);
+    } catch (err) {
+      dialSttListening = false;
+      const msg = (err && err.message) || "无法启动语音识别";
+      showToast(msg, "warning", 3600);
+    } finally {
+      renderDialScreen(slot || els.dialContentSlot());
+    }
+  }
+
+  function stopDialSherpaStt(slot, sendPending) {
+    if (typeof SherpaStt !== "undefined" && SherpaStt.stopMic) SherpaStt.stopMic();
+    dialSttListening = false;
+    if (sendPending && dialCallSession) {
+      const text = String(dialCallSession.composerDraft || "").trim();
+      if (text) applyDialSttTextToComposer(text, slot, true);
+      else dialCallSession.composerDraft = "";
+    }
+    renderDialScreen(slot || els.dialContentSlot());
+  }
+
+  function startDialBrowserStt(slot) {
+    if (!isBrowserSttSupported()) {
+      showToast("当前浏览器不支持内置语音识别，请改用 sherpa-ncnn 或 Whisper。", "warning", 3600);
+      return;
+    }
+    if (dialCallSession && dialCallSession.isRecording) {
+      showToast("请先停止通话录音，再使用语音输入。", "warning", 2800);
+      return;
+    }
+    stopDialBrowserStt();
+    const rec = createDialSpeechRecognition();
+    if (!rec) return;
+    dialSttRecognition = rec;
+    dialSttListening = true;
+    let interim = "";
+    rec.onresult = function (ev) {
+      let finalText = "";
+      interim = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const piece = ev.results[i][0] ? String(ev.results[i][0].transcript || "") : "";
+        if (ev.results[i].isFinal) finalText += piece;
+        else interim += piece;
+      }
+      if (dialCallSession) {
+        dialCallSession.composerDraft = (finalText || interim).trim();
+        const input = (slot || els.dialContentSlot()).querySelector("[data-dial-call-input]");
+        if (input) input.value = dialCallSession.composerDraft;
+      }
+      if (finalText.trim()) {
+        applyDialSttTextToComposer(finalText, slot, true);
+        stopDialBrowserStt();
+        renderDialScreen(slot || els.dialContentSlot());
+      }
+    };
+    rec.onerror = function (ev) {
+      const code = ev && ev.error ? String(ev.error) : "";
+      dialSttListening = false;
+      dialSttRecognition = null;
+      renderDialScreen(slot || els.dialContentSlot());
+      if (code === "aborted" || code === "no-speech") {
+        showToast(code === "no-speech" ? "未检测到语音，请再试一次。" : "", "info", 2200);
+        return;
+      }
+      if (code === "not-allowed") {
+        showToast("需要麦克风权限才能使用语音识别。", "warning", 3200);
+        return;
+      }
+      showToast("语音识别失败" + (code ? "：" + code : ""), "warning", 3200);
+    };
+    rec.onend = function () {
+      dialSttListening = false;
+      dialSttRecognition = null;
+      renderDialScreen(slot || els.dialContentSlot());
+    };
+    try {
+      rec.start();
+      renderDialScreen(slot || els.dialContentSlot());
+    } catch (err) {
+      stopDialBrowserStt();
+      const msg = err && err.message ? err.message : String(err);
+      showToast("无法启动语音识别：" + msg, "warning", 3200);
+    }
+  }
+
+  function isLocalFilePage() {
+    return typeof location !== "undefined" && location.protocol === "file:";
+  }
+
+  function showLocalHttpRequiredToast() {
+    showToast(
+      "不能直接双击 index.html。请在项目文件夹打开终端，运行 python -m http.server 8080，再用浏览器访问 http://localhost:8080",
+      "warning",
+      7000
+    );
+  }
+
+  async function toggleDialVoiceInput(slot) {
+    if (!dialCallSession || dialCallSession.phase !== "connected") return;
+    if (dialCallSession.replyGenerating || dialSttTranscribing) return;
+    if (!callSettings.sttEnabled) {
+      showToast("请先在设置中启用语音识别 STT。", "info", 2600);
+      return;
+    }
+    if (isLocalFilePage()) {
+      showLocalHttpRequiredToast();
+      return;
+    }
+    const provider = callSettings.sttProvider || "browser";
+    if (provider === "sherpa-ncnn") {
+      if (dialSttListening) stopDialSherpaStt(slot, true);
+      else void startDialSherpaStt(slot);
+      return;
+    }
+    if (provider === "browser") {
+      if (dialSttListening) stopDialBrowserStt();
+      else startDialBrowserStt(slot);
+      renderDialScreen(slot || els.dialContentSlot());
+      return;
+    }
+    if (dialSttListening) {
+      await finishDialApiVoiceInput(slot);
+      return;
+    }
+    try {
+      await startDialVoiceInputRecording();
+      dialSttListening = true;
+      renderDialScreen(slot || els.dialContentSlot());
+      showToast("正在聆听…再次点击结束并识别", "info", 2200);
+    } catch (err) {
+      stopDialSttVoiceCapture();
+      dialSttListening = false;
+      const msg = (err && err.message) || "无法开始录音";
+      showToast(msg, "warning", 3200);
+      renderDialScreen(slot || els.dialContentSlot());
+    }
+  }
+
+  async function saveDialRecordingToPhone(selfCharId, partnerChar, audioBlob, durationSec) {
+    if (!selfCharId || !audioBlob) return null;
+    const pack = ensureDialPhoneMemoBundle(selfCharId);
+    if (!pack) return null;
+    const partnerName = partnerChar && partnerChar.name ? String(partnerChar.name).trim() : "对方";
+    const noteId = uid("dial-rec");
+    const durationStr = formatDialDurationMmSs(durationSec);
+    const dateKey = getDialMemoDateKey();
+    const visitTime = getDialMemoVisitTime();
+    let bodyText = callSettings.sttEnabled
+      ? "（通话录音，正在转写…）"
+      : "（通话录音，可在设置中开启语音识别转写）";
+    if (callSettings.sttEnabled) {
+      try {
+        const transcript = await transcribeAudioBlob(audioBlob);
+        if (transcript) bodyText = transcript;
+      } catch (err) {
+        const msg = (err && err.message) || "转写失败";
+        bodyText = "（通话录音，转写失败：" + msg + "）";
+      }
+    }
+    const note = {
+      id: noteId,
+      sectionId: "private",
+      kind: "audio",
+      title: "与「" + truncateCharsWithEllipsis(partnerName, 16) + "」通话录音",
+      preview: "语音 " + durationStr + " · " + partnerName,
+      body: bodyText,
+      meta: {
+        duration: durationStr,
+        wave: buildDialWaveGlyph(durationSec),
+        dialRecording: true,
+        partnerCharId: partnerChar && partnerChar.id ? partnerChar.id : "",
+      },
+      time: "今天 " + visitTime,
+      dateKey: dateKey,
+      visitTime: visitTime,
+    };
+    pack.bundle.notes.unshift(note);
+    phoneMemoData[pack.key] = pack.bundle;
+    try {
+      const dataUrl = await blobToDataUrl(audioBlob);
+      dialCallRecordingBlobs[noteId] = {
+        dataUrl: dataUrl,
+        mime: audioBlob.type || "audio/webm",
+        durationMs: Math.round((Number(durationSec) || 0) * 1000),
+        partnerCharId: partnerChar && partnerChar.id ? partnerChar.id : "",
+        savedAt: Date.now(),
+      };
+    } catch (_e) {}
+    persistNarrative();
+    return noteId;
+  }
+
+  function clearDialCallTimers() {
+    if (dialCallTimerId) {
+      clearInterval(dialCallTimerId);
+      dialCallTimerId = null;
+    }
+    if (dialCallRingTimerId) {
+      clearTimeout(dialCallRingTimerId);
+      dialCallRingTimerId = null;
+    }
+  }
+
+  function stopDialMediaCapture() {
+    if (dialMediaRecorder && dialMediaRecorder.state !== "inactive") {
+      try {
+        dialMediaRecorder.stop();
+      } catch (_e) {}
+    }
+    dialMediaRecorder = null;
+    if (dialMediaStream) {
+      dialMediaStream.getTracks().forEach(function (t) {
+        try {
+          t.stop();
+        } catch (_e2) {}
+      });
+    }
+    dialMediaStream = null;
+  }
+
+  async function startDialRecording() {
+    if (!dialCallSession || dialCallSession.phase !== "connected") return false;
+    if (dialCallSession.isRecording) return true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showToast("当前浏览器不支持麦克风录音。", "warning", 3200);
+      return false;
+    }
+    try {
+      dialRecordedChunks = [];
+      dialMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeCandidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", ""];
+      let mimeType = "";
+      for (let i = 0; i < mimeCandidates.length; i++) {
+        const m = mimeCandidates[i];
+        if (!m || (window.MediaRecorder && MediaRecorder.isTypeSupported(m))) {
+          mimeType = m;
+          break;
+        }
+      }
+      dialMediaRecorder = mimeType
+        ? new MediaRecorder(dialMediaStream, { mimeType: mimeType })
+        : new MediaRecorder(dialMediaStream);
+      dialMediaRecorder.addEventListener("dataavailable", function (ev) {
+        if (ev.data && ev.data.size > 0) dialRecordedChunks.push(ev.data);
+      });
+      dialMediaRecorder.start(500);
+      dialCallSession.isRecording = true;
+      dialCallSession.recordStartedAt = Date.now();
+      return true;
+    } catch (err) {
+      stopDialMediaCapture();
+      const msg = err && err.message ? err.message : String(err);
+      showToast(msg.indexOf("Permission") >= 0 ? "需要麦克风权限才能录音。" : "无法开始录音：" + msg, "warning", 3600);
+      return false;
+    }
+  }
+
+  function stopDialRecordingCollectBlob() {
+    return new Promise(function (resolve) {
+      if (!dialMediaRecorder || dialMediaRecorder.state === "inactive") {
+        stopDialMediaCapture();
+        if (!dialRecordedChunks.length) {
+          resolve(null);
+          return;
+        }
+        const blob = new Blob(dialRecordedChunks, { type: dialRecordedChunks[0].type || "audio/webm" });
+        dialRecordedChunks = [];
+        resolve(blob);
+        return;
+      }
+      const rec = dialMediaRecorder;
+      rec.addEventListener(
+        "stop",
+        function () {
+          stopDialMediaCapture();
+          if (!dialRecordedChunks.length) {
+            resolve(null);
+            return;
+          }
+          const blob = new Blob(dialRecordedChunks, { type: dialRecordedChunks[0].type || rec.mimeType || "audio/webm" });
+          dialRecordedChunks = [];
+          resolve(blob);
+        },
+        { once: true }
+      );
+      try {
+        rec.stop();
+      } catch (_e) {
+        stopDialMediaCapture();
+        resolve(null);
+      }
+    });
+  }
+
+  async function endDialCallSession(opts) {
+    opts = opts || {};
+    const session = dialCallSession;
+    if (!session) return;
+    clearDialCallTimers();
+    stopDialCallTts();
+    stopDialSttAll();
+    const wasRecording = !!session.isRecording;
+    const hadPendingBlob = !!(session.pendingBlob && session.pendingBlob.size > 0);
+    const recordDurationSec =
+      wasRecording && session.recordStartedAt
+        ? Math.max(1, Math.round((Date.now() - session.recordStartedAt) / 1000))
+        : session.pendingDurationSec
+          ? session.pendingDurationSec
+          : Math.max(0, Number(session.durationSec) || 0);
+    let audioBlob = session.pendingBlob || null;
+    if (wasRecording) {
+      session.isRecording = false;
+      const freshBlob = await stopDialRecordingCollectBlob();
+      if (freshBlob) audioBlob = freshBlob;
+    } else {
+      stopDialMediaCapture();
+      dialRecordedChunks = [];
+    }
+    const shouldSave = !!opts.saveRecording && audioBlob && audioBlob.size > 0 && (wasRecording || hadPendingBlob);
+    const selfChar = getCharById(dialUserCharId);
+    const partnerChar = getCharById(session.partnerCharId);
+    const wasConnected = !!(session.connectedAt && (session.phase === "connected" || session.durationSec > 0));
+    const callDurationSec = wasConnected
+      ? Math.max(
+          Number(session.durationSec) || 0,
+          session.connectedAt ? Math.floor((Date.now() - session.connectedAt) / 1000) : 0
+        )
+      : 0;
+    let savedNoteId = "";
+    dialCallSession = null;
+    renderDialScreen(els.dialContentSlot());
+    if (shouldSave && selfChar) {
+      if (callSettings.sttEnabled) {
+        showToast("正在转写通话录音…", "info", 2400);
+      }
+      savedNoteId = await saveDialRecordingToPhone(selfChar.id, partnerChar, audioBlob, recordDurationSec);
+      if (savedNoteId) {
+        showToast("通话录音已保存至「" + (selfChar.name || "我的形象") + "」手机备忘录", "success", 3600);
+      }
+    } else if (wasRecording && opts.saveRecording) {
+      showToast("录音过短或未采集到音频，未保存。", "info", 2800);
+    }
+    if (selfChar && session.partnerCharId) {
+      appendDialCallHistory(selfChar.id, {
+        partnerCharId: session.partnerCharId,
+        status: wasConnected ? "answered" : "cancelled",
+        durationSec: wasConnected ? callDurationSec : 0,
+        hadRecording: !!savedNoteId,
+        recordingNoteId: savedNoteId || "",
+      });
+    }
+  }
+
+  function beginDialOutgoingCall(partnerCharId) {
+    if (dialCallSession) return;
+    if (!dialUserCharId) {
+      showToast("请先选择「我的形象」。", "info");
+      return;
+    }
+    const partner = getCharById(partnerCharId);
+    if (!partner || partner.categoryId === CHAR_CATEGORY_SELF_ID) return;
+    dialCallSession = {
+      partnerCharId: partner.id,
+      phase: "ringing",
+      durationSec: 0,
+      isRecording: false,
+      recordStartedAt: 0,
+      connectedAt: 0,
+      pendingBlob: null,
+      pendingDurationSec: 0,
+      messages: [],
+      replyGenerating: false,
+      composerDraft: "",
+    };
+    renderDialScreen(els.dialContentSlot());
+    const ringMs = Math.max(0, Math.min(8000, Number(callSettings.ringDelayMs) || 1800));
+    dialCallRingTimerId = setTimeout(function () {
+      if (!dialCallSession || dialCallSession.partnerCharId !== partner.id) return;
+      dialCallSession.phase = "connected";
+      dialCallSession.connectedAt = Date.now();
+      renderDialScreen(els.dialContentSlot());
+      if (callSettings.autoRecord) {
+        void startDialRecording().then(function (ok) {
+          if (ok) renderDialScreen(els.dialContentSlot());
+        });
+      }
+      if (callSettings.aiEnabled && callSettings.autoGreeting) {
+        void generateDialPartnerReply(null, els.dialContentSlot());
+      }
+      dialCallTimerId = setInterval(function () {
+        if (!dialCallSession || dialCallSession.phase !== "connected") return;
+        dialCallSession.durationSec = Math.max(
+          0,
+          Math.floor((Date.now() - dialCallSession.connectedAt) / 1000)
+        );
+        const el = document.querySelector("[data-dial-call-duration]");
+        if (el) el.textContent = formatDialDurationMmSs(dialCallSession.durationSec);
+      }, 1000);
+    }, ringMs);
+  }
+
+  function prepareDialSession() {
+    const selfList = getSelfCharacters();
+    const supList = getSupportingCharacters();
+    if (!dialUserCharId && selfList.length) dialUserCharId = selfList[0].id;
+    if (dialUserCharId && !getCharById(dialUserCharId)) dialUserCharId = null;
+    if (dialUserCharId && getCharById(dialUserCharId)?.categoryId !== CHAR_CATEGORY_SELF_ID) {
+      dialUserCharId = null;
+    }
+    if (!dialUserCharId && selfList.length) dialUserCharId = selfList[0].id;
+    return selfList.length > 0 && supList.length > 0;
+  }
+
+  async function openOverviewDialView() {
+    const selfList = getSelfCharacters();
+    const supList = getSupportingCharacters();
+    if (!selfList.length) {
+      await showAlert("请先在「角色」里添加至少 1 个「我的形象」。", "拨通");
+      setTab("characters");
+      charFilter = CHAR_CATEGORY_SELF_ID;
+      renderDynamic();
+      return;
+    }
+    if (!supList.length) {
+      await showAlert("请先在「角色」里添加至少 1 个可拨打的联系人（非「我的形象」）。", "拨通");
+      setTab("characters");
+      charFilter = "all";
+      renderDynamic();
+      return;
+    }
+    prepareDialSession();
+    openOverviewSubView("dial");
+  }
+
+  function closeOverviewDialView() {
+    void endDialCallSession({ saveRecording: true });
+    dialContactQuery = "";
+    dialIdentityOpen = false;
+    dialIdentityEditCharId = null;
+    overviewSubView = null;
+    if (!location.hash.startsWith("#/story") && location.hash !== "#/tab/overview") {
+      location.hash = "#/tab/overview";
+    }
+    syncOverviewSubViewUi();
+  }
+
+  function normalizeDialCallHistoryEntry(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const partnerCharId = String(raw.partnerCharId || "").trim();
+    if (!partnerCharId) return null;
+    const status = raw.status === "answered" ? "answered" : "cancelled";
+    return {
+      id: String(raw.id || uid("dial-log")),
+      partnerCharId: partnerCharId,
+      status: status,
+      durationSec: Math.max(0, Math.floor(Number(raw.durationSec) || 0)),
+      hadRecording: !!raw.hadRecording,
+      recordingNoteId: String(raw.recordingNoteId || "").trim(),
+      ts: typeof raw.ts === "number" ? raw.ts : Date.now(),
+      dateKey: raw.dateKey ? String(raw.dateKey) : getDialMemoDateKey(),
+      visitTime: raw.visitTime ? String(raw.visitTime) : getDialMemoVisitTime(),
+    };
+  }
+
+  function appendDialCallHistory(selfCharId, partial) {
+    const sid = String(selfCharId || "").trim();
+    if (!sid || !partial) return;
+    if (!dialCallHistory[sid]) dialCallHistory[sid] = [];
+    const entry = normalizeDialCallHistoryEntry(
+      Object.assign(
+        {
+          id: uid("dial-log"),
+          ts: Date.now(),
+          dateKey: getDialMemoDateKey(),
+          visitTime: getDialMemoVisitTime(),
+        },
+        partial
+      )
+    );
+    if (!entry) return;
+    dialCallHistory[sid].unshift(entry);
+    if (dialCallHistory[sid].length > 200) dialCallHistory[sid].length = 200;
+    persistNarrative();
+  }
+
+  function getDialCallHistoryList() {
+    const sid = String(dialUserCharId || "").trim();
+    if (!sid || !Array.isArray(dialCallHistory[sid])) return [];
+    return dialCallHistory[sid].slice();
+  }
+
+  function getDialPersonaOverride(charId) {
+    const id = String(charId || "").trim();
+    const hit = dialPersonaOverrides[id];
+    if (!hit || typeof hit !== "object") return { traits: "", style: "" };
+    return {
+      traits: hit.traits != null ? String(hit.traits).trim() : "",
+      style: hit.style != null ? String(hit.style).trim() : "",
+    };
+  }
+
+  function getDialEffectivePersona(char, isSelf) {
+    if (!char) return { traits: "", style: "" };
+    if (isSelf) {
+      const ov = getDialPersonaOverride(char.id);
+      return {
+        traits: ov.traits || traitsToLine(char),
+        style: ov.style || String(char.style || char.appearance || "").trim(),
+      };
+    }
+    return {
+      traits: traitsToLine(char),
+      style: String(char.style || char.appearance || "").trim(),
+    };
+  }
+
+  function buildDialPersonaBlock(char, label, isSelf) {
+    if (!char) return "";
+    const persona = getDialEffectivePersona(char, isSelf);
+    const lines = ["【" + label + "·" + String(char.name || "未命名").trim() + "】"];
+    const traits = truncateCharsWithEllipsis(persona.traits, DIAL_CALL_PERSONA_FIELD_MAX_CHARS);
+    const style = truncateCharsWithEllipsis(persona.style, DIAL_CALL_PERSONA_FIELD_MAX_CHARS);
+    if (traits) lines.push("性格外貌：" + traits);
+    if (style && style !== traits) lines.push("风格：" + style);
+    return lines.join("\n");
+  }
+
+  function buildDialCallSystemPrompt(userChar, partnerChar) {
+    const userName = String(userChar && userChar.name ? userChar.name : "用户").trim() || "用户";
+    const partnerName = String(partnerChar && partnerChar.name ? partnerChar.name : "对方").trim() || "对方";
+    return (
+      "你是互动叙事产品里的电话通话模拟器。你只扮演「" +
+      partnerName +
+      "」，用该角色口吻在电话里说话。\n" +
+      "通话另一方是「" +
+      userName +
+      "」（用户主视角）。\n" +
+      "严禁引用剧情正文、世界书、聊天记录或任何通话以外的背景；仅依据下方双方人设与本次通话已有对话。\n\n" +
+      buildDialPersonaBlock(userChar, "通话方（用户）", true) +
+      "\n\n" +
+      buildDialPersonaBlock(partnerChar, "你扮演的角色", false) +
+      "\n\n输出要求：\n" +
+      "· 模拟真实电话聊天口吻，像正常人打电话那样说话，不要像朗读课文或念稿。\n" +
+      "· 每次回复 2～4 句完整口语，总长约 40～180 字；每句必须有完整语义，并以句号、问号或感叹号等自然结束。\n" +
+      "· 可以主动接话、延伸话题、随口关心或分享小事，让对话有来有往。\n" +
+      "· 严禁半句话、断句、省略号悬停（如「今天……」就结束）、旁白、动作描写、Markdown、前缀角色名。\n" +
+      "· 语气自然，可有「嗯」「喂」等口头语，但不要啰嗦重复。"
+    );
+  }
+
+  function buildDialCallApiMessages(userChar, partnerChar, messages, newUserText) {
+    const lim = Math.max(4, Math.min(24, Number(callSettings.contextMessageLimit) || 10));
+    const out = [{ role: "system", content: buildDialCallSystemPrompt(userChar, partnerChar) }];
+    const recent = Array.isArray(messages) ? messages.slice(-lim) : [];
+    recent.forEach(function (m) {
+      if (!m || !m.content) return;
+      out.push({
+        role: m.role === "user" ? "user" : "assistant",
+        content: String(m.content).trim(),
+      });
+    });
+    if (newUserText) {
+      out.push({ role: "user", content: String(newUserText).trim() });
+    }
+    return out;
+  }
+
+  function isDialSpokenLineComplete(text) {
+    const s = String(text || "").trim();
+    if (!s || s.length < 6) return false;
+    if (/[。！？.!?…][」』"”]*$/.test(s)) return true;
+    if (/[吗呢吧啊呀喔哈嗯呐]$/.test(s)) return true;
+    return false;
+  }
+
+  function capDialSpokenText(text, maxChars) {
+    const raw = String(text || "").trim();
+    if (!raw || !maxChars || maxChars < 1) return "";
+    const arr = Array.from(raw);
+    if (arr.length <= maxChars) return raw;
+    const slice = arr.slice(0, maxChars).join("");
+    const m = slice.match(/^([\s\S]*[。！？.!?…])[」』"”]*$/);
+    if (m && m[1]) return m[1].trim();
+    return slice.trim();
+  }
+
+  function normalizeDialSpokenLine(raw) {
+    let text = String(raw || "").trim();
+    if (!text) return "";
+    text = text.replace(/^【[^】]+】\s*/g, "");
+    text = text.replace(/^[「『"“]+|[」』"”]+$/g, "");
+    const lines = text
+      .split(/\r?\n/)
+      .map(function (s) {
+        return s.trim();
+      })
+      .filter(Boolean);
+    text = lines.join("");
+    text = text.replace(/\s+/g, "");
+    return capDialSpokenText(text, 280);
+  }
+
+  function stopDialCallTts() {
+    if (dialCallTtsAudio) {
+      try {
+        dialCallTtsAudio.pause();
+      } catch (_e) {}
+      dialCallTtsAudio = null;
+    }
+    if (dialCallTtsObjectUrl) {
+      try {
+        URL.revokeObjectURL(dialCallTtsObjectUrl);
+      } catch (_e2) {}
+      dialCallTtsObjectUrl = null;
+    }
+  }
+
+  async function playDialPartnerTts(text, partnerChar) {
+    if (!callSettings.voiceReply || !ttsSettings.enabled) return;
+    if (!resolveGlobalMinimaxVoiceId()) return;
+    const speakText = normalizeDialSpokenLine(text);
+    if (!speakText) return;
+    stopDialCallTts();
+    const prevModel = ttsSettings.model;
+    if (callSettings.useTurboTts) ttsSettings.model = "speech-2.8-turbo";
+    try {
+      const voicePrompt = buildMinimaxVoicePrompt(partnerChar, "", null, speakText, {});
+      const blob = await fetchStoryTtsBlob(speakText, voicePrompt, "");
+      dialCallTtsObjectUrl = URL.createObjectURL(blob);
+      dialCallTtsAudio = new Audio(dialCallTtsObjectUrl);
+      dialCallTtsAudio.addEventListener(
+        "ended",
+        function () {
+          stopDialCallTts();
+        },
+        { once: true }
+      );
+      await dialCallTtsAudio.play();
+    } catch (err) {
+      stopDialCallTts();
+      const msg = (err && err.message) || "语音朗读失败";
+      showToast(msg, "warning", 3200);
+    } finally {
+      ttsSettings.model = prevModel;
+    }
+  }
+
+  function syncDialCallComposerFromDom(slot) {
+    if (!dialCallSession || !slot) return;
+    const input = slot.querySelector("[data-dial-call-input]");
+    if (input) dialCallSession.composerDraft = String(input.value || "");
+  }
+
+  function deleteDialCallHistoryEntry(entryId) {
+    const sid = String(dialUserCharId || "").trim();
+    if (!sid || !Array.isArray(dialCallHistory[sid])) return false;
+    const id = String(entryId || "").trim();
+    if (!id) return false;
+    const before = dialCallHistory[sid].length;
+    dialCallHistory[sid] = dialCallHistory[sid].filter(function (e) {
+      return e && e.id !== id;
+    });
+    if (dialCallHistory[sid].length === before) return false;
+    persistNarrative();
+    return true;
+  }
+
+  function deleteDialRecording(noteId) {
+    const sid = String(dialUserCharId || "").trim();
+    if (!sid) return false;
+    const pack = ensureDialPhoneMemoBundle(sid);
+    if (!pack) return false;
+    const id = String(noteId || "").trim();
+    if (!id) return false;
+    const notes = pack.bundle.notes || [];
+    const hit = notes.some(function (n) {
+      return n && n.id === id;
+    });
+    if (!hit) return false;
+    pack.bundle.notes = notes.filter(function (n) {
+      return n && n.id !== id;
+    });
+    phoneMemoData[pack.key] = pack.bundle;
+    delete dialCallRecordingBlobs[id];
+    persistNarrative();
+    return true;
+  }
+
+  async function requestDialPartnerReplyRaw(apiMsgs, maxTok, temp) {
+    const baseOpts = { apiConfigId: getWorkbenchApiId(), skipGenPaw: true };
+    try {
+      return await callChatCompletion(apiMsgs, temp, maxTok, baseOpts);
+    } catch (err) {
+      const errMsg = String((err && err.message) || "");
+      const isEmpty = (err && err.code === "empty_response") || errMsg.indexOf("正文为空") >= 0;
+      if (!isEmpty) throw err;
+      const merged = mergeSystemIntoUserMessages(apiMsgs);
+      return await callChatCompletion(merged, Math.min(temp, 0.62), Math.max(maxTok, 320), Object.assign({}, baseOpts, {
+        geminiMergedRetry: true,
+      }));
+    }
+  }
+
+  async function generateDialPartnerReply(userText, slot) {
+    if (!dialCallSession || dialCallSession.phase !== "connected") return;
+    if (!callSettings.aiEnabled) return;
+    if (dialCallSession.replyGenerating) return;
+    const userChar = getCharById(dialUserCharId);
+    const partnerChar = getCharById(dialCallSession.partnerCharId);
+    if (!userChar || !partnerChar) return;
+    const userLine = userText != null ? String(userText).trim() : "";
+    const isOpening = !userLine && (!dialCallSession.messages || !dialCallSession.messages.length);
+    if (!isOpening && !userLine) return;
+    dialCallSession.replyGenerating = true;
+    renderDialScreen(slot || els.dialContentSlot());
+    const partnerName = partnerChar.name || "对方";
+    const maxTok = Math.max(80, Math.min(600, Number(callSettings.replyMaxTokens) || 220));
+    const temp = Math.max(0.3, Math.min(1.2, Number(callSettings.replyTemperature) || 0.78));
+    try {
+      const apiMsgs = buildDialCallApiMessages(userChar, partnerChar, dialCallSession.messages, userLine || null);
+      if (isOpening) {
+        apiMsgs.push({
+          role: "user",
+          content:
+            "（电话已接通）请以「" +
+            partnerName +
+            "」的身份先开口：用 2～4 句完整口语自然打招呼，可随口提起一件小事或关心对方，每句说完整。",
+        });
+      }
+      let raw = await requestDialPartnerReplyRaw(apiMsgs, maxTok, temp);
+      let line = normalizeDialSpokenLine(raw);
+      if (line && !isDialSpokenLineComplete(line)) {
+        const retryMsgs = apiMsgs.concat([
+          { role: "assistant", content: line },
+          {
+            role: "user",
+            content: "（你刚才没说完，请把那句话自然说完，补全语义，不要从头重说。）",
+          },
+        ]);
+        raw = await requestDialPartnerReplyRaw(retryMsgs, Math.min(maxTok + 120, 600), temp);
+        line = normalizeDialSpokenLine(raw) || line;
+      }
+      if (!line) throw new Error("生成内容为空");
+      if (userLine) {
+        dialCallSession.messages.push({ role: "user", content: userLine, ts: Date.now() });
+      }
+      dialCallSession.messages.push({ role: "assistant", content: line, ts: Date.now() });
+      const lim = Math.max(4, Math.min(24, Number(callSettings.contextMessageLimit) || 10));
+      if (dialCallSession.messages.length > lim) {
+        dialCallSession.messages = dialCallSession.messages.slice(-lim);
+      }
+      dialCallSession.composerDraft = "";
+      renderDialScreen(slot || els.dialContentSlot());
+      void playDialPartnerTts(line, partnerChar);
+    } catch (err) {
+      const msg = (err && err.message) || "";
+      showToast(msg || "对方回复生成失败，请检查 API 配置。", "error", 3200);
+    } finally {
+      if (dialCallSession) dialCallSession.replyGenerating = false;
+      renderDialScreen(slot || els.dialContentSlot());
+    }
+  }
+
+  function sendDialCallMessage(slot) {
+    if (!dialCallSession || dialCallSession.replyGenerating) return;
+    syncDialCallComposerFromDom(slot);
+    const text = String(dialCallSession.composerDraft || "").trim();
+    if (!text) return;
+    void generateDialPartnerReply(text, slot);
+  }
+
+  function getDialRecordingsList() {
+    const sid = String(dialUserCharId || "").trim();
+    if (!sid) return [];
+    const key = dialPhoneStorageKey(sid);
+    const bundle = phoneMemoData[key];
+    const notes = bundle && Array.isArray(bundle.notes) ? bundle.notes : [];
+    return notes
+      .filter(function (n) {
+        return n && n.kind === "audio" && n.meta && n.meta.dialRecording;
+      })
+      .map(function (n) {
+        const blob = dialCallRecordingBlobs[n.id];
+        return {
+          note: n,
+          blob: blob || null,
+        };
+      });
+  }
+
+  function dialHistoryGroupLabel(dateKey) {
+    const today = getDialMemoDateKey();
+    const d = new Date();
+    const y = new Date(d);
+    y.setDate(y.getDate() - 1);
+    const yesterday =
+      y.getFullYear() + "-" + String(y.getMonth() + 1).padStart(2, "0") + "-" + String(y.getDate()).padStart(2, "0");
+    const dk = String(dateKey || "").trim();
+    if (dk === today) return "今天";
+    if (dk === yesterday) return "昨天";
+    return "更早";
+  }
+
+  function groupDialCallHistory(entries) {
+    const groups = [];
+    const map = Object.create(null);
+    entries.forEach(function (entry) {
+      const label = dialHistoryGroupLabel(entry.dateKey);
+      if (!map[label]) {
+        map[label] = { label: label, items: [] };
+        groups.push(map[label]);
+      }
+      map[label].items.push(entry);
+    });
+    return groups;
+  }
+
+  function dialContactSortKey(name) {
+    const s = String(name || "").trim();
+    if (!s) return "#";
+    const ch = s.charAt(0).toUpperCase();
+    if (/[A-Z]/.test(ch)) return ch;
+    if (/[0-9]/.test(ch)) return "#";
+    return ch;
+  }
+
+  function groupDialContactsByLetter(list) {
+    const map = Object.create(null);
+    const order = [];
+    list.forEach(function (c) {
+      const key = dialContactSortKey(c.name);
+      if (!map[key]) {
+        map[key] = [];
+        order.push(key);
+      }
+      map[key].push(c);
+    });
+    order.sort(function (a, b) {
+      if (a === "#") return 1;
+      if (b === "#") return -1;
+      return a.localeCompare(b, "zh-CN");
+    });
+    return order.map(function (k) {
+      return { letter: k, items: map[k] };
+    });
+  }
+
+  function filterDialContacts(list, query) {
+    const q = String(query || "").trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(function (c) {
+      const name = String(c.name || "").toLowerCase();
+      const traits = traitsToLine(c).toLowerCase();
+      return name.indexOf(q) >= 0 || traits.indexOf(q) >= 0;
+    });
+  }
+
+  function buildDialPhoneTabsHtml() {
+    const tabs = [
+      { id: "recent", label: "通话记录", icon: "clock" },
+      { id: "contacts", label: "联系人", icon: "person" },
+      { id: "recordings", label: "录音", icon: "wave" },
+    ];
+    return (
+      '<nav class="dial-phone-tabs" aria-label="电话导航">' +
+      tabs
+        .map(function (t) {
+          const on = dialPhoneTab === t.id;
+          let iconSvg = "";
+          if (t.icon === "clock") {
+            iconSvg =
+              '<svg class="icon-linear dial-phone-tabs__icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+          } else if (t.icon === "person") {
+            iconSvg =
+              '<svg class="icon-linear dial-phone-tabs__icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>';
+          } else {
+            iconSvg =
+              '<svg class="icon-linear dial-phone-tabs__icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/></svg>';
+          }
+          return (
+            '<button type="button" class="dial-phone-tabs__item' +
+            (on ? " dial-phone-tabs__item--on" : "") +
+            '" data-dial-tab="' +
+            escapeHtml(t.id) +
+            '" aria-current="' +
+            (on ? "page" : "false") +
+            '">' +
+            iconSvg +
+            "<span>" +
+            escapeHtml(t.label) +
+            "</span></button>"
+          );
+        })
+        .join("") +
+      "</nav>"
+    );
+  }
+
+  function buildDialRecentTabHtml() {
+    const history = getDialCallHistoryList();
+    if (!history.length) {
+      return (
+        '<div class="dial-phone-panel dial-phone-panel--recent">' +
+        '<div class="dial-contacts__empty"><p>暂无通话记录</p>' +
+        '<p class="field__hint">在「联系人」中拨号后，记录会显示在这里</p></div></div>'
+      );
+    }
+    const groups = groupDialCallHistory(history);
+    return (
+      '<div class="dial-phone-panel dial-phone-panel--recent">' +
+      groups
+        .map(function (g) {
+          return (
+            '<section class="dial-phone-section">' +
+            '<h3 class="dial-phone-section__title">' +
+            escapeHtml(g.label) +
+            "</h3>" +
+            '<ul class="dial-phone-list" role="list">' +
+            g.items
+              .map(function (entry) {
+                const partner = getCharById(entry.partnerCharId);
+                const name = partner ? partner.name || "未知" : "未知";
+                const missed = entry.status !== "answered";
+                const sub = missed
+                  ? "未接通"
+                  : entry.hadRecording
+                    ? formatDialDurationMmSs(entry.durationSec) + " · 含录音"
+                    : formatDialDurationMmSs(entry.durationSec);
+                return (
+                  '<li class="dial-phone-list__item" role="listitem">' +
+                  '<div class="dial-phone-row-wrap">' +
+                  '<button type="button" class="dial-phone-row" data-dial-call="' +
+                  escapeHtml(entry.partnerCharId) +
+                  '">' +
+                  '<span class="dial-phone-row__icon dial-phone-row__icon--out" aria-hidden="true">' +
+                  '<svg class="icon-linear" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17l9.2-9.2M17 17V7H7"/></svg>' +
+                  "</span>" +
+                  '<span class="avatar dial-phone-row__avatar" data-dial-av="' +
+                  escapeHtml(entry.partnerCharId) +
+                  '"></span>' +
+                  '<span class="dial-phone-row__main">' +
+                  '<span class="dial-phone-row__name' +
+                  (missed ? " dial-phone-row__name--missed" : "") +
+                  '">' +
+                  escapeHtml(name) +
+                  "</span>" +
+                  '<span class="dial-phone-row__sub">' +
+                  escapeHtml(sub) +
+                  "</span></span>" +
+                  '<span class="dial-phone-row__meta">' +
+                  escapeHtml(entry.visitTime || "") +
+                  "</span>" +
+                  '<span class="dial-phone-row__call" aria-hidden="true">' +
+                  '<svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.12.81.3 1.6.54 2.36a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.76.24 1.55.42 2.36.54A2 2 0 0122 16.92z"/></svg>' +
+                  "</span></button>" +
+                  buildPhoneCardDeleteBtnHtml(
+                    "dial-phone-row__delete",
+                    "data-dial-delete-history",
+                    entry.id,
+                    "删除通话记录"
+                  ) +
+                  "</div></li>"
+                );
+              })
+              .join("") +
+            "</ul></section>"
+          );
+        })
+        .join("") +
+      "</div>"
+    );
+  }
+
+  function buildDialContactsTabHtml() {
+    const contacts = filterDialContacts(getSupportingCharacters(), dialContactQuery);
+    if (!contacts.length) {
+      return (
+        '<div class="dial-phone-panel dial-phone-panel--contacts">' +
+        '<div class="dial-contacts__search">' +
+        '<input class="field__input dial-contacts__search-input" type="search" placeholder="搜索" value="' +
+        escapeHtml(dialContactQuery) +
+        '" data-dial-contact-search autocomplete="off" aria-label="搜索联系人" />' +
+        "</div>" +
+        '<div class="dial-contacts__empty"><p>没有匹配的联系人</p></div></div>'
+      );
+    }
+    const groups = groupDialContactsByLetter(contacts);
+    return (
+      '<div class="dial-phone-panel dial-phone-panel--contacts">' +
+      '<div class="dial-contacts__search">' +
+      '<input class="field__input dial-contacts__search-input" type="search" placeholder="搜索" value="' +
+      escapeHtml(dialContactQuery) +
+      '" data-dial-contact-search autocomplete="off" aria-label="搜索联系人" />' +
+      "</div>" +
+      groups
+        .map(function (g) {
+          return (
+            '<section class="dial-phone-section dial-phone-section--letter">' +
+            '<h3 class="dial-phone-section__letter">' +
+            escapeHtml(g.letter) +
+            "</h3>" +
+            '<ul class="dial-phone-list" role="list">' +
+            g.items
+              .map(function (c) {
+                return (
+                  '<li class="dial-phone-list__item" role="listitem">' +
+                  '<button type="button" class="dial-phone-row dial-phone-row--contact" data-dial-call="' +
+                  escapeHtml(c.id) +
+                  '">' +
+                  '<span class="avatar dial-phone-row__avatar" data-dial-av="' +
+                  escapeHtml(c.id) +
+                  '"></span>' +
+                  '<span class="dial-phone-row__main">' +
+                  '<span class="dial-phone-row__name">' +
+                  escapeHtml(c.name || "未命名") +
+                  "</span></span>" +
+                  '<span class="dial-phone-row__call" aria-hidden="true">' +
+                  '<svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.12.81.3 1.6.54 2.36a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.76.24 1.55.42 2.36.54A2 2 0 0122 16.92z"/></svg>' +
+                  "</span></button></li>"
+                );
+              })
+              .join("") +
+            "</ul></section>"
+          );
+        })
+        .join("") +
+      "</div>"
+    );
+  }
+
+  function buildDialRecordingsTabHtml() {
+    const recs = getDialRecordingsList();
+    if (!recs.length) {
+      return (
+        '<div class="dial-phone-panel dial-phone-panel--recordings">' +
+        '<div class="dial-contacts__empty"><p>暂无通话录音</p>' +
+        '<p class="field__hint">通话中点「录音」，挂断后将保存在这里</p></div></div>'
+      );
+    }
+    return (
+      '<div class="dial-phone-panel dial-phone-panel--recordings">' +
+      '<ul class="dial-phone-list dial-phone-list--recordings" role="list">' +
+      recs
+        .map(function (item) {
+          const note = item.note;
+          const partner = getCharById(note.meta && note.meta.partnerCharId ? note.meta.partnerCharId : "");
+          const name = partner ? partner.name : note.title || "通话录音";
+          const dur = (note.meta && note.meta.duration) || "0:00";
+          const wave = (note.meta && note.meta.wave) || buildDialWaveGlyph(0);
+          const canPlay = !!(item.blob && item.blob.dataUrl);
+          return (
+            '<li class="dial-phone-list__item" role="listitem">' +
+            '<div class="dial-rec-row">' +
+            '<button type="button" class="dial-rec-row__play' +
+            (canPlay ? "" : " dial-rec-row__play--disabled") +
+            '" data-dial-play-recording="' +
+            escapeHtml(note.id) +
+            '"' +
+            (canPlay ? "" : " disabled") +
+            ' aria-label="播放录音"><span aria-hidden="true">▶</span></button>' +
+            '<div class="dial-rec-row__main">' +
+            '<span class="dial-rec-row__name">' +
+            escapeHtml(truncateCharsWithEllipsis(name, 20)) +
+            "</span>" +
+            '<span class="dial-rec-row__wave" aria-hidden="true">' +
+            escapeHtml(wave) +
+            "</span>" +
+            '<span class="dial-rec-row__meta">' +
+            escapeHtml(dur) +
+            " · " +
+            escapeHtml(note.visitTime || "") +
+            "</span></div>" +
+            (note.meta && note.meta.partnerCharId
+              ? '<button type="button" class="dial-rec-row__call" data-dial-call="' +
+                escapeHtml(note.meta.partnerCharId) +
+                '" aria-label="回拨"><svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.12.81.3 1.6.54 2.36a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.76.24 1.55.42 2.36.54A2 2 0 0122 16.92z"/></svg></button>'
+              : "") +
+            buildPhoneCardDeleteBtnHtml("dial-rec-row__delete", "data-dial-delete-recording", note.id, "删除录音") +
+            "</div></li>"
+          );
+        })
+        .join("") +
+      "</ul></div>"
+    );
+  }
+
+  function buildDialPhonePanelHtml() {
+    if (dialPhoneTab === "contacts") return buildDialContactsTabHtml();
+    if (dialPhoneTab === "recordings") return buildDialRecordingsTabHtml();
+    return buildDialRecentTabHtml();
+  }
+
+  function buildDialIdentitySheetHtml() {
+    const selfList = getSelfCharacters();
+    const editId = dialIdentityEditCharId || dialUserCharId || (selfList[0] && selfList[0].id) || "";
+    const editChar = getCharById(editId);
+    const ov = getDialPersonaOverride(editId);
+    const baseTraits = editChar ? traitsToLine(editChar) : "";
+    const baseStyle = editChar && editChar.style ? String(editChar.style).trim() : "";
+    return (
+      '<div class="dial-identity-overlay" data-dial-identity-overlay>' +
+      '<div class="dial-identity-overlay__sheet modal-sheet">' +
+      '<div class="sheet-handle" aria-hidden="true"></div>' +
+      '<div class="modal-header">' +
+      '<h2 class="modal-title">我的形象</h2>' +
+      '<button type="button" class="icon-btn" data-dial-identity-close aria-label="关闭">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      "</button></div>" +
+      '<div class="dial-identity-overlay__body">' +
+      '<p class="field__hint dial-identity-overlay__hint">仅用于「拨通」功能，不会修改角色库原设定。</p>' +
+      '<div class="dial-identity-pick" role="list" aria-label="选择形象">' +
+      selfList
+        .map(function (c) {
+          const on = c.id === editId;
+          return (
+            '<button type="button" class="dial-identity-pick__item' +
+            (on ? " dial-identity-pick__item--on" : "") +
+            '" data-dial-identity-pick="' +
+            escapeHtml(c.id) +
+            '" role="listitem">' +
+            '<span class="avatar dial-identity-pick__avatar" data-dial-av="' +
+            escapeHtml(c.id) +
+            '"></span>' +
+            '<span class="dial-identity-pick__name">' +
+            escapeHtml(c.name || "未命名") +
+            "</span></button>"
+          );
+        })
+        .join("") +
+      "</div>" +
+      (editChar
+        ? '<div class="dial-identity-edit form-stack">' +
+          '<label class="field"><span class="field__label">外貌与性格（本功能覆盖）</span>' +
+          '<textarea class="field__input field__textarea" data-dial-identity-traits rows="3" placeholder="留空则使用角色库：' +
+          escapeHtml(truncateCharsWithEllipsis(baseTraits || "未填写", 40)) +
+          '">' +
+          escapeHtml(ov.traits) +
+          "</textarea></label>" +
+          '<label class="field"><span class="field__label">说话风格（本功能覆盖）</span>' +
+          '<textarea class="field__input field__textarea" data-dial-identity-style rows="2" placeholder="留空则使用角色库：' +
+          escapeHtml(truncateCharsWithEllipsis(baseStyle || "未填写", 40)) +
+          '">' +
+          escapeHtml(ov.style) +
+          "</textarea></label></div>"
+        : "") +
+      '<div class="dial-identity-overlay__actions">' +
+      '<button type="button" class="btn btn--primary btn--pill btn--block" data-dial-identity-save>确认使用此形象</button>' +
+      "</div></div></div></div>"
+    );
+  }
+
+  function buildDialContactsHtml() {
+    const user = getCharById(dialUserCharId);
+    const userName = user ? user.name || "我的形象" : "我的形象";
+    const identitySheet = dialIdentityOpen ? buildDialIdentitySheetHtml() : "";
+    return (
+      '<div class="dial-app dial-app--phone phone-app" aria-label="拨通电话">' +
+      '<header class="phone-app__bar dial-app__bar dial-app__bar--centered">' +
+      '<button type="button" class="phone-app__back" data-dial-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<div class="dial-app__bar-center">' +
+      '<h2 class="dial-app__title">拨通</h2>' +
+      '<p class="dial-app__identity-sub">以「' +
+      escapeHtml(userName) +
+      "」的身份呼叫</p></div>" +
+      '<button type="button" class="dial-app__identity-btn icon-btn" data-dial-identity-open aria-label="选择我的形象">' +
+      '<svg class="icon-linear dial-app__identity-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' +
+      "</button></header>" +
+      '<div class="dial-app__body dial-phone-body">' +
+      buildDialPhonePanelHtml() +
+      "</div>" +
+      buildDialPhoneTabsHtml() +
+      identitySheet +
+      "</div>"
+    );
+  }
+
+  function saveDialIdentityFromDom(slot) {
+    const root = slot || els.dialContentSlot();
+    if (!root) return false;
+    const pickId = dialIdentityEditCharId || dialUserCharId;
+    if (!pickId) return false;
+    const traitsEl = root.querySelector("[data-dial-identity-traits]");
+    const styleEl = root.querySelector("[data-dial-identity-style]");
+    dialPersonaOverrides[pickId] = {
+      traits: traitsEl ? String(traitsEl.value || "").trim() : "",
+      style: styleEl ? String(styleEl.value || "").trim() : "",
+    };
+    dialUserCharId = pickId;
+    dialIdentityOpen = false;
+    dialIdentityEditCharId = null;
+    persistNarrative();
+    return true;
+  }
+
+  let dialRecordingAudio = null;
+
+  function playDialRecording(noteId) {
+    const id = String(noteId || "").trim();
+    const blob = dialCallRecordingBlobs[id];
+    if (!blob || !blob.dataUrl) {
+      showToast("找不到录音文件。", "info");
+      return;
+    }
+    if (dialRecordingAudio) {
+      try {
+        dialRecordingAudio.pause();
+      } catch (_e) {}
+      dialRecordingAudio = null;
+    }
+    dialRecordingAudio = new Audio(blob.dataUrl);
+    dialRecordingAudio.addEventListener("ended", function () {
+      dialRecordingAudio = null;
+    });
+    void dialRecordingAudio.play().catch(function () {
+      showToast("无法播放该录音。", "warning");
+    });
+  }
+
+  function buildDialCallScreenHtml() {
+    const session = dialCallSession;
+    if (!session) return "";
+    const partner = getCharById(session.partnerCharId);
+    const partnerName = partner ? partner.name || "对方" : "对方";
+    const phase = session.phase || "ringing";
+    const isRinging = phase === "ringing";
+    const isConnected = phase === "connected";
+    const statusText = isRinging ? "正在呼叫…" : isConnected ? "通话中" : "结束";
+    const durationHtml = isConnected
+      ? '<p class="dial-call__duration" data-dial-call-duration>' +
+        escapeHtml(formatDialDurationMmSs(session.durationSec || 0)) +
+        "</p>"
+      : isRinging
+        ? '<p class="dial-call__duration dial-call__duration--pulse">等待接听</p>'
+        : "";
+    const recordCls =
+      "dial-call__btn dial-call__btn--record" + (session.isRecording ? " dial-call__btn--record-on" : "");
+    const recordLabel = session.isRecording ? "停止录音" : "录音";
+    const msgs = Array.isArray(session.messages) ? session.messages : [];
+    const lastLines = msgs.slice(-4);
+    let transcriptHtml = "";
+    if (isConnected && lastLines.length) {
+      transcriptHtml =
+        '<div class="dial-call__transcript" aria-live="polite">' +
+        lastLines
+          .map(function (m) {
+            const isUser = m.role === "user";
+            return (
+              '<p class="dial-call__line dial-call__line--' +
+              (isUser ? "user" : "partner") +
+              '">' +
+              escapeHtml(String(m.content || "")) +
+              "</p>"
+            );
+          })
+          .join("") +
+        "</div>";
+    } else if (isConnected && session.replyGenerating) {
+      if (lastLines.length) {
+        transcriptHtml =
+          '<div class="dial-call__transcript" aria-live="polite">' +
+          lastLines
+            .map(function (m) {
+              const isUser = m.role === "user";
+              return (
+                '<p class="dial-call__line dial-call__line--' +
+                (isUser ? "user" : "partner") +
+                '">' +
+                escapeHtml(String(m.content || "")) +
+                "</p>"
+              );
+            })
+            .join("") +
+          '<p class="dial-call__line dial-call__line--hint">对方正在说话…</p></div>';
+      } else {
+        transcriptHtml =
+          '<div class="dial-call__transcript"><p class="dial-call__line dial-call__line--hint">对方正在说话…</p></div>';
+      }
+    }
+    const composerDraft = String(session.composerDraft || "");
+    const sttActive = !!(callSettings.sttEnabled && isConnected);
+    const sttBusy = !!(session.replyGenerating || dialSttTranscribing);
+    const sttOn = !!(dialSttListening || dialSttTranscribing);
+    const sttMicSvg =
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>';
+    let sttVoiceLabel = "语音";
+    if (dialSttTranscribing) sttVoiceLabel = "识别中";
+    else if (dialSttListening) {
+      sttVoiceLabel =
+        callSettings.sttProvider === "browser" || callSettings.sttProvider === "sherpa-ncnn" ? "聆听中" : "录音中";
+    }
+    let thirdActionHtml = "";
+    if (isConnected && sttActive) {
+      thirdActionHtml =
+        '<button type="button" class="dial-call__btn dial-call__btn--voice' +
+        (sttOn ? " dial-call__btn--voice-on" : "") +
+        '" data-dial-stt-mic aria-label="' +
+        escapeHtml(sttVoiceLabel) +
+        '" title="' +
+        escapeHtml(sttVoiceLabel) +
+        '"' +
+        (sttBusy ? " disabled" : "") +
+        '><span class="dial-call__btn-icon dial-call__btn-icon--mic">' +
+        sttMicSvg +
+        '</span><span class="dial-call__btn-label">' +
+        escapeHtml(sttVoiceLabel) +
+        "</span></button>";
+    } else if (isConnected) {
+      thirdActionHtml = '<span class="dial-call__btn dial-call__btn--voice-slot" aria-hidden="true"></span>';
+    } else {
+      thirdActionHtml =
+        '<button type="button" class="dial-call__btn dial-call__btn--ghost" disabled aria-hidden="true"><span class="dial-call__btn-icon"></span></button>';
+    }
+    const showWave = isConnected && session.replyGenerating && !lastLines.length;
+    const composerHtml = isConnected
+      ? '<div class="dial-call__composer">' +
+        '<input class="field__input dial-call__input" type="text" data-dial-call-input placeholder="' +
+        (sttActive ? "说点什么，或点下方「语音」…" : "说点什么…") +
+        '" value="' +
+        escapeHtml(composerDraft) +
+        '" autocomplete="off" aria-label="通话输入"' +
+        (session.replyGenerating ? " disabled" : "") +
+        " />" +
+        '<button type="button" class="dial-call__send" data-dial-call-send aria-label="诉说"' +
+        (session.replyGenerating ? " disabled" : "") +
+        ">诉说</button></div>"
+      : "";
+    return (
+      '<div class="dial-call" data-dial-call-overlay aria-label="通话界面">' +
+      '<div class="dial-call__backdrop"></div>' +
+      '<div class="dial-call__content">' +
+      '<div class="dial-call__body">' +
+      '<div class="dial-call__avatar-wrap' +
+      (isRinging ? " dial-call__avatar-wrap--ringing" : "") +
+      '">' +
+      '<span class="avatar dial-call__avatar" data-dial-av="' +
+      escapeHtml(session.partnerCharId) +
+      '"></span>' +
+      (isRinging ? '<span class="dial-call__ripple" aria-hidden="true"></span>' : "") +
+      "</div>" +
+      '<h2 class="dial-call__name">' +
+      escapeHtml(partnerName) +
+      "</h2>" +
+      '<p class="dial-call__status">' +
+      escapeHtml(statusText) +
+      "</p>" +
+      durationHtml +
+      transcriptHtml +
+      "</div>" +
+      '<div class="dial-call__dock">' +
+      (showWave
+        ? session.replyGenerating
+          ? '<div class="dial-call__wave dial-call__wave--thinking" aria-hidden="true"><span></span><span></span><span></span></div>'
+          : '<div class="dial-call__wave" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>'
+        : "") +
+      composerHtml +
+      '<div class="dial-call__actions">' +
+      (isConnected
+        ? '<button type="button" class="' +
+          recordCls +
+          '" data-dial-toggle-record aria-label="' +
+          escapeHtml(recordLabel) +
+          '" title="' +
+          escapeHtml(recordLabel) +
+          '"><span class="dial-call__btn-icon" aria-hidden="true"></span><span class="dial-call__btn-label">' +
+          escapeHtml(recordLabel) +
+          "</span></button>"
+        : '<button type="button" class="dial-call__btn dial-call__btn--ghost" disabled aria-hidden="true"><span class="dial-call__btn-icon"></span></button>') +
+      '<button type="button" class="dial-call__btn dial-call__btn--hangup" data-dial-hangup aria-label="挂断" title="挂断">' +
+      '<span class="dial-call__btn-hangup-icon" aria-hidden="true">' +
+      '<svg class="icon-linear dial-call__hangup-glyph" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z"/></svg>' +
+      '</span><span class="dial-call__btn-label dial-call__btn-label--hangup">挂断</span></button>' +
+      thirdActionHtml +
+      "</div></div>" +
+      (session.isRecording
+        ? '<p class="dial-call__rec-badge" aria-live="polite"><span class="dial-call__rec-dot"></span>录音中</p>'
+        : "") +
+      "</div></div>"
+    );
+  }
+
+  function fillDialAvatarElements(root) {
+    if (!root) return;
+    root.querySelectorAll("[data-dial-av]").forEach(function (el) {
+      const id = el.getAttribute("data-dial-av");
+      const c = getCharById(id);
+      if (c) fillAvatarElement(el, c);
+    });
+  }
+
+  function renderDialScreen(slot) {
+    if (!slot) return;
+    if (!dialUserCharId) {
+      slot.innerHTML = "";
+      return;
+    }
+    const callHtml = dialCallSession ? buildDialCallScreenHtml() : "";
+    slot.innerHTML = buildDialContactsHtml() + callHtml;
+    fillDialAvatarElements(slot);
+    if (dialCallSession && dialCallSession.phase === "connected") {
+      const input = slot.querySelector("[data-dial-call-input]");
+      if (input && !dialCallSession.replyGenerating) {
+        input.focus();
+      }
+      const transcript = slot.querySelector(".dial-call__transcript");
+      if (transcript) transcript.scrollTop = transcript.scrollHeight;
+    }
+    if (dialPhoneTab === "contacts" && dialContactQuery) {
+      const searchEl = slot.querySelector("[data-dial-contact-search]");
+      if (searchEl) {
+        searchEl.focus();
+        try {
+          const len = searchEl.value.length;
+          searchEl.setSelectionRange(len, len);
+        } catch (_e) {}
+      }
+    }
+  }
+
+  function handleDialContentTap(e, slot) {
+    if (e.target.closest("[data-dial-back]")) {
+      if (dialCallSession) {
+        void endDialCallSession({ saveRecording: true });
+        return true;
+      }
+      closeOverviewDialView();
+      return true;
+    }
+    if (e.target.closest("[data-dial-hangup]")) {
+      void endDialCallSession({ saveRecording: true });
+      return true;
+    }
+    if (e.target.closest("[data-dial-toggle-record]")) {
+      if (!dialCallSession || dialCallSession.phase !== "connected") return true;
+      if (dialCallSession.isRecording) {
+        const started = dialCallSession.recordStartedAt;
+        dialCallSession.isRecording = false;
+        void stopDialRecordingCollectBlob().then(function (blob) {
+          if (blob) {
+            dialCallSession.pendingBlob = blob;
+            dialCallSession.pendingDurationSec = started
+              ? Math.max(1, Math.round((Date.now() - started) / 1000))
+              : dialCallSession.pendingDurationSec || 1;
+          }
+          renderDialScreen(slot);
+          showToast("已停止录音，挂断后将保存至手机备忘录。", "info", 2800);
+        });
+      } else {
+        dialCallSession.pendingBlob = null;
+        dialCallSession.pendingDurationSec = 0;
+        void startDialRecording().then(function (ok) {
+          if (ok) {
+            renderDialScreen(slot);
+            showToast("开始录音", "success", 1800);
+          }
+        });
+      }
+      return true;
+    }
+    const userPick = e.target.closest("[data-dial-user-char]");
+    if (userPick && !dialCallSession) {
+      dialUserCharId = userPick.getAttribute("data-dial-user-char") || null;
+      persistNarrative();
+      renderDialScreen(slot);
+      return true;
+    }
+    if (e.target.closest("[data-dial-identity-open]")) {
+      dialIdentityOpen = true;
+      dialIdentityEditCharId = dialUserCharId;
+      renderDialScreen(slot);
+      return true;
+    }
+    if (e.target.closest("[data-dial-identity-close]")) {
+      dialIdentityOpen = false;
+      dialIdentityEditCharId = null;
+      renderDialScreen(slot);
+      return true;
+    }
+    if (e.target.closest("[data-dial-identity-overlay]") && !e.target.closest(".dial-identity-overlay__sheet")) {
+      dialIdentityOpen = false;
+      dialIdentityEditCharId = null;
+      renderDialScreen(slot);
+      return true;
+    }
+    const identityPick = e.target.closest("[data-dial-identity-pick]");
+    if (identityPick) {
+      dialIdentityEditCharId = identityPick.getAttribute("data-dial-identity-pick") || null;
+      renderDialScreen(slot);
+      return true;
+    }
+    if (e.target.closest("[data-dial-identity-save]")) {
+      if (saveDialIdentityFromDom(slot)) {
+        showToast("已切换形象", "success", 1800);
+        renderDialScreen(slot);
+      }
+      return true;
+    }
+    const tabBtn = e.target.closest("[data-dial-tab]");
+    if (tabBtn && !dialCallSession) {
+      const tab = tabBtn.getAttribute("data-dial-tab");
+      if (tab === "recent" || tab === "contacts" || tab === "recordings") {
+        dialPhoneTab = tab;
+        renderDialScreen(slot);
+      }
+      return true;
+    }
+    const playBtn = e.target.closest("[data-dial-play-recording]");
+    if (playBtn) {
+      playDialRecording(playBtn.getAttribute("data-dial-play-recording"));
+      return true;
+    }
+    const delHistoryBtn = e.target.closest("[data-dial-delete-history]");
+    if (delHistoryBtn) {
+      const hid = delHistoryBtn.getAttribute("data-dial-delete-history");
+      if (deleteDialCallHistoryEntry(hid)) {
+        renderDialScreen(slot);
+        showToast("已删除通话记录。", "info", 2200);
+      }
+      return true;
+    }
+    const delRecBtn = e.target.closest("[data-dial-delete-recording]");
+    if (delRecBtn) {
+      const rid = delRecBtn.getAttribute("data-dial-delete-recording");
+      if (deleteDialRecording(rid)) {
+        renderDialScreen(slot);
+        showToast("已删除录音。", "info", 2200);
+      }
+      return true;
+    }
+    if (e.target.closest("[data-dial-call-send]")) {
+      sendDialCallMessage(slot);
+      return true;
+    }
+    if (e.target.closest("[data-dial-stt-mic]")) {
+      void toggleDialVoiceInput(slot);
+      return true;
+    }
+    const callBtn = e.target.closest("[data-dial-call]");
+    if (callBtn && !dialCallSession) {
+      beginDialOutgoingCall(callBtn.getAttribute("data-dial-call"));
+      return true;
+    }
+    return false;
   }
 
   function getKnockChatRecordMutable() {
     if (!isKnockChatReady()) return null;
     const key = knockChatStorageKey(knockUserCharId, knockPartnerCharId);
-    if (!knockChatData[key]) knockChatData[key] = { messages: [] };
-    if (!Array.isArray(knockChatData[key].messages)) knockChatData[key].messages = [];
+    if (!knockChatData[key]) knockChatData[key] = normalizeKnockChatRecord({});
     return knockChatData[key];
+  }
+
+  function isKnockContextReady() {
+    const rec = getKnockChatRecordMutable();
+    if (!rec || !rec.contextConfirmed) return false;
+    if (rec.contextBackground) return true;
+    return rec.messages.length > 0;
+  }
+
+  function knockTraitParts(raw) {
+    if (Array.isArray(raw)) {
+      return raw
+        .map(function (x) {
+          return String(x || "").trim();
+        })
+        .filter(Boolean);
+    }
+    const s = String(raw || "").trim();
+    if (!s) return [];
+    const byMidDot = s
+      .split(/\s*[·•]\s*/)
+      .map(function (x) {
+        return x.trim();
+      })
+      .filter(Boolean);
+    if (byMidDot.length > 1) return byMidDot;
+    return normalizeAssistantRewriteTraits(s);
+  }
+
+  function knockTraitsLine(raw) {
+    const parts = knockTraitParts(raw);
+    return parts.length ? parts.join(" · ") : "";
+  }
+
+  function getKnockEffectivePersona(char, role) {
+    let ov = { traits: "", style: "" };
+    if (isKnockChatReady()) {
+      const rec = getKnockChatRecordMutable();
+      if (rec && rec.personaOverrides) {
+        ov = rec.personaOverrides[role === "partner" ? "partner" : "user"] || ov;
+      }
+    }
+    const traitsRaw = ov.traits ? ov.traits : traitsToLine(char);
+    const traits = knockTraitsLine(traitsRaw);
+    const style = ov.style ? String(ov.style).trim() : String((char && char.style) || "").trim();
+    return { traits: traits, style: style };
+  }
+
+  function getKnockTraitChips(char, role) {
+    if (!char) return [];
+    let ov = { traits: "", style: "" };
+    if (isKnockChatReady()) {
+      const rec = getKnockChatRecordMutable();
+      if (rec && rec.personaOverrides) {
+        ov = rec.personaOverrides[role === "partner" ? "partner" : "user"] || ov;
+      }
+    }
+    const traitsRaw = ov.traits ? ov.traits : traitsToLine(char);
+    return knockTraitParts(traitsRaw).slice(0, 2);
   }
 
   function getKnockChatUi() {
@@ -10627,34 +12873,101 @@
     );
   }
 
-  function buildKnockPersonaBlock(char, label) {
+  function buildKnockPersonaBlock(char, label, role, maxFieldLen) {
     if (!char) return "";
+    const persona = getKnockEffectivePersona(char, role);
+    const cap = typeof maxFieldLen === "number" && maxFieldLen > 0 ? maxFieldLen : 0;
+    function trimField(s) {
+      const t = String(s || "").trim();
+      if (!t) return "";
+      return cap ? truncateCharsWithEllipsis(t, cap) : t;
+    }
     const lines = ["【" + label + "·" + String(char.name || "未命名").trim() + "】"];
-    if (char.gender) lines.push("性别：" + String(char.gender).trim());
-    if (char.race) lines.push("种族：" + String(char.race).trim());
-    const traits = normalizeAssistantRewriteTraits(char.traits || "");
-    if (traits) lines.push("特质：" + traits);
-    const profile = buildCharacterProfileFromLibrary(char);
-    if (profile) lines.push(profile);
+    const traits = trimField(persona.traits);
+    const style = trimField(persona.style);
+    if (traits) lines.push("性格：" + traits);
+    if (style) lines.push("外貌：" + style);
     return lines.join("\n");
   }
 
   function buildKnockReplySystemPrompt(userChar, partnerChar) {
     const userName = String(userChar && userChar.name ? userChar.name : "用户").trim() || "用户";
     const partnerName = String(partnerChar && partnerChar.name ? partnerChar.name : "对方").trim() || "对方";
-    return (
+    const rec = getKnockChatRecordMutable();
+    const contextBg = rec && rec.contextBackground ? String(rec.contextBackground).trim() : "";
+    let prompt =
       "你是互动叙事产品里的私聊模拟器。你只扮演「" +
       partnerName +
       "」，用该角色的人设与口吻回复微信式短消息。\n" +
       "对话另一方是「" +
       userName +
-      "」（用户主视角）；回复时要同时考虑双方人设与关系。\n" +
-      "严禁引用或假设任何剧情正文、世界书、章节内容；仅依据下面两位角色设定与已有聊天记录。\n\n" +
-      buildKnockPersonaBlock(partnerChar, "你扮演的角色") +
+      "」（用户主视角）；回复时要同时考虑双方人设。\n" +
+      "双方关系默认为：刚认识不久，刚刚加上微信，彼此还不算熟。\n" +
+      "严禁引用或假设任何剧情正文、世界书、章节内容；仅依据下面角色设定、契机背景与已有聊天记录。\n\n" +
+      buildKnockPersonaBlock(partnerChar, "你扮演的角色", "partner") +
       "\n\n" +
-      buildKnockPersonaBlock(userChar, "对话对象（用户）") +
+      buildKnockPersonaBlock(userChar, "对话对象（用户）", "user");
+    if (contextBg) {
+      prompt += "\n\n【二人加微信的契机与背景】\n" + contextBg;
+    }
+    prompt +=
+      "\n\n输出要求：像真人发微信，每条极短（最多一句半）；优先 2～5 条，用 <<<BUBBLE>>> 分隔（整行仅含此 11 字符）。不要用 Markdown，不要前缀角色名。";
+    return prompt;
+  }
+
+  function buildKnockContextSystemPrompt(userChar, partnerChar, opts) {
+    opts = opts || {};
+    const seed = opts.seed != null ? String(opts.seed).trim() : "";
+    const direction = opts.direction != null ? String(opts.direction).trim() : "";
+    const existing = opts.existing != null ? String(opts.existing).trim() : "";
+    const lenHint = KNOCK_CONTEXT_TARGET_MIN_CHARS + "～" + KNOCK_CONTEXT_TARGET_MAX_CHARS;
+    let prompt =
+      "你是叙事作者。根据下方角色人设，写「刚认识、刚加微信」的契机背景。\n" +
+      "篇幅 " +
+      lenHint +
+      " 汉字；第三人称；写清如何相识、为何加微信、当下各自心境；\n" +
+      "不要对话引号、Markdown、标题或列表；一次输出完整正文，句号收束，不要中途截断。\n\n" +
+      buildKnockPersonaBlock(userChar, "角色A（用户主视角）", "user", KNOCK_CONTEXT_PERSONA_FIELD_MAX_CHARS) +
       "\n\n" +
-      "输出要求：像真人发微信，每条极短（最多一句半）；优先 2～5 条，用 <<<BUBBLE>>> 分隔（整行仅含此 11 字符）。不要用 Markdown，不要前缀角色名。"
+      buildKnockPersonaBlock(partnerChar, "角色B（聊天对象）", "partner", KNOCK_CONTEXT_PERSONA_FIELD_MAX_CHARS) +
+      "\n\n双方关系：刚认识不久，刚刚加上微信。";
+    if (seed) {
+      prompt += "\n\n用户提供的契机要点（须融入正文）：\n" + seed;
+    } else if (!existing) {
+      prompt += "\n\n用户未填写契机要点：请根据人设自行创意相遇场景，具体可信即可。";
+    }
+    if (existing && direction) {
+      prompt += "\n\n当前草稿（请按修改方向改写后输出完整新版）：\n" + existing + "\n\n修改方向：\n" + direction;
+    } else if (direction) {
+      prompt += "\n\n额外要求：\n" + direction;
+    } else if (existing) {
+      prompt += "\n\n请在保留核心情节的前提下润色改写以下草稿，输出完整新版：\n" + existing;
+    }
+    prompt += "\n\n请直接输出契机背景正文。";
+    return prompt;
+  }
+
+  function buildKnockContextUserPrompt(seed, existing) {
+    const hasSeed = !!String(seed || "").trim();
+    const hasExisting = !!String(existing || "").trim();
+    const lenHint = KNOCK_CONTEXT_TARGET_MIN_CHARS + "～" + KNOCK_CONTEXT_TARGET_MAX_CHARS;
+    if (hasExisting) return "请输出完整契机背景正文（约 " + lenHint + " 字）。";
+    if (hasSeed) return "请根据契机要点，输出完整契机背景正文（约 " + lenHint + " 字）。";
+    return "请根据角色人设创意构思相遇契机，输出完整背景正文（约 " + lenHint + " 字）。";
+  }
+
+  function buildKnockOpeningUserPrompt(userChar, partnerChar) {
+    const userName = String(userChar && userChar.name ? userChar.name : "用户").trim() || "用户";
+    const partnerName = String(partnerChar && partnerChar.name ? partnerChar.name : "对方").trim() || "对方";
+    return (
+      "根据上述契机背景，模拟「" +
+      partnerName +
+      "」刚加「" +
+      userName +
+      "」微信后的第一条（或连续几条）开场消息。" +
+      "要自然承接背景，像真人犹豫后点开对话框发的；不要替「" +
+      userName +
+      "」说话。"
     );
   }
 
@@ -10692,15 +13005,9 @@
       renderDynamic();
       return;
     }
-    if (knockUserCharId && !selfList.some(function (c) { return c.id === knockUserCharId; })) {
-      knockUserCharId = null;
-    }
-    if (knockPartnerCharId && !supList.some(function (c) { return c.id === knockPartnerCharId; })) {
-      knockPartnerCharId = null;
-    }
-    if (!knockUserCharId && selfList.length) knockUserCharId = selfList[0].id;
-    if (!knockPartnerCharId && supList.length) knockPartnerCharId = supList[0].id;
-    knockSetupOpen = !isKnockChatReady();
+    prepareKnockSession();
+    knockPersonaEditTarget = null;
+    knockSetupOpen = !isKnockContextReady();
     openOverviewSubView("knock");
   }
 
@@ -10779,7 +13086,6 @@
     if (!fromEl) return null;
     return (
       fromEl.closest("[data-knock-setup-overlay]") ||
-      fromEl.closest(".knock-setup-page") ||
       fromEl.closest("#knock-content-slot")
     );
   }
@@ -10832,52 +13138,211 @@
     if (confirmBtn) {
       confirmBtn.disabled = !knockUserCharId || !knockPartnerCharId;
     }
+    const genBtn = root.querySelector("[data-knock-context-generate]");
+    if (genBtn) {
+      genBtn.disabled = !knockUserCharId || !knockPartnerCharId || knockContextGenerating;
+    }
+    fillKnockAvatarElements(root);
+    syncKnockCastDisplay(root);
+  }
+
+  function syncKnockCastDisplay(root) {
+    if (!root) return;
+    [
+      ["user", knockUserCharId],
+      ["partner", knockPartnerCharId],
+    ].forEach(function (pair) {
+      const role = pair[0];
+      const char = pair[1] ? getCharById(pair[1]) : null;
+      const nameEl = root.querySelector('[data-knock-display-name="' + role + '"]');
+      if (nameEl) nameEl.textContent = char ? char.name || "未命名" : "—";
+      const col = nameEl ? nameEl.closest(".knock-intro__cast-col") : null;
+      if (!col) return;
+      const personaBtn = col.querySelector("[data-knock-edit-persona]");
+      if (personaBtn) personaBtn.disabled = !char;
+      let tagsWrap = col.querySelector(".knock-intro__tags");
+      const chips = char ? getKnockTraitChips(char, role) : [];
+      if (!chips.length) {
+        if (tagsWrap) tagsWrap.remove();
+        return;
+      }
+      const tagsHtml = chips
+        .map(function (t) {
+          return '<span class="knock-intro__tag">' + escapeHtml(t) + "</span>";
+        })
+        .join("");
+      if (!tagsWrap) {
+        tagsWrap = document.createElement("div");
+        tagsWrap.className = "knock-intro__tags";
+        const pick = col.querySelector("[data-knock-user-pick], [data-knock-partner-pick]");
+        if (pick) col.insertBefore(tagsWrap, pick);
+      }
+      tagsWrap.innerHTML = tagsHtml;
+    });
+  }
+
+  function buildKnockPersonaEditOverlayHtml() {
+    if (!knockPersonaEditTarget) return "";
+    const role = knockPersonaEditTarget === "partner" ? "partner" : "user";
+    const charId = role === "partner" ? knockPartnerCharId : knockUserCharId;
+    const char = charId ? getCharById(charId) : null;
+    const persona = getKnockEffectivePersona(char, role);
+    const title = role === "partner" ? "编辑聊天对象人设" : "编辑我的人设";
+    return (
+      '<div class="knock-persona-overlay" data-knock-persona-overlay>' +
+      '<div class="knock-persona-overlay__sheet modal-sheet modal-sheet--knock">' +
+      '<div class="sheet-handle" aria-hidden="true"></div>' +
+      '<div class="modal-header knock-setup-modal__header">' +
+      '<h2 class="modal-title">' +
+      escapeHtml(title) +
+      "</h2>" +
+      '<button type="button" class="icon-btn" data-knock-persona-close aria-label="关闭"><svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M18 6L6 18M6 6l12 12"/></svg></button>' +
+      "</div>" +
+      '<div class="form-stack">' +
+      '<p class="field__hint knock-setup__hint">仅本对话有效</p>' +
+      '<label class="field"><span class="field__label">性格标签</span>' +
+      '<input class="field__input" data-knock-persona-traits value="' +
+      escapeHtml(persona.traits || "") +
+      '" placeholder="例：慢热、嘴硬心软" autocomplete="off" /></label>' +
+      '<label class="field"><span class="field__label">外貌</span>' +
+      '<textarea class="field__input field__textarea" data-knock-persona-style rows="4" placeholder="体态、穿着、神态等">' +
+      escapeHtml(persona.style || "") +
+      "</textarea></label>" +
+      '<div class="knock-setup-page__actions">' +
+      '<button type="button" class="btn btn--primary btn--block btn--pill" data-knock-persona-save>保存人设</button>' +
+      "</div></div></div></div>"
+    );
+  }
+
+  function fillKnockSetupFormFields(root) {
+    if (!root || !isKnockChatReady()) return;
+    const rec = getKnockChatRecordMutable();
+    if (!rec) return;
+    const seedEl = root.querySelector("[data-knock-context-seed]");
+    if (seedEl && document.activeElement !== seedEl) seedEl.value = rec.contextSeed || "";
+    const draftEl = root.querySelector("[data-knock-context-draft]");
+    if (draftEl && document.activeElement !== draftEl) draftEl.value = rec.contextDraft || "";
+    const confirmBtn = root.querySelector("[data-knock-context-confirm]");
+    if (confirmBtn) {
+      confirmBtn.disabled = knockContextGenerating || !String(rec.contextDraft || "").trim();
+    }
+  }
+
+  function buildKnockCastColHtml(role, char) {
+    const isUser = role === "user";
+    const label = isUser ? "我" : "Ta";
+    const name = char ? char.name || "未命名" : "—";
+    const chips = char ? getKnockTraitChips(char, role) : [];
+    const pickAttr = isUser ? "data-knock-user-pick" : "data-knock-partner-pick";
+    const tagsHtml = chips.length
+      ? chips
+          .map(function (t) {
+            return '<span class="knock-intro__tag">' + escapeHtml(t) + "</span>";
+          })
+          .join("")
+      : "";
+    return (
+      '<div class="knock-intro__cast-col">' +
+      '<span class="knock-intro__pick-label">' +
+      escapeHtml(label) +
+      "</span>" +
+      '<button type="button" class="knock-intro__cast-name" data-knock-display-name="' +
+      role +
+      '" data-knock-edit-persona="' +
+      role +
+      '"' +
+      (char ? "" : " disabled") +
+      ">" +
+      escapeHtml(name) +
+      "</button>" +
+      (tagsHtml ? '<div class="knock-intro__tags">' + tagsHtml + "</div>" : "") +
+      '<div class="sheet-char-pick-row knock-setup-char-picks knock-intro__pick-row" ' +
+      pickAttr +
+      "></div>" +
+      "</div>"
+    );
+  }
+
+  function buildKnockSetupBodyHtml(phase) {
+    const user = knockUserCharId ? getCharById(knockUserCharId) : null;
+    const partner = knockPartnerCharId ? getCharById(knockPartnerCharId) : null;
+    const rec = isKnockChatReady() ? getKnockChatRecordMutable() : null;
+    const seedVal = rec ? rec.contextSeed || "" : "";
+    if (phase === "context_review") {
+      const draft = rec && rec.contextDraft ? rec.contextDraft : "";
+      const genCls = knockContextGenerating ? " btn--loading" : "";
+      const genDisabled = knockContextGenerating ? " disabled" : "";
+      return (
+        '<div class="knock-context-review form-stack">' +
+        '<button type="button" class="btn btn--ghost btn--pill knock-context-review__back" data-knock-context-back>返回</button>' +
+        '<textarea class="field__input field__textarea knock-context-review__draft" data-knock-context-draft rows="12" aria-label="契机背景"></textarea>' +
+        '<label class="field knock-context-review__direction">' +
+        '<input class="field__input" data-knock-context-direction placeholder="修改方向（可选）" autocomplete="off" /></label>' +
+        '<div class="knock-context-review__actions">' +
+        '<button type="button" class="btn btn--ghost btn--pill" data-knock-context-regenerate' +
+        genDisabled +
+        ">重新生成</button>" +
+        '<button type="button" class="btn btn--primary btn--pill' +
+        genCls +
+        '" data-knock-context-confirm' +
+        (knockContextGenerating || !draft ? " disabled" : "") +
+        ">确认并开始聊天</button>" +
+        "</div></div>"
+      );
+    }
+    const genCls = knockContextGenerating ? " btn--loading" : "";
+    const canGenerate = knockUserCharId && knockPartnerCharId && !knockContextGenerating;
+    return (
+      '<div class="knock-intro form-stack">' +
+      '<p class="knock-intro__relation-badge">刚认识 · 刚加微信</p>' +
+      '<div class="knock-intro__cast-panel">' +
+      buildKnockCastColHtml("user", user) +
+      '<div class="knock-intro__cast-divider" aria-hidden="true"></div>' +
+      buildKnockCastColHtml("partner", partner) +
+      "</div>" +
+      '<label class="field knock-intro__seed">' +
+      '<span class="field__label">契机 <span class="knock-intro__optional">选填</span></span>' +
+      '<textarea class="field__input field__textarea" data-knock-context-seed rows="2" placeholder="怎么认识的、为何加上微信…留空则由 AI 自动构思">' +
+      escapeHtml(seedVal) +
+      "</textarea></label>" +
+      '<div class="knock-setup-page__actions">' +
+      '<button type="button" class="btn btn--primary btn--block btn--pill' +
+      genCls +
+      '" data-knock-context-generate' +
+      (canGenerate ? "" : " disabled") +
+      ">生成契机背景</button></div></div>"
+    );
   }
 
   function buildKnockSetupSheetHtml(opts) {
     opts = opts || {};
-    const overlay = opts.overlay ? " knock-setup-overlay" : "";
-    const hiddenAttr = opts.overlay && !knockSetupOpen ? " hidden" : "";
-    const inner =
-      '<div class="knock-setup-overlay__head">' +
-      '<h3 class="knock-setup-overlay__title">选择聊天角色</h3>' +
-      (opts.overlay
-        ? '<button type="button" class="icon-btn" data-knock-setup-close aria-label="关闭"><svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M18 6L6 18M6 6l12 12"/></svg></button>'
-        : "") +
-      "</div>" +
-      '<div class="knock-setup-overlay__body">' +
-      '<p class="field__hint knock-setup__hint">主视角为你发送消息的视角；聊天对象将由 AI 扮演回复（后续接入 API 时仅参考双方人设，不读取剧情正文）。</p>' +
-      '<div class="field"><span class="field__label">我的视角（主视角）</span>' +
-      '<div class="h-scroll sheet-char-pick-row knock-setup-char-picks" data-knock-user-pick></div></div>' +
-      '<div class="field"><span class="field__label">聊天对象</span>' +
-      '<div class="h-scroll sheet-char-pick-row knock-setup-char-picks" data-knock-partner-pick></div></div>' +
-      "</div>" +
-      '<div class="knock-setup-page__actions">' +
-      '<button type="button" class="btn btn--primary btn--block btn--pill" data-knock-setup-confirm>开始聊天</button>' +
-      "</div>";
-    if (opts.overlay) {
-      return (
-        '<div class="knock-setup-overlay' +
-        overlay +
-        '"' +
-        hiddenAttr +
-        '" data-knock-setup-overlay><div class="knock-setup-overlay__sheet">' +
-        inner +
-        "</div></div>"
-      );
-    }
+    const phase = opts.phase || knockSetupPhase || "select";
+    const isInChatOverlay = !!opts.overlay;
+    const pendingSetup = !isKnockContextReady();
+    const hiddenAttr = !pendingSetup && isInChatOverlay && !knockSetupOpen ? " hidden" : "";
+    const title = phase === "context_review" ? "确认背景" : "敲敲";
+    const bodyHtml = buildKnockSetupBodyHtml(phase);
+    const closeAttr = "data-knock-setup-close";
+    const liteCls = opts.noScrim !== false ? " knock-setup-overlay--lite" : "";
     return (
-      '<div class="knock-setup-page" aria-label="敲敲角色选择">' +
-      '<header class="knock-setup-page__bar">' +
-      '<button type="button" class="phone-app__back" data-knock-back aria-label="返回">' +
-      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
-      "</button>" +
-      '<h2 class="knock-setup-page__title">敲敲</h2>' +
-      '<span class="phone-app__bar-side" aria-hidden="true"></span>' +
-      "</header>" +
-      '<div class="knock-setup-page__body">' +
-      inner +
-      "</div></div>"
+      '<div class="knock-setup-overlay' +
+      liteCls +
+      '"' +
+      hiddenAttr +
+      ' data-knock-setup-overlay>' +
+      '<div class="knock-setup-overlay__sheet modal-sheet modal-sheet--knock">' +
+      '<div class="sheet-handle" aria-hidden="true"></div>' +
+      '<div class="modal-header knock-setup-modal__header">' +
+      '<h2 class="modal-title">' +
+      escapeHtml(title) +
+      "</h2>" +
+      '<button type="button" class="icon-btn" ' +
+      closeAttr +
+      ' aria-label="关闭"><svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M18 6L6 18M6 6l12 12"/></svg></button>' +
+      "</div>" +
+      '<div class="knock-setup-overlay__body form-stack">' +
+      bodyHtml +
+      "</div></div></div>"
     );
   }
 
@@ -10887,6 +13352,8 @@
     const partnerName = partner ? partner.name || "聊天对象" : "聊天对象";
     const ui = getKnockChatUi();
     const msgs = getKnockChatMessages();
+    const pendingSetup = !isKnockContextReady();
+    const showSetupOverlay = pendingSetup || knockSetupOpen;
     let threadHtml = "";
     if (msgs.length) {
       threadHtml = msgs
@@ -10899,14 +13366,16 @@
         '<div class="knock-chat__empty">' +
         "<p>和「" +
         escapeHtml(partnerName) +
-        "」聊聊天吧</p>" +
-        "<p class=\"field__hint\">仅依据双方角色人设模拟对话，不涉及剧情正文</p>" +
+        "」的对话框</p>" +
+        (pendingSetup
+          ? '<p class="field__hint">选人设、填契机，生成背景后开始聊</p>'
+          : '<p class="field__hint">契机背景已就绪，等对方先开口或你来打破沉默</p>') +
         "</div>";
     }
     const genLoadingCls = knockReplyGenerating ? " phone-wechat-gen-btn--loading" : "";
-    const genDisabled = !knockAwaitingReply() || knockReplyGenerating || knockSelectMode;
+    const genDisabled = pendingSetup || !knockAwaitingReply() || knockReplyGenerating || knockSelectMode;
     const regenDisabled =
-      !knockHasTrailingAssistantReply() || knockReplyGenerating || knockSelectMode;
+      pendingSetup || !knockHasTrailingAssistantReply() || knockReplyGenerating || knockSelectMode;
     const selectActive = knockSelectMode;
     const selectedCount = knockSelectedMsgs ? knockSelectedMsgs.length : 0;
     const selectCls =
@@ -10915,11 +13384,12 @@
       (selectActive && selectedCount ? " phone-wechat-chat-action--delete-ready" : "");
     const selectLabel =
       selectActive && selectedCount ? "删除选中（" + selectedCount + "）" : "选择消息";
-    const barActionDisabled = knockReplyGenerating ? " disabled" : "";
+    const barActionDisabled = pendingSetup || knockReplyGenerating ? " disabled" : "";
     return (
       '<div class="knock-chat knock-chat--themed phone-app phone-wechat phone-wechat--chat' +
       (knockSelectMode ? " phone-wechat--select-mode" : "") +
-      (knockSetupOpen ? " knock-chat--setup-open" : "") +
+      (pendingSetup ? " knock-chat--initial-setup" : "") +
+      (showSetupOverlay ? " knock-chat--setup-open" : "") +
       '" aria-label="敲敲聊天">' +
       '<header class="phone-app__bar phone-app__bar--wechat-chat knock-chat__bar">' +
       '<button type="button" class="phone-app__back" data-knock-back aria-label="返回">' +
@@ -10955,8 +13425,8 @@
       ">" +
       buildPhoneWechatStarIconSvg() +
       "</button>" +
-      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn" data-knock-setup-toggle aria-label="选择聊天角色" title="选择聊天角色"' +
-      (knockReplyGenerating || knockSelectMode ? " disabled" : "") +
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn" data-knock-setup-toggle aria-label="设定与人设" title="设定与人设"' +
+      (pendingSetup || knockReplyGenerating || knockSelectMode || knockContextGenerating ? " disabled" : "") +
       ">" +
       buildKnockCharPickIconSvg() +
       "</button></div>" +
@@ -10966,14 +13436,14 @@
       "</div>" +
       '<div class="phone-wechat__composer knock-chat__composer">' +
       '<textarea class="knock-chat__input" data-knock-input rows="1" placeholder="发消息…" aria-label="消息输入"' +
-      (knockSelectMode || knockReplyGenerating ? " disabled" : "") +
+      (pendingSetup || knockSelectMode || knockReplyGenerating ? " disabled" : "") +
       "></textarea>" +
       '<button type="button" class="knock-chat__send" data-knock-send aria-label="发送" title="发送"' +
-      (knockSelectMode || knockReplyGenerating ? " disabled" : "") +
+      (pendingSetup || knockSelectMode || knockReplyGenerating ? " disabled" : "") +
       ">" +
       '<svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>' +
       "</button></div>" +
-      buildKnockSetupSheetHtml({ overlay: true }) +
+      buildKnockSetupSheetHtml({ overlay: true, phase: knockSetupPhase, noScrim: true }) +
       "</div>"
     );
   }
@@ -10986,18 +13456,172 @@
   function renderKnockScreen(slot) {
     if (!slot) return;
     if (!isKnockChatReady()) {
-      slot.innerHTML = buildKnockSetupSheetHtml({ overlay: false });
-      renderKnockSetupPicks(slot);
+      slot.innerHTML = "";
       return;
     }
-    slot.innerHTML = buildKnockChatHtml();
+    const pendingSetup = !isKnockContextReady();
+    if (pendingSetup) knockSetupOpen = true;
+    slot.innerHTML =
+      buildKnockChatHtml() + (knockPersonaEditTarget ? buildKnockPersonaEditOverlayHtml() : "");
     fillKnockAvatarElements(slot);
-    const overlay = slot.querySelector("[data-knock-setup-overlay]");
-    if (overlay) {
-      overlay.hidden = !knockSetupOpen;
-      if (knockSetupOpen) renderKnockSetupPicks(overlay);
+    if (knockSetupOpen) {
+      renderKnockSetupPicks(slot);
     }
-    scrollKnockThreadToEnd(slot);
+    fillKnockSetupFormFields(slot);
+    if (!pendingSetup) scrollKnockThreadToEnd(slot);
+  }
+
+  function syncKnockContextSeedFromDom(slot) {
+    const root = slot || els.knockContentSlot();
+    if (!root) return;
+    const seedEl = root.querySelector("[data-knock-context-seed]");
+    if (!seedEl || !isKnockChatReady()) return;
+    const rec = getKnockChatRecordMutable();
+    if (!rec) return;
+    rec.contextSeed = String(seedEl.value || "").trim();
+  }
+
+  function syncKnockContextDraftFromDom(slot) {
+    const root = slot || els.knockContentSlot();
+    if (!root) return;
+    const draftEl = root.querySelector("[data-knock-context-draft]");
+    if (!draftEl || !isKnockChatReady()) return;
+    const rec = getKnockChatRecordMutable();
+    if (!rec) return;
+    rec.contextDraft = String(draftEl.value || "").trim();
+  }
+
+  function saveKnockPersonaFromDom(slot) {
+    if (!knockPersonaEditTarget || !isKnockChatReady()) return false;
+    const root = slot || els.knockContentSlot();
+    const traitsEl = root && root.querySelector("[data-knock-persona-traits]");
+    const styleEl = root && root.querySelector("[data-knock-persona-style]");
+    const rec = getKnockChatRecordMutable();
+    if (!rec) return false;
+    const role = knockPersonaEditTarget === "partner" ? "partner" : "user";
+    rec.personaOverrides[role] = {
+      traits: traitsEl ? String(traitsEl.value || "").trim() : "",
+      style: styleEl ? String(styleEl.value || "").trim() : "",
+    };
+    knockPersonaEditTarget = null;
+    persistNarrative();
+    return true;
+  }
+
+  async function generateKnockContextBackground(slot, opts) {
+    opts = opts || {};
+    if (knockContextGenerating) return;
+    if (!isKnockChatReady()) {
+      showToast("请先选择主视角与聊天对象。", "info");
+      return;
+    }
+    syncKnockContextSeedFromDom(slot);
+    if (knockSetupPhase === "context_review") syncKnockContextDraftFromDom(slot);
+    const userChar = getCharById(knockUserCharId);
+    const partnerChar = getCharById(knockPartnerCharId);
+    const recBefore = getKnockChatRecordMutable();
+    if (!recBefore) return;
+    const directionEl = slot && slot.querySelector("[data-knock-context-direction]");
+    const direction = opts.direction != null ? String(opts.direction).trim() : directionEl ? String(directionEl.value || "").trim() : "";
+    const existing =
+      opts.existing != null
+        ? String(opts.existing).trim()
+        : knockSetupPhase === "context_review"
+          ? recBefore.contextDraft
+          : "";
+    knockContextGenerating = true;
+    rerenderKnockSetupUi();
+    const seedText = recBefore.contextSeed != null ? String(recBefore.contextSeed).trim() : "";
+    const temp = seedText ? 0.78 : 0.82;
+    try {
+      const sys = buildKnockContextSystemPrompt(userChar, partnerChar, {
+        seed: seedText,
+        direction: direction,
+        existing: existing,
+      });
+      const userPrompt = buildKnockContextUserPrompt(seedText, existing);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: sys },
+          { role: "user", content: userPrompt },
+        ],
+        temp,
+        KNOCK_CONTEXT_OUTPUT_MAX_TOKENS,
+        { apiConfigId: getWorkbenchApiId(), skipGenPaw: true }
+      );
+      const text = String(raw || "").trim();
+      if (!text) throw new Error("生成内容为空，请重试。");
+      const rec = getKnockChatRecordMutable();
+      if (!rec) throw new Error("敲敲记录不可用，请重试。");
+      rec.contextDraft = text;
+      knockSetupPhase = "context_review";
+      persistNarrative();
+      showToast("契机背景已生成", "success");
+    } catch (err) {
+      const msg = (err && err.message) || "";
+      showToast(msg || "生成失败，请检查 API 配置后重试。", "error", 4200);
+    } finally {
+      knockContextGenerating = false;
+      rerenderKnockSetupUi();
+    }
+  }
+
+  async function confirmKnockContext(slot) {
+    if (knockContextGenerating || knockReplyGenerating) return;
+    if (!isKnockChatReady()) return;
+    syncKnockContextDraftFromDom(slot);
+    const rec = getKnockChatRecordMutable();
+    if (!rec || !rec.contextDraft) {
+      showToast("请先生成或填写契机背景。", "info");
+      return;
+    }
+    rec.contextBackground = rec.contextDraft;
+    rec.contextConfirmed = true;
+    rec.messages = [];
+    knockSetupPhase = "select";
+    knockSetupOpen = false;
+    persistNarrative();
+    closeKnockSetupPortal();
+    renderKnockScreen(els.knockContentSlot());
+    await generateKnockOpeningReply(els.knockContentSlot());
+  }
+
+  async function generateKnockOpeningReply(slot) {
+    if (knockReplyGenerating) return;
+    if (!isKnockChatReady() || !isKnockContextReady()) return;
+    const rec = getKnockChatRecordMutable();
+    if (!rec || rec.messages.length) return;
+    const userChar = getCharById(knockUserCharId);
+    const partnerChar = getCharById(knockPartnerCharId);
+    knockReplyGenerating = true;
+    renderKnockScreen(slot || els.knockContentSlot());
+    try {
+      const apiMsgs = [
+        { role: "system", content: buildKnockReplySystemPrompt(userChar, partnerChar) },
+        { role: "user", content: buildKnockOpeningUserPrompt(userChar, partnerChar) },
+      ];
+      const raw = await callChatCompletion(apiMsgs, 0.82, 1400, { apiConfigId: getWorkbenchApiId() });
+      const segs = splitAssistantPenpalReply(raw);
+      const fallback = String(raw || "").trim() || "…";
+      const toPush = segs.length ? segs : [fallback];
+      toPush.forEach(function (seg) {
+        const t = String(seg || "").trim();
+        if (!t) return;
+        rec.messages.push({
+          role: "assistant",
+          content: truncateCharsWithEllipsis(t, 500),
+          ts: Date.now(),
+        });
+      });
+      persistNarrative();
+      showToast("对方发来第一条消息", "success");
+    } catch (err) {
+      const msg = (err && err.message) || "";
+      showToast(msg || "开场消息生成失败，可手动发消息后点生成。", "error", 4200);
+    } finally {
+      knockReplyGenerating = false;
+      renderKnockScreen(slot || els.knockContentSlot());
+    }
   }
 
   function confirmKnockSetup(slot) {
@@ -11020,7 +13644,9 @@
     knockSelectedMsgs = [];
     persistNarrative();
     renderKnockScreen(slot || els.knockContentSlot());
-    showToast("已切换为「" + (partner.name || "对方") + "」", "success");
+    if (isKnockContextReady()) {
+      showToast("已切换为「" + (partner.name || "对方") + "」", "success");
+    }
   }
 
   function sendKnockMessage() {
@@ -11030,9 +13656,9 @@
     const text = input && input.value ? String(input.value).trim() : "";
     if (!text) return;
     if (!isKnockChatReady()) return;
-    const key = knockChatStorageKey(knockUserCharId, knockPartnerCharId);
-    if (!knockChatData[key]) knockChatData[key] = { messages: [] };
-    knockChatData[key].messages.push({
+    const rec = getKnockChatRecordMutable();
+    if (!rec) return;
+    rec.messages.push({
       role: "user",
       content: text,
       ts: Date.now(),
@@ -12114,6 +14740,7 @@
     if (overviewSubView === "phone") renderPhoneScreen(els.phoneContentSlot());
     else if (overviewSubView === "fanwork") renderFanworkScreen(els.fanworkContentSlot());
     else if (overviewSubView === "knock") renderKnockScreen(els.knockContentSlot());
+    else if (overviewSubView === "dial") renderDialScreen(els.dialContentSlot());
     if (els.modalAssistantProfile() && !els.modalAssistantProfile().hidden) {
       renderAssistantProfileModal();
     }
@@ -13185,6 +15812,10 @@
     }
     if (id === "knock") {
       void openOverviewKnockView();
+      return;
+    }
+    if (id === "dial") {
+      void openOverviewDialView();
       return;
     }
     if (id === "phone") {
@@ -23011,8 +25642,42 @@
     return escapeHtml(text).replace(/\n/g, "<br>");
   }
 
+  /** 去掉正文末尾未闭合的手账标记码，避免显示残缺的 [[s... */
+  function stripIncompletePhoneDiaryMarkup(text) {
+    let s = String(text || "");
+    const openIdx = s.lastIndexOf("[[");
+    if (openIdx >= 0) {
+      const tail = s.slice(openIdx);
+      if (tail.indexOf("]]") < 0) s = s.slice(0, openIdx);
+    }
+    return s.replace(/\.\.\.$/u, "").replace(/…$/u, "").trimEnd();
+  }
+
+  function normalizePhoneDiaryBodyText(text, maxChars) {
+    const cleaned = stripIncompletePhoneDiaryMarkup(String(text || "").trim());
+    if (!cleaned || !maxChars || maxChars < 1) return "";
+    const arr = Array.from(cleaned);
+    if (arr.length <= maxChars) return cleaned;
+    let cut = arr.slice(0, maxChars).join("");
+    const tailWindow = cut.slice(Math.max(0, cut.length - 80));
+    const breakPatterns = [/\n\n[^\n]*$/u, /[。！？][^。！？]*$/u, /[，；][^，；。！？]*$/u];
+    for (let i = 0; i < breakPatterns.length; i++) {
+      const m = tailWindow.match(breakPatterns[i]);
+      if (m && m.index != null) {
+        const candidate = cut.slice(0, cut.length - tailWindow.length + m.index + m[0].length).trim();
+        if (candidate.length >= Math.floor(maxChars * 0.55)) {
+          cut = candidate;
+          break;
+        }
+      }
+    }
+    cut = stripIncompletePhoneDiaryMarkup(cut);
+    cut = cut.replace(/[，、,；;：:\s]+$/u, "").trimEnd();
+    return cut ? cut + "…" : "";
+  }
+
   function buildPhoneDiaryBodyHtml(body) {
-    const raw = String(body || "");
+    const raw = stripIncompletePhoneDiaryMarkup(String(body || ""));
     if (!raw) return "";
     if (!/\[\[/.test(raw)) return formatPhoneDiaryPlainChunk(raw);
     let html = "";
@@ -23108,7 +25773,12 @@
         "dr-" + dateKey.replace(/-/g, "") + "-" + String(e.generatedAt || 0);
       const prev = map[id];
       if (!prev || (e.generatedAt || 0) >= (prev.generatedAt || 0)) {
-        map[id] = Object.assign({}, e, { id: id, dateKey: dateKey });
+        const body = normalizePhoneDiaryBodyText(String(e.body || ""), PHONE_DIARY_BODY_MAX);
+        map[id] = Object.assign({}, e, {
+          id: id,
+          dateKey: dateKey,
+          body: body || stripIncompletePhoneDiaryMarkup(String(e.body || "")),
+        });
       }
     });
     return sortPhoneDiaryEntries(
@@ -23302,7 +25972,7 @@
     while (seenIds && seenIds.has(id)) id = id + "-d";
     if (seenIds) seenIds.add(id);
     const mood = truncateCharsWithEllipsis(String(item.mood || "").trim(), PHONE_DIARY_MOOD_MAX);
-    const bodyRaw = truncateCharsWithEllipsis(
+    const bodyRaw = normalizePhoneDiaryBodyText(
       String(item.body || item.content || item.text || "").trim(),
       PHONE_DIARY_BODY_MAX
     );
@@ -23324,6 +25994,49 @@
     if (!bundle || !entry) return;
     if (!Array.isArray(bundle.entries)) bundle.entries = [];
     bundle.entries.push(entry);
+  }
+
+  function deletePhoneDiaryEntry(entryId) {
+    const rec = getPhoneDiaryBundleMutable();
+    if (!rec) return false;
+    const id = String(entryId || "").trim();
+    if (!id) return false;
+    rec.bundle.entries = (rec.bundle.entries || []).filter(function (e) {
+      return e && e.id !== id;
+    });
+    persistPhoneDiaryBundle(rec.bundle);
+    return true;
+  }
+
+  async function handlePhoneDiaryDeleteEntry(slot) {
+    const nav = getPhoneNav(slot);
+    const entry = getPhoneDiaryActiveEntry(nav);
+    if (!entry) {
+      showToast("当前没有可删除的日记", "info");
+      return;
+    }
+    const label = getPhoneDiaryDateLabel(entry.dateKey) || "该篇";
+    const ok = await showConfirm("确定删除「" + label + "」这篇日记吗？", "删除日记");
+    if (!ok) return;
+    const deletedId = entry.id;
+    const idx = getPhoneDiaryActiveEntryIndex(nav);
+    if (!deletePhoneDiaryEntry(deletedId)) {
+      showToast("删除失败", "error");
+      return;
+    }
+    const entries = getPhoneDiaryEntries();
+    if (!entries.length) {
+      nav.diaryEntryIndex = -1;
+      nav.diaryDateKey = null;
+      nav.diaryEntryId = null;
+    } else {
+      const nextIdx = Math.min(idx, entries.length - 1);
+      nav.diaryEntryIndex = nextIdx;
+      nav.diaryDateKey = entries[nextIdx].dateKey;
+      nav.diaryEntryId = entries[nextIdx].id;
+    }
+    showToast("已删除日记", "success");
+    if (slot) renderPhoneScreen(slot);
   }
 
   function formatPhoneDiaryEntryForPrompt(entry) {
@@ -23441,9 +26154,30 @@
     return lines.join("\n");
   }
 
+  function buildPhoneDiaryDeleteBtnHtml(hasEntry, disabled) {
+    return (
+      '<button type="button" class="phone-app__bar-action phone-app__bar-action--select-delete"' +
+      ' data-phone-diary-delete aria-label="删除当前日记" title="删除当前日记"' +
+      (!hasEntry || disabled ? " disabled" : "") +
+      ">" +
+      '<svg class="icon-linear" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>' +
+      "</button>"
+    );
+  }
+
   function buildPhoneDiaryBarHtml() {
     const loadingCls = phoneDiaryGenerating ? " phone-wechat-gen-btn--loading" : "";
     const disabled = isAnyPhoneAiGenerating();
+    const hasEntry = getPhoneDiaryEntries().length > 0;
+    const deleteBtn = buildPhoneDiaryDeleteBtnHtml(hasEntry, disabled);
+    const genBtn =
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
+      loadingCls +
+      '" data-phone-diary-generate aria-label="AI 生成新日记" title="AI 生成新日记"' +
+      (disabled ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>";
     return (
       '<header class="phone-app__bar phone-app__bar--wechat-list phone-diary__bar">' +
       '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
@@ -23452,13 +26186,10 @@
       '<div class="phone-diary__title-wrap">' +
       '<h2 class="phone-app__title phone-app__title--left">日记</h2>' +
       "</div>" +
-      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
-      loadingCls +
-      '" data-phone-diary-generate aria-label="AI 生成新日记" title="AI 生成新日记"' +
-      (disabled ? " disabled" : "") +
-      ">" +
-      buildPhoneWechatStarIconSvg() +
-      "</button>" +
+      '<div class="phone-app__bar-actions">' +
+      deleteBtn +
+      genBtn +
+      "</div>" +
       "</header>"
     );
   }
@@ -36110,6 +38841,259 @@
     });
   }
 
+  function syncCallSttFormState(rootEl) {
+    if (!rootEl) return;
+    const on = !!callSettings.sttEnabled;
+    const provider = callSettings.sttProvider || "sherpa-ncnn";
+    const needCloudKey = provider === "openai" || provider === "minimax";
+    rootEl.querySelectorAll("#call-stt-provider, #call-stt-language").forEach(function (el) {
+      if (el) el.disabled = !on;
+    });
+    ["#call-stt-api-key", "#call-stt-endpoint"].forEach(function (sel) {
+      const el = rootEl.querySelector(sel);
+      if (!el) return;
+      el.disabled = !on || !needCloudKey;
+      const row = el.closest(".call-settings-grid__full") || el.parentElement;
+      if (row) row.style.display = needCloudKey ? "" : "none";
+    });
+  }
+
+  function collectCallSettingsFromForm(rootEl) {
+    if (!rootEl) return;
+    const sttToggle = rootEl.querySelector("#call-stt-enabled-toggle");
+    const provider = rootEl.querySelector("#call-stt-provider");
+    const apiKey = rootEl.querySelector("#call-stt-api-key");
+    const endpoint = rootEl.querySelector("#call-stt-endpoint");
+    const language = rootEl.querySelector("#call-stt-language");
+    const autoRecord = rootEl.querySelector("#call-auto-record-toggle");
+    const aiEnabled = rootEl.querySelector("#call-ai-enabled-toggle");
+    const autoGreeting = rootEl.querySelector("#call-auto-greeting-toggle");
+    const voiceReply = rootEl.querySelector("#call-voice-reply-toggle");
+    const useTurboTts = rootEl.querySelector("#call-turbo-tts-toggle");
+    const maxTokens = rootEl.querySelector("#call-reply-max-tokens");
+    const ctxLimit = rootEl.querySelector("#call-context-limit");
+    const ringDelay = rootEl.querySelector("#call-ring-delay");
+    if (sttToggle) callSettings.sttEnabled = sttToggle.getAttribute("aria-checked") === "true";
+    if (provider) callSettings.sttProvider = provider.value || "sherpa-ncnn";
+    if (apiKey) callSettings.sttApiKey = String(apiKey.value || "").trim();
+    if (endpoint) callSettings.sttEndpoint = String(endpoint.value || "").trim();
+    if (language) callSettings.sttLanguage = String(language.value || "zh-CN").trim() || "zh-CN";
+    if (autoRecord) callSettings.autoRecord = autoRecord.getAttribute("aria-checked") === "true";
+    if (aiEnabled) callSettings.aiEnabled = aiEnabled.getAttribute("aria-checked") === "true";
+    if (autoGreeting) callSettings.autoGreeting = autoGreeting.getAttribute("aria-checked") === "true";
+    if (voiceReply) callSettings.voiceReply = voiceReply.getAttribute("aria-checked") === "true";
+    if (useTurboTts) callSettings.useTurboTts = useTurboTts.getAttribute("aria-checked") === "true";
+    if (maxTokens) {
+      const n = parseInt(maxTokens.value, 10);
+      if (n > 0) callSettings.replyMaxTokens = n;
+    }
+    if (ctxLimit) {
+      const n = parseInt(ctxLimit.value, 10);
+      if (n > 0) callSettings.contextMessageLimit = n;
+    }
+    if (ringDelay) {
+      const n = parseInt(ringDelay.value, 10);
+      if (n >= 0) callSettings.ringDelayMs = n;
+    }
+  }
+
+  function bindCallSettingsSwitch(rootEl, id, key) {
+    const el = rootEl.querySelector(id);
+    if (!el) return;
+    el.addEventListener("click", function () {
+      const on = el.getAttribute("aria-checked") !== "true";
+      el.setAttribute("aria-checked", on ? "true" : "false");
+      el.classList.toggle("story-summaries-switch--on", on);
+      callSettings[key] = on;
+      persistCallSettings();
+    });
+  }
+
+  function buildCallSettingsSectionHtml() {
+    const providerOpts = [
+      { id: "sherpa-ncnn", label: "sherpa-ncnn 本地离线（推荐）" },
+      { id: "openai", label: "OpenAI Whisper" },
+      { id: "minimax", label: "MiniMax / Token Plan（Whisper）" },
+      { id: "browser", label: "浏览器内置" },
+    ]
+      .map(function (p) {
+        return (
+          '<option value="' +
+          escapeHtml(p.id) +
+          '"' +
+          (callSettings.sttProvider === p.id ? " selected" : "") +
+          ">" +
+          escapeHtml(p.label) +
+          "</option>"
+        );
+      })
+      .join("");
+    const tokenOpts = [
+      { v: 220, label: "较短" },
+      { v: 380, label: "适中（推荐）" },
+      { v: 520, label: "较长" },
+    ]
+      .map(function (o) {
+        return (
+          '<option value="' +
+          o.v +
+          '"' +
+          (callSettings.replyMaxTokens === o.v ? " selected" : "") +
+          ">" +
+          escapeHtml(o.label) +
+          "</option>"
+        );
+      })
+      .join("");
+    return (
+      '<section class="settings-panel settings-panel--call">' +
+      '<div class="settings-panel__head"><h3 class="settings-panel__title">拨通 · 语音通话</h3></div>' +
+      '<div class="settings-panel__body tts-settings-compact">' +
+      '<p class="field__hint">通话仅读取双方人设与本次通话内容，不载入剧情正文，以换取更快回复。语音合成复用上方 MiniMax 配置。</p>' +
+      '<div class="call-settings-row">' +
+      '<span class="call-settings-row__label">AI 通话对话</span>' +
+      '<button type="button" class="story-summaries-switch' +
+      (callSettings.aiEnabled ? " story-summaries-switch--on" : "") +
+      '" id="call-ai-enabled-toggle" role="switch" aria-checked="' +
+      (callSettings.aiEnabled ? "true" : "false") +
+      '" aria-label="AI 通话对话"><span class="story-summaries-switch__track" aria-hidden="true"><span class="story-summaries-switch__thumb"></span></span></button></div>' +
+      '<div class="call-settings-row">' +
+      '<span class="call-settings-row__label">接通后自动问候</span>' +
+      '<button type="button" class="story-summaries-switch' +
+      (callSettings.autoGreeting ? " story-summaries-switch--on" : "") +
+      '" id="call-auto-greeting-toggle" role="switch" aria-checked="' +
+      (callSettings.autoGreeting ? "true" : "false") +
+      '" aria-label="接通后自动问候"><span class="story-summaries-switch__track" aria-hidden="true"><span class="story-summaries-switch__thumb"></span></span></button></div>' +
+      '<div class="call-settings-row">' +
+      '<span class="call-settings-row__label">朗读对方回复（TTS）</span>' +
+      '<button type="button" class="story-summaries-switch' +
+      (callSettings.voiceReply ? " story-summaries-switch--on" : "") +
+      '" id="call-voice-reply-toggle" role="switch" aria-checked="' +
+      (callSettings.voiceReply ? "true" : "false") +
+      '" aria-label="朗读对方回复"><span class="story-summaries-switch__track" aria-hidden="true"><span class="story-summaries-switch__thumb"></span></span></button></div>' +
+      '<div class="call-settings-row">' +
+      '<span class="call-settings-row__label">TTS 使用 Turbo 模型</span>' +
+      '<button type="button" class="story-summaries-switch' +
+      (callSettings.useTurboTts ? " story-summaries-switch--on" : "") +
+      '" id="call-turbo-tts-toggle" role="switch" aria-checked="' +
+      (callSettings.useTurboTts ? "true" : "false") +
+      '" aria-label="TTS Turbo"><span class="story-summaries-switch__track" aria-hidden="true"><span class="story-summaries-switch__thumb"></span></span></button></div>' +
+      '<div class="call-settings-row">' +
+      '<span class="call-settings-row__label">接通后自动录音</span>' +
+      '<button type="button" class="story-summaries-switch' +
+      (callSettings.autoRecord ? " story-summaries-switch--on" : "") +
+      '" id="call-auto-record-toggle" role="switch" aria-checked="' +
+      (callSettings.autoRecord ? "true" : "false") +
+      '" aria-label="接通后自动录音"><span class="story-summaries-switch__track" aria-hidden="true"><span class="story-summaries-switch__thumb"></span></span></button></div>' +
+      '<div class="tts-settings-compact__grid call-settings-grid">' +
+      '<label class="field"><span class="field__label">回复长度上限</span>' +
+      '<select class="field__input" id="call-reply-max-tokens" aria-label="回复长度">' +
+      tokenOpts +
+      "</select></label>" +
+      '<label class="field"><span class="field__label">纳入上下文条数</span>' +
+      '<input class="field__input" id="call-context-limit" type="number" min="4" max="24" step="1" value="' +
+      escapeHtml(String(callSettings.contextMessageLimit || 10)) +
+      '" /></label>' +
+      '<label class="field call-settings-grid__full"><span class="field__label">振铃时长（毫秒，越短越快接通）</span>' +
+      '<input class="field__input" id="call-ring-delay" type="number" min="0" max="8000" step="100" value="' +
+      escapeHtml(String(callSettings.ringDelayMs != null ? callSettings.ringDelayMs : 1800)) +
+      '" /></label></div>' +
+      '<div class="call-settings-row">' +
+      '<span class="call-settings-row__label">启用语音识别 STT</span>' +
+      '<button type="button" class="story-summaries-switch' +
+      (callSettings.sttEnabled ? " story-summaries-switch--on" : "") +
+      '" id="call-stt-enabled-toggle" role="switch" aria-checked="' +
+      (callSettings.sttEnabled ? "true" : "false") +
+      '" aria-label="启用语音识别"><span class="story-summaries-switch__track" aria-hidden="true"><span class="story-summaries-switch__thumb"></span></span></button></div>' +
+      '<div class="tts-settings-compact__grid call-settings-grid">' +
+      '<select class="field__input" id="call-stt-provider" aria-label="STT 提供商"' +
+      (callSettings.sttEnabled ? "" : " disabled") +
+      ">" +
+      providerOpts +
+      "</select>" +
+      '<input class="field__input" id="call-stt-language" type="text" placeholder="语言，如 zh-CN" value="' +
+      escapeHtml(callSettings.sttLanguage || "zh-CN") +
+      '" autocomplete="off"' +
+      (callSettings.sttEnabled ? "" : " disabled") +
+      " />" +
+      '<input class="field__input call-settings-grid__full" id="call-stt-api-key" type="password" placeholder="STT API Key（MiniMax 可留空，复用上方订阅 Key）" value="' +
+      escapeHtml(callSettings.sttApiKey || "") +
+      '" autocomplete="off"' +
+      (callSettings.sttEnabled ? "" : " disabled") +
+      " />" +
+      '<input class="field__input call-settings-grid__full" id="call-stt-endpoint" type="url" placeholder="STT API 地址（可选，默认 MiniMax 或当前 API 站点）" value="' +
+      escapeHtml(callSettings.sttEndpoint || "") +
+      '" autocomplete="off"' +
+      (callSettings.sttEnabled ? "" : " disabled") +
+      " />" +
+      "</div>" +
+      '<p class="field__hint call-settings-hint">开启后，通话界面可使用麦克风语音输入；挂断后录音会自动转写。sherpa-ncnn 本地离线识别，无需 API Key（首次约 135MB 模型下载）。Whisper 需填 Key 与中转地址。</p>' +
+      '<div class="tts-settings-compact__actions">' +
+      '<button type="button" class="btn btn--primary btn--pill" id="call-settings-save-btn">保存通话设置</button>' +
+      "</div></div></section>"
+    );
+  }
+
+  function bindCallSettingsHandlers(rootEl) {
+    if (!rootEl) return;
+    bindCallSettingsSwitch(rootEl, "#call-auto-record-toggle", "autoRecord");
+    bindCallSettingsSwitch(rootEl, "#call-ai-enabled-toggle", "aiEnabled");
+    bindCallSettingsSwitch(rootEl, "#call-auto-greeting-toggle", "autoGreeting");
+    bindCallSettingsSwitch(rootEl, "#call-voice-reply-toggle", "voiceReply");
+    bindCallSettingsSwitch(rootEl, "#call-turbo-tts-toggle", "useTurboTts");
+    bindCallSettingsSwitch(rootEl, "#call-stt-enabled-toggle", "sttEnabled");
+    const sttToggle = rootEl.querySelector("#call-stt-enabled-toggle");
+    if (sttToggle) {
+      sttToggle.addEventListener("click", function () {
+        syncCallSttFormState(rootEl);
+        if (
+          callSettings.sttEnabled &&
+          (callSettings.sttProvider || "sherpa-ncnn") === "sherpa-ncnn" &&
+          typeof SherpaStt !== "undefined"
+        ) {
+          showToast("正在后台加载语音识别模型…", "info", 2400);
+          void SherpaStt.load({
+            onStatus: function (text) {
+              if (text && /downloading|loading|下载/i.test(text)) {
+                showToast(String(text).replace(/\s+/g, " ").trim(), "info", 2000);
+              }
+            },
+          }).catch(function (err) {
+            const msg = (err && err.message) || "模型加载失败";
+            showToast(msg, "warning", 3600);
+          });
+        }
+      });
+    }
+    const providerSel = rootEl.querySelector("#call-stt-provider");
+    if (providerSel) {
+      providerSel.addEventListener("change", function () {
+        callSettings.sttProvider = providerSel.value || "sherpa-ncnn";
+        syncCallSttFormState(rootEl);
+        persistCallSettings();
+      });
+    }
+    syncCallSttFormState(rootEl);
+    const saveBtn = rootEl.querySelector("#call-settings-save-btn");
+    if (saveBtn) {
+      saveBtn.addEventListener("click", function () {
+        collectCallSettingsFromForm(rootEl);
+        persistCallSettings();
+        showToast("通话设置已保存", "success");
+      });
+    }
+    rootEl
+      .querySelectorAll(
+        "#call-stt-provider, #call-stt-language, #call-stt-api-key, #call-stt-endpoint, #call-reply-max-tokens, #call-context-limit, #call-ring-delay"
+      )
+      .forEach(function (el) {
+        el.addEventListener("change", function () {
+          collectCallSettingsFromForm(rootEl);
+          persistCallSettings();
+        });
+      });
+  }
+
   function bindApiSettingsHandlers(rootEl) {
     if (!rootEl) return;
     rootEl.querySelectorAll(".api-card").forEach((card) => {
@@ -36427,10 +39411,12 @@
       "</div></div></section>";
 
     html += buildTtsSettingsSectionHtml();
+    html += buildCallSettingsSectionHtml();
 
     el.innerHTML = html;
     bindApiSettingsHandlers(el);
     bindTtsSettingsHandlers(el);
+    bindCallSettingsHandlers(el);
     enhanceCustomSelectsIn(el);
     void refreshSettingsFontDiagnostics(el);
   }
@@ -36563,6 +39549,26 @@
     if (h.startsWith("#/tab/")) {
       let t = h.replace("#/tab/", "").split("/")[0];
       if (LEGACY_OVERVIEW_SUB_TAB_IDS[t]) {
+        if (t === "knock") {
+          els.layerStory().hidden = true;
+          activeTab = "overview";
+          els.views().forEach((v) => v.classList.toggle("view--active", v.dataset.view === "overview"));
+          els.navItems().forEach((btn) => btn.classList.toggle("is-active", btn.dataset.tab === "overview"));
+          syncMainScrollMode();
+          void openOverviewKnockView();
+          syncGlobalGenPawOverlay();
+          return;
+        }
+        if (t === "dial") {
+          els.layerStory().hidden = true;
+          activeTab = "overview";
+          els.views().forEach((v) => v.classList.toggle("view--active", v.dataset.view === "overview"));
+          els.navItems().forEach((btn) => btn.classList.toggle("is-active", btn.dataset.tab === "overview"));
+          syncMainScrollMode();
+          void openOverviewDialView();
+          syncGlobalGenPawOverlay();
+          return;
+        }
         overviewSubView = LEGACY_OVERVIEW_SUB_TAB_IDS[t];
         t = "overview";
       } else if (t === "overview") {
@@ -36759,21 +39765,75 @@
     void runAssistantGenWorldBook();
   });
 
-  document.addEventListener("click", function (e) {
+  function getKnockEventRoot(e) {
     const slot = e.target.closest("#knock-content-slot");
-    if (!slot || !slot.contains(e.target)) return;
-    if (handleKnockContentTap(e, slot)) return;
+    if (slot) return slot;
+    return null;
+  }
+
+  document.addEventListener("click", function (e) {
+    const root = getKnockEventRoot(e);
+    if (!root || !root.contains(e.target)) return;
+    if (handleKnockContentTap(e, root)) return;
   });
   document.addEventListener(
     "touchend",
     function (e) {
-      const slot = e.target.closest("#knock-content-slot");
-      if (!slot || !slot.contains(e.target)) return;
-      if (handleKnockContentTap(e, slot)) {
+      const root = getKnockEventRoot(e);
+      if (!root || !root.contains(e.target)) return;
+      if (handleKnockContentTap(e, root)) {
         e.preventDefault();
       }
     },
     { passive: false }
+  );
+
+  function getDialEventRoot(e) {
+    return e.target.closest("#dial-content-slot");
+  }
+
+  document.addEventListener("click", function (e) {
+    const root = getDialEventRoot(e);
+    if (!root || !root.contains(e.target)) return;
+    if (handleDialContentTap(e, root)) return;
+  });
+  document.addEventListener(
+    "touchend",
+    function (e) {
+      const root = getDialEventRoot(e);
+      if (!root || !root.contains(e.target)) return;
+      if (handleDialContentTap(e, root)) {
+        e.preventDefault();
+      }
+    },
+    { passive: false }
+  );
+  document.addEventListener(
+    "input",
+    function (e) {
+      const callInput = e.target.closest("[data-dial-call-input]");
+      if (callInput && getDialEventRoot(e) && dialCallSession) {
+        dialCallSession.composerDraft = String(callInput.value || "");
+        return;
+      }
+      const input = e.target.closest("[data-dial-contact-search]");
+      if (!input || !getDialEventRoot(e)) return;
+      dialContactQuery = String(input.value || "");
+      renderDialScreen(els.dialContentSlot());
+    },
+    true
+  );
+  document.addEventListener(
+    "keydown",
+    function (e) {
+      if (e.key !== "Enter") return;
+      const callInput = e.target.closest("[data-dial-call-input]");
+      const root = callInput && getDialEventRoot(e);
+      if (!root || !callInput) return;
+      e.preventDefault();
+      sendDialCallMessage(root);
+    },
+    true
   );
 
   function handleKnockContentTap(e, slot) {
@@ -36800,16 +39860,22 @@
     }
     if (e.target.closest("[data-knock-setup-toggle]")) {
       knockSetupOpen = true;
+      knockSetupPhase = "select";
       const overlay = slot.querySelector("[data-knock-setup-overlay]");
       const chatRoot = slot.querySelector(".knock-chat");
       if (chatRoot) chatRoot.classList.add("knock-chat--setup-open");
       if (overlay) {
         overlay.hidden = false;
         renderKnockSetupPicks(overlay);
+        fillKnockAvatarElements(overlay);
       }
       return true;
     }
     if (e.target.closest("[data-knock-setup-close]")) {
+      if (!isKnockContextReady()) {
+        closeOverviewKnockView();
+        return true;
+      }
       knockSetupOpen = false;
       const overlay = slot.querySelector("[data-knock-setup-overlay]");
       const chatRoot = slot.querySelector(".knock-chat");
@@ -36817,18 +39883,61 @@
       if (overlay) overlay.hidden = true;
       return true;
     }
+    if (e.target.closest("[data-knock-edit-persona]")) {
+      const btn = e.target.closest("[data-knock-edit-persona]");
+      if (btn.disabled) return true;
+      knockPersonaEditTarget = btn.getAttribute("data-knock-edit-persona") === "partner" ? "partner" : "user";
+      rerenderKnockSetupUi();
+      return true;
+    }
+    if (e.target.closest("[data-knock-persona-close]")) {
+      knockPersonaEditTarget = null;
+      rerenderKnockSetupUi();
+      return true;
+    }
+    if (e.target.closest("[data-knock-persona-save]")) {
+      if (saveKnockPersonaFromDom(slot)) {
+        showToast("人设已保存（仅本对话）", "success");
+        rerenderKnockSetupUi();
+      }
+      return true;
+    }
+    if (e.target.closest("[data-knock-context-back]")) {
+      syncKnockContextDraftFromDom(slot);
+      knockSetupPhase = "select";
+      rerenderKnockSetupUi();
+      return true;
+    }
+    if (e.target.closest("[data-knock-context-generate]")) {
+      void generateKnockContextBackground(slot);
+      return true;
+    }
+    if (e.target.closest("[data-knock-context-regenerate]")) {
+      void generateKnockContextBackground(slot, { regenerate: true });
+      return true;
+    }
+    if (e.target.closest("[data-knock-context-confirm]")) {
+      void confirmKnockContext(slot);
+      return true;
+    }
     const knockUserPickBtn = e.target.closest("[data-knock-user-char]");
     if (knockUserPickBtn) {
-      const pickRoot = getKnockSetupPickRoot(knockUserPickBtn);
       knockUserCharId = knockUserPickBtn.getAttribute("data-knock-user-char") || null;
-      renderKnockSetupPicks(pickRoot);
+      if (isKnockChatReady()) {
+        const rec = getKnockChatRecordMutable();
+        if (!rec.contextConfirmed) knockSetupPhase = rec.contextDraft ? "context_review" : "select";
+      }
+      rerenderKnockSetupUi();
       return true;
     }
     const knockPartnerPickBtn = e.target.closest("[data-knock-partner-char]");
     if (knockPartnerPickBtn) {
-      const pickRoot = getKnockSetupPickRoot(knockPartnerPickBtn);
       knockPartnerCharId = knockPartnerPickBtn.getAttribute("data-knock-partner-char") || null;
-      renderKnockSetupPicks(pickRoot);
+      if (isKnockChatReady()) {
+        const rec = getKnockChatRecordMutable();
+        if (!rec.contextConfirmed) knockSetupPhase = rec.contextDraft ? "context_review" : "select";
+      }
+      rerenderKnockSetupUi();
       return true;
     }
     if (e.target.closest("[data-knock-setup-confirm]")) {
@@ -37661,6 +40770,12 @@
     const memoNoteDelBtn = e.target.closest("[data-phone-memo-note-delete]");
     if (memoNoteDelBtn) {
       void handlePhoneMemoDeleteNote(slot, memoNoteDelBtn.getAttribute("data-phone-memo-note-delete"));
+      return;
+    }
+
+    const diaryDelBtn = e.target.closest("[data-phone-diary-delete]");
+    if (diaryDelBtn) {
+      void handlePhoneDiaryDeleteEntry(slot);
       return;
     }
 
@@ -39047,6 +42162,7 @@
   loadUiBrightnessAndApply();
   loadApiConfigs();
   loadTtsSettings();
+  loadCallSettings();
   loadAssistantState();
   applyPostClearAssistantBlankStateIfNeeded();
   migrateLegacyAssistantDefaultsOnce();
