@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://unpkg.com" crossorigin />
   <link rel="stylesheet" href="https://unpkg.com/@chinese-fonts/syst@3.0.0/dist/SourceHanSerifCN/result.css" />
   <link rel="stylesheet" href="https://unpkg.com/@fontsource/noto-serif-tc@5.2.10/400.css" />
-  <link rel="stylesheet" href="styles.css?v=139" />
+  <link rel="stylesheet" href="styles.css?v=142" />
 </head>
 <body>
   <div class="page-backdrop">
@@ -944,6 +944,27 @@
       </div>
     </div>
 
+    <div id="modal-knock-summaries" class="overlay overlay--dim" hidden>
+      <div class="modal-sheet modal-sheet--tall">
+        <div class="sheet-handle"></div>
+        <div class="modal-header">
+          <h2 class="modal-title">聊天总结</h2>
+          <button type="button" class="icon-btn" id="knock-summaries-close" aria-label="关闭"><svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+        </div>
+        <div class="story-summaries-tools" role="group" aria-label="聊天总结选项">
+          <button
+            type="button"
+            class="story-summaries-tool-pill story-summaries-tool-pill--action"
+            id="knock-summary-now"
+            aria-label="将当前聊天总结到最新一条消息"
+          >
+            总结到最新
+          </button>
+        </div>
+        <div id="knock-summaries-list" class="story-summaries-list"></div>
+      </div>
+    </div>
+
     <div id="modal-phone-holder" class="overlay overlay--dim" hidden>
       <div class="modal-sheet modal-sheet--phone-holder">
         <div class="sheet-handle"></div>
@@ -1297,12 +1318,13 @@
     </div>
         </div>
         <div id="toast-container" class="toast-container" aria-live="polite"></div>
-      </div>
+        <input type="file" id="backup-file-input" accept=".zip,application/zip,application/x-zip-compressed" hidden />
+  </div>
     </div>
   </div>
 
   <script src="jszip.min.js?v=1"></script>
   <script src="vendor/sherpa-stt.js?v=3"></script>
-  <script src="app.js?v=141"></script>
+  <script src="app.js?v=145"></script>
 </body>
 </html>
