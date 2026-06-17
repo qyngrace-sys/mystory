@@ -1852,6 +1852,25 @@
         applyAppearanceToDom();
         renderDynamic();
       }
+      if (btn.hasAttribute("data-phone-auto-delete")) {
+        const slot = document.getElementById("phone-content-slot");
+        const fanworkSlot = document.getElementById("fanwork-content-slot");
+        const activeNav = slot ? getPhoneNav(slot) : null;
+        const activeFanNav = fanworkSlot ? getFanworkNav(fanworkSlot) : null;
+        const cur = activeNav && activeNav.screen ? activeNav.screen : activeFanNav && activeFanNav.screen ? activeFanNav.screen : "";
+        if (cur === "forum" || cur === "forum-post") {
+          prunePhoneForumPostsWithoutDetail();
+          return;
+        }
+        if (cur === "jjwxc" || cur === "jjwxc-novel" || cur === "jjwxc-chapter") {
+          prunePhoneJjwxcNovelsWithoutDetail();
+          return;
+        }
+        if (cur === "fanwork" || cur === "fanwork-jjwxc" || cur === "fanwork-jjwxc-novel" || cur === "fanwork-jjwxc-chapter") {
+          pruneFanworkJjwxcNovelsWithoutDetail();
+          return;
+        }
+      }
       if (btn.id === "btn-custom-palette-save") {
         const t1Input = root.querySelector("#custom-palette-tone-1");
         const t2Input = root.querySelector("#custom-palette-tone-2");
@@ -2360,9 +2379,9 @@
   const VISUAL_REF_IMAGE_MAX = 3;
   const DEFAULT_VISUAL_CELEBRITY_LOOKALIKE = "朴宝剑";
   const DEFAULT_VISUAL_APPEARANCE_PROMPT =
-    "The individual's face is characterized by a delicate yet defined bone structure. High, prominent cheekbones cast subtle shadows beneath them, while a sharp, angular jawline tapers to a pointed chin. Ultra-realistic skin texture with visible pores and fine hairs, natural soft-box lighting, 85mm lens, f/1.8, high-resolution photography, cinematic portrait style.";
+    "Use the uploaded reference photos as the identity anchor. Reconstruct the same face across angles with consistent facial proportions, eye shape, nose bridge, lips, jawline, cheekbones, skin tone, hairstyle, hair volume, parting, and overall temperament. Preserve distinctive features from the reference and the celebrity lookalike only as a loose structural guide, not a different person. Ultra-realistic skin texture with natural pores and fine facial hair, believable asymmetry, soft natural light, 85mm lens, shallow depth of field, documentary-grade portrait realism.";
   const DEFAULT_VISUAL_DAILY_PROMPT =
-    "The scene captures a young man in an urban setting at night, likely a street or alleyway in an Asian city, given the Japanese characters on the signs. He is positioned slightly off-center, looking towards the camera with a candid expression. The background features realistic bokeh from neon signs and street lamps, damp pavement reflecting city lights, shot on a Sony A7R IV, 35mm lens, film grain, highly detailed 8k realistic photography.";
+    "Create a lived-in smartphone photo that feels like a real moment from a character's day, not a stock image. Keep the environment grounded, specific, and tied to the current剧情/关系/情绪: where the person is, what they are doing, what time of day it feels like, and what detail proves this is that exact moment. Favor candid framing, natural light, practical objects, subtle motion, and imperfect realism over beauty-shot polish. Include location clues, weather, reflections, clutter, and emotional atmosphere when relevant, shot like an authentic phone snapshot with realistic texture and depth.";
   let ttsSettings = {
     enabled: true,
     region: "cn",
@@ -7103,9 +7122,9 @@
     const out = String(prompt || "").trim();
     return (
       out +
-      " Face and hairstyle closely resemble " +
+      " The identity should still read as " +
       name +
-      ": same face shape, facial features, and hair. Outfit, mood, and atmosphere should follow the chat scene and world setting, not the reference photos."
+      ": preserve the same facial structure and hair silhouette as the reference photos, but do not copy styling from any unrelated image. Use the celebrity only as a loose face-structure reference, not a costume or pose reference. Outfit, mood, and atmosphere should follow the chat scene and world setting, not the reference photos."
     );
   }
 
@@ -7194,11 +7213,11 @@
     prompt +=
       " Subject: " +
       name +
-      ". Casual front-camera selfie as if sent in a private WeChat chat: relaxed expression, natural pose, shallow depth of field, no text overlay, no watermark.";
+      ". Make it feel like an authentic front-camera phone selfie shared in a private chat: casual framing, imperfect composition, slight hand-held realism, natural expression, and believable screen-captured realism—not a studio portrait.";
     const chatContext = String(opts.chatContext || "").trim();
     if (chatContext) {
       prompt +=
-        " Photo taken by this person on their phone and sent to the chat partner. The selfie must reflect this person's own location, outfit, mood and expression—not the chat partner's side. Context: " +
+        " Use the chat context to infer the exact moment, place, emotional state, and what kind of selfie this is. The selfie must reflect this person's own location, outfit, mood and expression—not the chat partner's side. Context: " +
         chatContext +
         ".";
     }
@@ -7211,7 +7230,7 @@
       prompt +=
         " User requested adjustments to the previous attempt: " +
         regenerateDirection +
-        ". Keep face shape and hairstyle locked to appearance reference and celebrity lookalike; only adjust pose, expression, lighting, outfit, or mood as directed.";
+        ". Keep face shape, hairstyle, and the identity locked to the appearance reference and celebrity lookalike; only adjust pose, expression, lighting, outfit, or mood as directed.";
     }
     if (!opts.omitStyleSuffix) prompt += visualImageStylePromptSuffix();
     return prompt;
@@ -7222,17 +7241,24 @@
     const dailyPrompt = await resolveVisualDailyPromptBase();
     let prompt =
       dailyPrompt +
-      " Environmental or scenic photo shared in chat: focus on place, objects, or atmosphere; no prominent face portrait, no text overlay, no watermark.";
+      " Environmental or scenic photo shared in chat: focus on place, objects, or atmosphere; make it unmistakably real, with lived-in details and a moment-in-time feeling rather than a generic landscape.";
     const chatContext = String(opts.chatContext || "").trim();
     if (chatContext) {
       prompt +=
-        " Photo taken from this chat partner's phone camera—what they see and share from where they are, not the user's location. Context: " +
+        " Use the conversation to infer the exact scene, time, location, emotional tone, and why this photo would be sent right now. Photo taken from this chat partner's phone camera—what they see and share from where they are, not the user's location. Context: " +
         chatContext +
         ".";
     }
     const snapLine = String(opts.snapLine || "").trim();
     if (snapLine) {
       prompt += " What this person sees and intends to send: " + snapLine + ".";
+    }
+    const regenerateDirection = String(opts.regenerateDirection || "").trim();
+    if (regenerateDirection) {
+      prompt +=
+        " User requested adjustments to the previous attempt: " +
+        regenerateDirection +
+        ". Keep scene identity consistent with the reference; adjust composition, lighting, or details as directed.";
     }
     if (!opts.omitStyleSuffix) prompt += visualImageStylePromptSuffix();
     return prompt;
@@ -7309,7 +7335,8 @@
       : [];
     const chatContext = buildKnockRecentChatVisualContext(rec, userChar, partnerChar, 10);
     const snapLine = snapHintsArr.length ? snapHintsArr.join("；") : "";
-    const fallbackOpts = { chatContext: chatContext, snapLine: snapLine };
+    const regenerateDirection = String(opts.regenerateDirection || "").trim();
+    const fallbackOpts = { chatContext: chatContext, snapLine: snapLine, regenerateDirection: regenerateDirection };
     const fallback =
       kind === "selfie"
         ? await buildKnockSelfieGenerationPrompt(partnerChar, fallbackOpts)
@@ -7342,6 +7369,15 @@
       }
       if (chatContext) userContent += "\n\n" + chatContext;
       if (snapLine) userContent += "\n\n对方本轮拟发来的画面：" + snapLine;
+      if (regenerateDirection) {
+        userContent += "\n\n用户对上一张生成结果不满意，修改方向：" + regenerateDirection;
+        if (kind === "selfie") {
+          userContent +=
+            "\n须保持脸型、发型与外貌参考图及明星脸一致，仅按修改方向调整姿态、表情、光线、着装或氛围。";
+        } else {
+          userContent += "\n须保持场景风格与参考一致，按修改方向调整构图、光线或细节。";
+        }
+      }
       const manualAppearancePrompt = String(
         (visualImageSettings.appearanceRef && visualImageSettings.appearanceRef.prompt) ||
           DEFAULT_VISUAL_APPEARANCE_PROMPT
@@ -7675,17 +7711,87 @@
     return true;
   }
 
-  function openKnockPhotoViewer(photoUrl) {
+  function canRegenerateKnockPhotoInViewer() {
+    if (!visualImageSettings.enabled || knockPhotoViewerMsgIndex < 0) return false;
+    const rec = getKnockChatRecordMutable();
+    if (!rec) return false;
+    const msg = rec.messages[knockPhotoViewerMsgIndex];
+    return !!(msg && msg.kind === "photo" && String(msg.snapText || "").trim());
+  }
+
+  function openKnockPhotoViewer(photoUrl, msgIndex) {
     const url = String(photoUrl || "").trim();
     if (!url) return;
     knockPhotoViewerUrl = url;
+    const idx = Number(msgIndex);
+    knockPhotoViewerMsgIndex = Number.isFinite(idx) && idx >= 0 ? idx : -1;
     renderKnockScreen(els.knockContentSlot());
   }
 
   function closeKnockPhotoViewer() {
     if (!knockPhotoViewerUrl) return;
     knockPhotoViewerUrl = null;
+    knockPhotoViewerMsgIndex = -1;
     renderKnockScreen(els.knockContentSlot());
+  }
+
+  async function regenerateKnockPhotoAtIndex(rec, msgIndex, slot, opts) {
+    opts = opts || {};
+    if (!rec || !visualImageSettings.enabled) return false;
+    const idx = Number(msgIndex);
+    const msg = rec.messages[idx];
+    if (!msg || msg.kind !== "photo") return false;
+    const snapText = String(msg.snapText || "").trim();
+    if (!snapText) {
+      showToast("该图片无法重新生成（非 AI 生成）", "warning");
+      return false;
+    }
+    if (!resolveVisualImageApiConfig()) {
+      showToast("生图 API 未配置完整，请在设置 → 聊天发图 中填写站点、Key 与模型", "warning", 4200);
+      return false;
+    }
+    const partnerChar = getKnockPartnerCharById(knockPartnerCharId);
+    const userChar = getCharById(knockUserCharId);
+    const intent = detectKnockSnapVisualIntent(snapText, opts.intent);
+    const regenerateDirection = String(opts.regenerateDirection || "").trim();
+    knockVisualImageGenerating = true;
+    knockVisualImageGeneratingMsgIndex = idx;
+    persistNarrative();
+    renderKnockScreen(slot || els.knockContentSlot());
+    try {
+      if (hasVisualRefImagesForAnalysis("appearance") || hasVisualRefImagesForAnalysis("daily")) {
+        showToast("正在分析参考图并写入生图描述…", "info", 3600);
+      }
+      showToast(
+        intent === "selfie" ? "正在重新生成自拍，约需 1～3 分钟…" : "正在重新生成场景图，约需 1～3 分钟…",
+        "info",
+        5200
+      );
+      const prompt = await craftKnockVisualImagePrompt(intent, partnerChar, userChar, rec, [snapText], {
+        regenerateDirection: regenerateDirection,
+      });
+      const photoUrl = await callVisualImageGeneration(prompt);
+      rec.messages[idx] = {
+        role: msg.role,
+        kind: "photo",
+        content: "[图片]",
+        photoUrl: photoUrl,
+        snapText: snapText,
+        ts: msg.ts || Date.now(),
+      };
+      if (knockPhotoViewerMsgIndex === idx) knockPhotoViewerUrl = photoUrl;
+      persistNarrative();
+      showToast("图片已重新生成", "success");
+      return true;
+    } catch (err) {
+      console.error(err);
+      showToast((err && err.message) || "生图失败，请稍后重试", "error", 5200);
+      return false;
+    } finally {
+      knockVisualImageGenerating = false;
+      knockVisualImageGeneratingMsgIndex = -1;
+      renderKnockScreen(slot || els.knockContentSlot(), { scrollToEnd: true });
+    }
   }
 
   async function saveKnockPhotoToAlbum(photoUrl) {
@@ -18024,6 +18130,42 @@
   function buildKnockPhotoViewerOverlayHtml() {
     if (!knockPhotoViewerUrl) return "";
     const url = escapeHtml(knockPhotoViewerUrl);
+    const canRegen = canRegenerateKnockPhotoInViewer();
+    const regenBusy =
+      knockVisualImageGenerating && knockPhotoViewerMsgIndex === knockVisualImageGeneratingMsgIndex;
+    const genDisabled = knockVisualImageGenerating ? " disabled" : "";
+    const imgWrapCls =
+      "knock-photo-viewer__img-wrap" + (regenBusy ? " knock-photo-viewer__img-wrap--loading" : "");
+    let imgBlock =
+      '<div class="' +
+      imgWrapCls +
+      '">' +
+      '<img class="knock-photo-viewer__img" src="' +
+      url +
+      '" alt="" />';
+    if (regenBusy) {
+      imgBlock +=
+        '<span class="knock-photo-viewer__loading" aria-live="polite">' +
+        '<span class="knock-photo-viewer__loading-label">正在重新生成…</span>' +
+        '<span class="knock-photo-viewer__loading-hint">约 1～3 分钟</span>' +
+        "</span>";
+    }
+    imgBlock += "</div>";
+    let regenHtml = "";
+    if (canRegen) {
+      regenHtml =
+        '<div class="knock-photo-viewer__regen">' +
+        '<input class="knock-photo-viewer__direction field__input" data-knock-photo-viewer-direction placeholder="修改方向（可选）" maxlength="200" autocomplete="off"' +
+        (regenBusy ? " disabled" : "") +
+        ' />' +
+        '<button type="button" class="btn btn--secondary btn--pill knock-photo-viewer__regen-btn" data-knock-photo-viewer-regenerate data-knock-msg-index="' +
+        knockPhotoViewerMsgIndex +
+        '"' +
+        genDisabled +
+        ">" +
+        (regenBusy ? "生成中…" : "重新生成") +
+        "</button></div>";
+    }
     return (
       '<div class="knock-photo-viewer" data-knock-photo-viewer aria-modal="true" role="dialog">' +
       '<button type="button" class="knock-photo-viewer__backdrop" data-knock-photo-viewer-close aria-label="关闭"></button>' +
@@ -18031,13 +18173,14 @@
       '<button type="button" class="knock-photo-viewer__close" data-knock-photo-viewer-close aria-label="关闭">' +
       '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
       "</button>" +
-      '<img class="knock-photo-viewer__img" src="' +
-      url +
-      '" alt="" />' +
+      imgBlock +
       '<div class="knock-photo-viewer__actions">' +
       '<button type="button" class="btn btn--primary btn--pill knock-photo-viewer__save" data-knock-photo-viewer-save data-photo-url="' +
       url +
-      '">保存到相册</button>' +
+      '"' +
+      (regenBusy ? " disabled" : "") +
+      '>保存到相册</button>' +
+      regenHtml +
       "</div></div></div>"
     );
   }
@@ -26375,6 +26518,8 @@
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
       '<h2 class="phone-app__title phone-app__title--left">朋友圈</h2>' +
+      autoDeleteBtn +
+      autoDeleteBtn +
       genBtn +
       "</header>"
     );
@@ -27659,7 +27804,7 @@
 
     const subjectLabels = {
       protagonist: "用户/主角「" + protagName + "」（仅背影或部分身形，禁止露脸）",
-      mainCharacter: "主要角色「" + holderName + "」（可用正脸，须贴合设置参考图与明星脸）",
+      mainCharacter: "主要角色「" + holderName + "」（可用正脸，须贴合设置参考图、上传外貌与明星脸）",
       otherPerson: "其他人物「" + (personName || "未知") + "」",
       scene: "无人出镜的场景/物品",
     };
@@ -27672,17 +27817,20 @@
         (caption || "无") +
         "\n描述：" +
         (desc || "无") +
-        (personName ? "\n标注人物：" + personName : "");
+        (personName ? "\n标注人物：" + personName : "") +
+        "\n\n生成目标：这不是摆拍海报，而是一张会真实出现在手机相册里的抓拍照片。要让人一眼觉得‘这就是那个人那一刻真的拍下来的’。";
       if (subjectType === "protagonist") {
         userContent += "\n用户外貌人设：\n" + truncateCharsWithEllipsis(blocks.identitySelfBlock || "未设定", 720);
         userContent +=
-          "\n硬性约束：只能背影、侧后方、远景剪影或局部身形；绝对不能出现可辨认的面部、眼睛、正脸特写。人设中的发型、发色、体型、衣着必须严格一致。";
+          "\n硬性约束：只能背影、侧后方、远景剪影或局部身形；绝对不能出现可辨认的面部、眼睛、正脸特写。发型、发色、体型、穿衣习惯、整体气质必须严格跟人设一致，并保持像真实自拍/抓拍。";
       } else if (subjectType === "mainCharacter") {
         userContent += "\n主要角色资料：\n" + truncateCharsWithEllipsis(buildPhoneHolderProfileBlock(holder, plot), 520);
         userContent +=
-          "\n外貌参考（设置上传图识图 + 提示词 + 明星脸，锁定脸型发型）：" +
+          "\n外貌参考（设置上传图识图 + 提示词 + 明星脸，锁定脸型发型气质）：" +
           truncateCharsWithEllipsis(appearanceBase, 720);
         userContent += "\n外貌描述提示词（设置）：" + truncateCharsWithEllipsis(manualAppearancePrompt, 480);
+        userContent +=
+          "\n强化要求：如果设定里已经写明是某种气质/人设，就要优先服从设定，不要因为场景提示而把人画成另一种脸或另一种风格。";
       } else if (subjectType === "otherPerson") {
         const profile = findPhoneAlbumCharacterProfileByName(plot, holder, personName);
         userContent += "\n该人物资料：\n" + truncateCharsWithEllipsis(profile || "未设定", 520);
@@ -27691,16 +27839,17 @@
       } else {
         userContent += "\n场景参考（设置上传图识图 + 提示词）：" + truncateCharsWithEllipsis(dailyBase, 720);
         userContent += "\n场景描述提示词（设置）：" + truncateCharsWithEllipsis(manualDailyPrompt, 480);
+        userContent += "\n强化要求：场景必须和剧情氛围、人物当前情绪、时间线、拍摄地点紧密结合，避免像随手生成的泛化风景图。";
       }
       userContent += "\n\n摄影风格要求：" + styleNote;
       userContent += "\n\n请写一条完整英文 prompt（仅正文）。";
 
       const systemRules =
         subjectType === "protagonist"
-          ? "若画面含用户/主角，必须背影或局部身形，严禁任何可辨认面部。人设写了短发就不能画长发，所有外貌细节须与人设一致。"
+          ? "若画面含用户/主角，必须背影或局部身形，严禁任何可辨认面部。人设写了短发就不能画长发，所有外貌细节须与人设一致，并确保整体像同一角色本人在真实手机相册里拍到的照片。"
           : subjectType === "mainCharacter"
-            ? "主要角色须融合设置参考图、描述提示词与明星脸参考；脸型发型与参考一致，装扮随照片描述变化。"
-            : "贴合照片描述与参考提示词，像真实手机相册照片。";
+            ? "主要角色须融合设置参考图、描述提示词与明星脸参考；脸型、发型、气质与参考一致，装扮与情境随照片描述变化，但不能换成另一个人。"
+            : "贴合照片描述与参考提示词，像真实手机相册照片，且要和剧情、关系、时间、地点强绑定。";
 
       const refined = await callChatCompletion(
         [
@@ -28443,6 +28592,28 @@
     return (post.thread || []).length >= PHONE_FORUM_MIN_THREAD_MESSAGES;
   }
 
+  function prunePhoneForumPostsWithoutDetail() {
+    let removed = 0;
+    phoneForumData = Object.keys(phoneForumData).reduce(function (acc, key) {
+      const rec = phoneForumData[key];
+      if (!rec) return acc;
+      const nextPosts = (rec.posts || []).filter(function (post) {
+        const keep = phoneForumPostHasDetail(post);
+        if (!keep) removed += 1;
+        return keep;
+      });
+      acc[key] = Object.assign({}, rec, { posts: nextPosts });
+      return acc;
+    }, {});
+    if (removed > 0) {
+      persistPhoneForumData();
+      renderDynamic();
+      showToast("已删除 " + removed + " 条未展开帖子", "success");
+    } else {
+      showToast("当前没有可自动删除的未展开帖子", "info");
+    }
+  }
+
   function collectPhoneForumPostSeenIds(posts) {
     const seen = new Set();
     (posts || []).forEach(function (p) {
@@ -28649,9 +28820,10 @@
       "2. 手机持有者「" +
         holderName +
         "」只是浏览者之一；楼主（authorName）应分散在路人网友、匿名马甲、剧情配角等身份，勿让持有者或主角垄断楼主位。",
-      "3. 同一批生成中，约七成帖子宜由非持有者、非主角身份发帖；持有者与「我的形象」主角「" +
+      "3. 同一批生成中，至少八成帖子应由非持有者、非主角、非剧情核心人物发帖；持有者与「我的形象」主角「" +
         protagName +
-        "」各自亲自发帖的占比各宜控制在两成以内。",
+        "」各自亲自发帖的占比各宜控制在一成以内。",
+      "3.1 楼主身份尽量丰富：上班族、学生、宝妈、夜班员工、吃瓜路人、老哥、同城网友、匿名树洞、营销号、搬运号、圈内边缘人都可以出现。",
     ];
     if (otherNames.length) {
       lines.push(
@@ -28664,7 +28836,7 @@
     }
     lines.push(
       "5. 同一批生成中 authorName 不得雷同或清一色；网名风格可幽默、中二、克制各异。",
-      "6. 楼层回复中网友身份同样多元（吃瓜、懂哥、阴阳怪气、理性分析等），勿全员化身主角或持有者。"
+      "6. 楼层回复中网友身份同样多元（吃瓜、懂哥、阴阳怪气、理性分析、纯路过、站队、反串等），勿全员化身主角或持有者。"
     );
     return lines.join("\n");
   }
@@ -29104,6 +29276,10 @@
     const loadingCls =
       phoneForumGenerating || phoneForumSectionGenerating || postGen ? " phone-wechat-gen-btn--loading" : "";
     const disabled = isAnyPhoneAiGenerating();
+    const autoDeleteBtn =
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn phone-wechat-gen-btn--auto-delete" data-phone-auto-delete aria-label="自动删除未展开内容" title="自动删除未展开内容"' +
+      (disabled ? " disabled" : "") +
+      '><svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M7 6l1 14h8l1-14"/><path d="M10 11v5M14 11v5"/></svg></button>';
     const genBtn =
       '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
       loadingCls +
@@ -36169,6 +36345,27 @@
     return !!(String(novel.synopsis || "").trim() && (novel.chapters || []).length >= PHONE_JJWXC_MIN_CHAPTERS);
   }
 
+  function prunePhoneJjwxcNovelsWithoutDetail() {
+    let removed = 0;
+    const bundle = getPhoneJjwxcBundleRecord();
+    if (!bundle || !Array.isArray(bundle.novels)) {
+      showToast("当前没有可自动删除的未展开作品", "info");
+      return;
+    }
+    bundle.novels = bundle.novels.filter(function (novel) {
+      const keep = phoneJjwxcNovelHasDetail(novel);
+      if (!keep) removed += 1;
+      return keep;
+    });
+    if (removed > 0) {
+      persistPhoneJjwxcBundle();
+      renderDynamic();
+      showToast("已删除 " + removed + " 个未展开作品", "success");
+    } else {
+      showToast("当前没有可自动删除的未展开作品", "info");
+    }
+  }
+
   function phoneJjwxcChapterHasContent(chapter) {
     if (!chapter) return false;
     if (chapter.contentReady === true) return true;
@@ -36953,6 +37150,10 @@
     const title = String(titleText || "晋江文学城").trim() || "晋江文学城";
     const genAttrName =
       generateAttr !== false ? String(generateAttr || "data-phone-jjwxc-generate").trim() : "";
+    const autoDeleteBtn =
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn phone-wechat-gen-btn--auto-delete" data-phone-auto-delete aria-label="自动删除未展开内容" title="自动删除未展开内容"' +
+      (disabled ? " disabled" : "") +
+      '><svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M7 6l1 14h8l1-14"/><path d="M10 11v5M14 11v5"/></svg></button>';
     const genBtn = genAttrName
       ? '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
         loadingCls +
@@ -38787,6 +38988,27 @@
     );
   }
 
+  function pruneFanworkJjwxcNovelsWithoutDetail() {
+    let removed = 0;
+    const bundle = getFanworkJjwxcBundleRecord();
+    if (!bundle || !Array.isArray(bundle.novels)) {
+      showToast("当前没有可自动删除的未展开作品", "info");
+      return;
+    }
+    bundle.novels = bundle.novels.filter(function (novel) {
+      const keep = fanworkJjwxcNovelHasDetail(novel);
+      if (!keep) removed += 1;
+      return keep;
+    });
+    if (removed > 0) {
+      persistFanworkJjwxcBundle();
+      renderDynamic();
+      showToast("已删除 " + removed + " 个未展开作品", "success");
+    } else {
+      showToast("当前没有可自动删除的未展开作品", "info");
+    }
+  }
+
   function applyFanworkJjwxcNovelDetail(novel, parsed) {
     if (!novel || !parsed) return;
     if (parsed.synopsis) {
@@ -39723,6 +39945,10 @@
         : typeof generateAttr === "string" && generateAttr.trim()
           ? generateAttr.trim()
           : "data-fanwork-jjwxc-generate";
+    const autoDeleteBtn =
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn phone-wechat-gen-btn--auto-delete" data-phone-auto-delete aria-label="自动删除未展开内容" title="自动删除未展开内容"' +
+      (disabled ? " disabled" : "") +
+      '><svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M7 6l1 14h8l1-14"/><path d="M10 11v5M14 11v5"/></svg></button>';
     const genBtn =
       genAttr
         ? '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
@@ -39747,9 +39973,9 @@
       (showBack ? "" : " phone-jjwxc__bar--no-back") +
       (cpInline ? " phone-jjwxc__bar--with-cp" : "");
     const trail =
-      cpInline || genBtn
-        ? '<div class="phone-jjwxc__bar-trail">' + cpInline + genBtn + "</div>"
-        : genBtn || '<span class="phone-app__bar-side" aria-hidden="true"></span>';
+      cpInline || genBtn || autoDeleteBtn
+        ? '<div class="phone-jjwxc__bar-trail">' + cpInline + autoDeleteBtn + genBtn + "</div>"
+        : genBtn || autoDeleteBtn || '<span class="phone-app__bar-side" aria-hidden="true"></span>';
     return (
       '<header class="' +
       barClass +
@@ -46585,8 +46811,7 @@
         '</span><div><h3 class="settings-panel__title">API 与模型</h3></div></div>';
     }
     html += '<div class="settings-panel__body">';
-    html +=
-      '<p class="field__hint settings-api-model-list-hint">部分中转或上游的「模型列表」接口可能间歇异常。若点击「刷新模型列表」失败，会弹出说明；你仍可手动选择或填写模型名，并用「测试模型可用性」确认对话是否正常。</p>';
+    html += '';
 
     html += '<p class="settings-section-title">当前使用</p>';
     if (active) {
@@ -46812,7 +47037,7 @@
       plugSvg +
       '</span><div><h3 class="settings-panel__title">生图 API</h3></div></div>' +
       '<div class="settings-panel__body tts-settings-compact">' +
-      '<p class="field__hint">独立于上方「API 与模型」，专用于聊天发图。站点仍填 <code>https://api.dzzi.ai/v1</code> 即可。若测试报 Failed to fetch：在项目文件夹运行 <code>python serve.py</code>，用 <code>http://127.0.0.1:8080</code> 打开本页（不要双击 html），并关闭广告拦截。</p>' +
+      '' +
       '<article class="api-card glass-surface visual-api-card">' +
       '<div class="tts-settings-compact__grid call-settings-grid">' +
       '<label class="field call-settings-grid__full"><span class="field__label">API 站点地址</span>' +
@@ -46837,7 +47062,7 @@
       '<div class="model-select-wrap"><select class="model-select" id="visual-api-model" aria-label="生图模型">' +
       visualModelOpts +
       "</select></div></article>" +
-      '<p class="field__hint settings-api-model-list-hint">先填写站点与 Key，点「刷新模型列表」拉取可选模型；「测试模型可用性」会发起一次极小生图请求（GPT 生图约 1～3 分钟）。若报 502，可换试 <code>n-gpt-image-2</code>。</p>' +
+      '' +
       '<div class="tts-settings-compact__actions">' +
       '<button type="button" class="btn btn--primary btn--pill" id="visual-image-settings-save-btn">保存生图设置</button>' +
       "</div></div></section>";
@@ -47295,7 +47520,7 @@
       '<section class="settings-panel settings-panel--call">' +
       '<div class="settings-panel__head"><h3 class="settings-panel__title">拨通 · 语音通话</h3></div>' +
       '<div class="settings-panel__body tts-settings-compact">' +
-      '<p class="field__hint">通话仅读取双方人设与本次通话内容，不载入剧情正文，以换取更快回复。语音合成复用上方 MiniMax 配置。</p>' +
+      '' +
       '<div class="call-settings-row">' +
       '<span class="call-settings-row__label">AI 通话对话</span>' +
       '<button type="button" class="story-summaries-switch' +
@@ -47373,7 +47598,7 @@
       (callSettings.sttEnabled ? "" : " disabled") +
       " />" +
       "</div>" +
-      '<p class="field__hint call-settings-hint">开启后，通话界面可使用麦克风语音输入；挂断后录音会自动转写。sherpa-ncnn 本地离线识别，无需 API Key（首次约 135MB 模型下载）。Whisper 需填 Key 与中转地址。</p>' +
+      '' +
       '<div class="tts-settings-compact__actions">' +
       '<button type="button" class="btn btn--primary btn--pill" id="call-settings-save-btn">保存通话设置</button>' +
       "</div></div></section>"
@@ -47651,7 +47876,7 @@
       backupSvg +
       '</span><div><h3 class="settings-panel__title">备份功能</h3></div></div>' +
       '<div class="settings-panel__body">' +
-      '<p class="field__hint">导出会完整打包本机全部用户数据：角色、剧情与世界书（含正文、总结、记忆、收藏、划线/想法、背景图）、查手机各 App 生成内容、小狗饭、点星助手与聊天记录、API 配置（含密钥）、外观/主题/亮度/字体/状态栏等设置，以及自定义字体文件（如有）。请妥善保管备份文件。</p>' +
+      '' +
       '<div class="btn-row backup-actions">' +
       '<button type="button" class="btn btn-secondary btn--pill backup-action-btn" id="btn-backup-export">导出备份</button>' +
       '<button type="button" class="btn btn-secondary btn--pill backup-action-btn" id="btn-backup-import">导入备份并覆盖</button>' +
@@ -47731,12 +47956,10 @@
       '<p class="font-status">' +
       fontLine +
       '</p>' +
-      '<div class="font-storage-diagnostics field__hint" id="font-storage-diagnostics" aria-live="polite"></div>' +
+      '' +
       '<label class="field font-file-label"><span class="field__label">上传字体文件</span>' +
       '<input class="field__input" type="file" id="font-file-input" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,application/font-woff" /></label>' +
-      '<p class="field__hint">支持 TTF、OTF、WOFF / WOFF2；单文件最大约 ' +
-      FONT_UPLOAD_MAX_LABEL +
-      "（偏大文件会占用本机浏览器存储）</p>" +
+      '' +
       '<div class="btn-row">' +
       '<button type="button" class="btn btn-secondary btn--pill" id="btn-font-clear">清除自定义字体</button></div>' +
       '<div class="font-scale-control">' +
@@ -47752,7 +47975,7 @@
       '<span class="font-scale-control__value" id="font-scale-value">' +
       escapeHtml(uiFontPctLabel) +
       "</span></div>" +
-      '<p class="field__hint">最左侧为默认大小（100%）；向右拖动可等比例放大全界面文字，设置保存在本机。</p>' +
+      '' +
       "</div></div></section>";
 
     html += buildTtsSettingsSectionHtml();
@@ -48775,7 +48998,10 @@
     }
     const photoViewBtn = e.target.closest("[data-knock-photo-view]");
     if (photoViewBtn && !knockSelectMode) {
-      openKnockPhotoViewer(photoViewBtn.getAttribute("data-photo-url"));
+      openKnockPhotoViewer(
+        photoViewBtn.getAttribute("data-photo-url"),
+        photoViewBtn.getAttribute("data-knock-msg-index")
+      );
       return true;
     }
     if (e.target.closest("[data-knock-photo-viewer-close]")) {
@@ -48785,6 +49011,17 @@
     const photoSaveBtn = e.target.closest("[data-knock-photo-viewer-save]");
     if (photoSaveBtn) {
       void saveKnockPhotoToAlbum(photoSaveBtn.getAttribute("data-photo-url"));
+      return true;
+    }
+    if (e.target.closest("[data-knock-photo-viewer-regenerate]") && !knockVisualImageGenerating) {
+      const rec = getKnockChatRecordMutable();
+      const directionEl = slot.querySelector("[data-knock-photo-viewer-direction]");
+      const direction = directionEl ? directionEl.value : "";
+      if (rec && knockPhotoViewerMsgIndex >= 0) {
+        void regenerateKnockPhotoAtIndex(rec, knockPhotoViewerMsgIndex, slot, {
+          regenerateDirection: direction,
+        });
+      }
       return true;
     }
     if (e.target.closest("[data-knock-delivery-send]")) {

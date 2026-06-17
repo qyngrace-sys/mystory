@@ -4581,14 +4581,80 @@ html[data-theme="dark"] .knock-chat__event--selected .knock-chat__event-check {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.knock-photo-viewer__img-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+}
+
+.knock-photo-viewer__img-wrap--loading .knock-photo-viewer__img {
+  opacity: 0.42;
+}
+
+.knock-photo-viewer__loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #fff;
+  text-align: center;
+  padding: 12px;
+}
+
+.knock-photo-viewer__loading-label {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.knock-photo-viewer__loading-hint {
+  font-size: 12px;
+  opacity: 0.82;
+}
+
 .knock-photo-viewer__actions {
   width: 100%;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
 }
 
-.knock-photo-viewer__save {
+.knock-photo-viewer__save,
+.knock-photo-viewer__regen-btn {
   min-width: 140px;
+}
+
+.knock-photo-viewer__regen {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.knock-photo-viewer__direction {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.knock-photo-viewer__direction::placeholder {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.knock-photo-viewer__direction:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.14);
 }
 
 #overview-sub-knock .knock-msg-snap.phone-moments-post__media--single {
