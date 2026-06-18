@@ -1326,43 +1326,105 @@
     return out;
   }
 
-  /** 解析 localStorage.json 前去掉超大剧情键，避免移动端 JSON.parse 与 restore 时重复占用内存。 */
-  function stripJsonStringProperty(raw, key) {
+  /** 跳过 JSON 字符串字面量（含 \\、\\uXXXX 转义），返回闭合引号后一位；失败返回 -1。 */
+  function skipJsonStringLiteral(s, quoteIdx) {
+    var i = quoteIdx + 1;
+    while (i < s.length) {
+      var ch = s.charAt(i);
+      if (ch === "\\") {
+        i++;
+        if (i >= s.length) return -1;
+        if (s.charAt(i) === "u") {
+          var hexEnd = Math.min(s.length, i + 5);
+          if (hexEnd - i < 4) return -1;
+          i = hexEnd + 1;
+        } else {
+          i++;
+        }
+        continue;
+      }
+      if (ch === '"') return i + 1;
+      i++;
+    }
+    return -1;
+  }
+
+  /** 跳过 { } 或 [ ] 包裹的 JSON 片段（字符串内括号不计入深度）。 */
+  function skipJsonBracketedValue(s, openIdx, openCh, closeCh) {
+    var depth = 0;
+    var i = openIdx;
+    var inString = false;
+    while (i < s.length) {
+      var ch = s.charAt(i);
+      if (inString) {
+        if (ch === "\\") {
+          i++;
+          if (i < s.length && s.charAt(i) === "u") i = Math.min(s.length, i + 5);
+          else if (i < s.length) i++;
+          continue;
+        }
+        if (ch === '"') inString = false;
+        i++;
+        continue;
+      }
+      if (ch === '"') {
+        inString = true;
+        i++;
+        continue;
+      }
+      if (ch === openCh) depth++;
+      else if (ch === closeCh) {
+        depth--;
+        if (depth === 0) return i + 1;
+      }
+      i++;
+    }
+    return s.length;
+  }
+
+  /** 从 value 起始位跳过 JSON 值，返回结束下标（不含）。 */
+  function skipJsonValueEnd(s, valueStart) {
+    var i = valueStart;
+    while (i < s.length && /\s/.test(s.charAt(i))) i++;
+    if (i >= s.length) return i;
+    var ch = s.charAt(i);
+    if (ch === '"') {
+      var strEnd = skipJsonStringLiteral(s, i);
+      return strEnd < 0 ? s.length : strEnd;
+    }
+    if (ch === "{") return skipJsonBracketedValue(s, i, "{", "}");
+    if (ch === "[") return skipJsonBracketedValue(s, i, "[", "]");
+    if (s.slice(i, i + 4) === "null") return i + 4;
+    if (s.slice(i, i + 4) === "true") return i + 4;
+    if (s.slice(i, i + 5) === "false") return i + 5;
+    while (i < s.length && /[0-9eE+.\-]/.test(s.charAt(i))) i++;
+    return i;
+  }
+
+  /** 解析 localStorage.json 前去掉指定键（字符串或对象值），避免整包 JSON.parse 超大剧情字段。 */
+  function stripJsonProperty(raw, key) {
     var s = String(raw);
     if (!key) return s;
     var needle = JSON.stringify(key) + ":";
     var idx = s.indexOf(needle);
     if (idx < 0) return s;
-    var i = idx + needle.length;
-    while (i < s.length && /\s/.test(s.charAt(i))) i++;
-    if (i >= s.length || s.charAt(i) !== '"') return s;
-    i++;
-    while (i < s.length) {
-      var ch = s.charAt(i);
-      if (ch === "\\") {
-        i += 2;
-        continue;
-      }
-      if (ch === '"') {
-        i++;
-        break;
-      }
-      i++;
-    }
+    var valueStart = idx + needle.length;
+    var valueEnd = skipJsonValueEnd(s, valueStart);
     var start = idx;
     while (start > 0 && /\s/.test(s.charAt(start - 1))) start--;
     if (start > 0 && s.charAt(start - 1) === ",") {
       start--;
     } else {
+      var i = valueEnd;
       while (i < s.length && /\s/.test(s.charAt(i))) i++;
-      if (i < s.length && s.charAt(i) === ",") i++;
+      if (i < s.length && s.charAt(i) === ",") valueEnd = i + 1;
     }
-    return s.slice(0, start) + s.slice(i);
+    return s.slice(0, start) + s.slice(valueEnd);
   }
 
   function stripBackupStorageNarrativeKeysFromJsonRaw(raw) {
-    var s = stripJsonStringProperty(raw, STORAGE_NARRATIVE);
-    s = stripJsonStringProperty(s, STORAGE_NARRATIVE_SYNC_AT);
+    var s = stripJsonProperty(raw, STORAGE_NARRATIVE);
+    s = stripJsonProperty(s, STORAGE_NARRATIVE_SYNC_AT);
     return s;
   }
 
@@ -1373,27 +1435,143 @@
     var needle = JSON.stringify(key) + ":";
     var idx = s.indexOf(needle);
     if (idx < 0) return null;
-    var i = idx + needle.length;
+    var valueStart = idx + needle.length;
+    var i = valueStart;
     while (i < s.length && /\s/.test(s.charAt(i))) i++;
     if (i >= s.length || s.charAt(i) !== '"') return null;
     var start = i;
-    i++;
-    while (i < s.length) {
-      var ch = s.charAt(i);
-      if (ch === "\\") {
-        i += 2;
-        continue;
+    var end = skipJsonStringLiteral(s, i);
+    if (end < 0) return null;
+    try {
+      return JSON.parse(s.slice(start, end));
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /** 将 localStorage 快照里的剧情字段规范为 JSON 字符串（兼容旧备份直接嵌对象）。 */
+  function narrativeRawFromStorageValue(v) {
+    if (typeof v === "string" && v.length) return v;
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      try {
+        return JSON.stringify(v);
+      } catch (e) {
+        return null;
       }
-      if (ch === '"') {
-        try {
-          return JSON.parse(s.slice(start, i + 1));
-        } catch (e) {
-          return null;
-        }
-      }
-      i++;
     }
     return null;
+  }
+
+  /** 剧情 JSON 是否含有可恢复的角色/剧情/世界书数据。 */
+  function narrativeBlobHasContent(raw) {
+    if (!raw || typeof raw !== "string") return false;
+    try {
+      const o = JSON.parse(stripJsonUtf8Bom(raw));
+      if (!o || typeof o !== "object" || Array.isArray(o)) return false;
+      const chars = Array.isArray(o.characters) ? o.characters.length : 0;
+      const plots = Array.isArray(o.plots) ? o.plots.length : 0;
+      const wbs = Array.isArray(o.worldBooks) ? o.worldBooks.length : 0;
+      return chars > 0 || plots > 0 || wbs > 0;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function narrativeBlobContentScore(raw) {
+    if (!raw || typeof raw !== "string") return -1;
+    try {
+      const o = JSON.parse(stripJsonUtf8Bom(raw));
+      if (!o || typeof o !== "object" || Array.isArray(o)) return raw.length;
+      const chars = Array.isArray(o.characters) ? o.characters.length : 0;
+      const plots = Array.isArray(o.plots) ? o.plots.length : 0;
+      const wbs = Array.isArray(o.worldBooks) ? o.worldBooks.length : 0;
+      return chars + plots * 10 + wbs * 3;
+    } catch (e) {
+      return raw.length;
+    }
+  }
+
+  /** 导入时合并多份剧情：优先内容更完整的一份，再比 savedAt / 体积。 */
+  function pickBetterNarrativeRawForImport(a, b) {
+    if (!a) return b;
+    if (!b) return a;
+    const scoreA = narrativeBlobContentScore(a);
+    const scoreB = narrativeBlobContentScore(b);
+    if (scoreA !== scoreB) return scoreA > scoreB ? a : b;
+    return pickNewerNarrativeRaw(a, b);
+  }
+
+  const BACKUP_STORAGE_FULL_PARSE_MAX = 48 * 1024 * 1024;
+
+  /** 从 localStorage.json 原文提取剧情（字符串字段、嵌套对象、整包解析多路兼容）。 */
+  function extractNarrativeFromBackupStorageRaw(raw) {
+    if (!raw || typeof raw !== "string") return null;
+    var fromString = extractJsonStringProperty(raw, STORAGE_NARRATIVE);
+    if (fromString && isBackupNarrativeJsonValid(fromString)) return fromString;
+    if (raw.length <= BACKUP_STORAGE_FULL_PARSE_MAX) {
+      try {
+        var obj = JSON.parse(stripJsonUtf8Bom(raw));
+        if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+          var fromObj = narrativeRawFromStorageValue(obj[STORAGE_NARRATIVE]);
+          if (fromObj && isBackupNarrativeJsonValid(fromObj)) return fromObj;
+        }
+      } catch (eFull) {}
+    }
+    if (fromString && typeof fromString === "string" && fromString.length > 20) return fromString;
+    return null;
+  }
+
+  function backupStorageRawHintsNarrative(raw) {
+    if (!raw || typeof raw !== "string") return false;
+    return raw.indexOf(JSON.stringify(STORAGE_NARRATIVE)) >= 0;
+  }
+
+  function zipCollectNarrativeFileEntries(zip) {
+    const out = [];
+    const seen = new Set();
+    function pushEntry(entry) {
+      if (!entry || entry.dir) return;
+      const name = entry.name || "";
+      if (!name || seen.has(name)) return;
+      seen.add(name);
+      out.push(entry);
+    }
+    for (let i = 0; i < BACKUP_LEGACY_NARRATIVE_FILES.length; i++) {
+      pushEntry(zipGetFileInsensitive(zip, BACKUP_LEGACY_NARRATIVE_FILES[i]));
+    }
+    const skipBases = {
+      "manifest.json": 1,
+      "localstorage.json": 1,
+    };
+    const names = Object.keys(zip.files || {}).sort();
+    for (let i = 0; i < names.length; i++) {
+      const name = names[i];
+      const meta = zip.files[name];
+      if (!meta || meta.dir) continue;
+      const base = name.split("/").pop().toLowerCase();
+      if (!base.endsWith(".json")) continue;
+      if (skipBases[base]) continue;
+      if (base.indexOf("manifest") >= 0 && base !== "manifest.json") continue;
+      pushEntry(zip.file(name));
+    }
+    return out;
+  }
+
+  async function readBestNarrativeFromZipEntries(entries) {
+    var best = null;
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      if (!entry) continue;
+      let raw = null;
+      try {
+        raw = await entry.async("string");
+      } catch (eRead) {
+        continue;
+      }
+      if (!raw || !isBackupNarrativeJsonValid(raw)) continue;
+      best = pickBetterNarrativeRawForImport(best, raw);
+    }
+    return best;
   }
 
   function zipGetNarrativeEntry(zip) {
@@ -1519,20 +1697,13 @@
         throw new Error("BACKUP_FILE_MISSING");
       }
       var storageRaw = await storageEntry.async("string");
-      var narrativeFromStorage = extractJsonStringProperty(storageRaw, STORAGE_NARRATIVE);
+      var narrativeFromStorage = extractNarrativeFromBackupStorageRaw(storageRaw);
       var snapshotParseRaw = stripBackupStorageNarrativeKeysFromJsonRaw(storageRaw);
       const snapshot = parseBackupStorageJson(snapshotParseRaw);
-      var importedNar = null;
-      const narrativeEntry = zipGetNarrativeEntry(zip);
-      if (narrativeEntry) {
-        try {
-          importedNar = await narrativeEntry.async("string");
-        } catch (_eNarFile) {}
-      }
-      if (!importedNar && narrativeFromStorage) {
-        importedNar = narrativeFromStorage;
-      } else if (importedNar && narrativeFromStorage) {
-        importedNar = pickNewerNarrativeRaw(narrativeFromStorage, importedNar);
+      var importedNar = await readBestNarrativeFromZipEntries(zipCollectNarrativeFileEntries(zip));
+      importedNar = pickBetterNarrativeRawForImport(narrativeFromStorage, importedNar);
+      if (backupStorageRawHintsNarrative(storageRaw) && !importedNar) {
+        throw new Error("BACKUP_NARRATIVE_EXTRACT_FAILED");
       }
       let manifest;
       if (manifestEntry) {
@@ -1554,6 +1725,20 @@
       delete snapshot[STORAGE_NARRATIVE_SYNC_AT];
       restoreBackupLocalStorageSnapshot(snapshot);
       await applyImportedNarrativeJson(importedNar);
+      if (importedNar && narrativeBlobHasContent(importedNar)) {
+        let verifyNar = null;
+        try {
+          verifyNar = await idbGetNarrativeJson();
+        } catch (_eVerify) {}
+        if (!verifyNar) {
+          try {
+            verifyNar = localStorage.getItem(STORAGE_NARRATIVE);
+          } catch (_eLsVerify) {}
+        }
+        if (!verifyNar || !narrativeBlobHasContent(verifyNar)) {
+          throw new Error("BACKUP_NARRATIVE_PERSIST_FAILED");
+        }
+      }
       /**
        * 必须立刻禁止持久化并向磁盘 flush：否则会话内存仍是「导入前」的空数据，
        * reload 前的 beforeunload/pagehide 会把空 narrative 写回盖掉刚导入的内容。
@@ -1606,6 +1791,9 @@
         msg = "导入备份失败：localStorage.json 格式不正确。";
       } else if (e && e.message === "BACKUP_NARRATIVE_INVALID") {
         msg = "导入备份失败：剧情数据损坏或格式不正确。";
+      } else if (e && e.message === "BACKUP_NARRATIVE_EXTRACT_FAILED") {
+        msg =
+          "导入备份失败：未能从备份中读出角色/剧情数据（旧版格式）。请确认 ZIP 内 localStorage.json 完整，或换用较新的备份重试。";
       } else if (e && e.message === "BACKUP_STORAGE_QUOTA") {
         msg =
           "导入备份失败：浏览器本地存储空间不足（剧情数据较大）。请刷新后重试，或换用支持 IndexedDB 的浏览器。";
@@ -9443,11 +9631,15 @@
     if (raw && typeof raw === "string") {
       try {
         await idbPutNarrativeJson(raw);
-      } catch (eConsolidate) {}
-      try {
-        localStorage.removeItem(STORAGE_NARRATIVE);
-        localStorage.removeItem(STORAGE_NARRATIVE_SYNC_AT);
-      } catch (eRm) {}
+        try {
+          localStorage.removeItem(STORAGE_NARRATIVE);
+          localStorage.removeItem(STORAGE_NARRATIVE_SYNC_AT);
+        } catch (eRm) {}
+      } catch (eConsolidate) {
+        try {
+          persistNarrativeSyncMirror(raw);
+        } catch (eLsMirror) {}
+      }
     }
     applyOneTimeNarrativePresetWipe();
     normalizeItemCategories();
