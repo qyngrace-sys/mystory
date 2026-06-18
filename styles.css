@@ -5445,8 +5445,9 @@ html[data-theme="dark"] .knock-chat__event--selected .knock-chat__event-check {
   gap: 6px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  touch-action: pan-x;
+  touch-action: pan-x pinch-zoom;
   overscroll-behavior-x: contain;
+  overscroll-behavior-y: none;
   padding-bottom: 6px;
 }
 
@@ -5569,7 +5570,7 @@ html[data-theme="dark"] .knock-chat__event--selected .knock-chat__event-check {
   justify-content: flex-end;
   background: var(--overlay-scrim);
   pointer-events: auto;
-  touch-action: none;
+  overscroll-behavior: none;
 }
 
 .knock-sticker-manage-overlay__sheet {
@@ -5579,6 +5580,7 @@ html[data-theme="dark"] .knock-chat__event--selected .knock-chat__event-check {
   overflow: hidden;
   padding: 0;
   padding-bottom: env(safe-area-inset-bottom, 0px);
+  touch-action: manipulation;
 }
 
 .knock-sticker-manage__header {
@@ -5592,6 +5594,7 @@ html[data-theme="dark"] .knock-chat__event--selected .knock-chat__event-check {
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
   padding: 0 16px 16px;
   display: flex;
   flex-direction: column;
@@ -5655,7 +5658,11 @@ html[data-theme="dark"] .knock-chat__event--selected .knock-chat__event-check {
   display: flex;
   gap: 6px;
   overflow-x: auto;
+  overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pinch-zoom;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: none;
   padding: 2px 0;
 }
 
@@ -5926,7 +5933,7 @@ html[data-theme="dark"] .knock-chat__event--selected .knock-chat__event-check {
   align-items: stretch;
   background: var(--overlay-scrim);
   pointer-events: auto;
-  touch-action: none;
+  overscroll-behavior: none;
 }
 
 .knock-setup-overlay[hidden] {
@@ -5949,7 +5956,7 @@ html[data-theme="dark"] .knock-chat__event--selected .knock-chat__event-check {
   gap: 0;
   overflow: hidden;
   pointer-events: auto;
-  touch-action: pan-y;
+  touch-action: manipulation;
   animation: sheetUp 0.25s ease;
   box-sizing: border-box;
 }
@@ -7124,8 +7131,9 @@ html[data-theme="dark"] .btn--danger {
   overflow-y: hidden;
   padding-bottom: 12px;
   -webkit-overflow-scrolling: touch;
-  touch-action: pan-x;
+  touch-action: pan-x pinch-zoom;
   overscroll-behavior-x: contain;
+  overscroll-behavior-y: none;
   scroll-snap-type: none;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -8802,10 +8810,16 @@ select.field__input:-webkit-autofill:focus {
   overflow-y: hidden;
   padding: 8px 0 4px;
   -webkit-overflow-scrolling: touch;
-  touch-action: pan-x;
+  touch-action: pan-x pinch-zoom;
   overscroll-behavior-x: contain;
+  overscroll-behavior-y: none;
   scrollbar-width: none;
   -ms-overflow-style: none;
+}
+
+.is-h-scroll-dragging {
+  overflow-y: hidden !important;
+  overscroll-behavior: none;
 }
 
 .h-scroll::-webkit-scrollbar {

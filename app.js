@@ -2640,7 +2640,9 @@
   /** 敲敲：角色横向列表滑动时避免误触选中 */
   let horizontalScrollGuard = null;
   const HORIZONTAL_SCROLL_SELECTOR =
-    ".h-scroll, .pill-row, .phone-forum__pill-scroll, .phone-jjwxc__pill-scroll, .knock-sticker-panel__tabs";
+    ".h-scroll, .pill-row, .phone-forum__pill-scroll, .phone-jjwxc__pill-scroll, .knock-sticker-panel__tabs, .knock-sticker-manage__pack-tabs";
+  /** 横向滑动分组时，临时锁住外层纵向滚动容器，避免弹窗/面板跟着上下位移 */
+  let horizontalScrollAxisLock = null;
   /** 敲敲：用户自定义表情包分组 [{ id, name, stickers: [{ id, url, name? }], mounted?: boolean }]；挂载后仅主要角色 AI 可按名称发送 */
   let knockStickerPacks = [];
   /** 敲敲：是否展开表情包选择面板 */
@@ -12814,8 +12816,9 @@
   }
 
   function knockCanGenerateReply() {
+    if (!isKnockChatReady()) return false;
     const msgs = getKnockChatMessages();
-    if (!msgs.length) return false;
+    if (!msgs.length) return isKnockContextReady();
     const last = msgs[msgs.length - 1];
     return last.role === "user" || last.role === "assistant";
   }
@@ -14736,12 +14739,6 @@
         label: "链接",
         icon:
           '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>',
-      },
-      {
-        action: "listen",
-        label: "倾听",
-        icon:
-          '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a7 7 0 000 14h1a6 6 0 000-12h-1"/><path d="M9 9l-3 3 3 3"/></svg>',
       },
     ];
     return (
@@ -18990,6 +18987,83 @@
     return false;
   }
 
+  function findVerticalScrollParentForHorizontalLock(el) {
+    let node = el && el.parentElement;
+    while (node) {
+      if (node === document.body || node === document.documentElement) break;
+      try {
+        const st = window.getComputedStyle(node);
+        const oy = st.overflowY;
+        if (
+          (oy === "auto" || oy === "scroll" || oy === "overlay") &&
+          node.scrollHeight > node.clientHeight + 1
+        ) {
+          return node;
+        }
+      } catch (_eSt) {}
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  function clearHorizontalScrollAxisLock() {
+    if (horizontalScrollAxisLock && horizontalScrollAxisLock.parent) {
+      try {
+        horizontalScrollAxisLock.parent.classList.remove("is-h-scroll-dragging");
+      } catch (_eCls) {}
+    }
+    horizontalScrollAxisLock = null;
+  }
+
+  function bindHorizontalScrollAxisLock() {
+    if (document.documentElement.dataset.hScrollAxisLockBound) return;
+    document.documentElement.dataset.hScrollAxisLockBound = "1";
+    document.addEventListener(
+      "touchstart",
+      function (e) {
+        const el =
+          e.target && e.target.closest && e.target.closest(HORIZONTAL_SCROLL_SELECTOR);
+        if (!el) {
+          clearHorizontalScrollAxisLock();
+          return;
+        }
+        const t = e.touches && e.touches[0];
+        if (!t) return;
+        horizontalScrollAxisLock = {
+          el: el,
+          parent: findVerticalScrollParentForHorizontalLock(el),
+          x: t.clientX,
+          y: t.clientY,
+          axis: null,
+        };
+      },
+      { passive: true }
+    );
+    document.addEventListener(
+      "touchmove",
+      function (e) {
+        const lock = horizontalScrollAxisLock;
+        if (!lock || !lock.el) return;
+        const t = e.touches && e.touches[0];
+        if (!t) return;
+        const dx = t.clientX - lock.x;
+        const dy = t.clientY - lock.y;
+        if (lock.axis === null) {
+          if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+          lock.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+          if (lock.axis === "x" && lock.parent) {
+            try {
+              lock.parent.classList.add("is-h-scroll-dragging");
+            } catch (_eAdd) {}
+          }
+        }
+      },
+      { passive: true }
+    );
+    document.addEventListener("touchend", clearHorizontalScrollAxisLock, { passive: true });
+    document.addEventListener("touchcancel", clearHorizontalScrollAxisLock, { passive: true });
+  }
+
   function mountKnockMomentsPanelAfterRender(slot, opts) {
     opts = opts && typeof opts === "object" ? opts : {};
     const root = slot || els.knockContentSlot();
@@ -21743,13 +21817,14 @@
         "」的对话框</p>" +
         (pendingSetup
           ? '<p class="field__hint">请前往 <button type="button" class="knock-chat__goto-me" data-knock-goto-me>「我」</button> 设定契机后开始聊</p>'
-          : '<p class="field__hint">契机背景已就绪，等对方先开口或你来打破沉默</p>') +
+          : '<p class="field__hint">契机背景已就绪，可点右上角生成让对方先开口，或直接发消息</p>') +
         "</div>";
     }
     const genLoadingCls =
       knockReplyGenerating || knockVisualImageGenerating ? " phone-wechat-gen-btn--loading" : "";
     const genDisabled =
       pendingSetup || !knockCanGenerateReply() || knockReplyGenerating || knockVisualImageGenerating || knockSelectMode;
+    const genTitle = msgs.length ? "生成对方回复" : "生成对方开场";
     const regenDisabled =
       pendingSetup ||
       !knockHasTrailingAssistantReply() ||
@@ -21817,7 +21892,11 @@
       "</button>" +
       '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn phone-wechat-chat-action phone-wechat-chat-action--generate' +
       genLoadingCls +
-      '" data-knock-generate aria-label="生成对方回复" title="生成对方回复"' +
+      '" data-knock-generate aria-label="' +
+      escapeHtml(genTitle) +
+      '" title="' +
+      escapeHtml(genTitle) +
+      '"' +
       (genDisabled ? " disabled" : "") +
       ">" +
       buildPhoneWechatStarIconSvg() +
@@ -22242,12 +22321,21 @@
     if (knockReplyGenerating) return;
     if (knockSelectMode) return;
     if (!isKnockChatReady()) return;
-    if (!knockCanGenerateReply()) {
-      showToast("请先发送一条消息，或等对方回复后再点生成。", "info");
-      return;
-    }
     const rec = getKnockChatRecordMutable();
     if (!rec) return;
+    const msgs = Array.isArray(rec.messages) ? rec.messages : [];
+    if (!msgs.length) {
+      if (!isKnockContextReady()) {
+        showToast("请先在「我」中设定契机背景。", "info");
+        return;
+      }
+      await generateKnockOpeningReply(els.knockContentSlot());
+      return;
+    }
+    if (!knockCanGenerateReply()) {
+      showToast("当前对话状态无法生成，请先发送消息或等对方回复后再试。", "info");
+      return;
+    }
     const continuing = !knockAwaitingReply();
     knockReplyGenerating = true;
     const slot = els.knockContentSlot();
@@ -49723,8 +49811,6 @@
             xhsInput.focus();
           }
         }
-      } else if (action === "listen") {
-        void playLatestKnockMessageTts();
       }
       return true;
     }
@@ -52273,6 +52359,7 @@
   ensureAssistantPersonaPresetAppliedOnce();
   initStatusBar();
   bindBackupFileInput();
+  bindHorizontalScrollAxisLock();
   bindSettingsDelegation();
   bindNav();
   bindOverviewWorkbenchActions();
