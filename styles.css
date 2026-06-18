@@ -504,7 +504,7 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
 
 #fanwork-content-slot .phone-jjwxc__bar-trail,
 #story-fanwork-slot .phone-jjwxc__bar-trail {
-  gap: 2px;
+  gap: 0;
 }
 
 #fanwork-content-slot .phone-jjwxc__pill-wrap,
@@ -831,33 +831,32 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
   display: none !important;
 }
 
-.workbench-widgets {
+.workbench-mosaic {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  grid-auto-rows: minmax(88px, auto);
-  gap: 11px;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: 58px minmax(100px, auto) minmax(76px, auto);
+  grid-template-areas:
+    "theme   rewrite worldbook"
+    "knock   knock   phone"
+    "collect fanwork fanwork";
+  gap: 6px 8px;
+  padding: 2px 8px 6px;
   flex-shrink: 0;
-  padding: 4px 2px 8px;
 }
 
 .workbench-card {
-  --wb-raise: color-mix(in srgb, white 72%, transparent);
-  --wb-sink: color-mix(in srgb, var(--accent) 14%, transparent);
+  --wb-raise: color-mix(in srgb, white 78%, transparent);
+  --wb-sink: color-mix(in srgb, var(--accent) 11%, transparent);
   margin: 0;
-  border: 1px solid color-mix(in srgb, var(--accent) 14%, transparent);
-  background:
-    linear-gradient(
-      152deg,
-      color-mix(in srgb, var(--accent) 9%, var(--surface)) 0%,
-      color-mix(in srgb, var(--accent) 4%, var(--bg)) 100%
-    );
-  border-radius: 22px;
-  padding: 12px 10px 10px;
+  border: none;
+  background: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%);
+  border-radius: 20px;
+  padding: 10px 8px 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 5px;
   text-align: center;
   cursor: pointer;
   font: inherit;
@@ -866,27 +865,167 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
   appearance: none;
   box-shadow:
     5px 5px 14px var(--wb-sink),
-    -3px -3px 10px var(--wb-raise),
-    inset 0 1px 0 color-mix(in srgb, white 55%, transparent);
+    -4px -4px 12px var(--wb-raise),
+    inset 0 1px 0 color-mix(in srgb, white 62%, transparent);
   -webkit-tap-highlight-color: transparent;
   min-height: 0;
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+}
+
+.workbench-card:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  outline-offset: 2px;
 }
 
 .workbench-card:active {
   box-shadow:
     2px 2px 8px var(--wb-sink),
     -1px -1px 6px var(--wb-raise),
-    inset 0 1px 0 color-mix(in srgb, white 40%, transparent);
+    inset 0 1px 0 color-mix(in srgb, white 42%, transparent);
 }
 
-.workbench-card--theme:active { transform: scale(0.97) rotate(-1.2deg); }
-.workbench-card--rewrite:active { transform: scale(0.97) rotate(1.5deg); }
-.workbench-card--worldbook:active { transform: scale(0.97) rotate(0.6deg); }
-.workbench-card--knock:active { transform: scale(0.97) rotate(-0.8deg); }
-.workbench-card--dial:active { transform: scale(0.97) rotate(-1deg); }
-.workbench-card--phone:active { transform: scale(0.97) rotate(1deg); }
-.workbench-card--fanwork:active { transform: scale(0.97) rotate(-0.4deg); }
+.workbench-card--theme:active,
+.workbench-card--rewrite:active,
+.workbench-card--worldbook:active {
+  transform: scale(0.96);
+  opacity: 0.82;
+}
+
+.workbench-card--knock:active { transform: scale(0.98) rotate(-0.6deg); }
+.workbench-card--phone:active { transform: scale(0.97) rotate(0.5deg); }
+.workbench-card--collect:active { transform: scale(0.97) rotate(-0.4deg); }
+.workbench-card--fanwork:active { transform: scale(0.98); }
+
+/* 顶部三个：精致小巧 */
+.workbench-card--mini {
+  padding: 6px 7px 5px;
+  border-radius: 14px;
+  gap: 3px;
+  box-shadow:
+    3px 3px 9px var(--wb-sink),
+    -2px -2px 7px var(--wb-raise),
+    inset 0 1px 0 color-mix(in srgb, white 55%, transparent);
+}
+
+.workbench-card--mini .workbench-card__visual {
+  min-height: 0;
+  flex: 0 0 auto;
+}
+
+.workbench-card--mini .workbench-glyph {
+  width: 26px;
+  filter: drop-shadow(0 1px 4px color-mix(in srgb, var(--accent) 14%, transparent));
+}
+
+.workbench-card--mini .workbench-card__title {
+  font-size: 0.58rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+  color: color-mix(in srgb, var(--accent) 65%, var(--muted));
+}
+
+.workbench-card--theme {
+  grid-area: theme;
+  border-radius: 12px 16px 14px 12px;
+  transform: rotate(-0.6deg);
+}
+
+.workbench-card--rewrite {
+  grid-area: rewrite;
+  border-radius: 14px 18px 12px 16px;
+  transform: rotate(0.5deg);
+}
+
+.workbench-card--worldbook {
+  grid-area: worldbook;
+  border-radius: 16px 12px 14px 18px;
+  transform: rotate(-0.3deg);
+}
+
+.workbench-card--feature {
+  min-height: 0;
+  padding: 12px 10px 10px;
+}
+
+.workbench-card--feature .workbench-card__visual {
+  min-height: 0;
+  flex: 1;
+}
+
+.workbench-card--feature .workbench-glyph {
+  width: min(54px, 78%);
+}
+
+.workbench-card--knock {
+  grid-area: knock;
+  border-radius: 22px 26px 24px 20px;
+  padding: 16px 14px;
+  transform: rotate(-0.6deg);
+}
+
+.workbench-card--knock .workbench-glyph {
+  width: min(60px, 74%);
+}
+
+.workbench-card--knock .workbench-card__title {
+  font-size: 0.84rem;
+}
+
+.workbench-card--phone {
+  grid-area: phone;
+  border-radius: 18px 22px 20px 16px;
+  padding: 12px 14px;
+  transform: rotate(0.5deg);
+}
+
+.workbench-card--phone .workbench-glyph {
+  width: min(48px, 72%);
+}
+
+.workbench-card--phone .workbench-card__title {
+  font-size: 0.76rem;
+}
+
+.workbench-card--collect {
+  grid-area: collect;
+  border-radius: 16px 20px 18px 14px;
+  padding: 12px 14px;
+  transform: rotate(-0.4deg);
+}
+
+.workbench-card--collect .workbench-glyph {
+  width: min(46px, 70%);
+}
+
+.workbench-card--collect .workbench-card__title {
+  font-size: 0.76rem;
+}
+
+.workbench-card--fanwork {
+  grid-area: fanwork;
+  border-radius: 999px;
+  flex-direction: row;
+  gap: 10px;
+  padding: 11px 24px;
+  justify-self: stretch;
+  transform: rotate(0.1deg);
+}
+
+.workbench-card--fanwork .workbench-card__visual {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 0;
+}
+
+.workbench-card--fanwork .workbench-glyph {
+  width: 42px;
+}
+
+.workbench-card--fanwork .workbench-card__title {
+  font-size: 0.82rem;
+  flex-shrink: 0;
+}
 
 .workbench-card__visual {
   display: flex;
@@ -936,106 +1075,62 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
 }
 
 .workbench-card__title {
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.03em;
   line-height: 1.15;
-  color: color-mix(in srgb, var(--accent) 72%, var(--text));
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
   flex-shrink: 0;
 }
 
-/* 分散式小组件布局 */
-.workbench-card--theme {
-  grid-column: 1 / 4;
-  grid-row: 1;
-  border-radius: 26px;
-  transform: rotate(-1.2deg);
-}
-
-.workbench-card--rewrite {
-  grid-column: 4 / 7;
-  grid-row: 1 / 3;
-  border-radius: 50%;
-  padding: 14px 10px 12px;
-  transform: rotate(1.5deg);
-}
-
-.workbench-card--worldbook {
-  grid-column: 1 / 4;
-  grid-row: 2 / 4;
-  border-radius: 18px 18px 28px 18px;
-  transform: rotate(0.6deg);
-}
-
-.workbench-card--worldbook .workbench-glyph,
-.workbench-card--dial .workbench-glyph {
-  width: min(64px, 84%);
-}
-
-.workbench-card--knock {
-  grid-column: 4 / 7;
-  grid-row: 3;
-  border-radius: 20px 20px 20px 6px;
-  transform: rotate(-0.8deg);
-}
-
-.workbench-card--dial {
-  grid-column: 1 / 4;
-  grid-row: 4;
-  border-radius: 24px;
-  transform: rotate(-1deg);
-}
-
-.workbench-card--dial .workbench-glyph {
-  width: min(62px, 84%);
-}
-
-.workbench-card--phone {
-  grid-column: 4 / 7;
-  grid-row: 4;
-  border-radius: 20px;
-  transform: rotate(1deg);
-}
-
-.workbench-card--fanwork {
-  grid-column: 2 / 6;
-  grid-row: 5;
-  border-radius: 999px;
-  flex-direction: row;
-  gap: 10px;
-  padding: 10px 18px;
-  min-height: 72px;
-  transform: rotate(-0.4deg);
-}
-
-.workbench-card--fanwork .workbench-card__visual {
-  flex: 0 0 auto;
-  width: auto;
-  min-height: 0;
-}
-
-.workbench-card--fanwork .workbench-glyph {
-  width: 44px;
-}
-
-.workbench-card--fanwork .workbench-card__title {
-  font-size: 0.82rem;
-}
-
 html[data-theme="dark"] .workbench-card {
-  --wb-raise: color-mix(in srgb, white 6%, transparent);
-  --wb-sink: color-mix(in srgb, black 42%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
-  background:
-    linear-gradient(
-      152deg,
-      color-mix(in srgb, var(--accent) 14%, var(--surface)) 0%,
-      color-mix(in srgb, var(--accent) 8%, var(--bg)) 100%
-    );
+  --wb-raise: color-mix(in srgb, white 5%, transparent);
+  --wb-sink: color-mix(in srgb, black 38%, transparent);
+  background: color-mix(in srgb, var(--surface) 82%, var(--accent) 18%);
   box-shadow:
     5px 5px 16px var(--wb-sink),
     -2px -2px 8px var(--wb-raise),
+    inset 0 1px 0 color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+html[data-theme="dark"] .workbench-card--mini {
+  box-shadow:
+    3px 3px 10px var(--wb-sink),
+    -1px -1px 6px var(--wb-raise),
+    inset 0 1px 0 color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+html[data-theme="dark"] .workbench-card:focus-visible {
+  outline-color: color-mix(in srgb, var(--accent) 65%, white);
+}
+
+html[data-theme="dark"] .envelope-body {
+  background:
+    linear-gradient(145deg,
+      color-mix(in srgb, var(--surface) 92%, white) 0%,
+      color-mix(in srgb, var(--surface) 82%, var(--accent) 12%) 100%);
+  box-shadow:
+    4px 6px 18px color-mix(in srgb, black 35%, transparent),
+    -1px -1px 6px color-mix(in srgb, white 8%, transparent),
     inset 0 1px 0 color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+html[data-theme="dark"] .envelope-photo-slot {
+  background: color-mix(in srgb, var(--bg) 60%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+html[data-theme="dark"] .envelope-upload-hint {
+  color: color-mix(in srgb, var(--accent) 42%, var(--muted));
+}
+
+html[data-theme="dark"] .envelope-decor {
+  color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+html[data-theme="dark"] .envelope-handwrite {
+  color: color-mix(in srgb, var(--accent) 48%, var(--muted));
+  text-shadow: 0 1px 1px color-mix(in srgb, black 20%, transparent);
 }
 
 html[data-theme="dark"] .wb-g__paper {
@@ -1046,165 +1141,137 @@ html[data-theme="dark"] .workbench-glyph {
   filter: drop-shadow(0 4px 10px color-mix(in srgb, var(--accent) 28%, black));
 }
 
-/** 点星底部：简约小狗装饰（纯视觉，无交互） */
-.workbench-scene {
+/** 点星底部：信封装饰（可上传照片） */
+.workbench-envelope {
   flex: 1;
-  min-height: 140px;
+  min-height: 148px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   position: relative;
-  padding: 12px 8px 4px;
-  margin-top: 6px;
-  pointer-events: none;
-  user-select: none;
+  padding: 6px 10px 8px;
+  margin-top: 4px;
   color: var(--text);
 }
 
-.workbench-scene__glow {
-  position: absolute;
-  left: 50%;
-  top: 54%;
-  width: min(220px, 72vw);
-  height: min(120px, 38vw);
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  background: radial-gradient(
-    ellipse at center,
-    color-mix(in srgb, var(--accent) 10%, transparent) 0%,
-    transparent 72%
-  );
-  opacity: 0.85;
-}
-
-.workbench-scene__paw-trail {
-  position: absolute;
-  left: 50%;
-  top: 18%;
-  width: min(280px, 88vw);
-  height: auto;
-  transform: translateX(-50%);
-  color: var(--accent);
-  pointer-events: none;
-}
-
-.workbench-scene__figure {
+/* 信封主体 */
+.envelope-body {
   position: relative;
-  margin: 0;
+  width: 88%;
+  max-width: 268px;
+  min-height: 112px;
+  background:
+    linear-gradient(152deg,
+      color-mix(in srgb, var(--surface) 94%, white) 0%,
+      color-mix(in srgb, var(--surface) 86%, var(--accent) 10%) 100%);
+  border-radius: 8px;
+  box-shadow:
+    3px 5px 14px color-mix(in srgb, var(--accent) 10%, transparent),
+    -2px -2px 7px color-mix(in srgb, white 55%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 50%, transparent);
   z-index: 1;
+  overflow: visible;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 12px 12px;
 }
 
-.workbench-scene__puppy {
-  display: block;
-  width: min(132px, 42vw);
-  height: auto;
-  color: var(--accent);
+/* 照片槽（虚线边框） */
+.envelope-photo-slot {
+  position: relative;
+  width: 62%;
+  aspect-ratio: 1 / 1;
+  background: color-mix(in srgb, var(--bg) 65%, var(--surface));
+  border: 1px dashed color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
 }
 
-.workbench-scene__puppy-body {
-  transform-origin: 66px 72px;
-  animation: workbench-puppy-breathe 4.8s ease-in-out infinite;
+.envelope-photo-slot:hover {
+  transform: scale(1.012);
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
 }
 
-.workbench-scene__tail-wrap {
-  transform-origin: 96px 54px;
-  animation: workbench-tail-wag 3.6s ease-in-out infinite;
+.envelope-photo-slot:active {
+  transform: scale(0.988);
 }
 
-.workbench-scene__zzz {
+.envelope-photo {
   position: absolute;
-  right: -4px;
-  top: -6px;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 5px;
+  transform: rotate(-1.8deg);
+  transform-origin: center;
+}
+
+.envelope-upload-hint {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: center;
+  justify-content: center;
   gap: 2px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  color: color-mix(in srgb, var(--accent) 42%, var(--muted2));
-  opacity: 0.55;
-}
-
-.workbench-scene__z {
-  display: block;
-  line-height: 1;
-  animation: workbench-zzz-float 2.8s ease-in-out infinite;
-}
-
-.workbench-scene__z:nth-child(2) {
-  font-size: 0.86em;
-  margin-right: 6px;
-  animation-delay: 0.45s;
-}
-
-.workbench-scene__z:nth-child(3) {
-  font-size: 1.02em;
-  margin-right: 12px;
-  animation-delay: 0.9s;
-}
-
-.workbench-scene__caption {
-  margin: 10px 0 0;
-  font-size: 0.72rem;
-  letter-spacing: 0.12em;
-  color: var(--muted2);
-  opacity: 0.72;
+  font-size: 0.64rem;
+  color: color-mix(in srgb, var(--accent) 42%, var(--muted));
   text-align: center;
-  z-index: 1;
+  line-height: 1.25;
 }
 
-@keyframes workbench-puppy-breathe {
-  0%,
-  100% {
-    transform: scale(1) translateY(0);
-  }
-  50% {
-    transform: scale(1.018) translateY(-2px);
-  }
+.envelope-upload-hint svg {
+  margin-bottom: 1px;
 }
 
-@keyframes workbench-tail-wag {
-  0%,
-  100% {
-    transform: rotate(0deg);
-  }
-  40% {
-    transform: rotate(7deg);
-  }
-  70% {
-    transform: rotate(-4deg);
-  }
+.envelope-photo-slot:has(.envelope-photo:not([hidden])) .envelope-upload-hint {
+  display: none;
 }
 
-@keyframes workbench-zzz-float {
-  0%,
-  100% {
-    opacity: 0.35;
-    transform: translateY(0);
-  }
-  50% {
-    opacity: 0.75;
-    transform: translateY(-3px);
-  }
+/* 星星装饰（小菱形） */
+.envelope-decor {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: color-mix(in srgb, var(--accent) 32%, transparent);
+  font-size: 0.58rem;
+  z-index: 2;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .workbench-scene__puppy-body,
-  .workbench-scene__tail-wrap,
-  .workbench-scene__z {
-    animation: none;
-  }
+.envelope-star {
+  position: absolute;
+  animation: envelope-twinkle 2.6s ease-in-out infinite;
+  line-height: 1;
 }
 
-html[data-theme="dark"] .workbench-scene__glow {
-  opacity: 0.55;
+.envelope-star--1 { top: 8%; left: 9%; animation-delay: 0s; }
+.envelope-star--2 { top: 14%; right: 7%; animation-delay: 0.7s; }
+.envelope-star--3 { bottom: 11%; left: 11%; animation-delay: 1.4s; }
+
+@keyframes envelope-twinkle {
+  0%, 100% { opacity: 0.32; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.2); }
 }
 
-html[data-theme="dark"] .workbench-scene__caption {
-  opacity: 0.58;
+/* 手写文字 */
+.envelope-handwrite {
+  position: absolute;
+  bottom: 7px;
+  right: 12px;
+  font-family: "Liu Jian Mao Cao", "Ma Shan Zheng", cursive;
+  font-size: 0.72rem;
+  color: color-mix(in srgb, var(--accent) 48%, var(--muted));
+  letter-spacing: 0.04em;
+  transform: rotate(-4deg);
+  pointer-events: none;
+  text-shadow: 0 1px 1px color-mix(in srgb, white 35%, transparent);
 }
+
 
 .overview-subview {
   flex: 1;
@@ -1219,7 +1286,7 @@ html[data-theme="dark"] .workbench-scene__caption {
   display: none !important;
 }
 
-/* 敲敲 / 查手机 / 拨通：全屏沉浸，隐藏底栏导航 */
+/* 敲敲 / 查手机：全屏沉浸，隐藏底栏导航 */
 .app-shell--feature-fullscreen .bottom-nav {
   display: none;
 }
@@ -1230,7 +1297,6 @@ html[data-theme="dark"] .workbench-scene__caption {
 }
 
 .app-shell--feature-fullscreen #overview-sub-knock,
-.app-shell--feature-fullscreen #overview-sub-dial,
 .app-shell--feature-fullscreen #overview-sub-phone {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
@@ -1249,21 +1315,6 @@ html[data-theme="dark"] .workbench-scene__caption {
   max-height: 100%;
   min-height: 0;
   flex: 1 1 auto;
-}
-
-.phone-home__overview-back {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 30;
-  pointer-events: auto;
-}
-
-.phone-home--has-wallpaper .phone-home__overview-back {
-  color: rgba(255, 255, 255, 0.96);
-  background: rgba(0, 0, 0, 0.18);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
 }
 
 #overview-sub-phone .feature-view-body,
@@ -1326,24 +1377,6 @@ html[data-theme="dark"] .workbench-scene__caption {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-
-#overview-sub-dial .feature-view-body,
-#overview-sub-dial #dial-content-slot {
-  flex: 1;
-  min-height: 0;
-  height: 100%;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  overflow: hidden;
-}
-
-#overview-sub-dial #dial-content-slot .dial-app {
-  flex: 1;
-  min-height: 0;
-  height: 100%;
 }
 
 #overview-sub-knock #knock-content-slot .knock-chat,
@@ -1659,6 +1692,41 @@ html[data-theme="dark"] .workbench-scene__caption {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.knock-saved-pair-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.knock-saved-pair-row .knock-saved-pair {
+  flex: 1;
+  min-width: 0;
+}
+
+.knock-saved-pair__delete {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--danger, #e05252) 35%, var(--border));
+  background: color-mix(in srgb, var(--danger, #e05252) 6%, var(--surface));
+  color: color-mix(in srgb, var(--danger, #e05252) 85%, var(--text));
+  cursor: pointer;
+  padding: 0;
+}
+
+.knock-saved-pair__delete:hover {
+  background: color-mix(in srgb, var(--danger, #e05252) 12%, var(--surface));
+}
+
+.char-pick-avatar.is-bound {
+  opacity: 0.42;
+  cursor: not-allowed;
+  filter: grayscale(0.35);
 }
 
 .knock-saved-pair {
@@ -2275,1541 +2343,6 @@ html[data-theme="dark"] .phone-moments-post__comment--replyable:active {
 #overview-sub-knock .knock-chat--themed .knock-chat__bar {
   background: color-mix(in srgb, var(--surface) 90%, var(--bg));
   border-bottom-color: var(--border);
-}
-
-/* —— 拨通：通讯录与通话 —— */
-.dial-app {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  height: 100%;
-  position: relative;
-  overflow: hidden;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--accent) 5%, var(--bg)) 0%,
-    var(--bg) 28%,
-    var(--bg) 100%
-  );
-  color: var(--text);
-}
-
-.dial-app__bar {
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
-  display: grid;
-  grid-template-columns: 44px 1fr 44px;
-  align-items: center;
-  gap: 4px;
-  padding-right: 8px;
-}
-
-.dial-app__bar--centered .phone-app__back {
-  grid-column: 1;
-}
-
-.dial-app__bar-center {
-  grid-column: 2;
-  text-align: center;
-  min-width: 0;
-  padding: 4px 0 6px;
-}
-
-.dial-app__title {
-  margin: 0;
-  font-size: 1.05rem;
-  font-weight: 700;
-  line-height: 1.25;
-  letter-spacing: 0.02em;
-}
-
-.dial-app__identity-sub {
-  margin: 3px 0 0;
-  font-size: 0.72rem;
-  font-weight: 500;
-  line-height: 1.3;
-  opacity: 0.55;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.dial-app__identity-btn {
-  grid-column: 3;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  margin-left: auto;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  opacity: 0.82;
-}
-
-.dial-app__identity-btn:active {
-  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
-}
-
-.dial-app__identity-icon {
-  display: block;
-}
-
-.dial-app__bar-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.dial-app__subtitle {
-  margin: 2px 0 0;
-  font-size: 0.78rem;
-  opacity: 0.62;
-  line-height: 1.3;
-}
-
-.dial-app__body,
-.dial-phone-body {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-.dial-phone-body {
-  background: var(--bg);
-}
-
-.dial-phone-panel {
-  min-height: 100%;
-}
-
-.dial-phone-tabs {
-  flex-shrink: 0;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0;
-  border-top: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface) 94%, var(--bg));
-  padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
-}
-
-.dial-phone-tabs__item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  padding: 6px 4px;
-  border: none;
-  border-radius: 10px;
-  background: transparent;
-  color: color-mix(in srgb, var(--text) 55%, transparent);
-  font-size: 0.68rem;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.dial-phone-tabs__item--on {
-  color: var(--accent);
-}
-
-.dial-phone-tabs__icon {
-  opacity: 0.9;
-}
-
-.dial-phone-section__title {
-  margin: 0;
-  padding: 10px 16px 6px;
-  font-size: 0.78rem;
-  font-weight: 600;
-  opacity: 0.55;
-  text-transform: none;
-}
-
-.dial-phone-section__letter {
-  margin: 0;
-  padding: 4px 16px;
-  font-size: 0.82rem;
-  font-weight: 700;
-  opacity: 0.45;
-  background: color-mix(in srgb, var(--surface) 70%, var(--bg));
-}
-
-.dial-phone-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.dial-phone-list__item {
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
-}
-
-.dial-phone-row-wrap {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
-  align-items: start;
-  padding: 8px 2px 8px 12px;
-  column-gap: 2px;
-  row-gap: 1px;
-}
-
-.dial-phone-row__body {
-  grid-column: 1;
-  grid-row: 1 / -1;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  min-width: 0;
-}
-
-.dial-phone-row__body--tap {
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.dial-phone-row__body--tap:active {
-  opacity: 0.86;
-}
-
-.dial-phone-row__body--static {
-  cursor: default;
-}
-
-.dial-phone-row-wrap--contact .dial-phone-row__body {
-  align-items: center;
-}
-
-.dial-phone-row__text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.dial-phone-row__actions {
-  grid-column: 2;
-  grid-row: 1;
-  align-self: start;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0;
-  flex-shrink: 0;
-  padding-top: 1px;
-}
-
-.dial-phone-row-wrap--contact .dial-phone-row__actions {
-  align-self: center;
-  padding-top: 0;
-}
-
-.dial-phone-row__delete {
-  flex-shrink: 0;
-}
-
-.dial-row-action {
-  flex-shrink: 0;
-}
-
-.dial-row-action-icon {
-  width: 12px;
-  height: 12px;
-}
-
-.dial-phone-row__icon {
-  flex-shrink: 0;
-  width: 14px;
-  margin-top: 2px;
-  opacity: 0.45;
-}
-
-.dial-phone-row__icon--out {
-  color: color-mix(in srgb, var(--accent) 80%, var(--text));
-}
-
-.dial-phone-row__avatar {
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-}
-
-.dial-phone-row__name {
-  font-size: 0.92rem;
-  font-weight: 600;
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dial-phone-row__name--missed {
-  color: #ff3b30;
-}
-
-html[data-theme="light"] .dial-phone-row__name--missed {
-  color: #e53935;
-}
-
-.dial-phone-row__sub {
-  font-size: 0.72rem;
-  opacity: 0.55;
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dial-phone-row__meta {
-  flex-shrink: 0;
-  padding: 0 1px 0 2px;
-  font-size: 0.58rem;
-  line-height: 1;
-  opacity: 0.4;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  white-space: nowrap;
-}
-
-.dial-phone-row__settings,
-.dial-phone-row__call-btn {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  color: color-mix(in srgb, var(--text) 34%, transparent);
-  cursor: pointer;
-}
-
-.dial-phone-row__settings:active,
-.dial-phone-row__call-btn:active {
-  opacity: 0.65;
-}
-
-.dial-history-star {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  color: color-mix(in srgb, var(--text) 38%, transparent);
-  font-size: 0.72rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.dial-history-star--on {
-  color: #ffb020;
-}
-
-.dial-phone-row__delete.phone-card-delete {
-  width: 22px;
-  height: 22px;
-  border-radius: 0;
-  color: color-mix(in srgb, var(--text) 34%, transparent);
-}
-
-.dial-phone-row__delete.phone-card-delete svg {
-  width: 12px;
-  height: 12px;
-}
-
-.dial-phone-row__delete.phone-card-delete:active {
-  color: #e54d42;
-  opacity: 0.72;
-}
-
-/* 覆盖全局 .icon-btn 40px，收紧操作区间距 */
-.dial-phone-row__actions .icon-btn,
-.dial-phone-row__actions .dial-history-star,
-.dial-phone-row__actions .phone-card-delete {
-  width: 18px;
-  height: 22px;
-  min-width: 18px;
-  padding: 0;
-  border-radius: 0;
-}
-
-.dial-phone-row__actions .dial-phone-row__settings,
-.dial-phone-row__actions .dial-phone-row__call-btn {
-  color: color-mix(in srgb, var(--text) 34%, transparent);
-}
-
-.dial-contact-detail {
-  display: flex;
-  flex-direction: column;
-  min-height: 100%;
-}
-
-.dial-contact-detail__hero {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 22px 16px 18px;
-}
-
-.dial-contact-detail__avatar {
-  width: 84px;
-  height: 84px;
-}
-
-.dial-contact-detail__name {
-  margin: 0;
-  font-size: 1.15rem;
-  font-weight: 700;
-}
-
-.dial-contact-detail__call-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-width: 148px;
-  margin-top: 4px;
-  padding: 11px 22px;
-  border: none;
-  border-radius: 999px;
-  background: #34c759;
-  color: #fff;
-  font: inherit;
-  font-size: 0.95rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-html[data-theme="dark"] .dial-contact-detail__call-btn {
-  background: #30d158;
-  color: #0a0a0a;
-}
-
-.dial-contact-detail__call-btn svg {
-  flex-shrink: 0;
-}
-
-.dial-contact-detail__tabs {
-  display: flex;
-  gap: 8px;
-  padding: 0 14px 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
-}
-
-.dial-contact-detail__tab {
-  flex: 1;
-  padding: 9px 10px;
-  border: none;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--surface) 88%, var(--bg));
-  color: inherit;
-  font: inherit;
-  font-size: 0.82rem;
-  cursor: pointer;
-}
-
-.dial-contact-detail__tab--on {
-  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
-  color: color-mix(in srgb, var(--accent) 88%, var(--text));
-  font-weight: 600;
-}
-
-.dial-contact-detail__list,
-.dial-contact-detail__empty {
-  flex: 1;
-}
-
-.dial-contact-detail__empty {
-  padding-top: 28px;
-}
-
-.dial-app--contact-detail .dial-app__identity-btn svg {
-  width: 20px;
-  height: 20px;
-}
-
-.dial-rec-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px 10px 14px;
-}
-
-.dial-rec-row__actions {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: auto;
-}
-
-.dial-rec-row__actions .icon-btn,
-.dial-rec-row__actions .phone-card-delete {
-  width: 18px;
-  height: 22px;
-  min-width: 18px;
-  padding: 0;
-  border-radius: 0;
-}
-
-.dial-rec-row__text-btn {
-  color: color-mix(in srgb, var(--text) 34%, transparent);
-}
-
-.dial-rec-row__delete {
-  flex-shrink: 0;
-  margin-left: 0;
-}
-
-.dial-rec-row__delete.phone-card-delete {
-  color: color-mix(in srgb, var(--text) 34%, transparent);
-}
-
-.dial-rec-row__delete.phone-card-delete svg {
-  width: 12px;
-  height: 12px;
-}
-
-.dial-app--rec-detail .dial-app__identity-btn {
-  visibility: hidden;
-  pointer-events: none;
-}
-
-.dial-phone-body--rec-detail {
-  display: flex;
-  flex-direction: column;
-  padding: 0;
-  background: var(--bg);
-}
-
-.dial-rec-detail {
-  display: flex;
-  flex-direction: column;
-  min-height: 100%;
-  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-}
-
-.dial-rec-detail__audio {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 12px 14px 0;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--surface) 96%, var(--bg));
-  border: 1px solid var(--border);
-}
-
-.dial-rec-detail__audio .dial-rec-row__play {
-  width: 36px;
-  height: 36px;
-  background: color-mix(in srgb, var(--text) 6%, transparent);
-}
-
-.dial-rec-detail__audio-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.dial-rec-detail__audio-label {
-  font-size: 0.86rem;
-  font-weight: 600;
-  line-height: 1.25;
-}
-
-.dial-rec-detail__audio-meta {
-  font-size: 0.72rem;
-  opacity: 0.48;
-  line-height: 1.25;
-}
-
-.dial-rec-detail__section {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 14px 14px 0;
-}
-
-.dial-rec-detail__section-label {
-  margin: 0 0 10px;
-  padding: 0 2px;
-  font-size: 0.72rem;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  opacity: 0.42;
-}
-
-.dial-rec-detail__thread {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 8px;
-}
-
-.dial-rec-chat {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  max-width: 100%;
-}
-
-.dial-rec-chat--out {
-  justify-content: flex-end;
-}
-
-.dial-rec-chat__avatar {
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-}
-
-.dial-rec-chat__bubble {
-  position: relative;
-  max-width: min(78%, 320px);
-  padding: 9px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface) 98%, var(--bg));
-}
-
-.dial-rec-chat--out .dial-rec-chat__bubble {
-  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
-  border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
-}
-
-.dial-rec-chat__text {
-  margin: 0;
-  font-size: 0.86rem;
-  line-height: 1.5;
-  word-break: break-word;
-  white-space: pre-wrap;
-}
-
-.dial-rec-chat--in .dial-rec-chat__bubble {
-  padding-right: 34px;
-}
-
-.dial-rec-chat__tts {
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
-  width: 22px;
-  height: 22px;
-  min-width: 22px;
-  padding: 0;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  color: color-mix(in srgb, var(--text) 34%, transparent);
-  cursor: pointer;
-}
-
-.dial-rec-chat__tts:active:not(:disabled) {
-  color: color-mix(in srgb, var(--text) 58%, transparent);
-}
-
-.dial-rec-chat__tts--on {
-  color: #07c160;
-}
-
-html[data-theme="dark"] .dial-rec-chat__tts--on {
-  color: #30d158;
-}
-
-.dial-rec-chat__tts--loading {
-  opacity: 0.4;
-  cursor: wait;
-}
-
-.dial-rec-detail__legacy {
-  padding: 14px;
-}
-
-.dial-rec-detail__legacy-hint {
-  margin: 0 0 10px;
-}
-
-.dial-rec-detail__legacy-body {
-  padding: 12px 14px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--surface) 96%, var(--bg));
-  border: 1px solid var(--border);
-  font-size: 0.86rem;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.dial-rec-detail__empty {
-  padding: 32px 20px;
-}
-
-.dial-rec-row__play {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: color-mix(in srgb, var(--text) 34%, transparent);
-  cursor: pointer;
-}
-
-.dial-rec-row__play--disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.dial-rec-row__play-icon {
-  display: none;
-  line-height: 0;
-}
-
-.dial-rec-row__play:not(.dial-rec-row__play--playing):not(.dial-rec-row__play--ended) .dial-rec-row__play-icon--play,
-.dial-rec-row__play--paused .dial-rec-row__play-icon--play {
-  display: inline-flex;
-}
-
-.dial-rec-row__play--playing .dial-rec-row__play-icon--pause {
-  display: inline-flex;
-}
-
-.dial-rec-row__play--ended .dial-rec-row__play-icon--stop {
-  display: inline-flex;
-}
-
-.dial-rec-row__play-svg {
-  width: 14px;
-  height: 14px;
-}
-
-.dial-rec-row__main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.dial-rec-row__name {
-  font-size: 0.9rem;
-  font-weight: 600;
-}
-
-.dial-rec-row__meta {
-  font-size: 0.72rem;
-  opacity: 0.48;
-}
-
-.dial-identity-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 30;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  background: color-mix(in srgb, #000 42%, transparent);
-}
-
-.dial-identity-overlay__sheet {
-  width: 100%;
-  max-height: min(88%, 520px);
-  overflow: auto;
-  border-radius: 18px 18px 0 0;
-}
-
-.dial-identity-overlay__body {
-  padding: 0 16px 20px;
-}
-
-.dial-identity-overlay__hint {
-  margin: 0 0 12px;
-}
-
-.dial-identity-pick {
-  gap: 10px;
-  padding-bottom: 12px;
-  margin-bottom: 8px;
-}
-
-.dial-identity-pick__item {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  width: 72px;
-  padding: 8px 6px;
-  border: 1.5px solid transparent;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--surface) 88%, var(--bg));
-  color: inherit;
-  cursor: pointer;
-}
-
-.dial-identity-pick__item--on {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
-}
-
-.dial-identity-pick__avatar {
-  width: 44px;
-  height: 44px;
-}
-
-.dial-identity-pick__name {
-  font-size: 0.72rem;
-  text-align: center;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dial-identity-overlay__actions {
-  margin-top: 12px;
-}
-
-.dial-contacts {
-  padding: 12px 14px 20px;
-}
-
-.dial-self-pick {
-  margin-bottom: 14px;
-}
-
-.dial-self-pick__label {
-  margin: 0 0 8px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  opacity: 0.55;
-  text-transform: uppercase;
-}
-
-.dial-self-pick__row {
-  display: flex;
-  gap: 10px;
-  overflow-x: auto;
-  padding-bottom: 4px;
-  -webkit-overflow-scrolling: touch;
-}
-
-.dial-self-pick__item {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  width: 72px;
-  padding: 8px 6px;
-  border: 1.5px solid transparent;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--surface) 88%, var(--bg));
-  color: inherit;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-
-.dial-self-pick__item--on {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
-}
-
-.dial-self-pick__avatar {
-  width: 44px;
-  height: 44px;
-  font-size: 1rem;
-}
-
-.dial-self-pick__name {
-  font-size: 0.72rem;
-  line-height: 1.25;
-  text-align: center;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dial-contacts__search {
-  margin-bottom: 0;
-  padding: 8px 12px;
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: color-mix(in srgb, var(--bg) 92%, transparent);
-  backdrop-filter: blur(8px);
-}
-
-.dial-contacts__search-input {
-  width: 100%;
-  border-radius: 10px;
-}
-
-.dial-contacts__section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 0 0 8px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  opacity: 0.72;
-}
-
-.dial-contacts__count {
-  font-weight: 500;
-  opacity: 0.55;
-}
-
-.dial-contacts__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.dial-contacts__item + .dial-contacts__item {
-  margin-top: 2px;
-}
-
-.dial-contact-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  padding: 10px 10px 10px 8px;
-  border: none;
-  border-radius: 14px;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.12s;
-}
-
-.dial-contact-row:active,
-.dial-contact-row:hover {
-  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
-}
-
-.dial-contact-row__avatar {
-  width: 46px;
-  height: 46px;
-  flex-shrink: 0;
-}
-
-.dial-contact-row__main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.dial-contact-row__name {
-  font-size: 0.95rem;
-  font-weight: 600;
-  line-height: 1.25;
-}
-
-.dial-contact-row__sub {
-  font-size: 0.76rem;
-  opacity: 0.58;
-  line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dial-contact-row__action {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  color: color-mix(in srgb, var(--accent) 80%, var(--text));
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.dial-contacts__empty {
-  padding: 28px 12px;
-  text-align: center;
-  opacity: 0.72;
-}
-
-.dial-contacts__hint {
-  margin-top: 16px;
-  text-align: center;
-}
-
-.dial-call {
-  position: absolute;
-  inset: 0;
-  z-index: 20;
-  display: flex;
-  align-items: stretch;
-  justify-content: center;
-  pointer-events: auto;
-}
-
-.dial-call__backdrop {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse 90% 60% at 50% 18%, color-mix(in srgb, var(--accent) 18%, #1a1a22) 0%, transparent 62%),
-    linear-gradient(180deg, #121218 0%, #0a0a0e 55%, #050508 100%);
-}
-
-html[data-theme="light"] .dial-call__backdrop {
-  background:
-    radial-gradient(ellipse 90% 60% at 50% 18%, color-mix(in srgb, var(--accent) 22%, #dfe6f0) 0%, transparent 62%),
-    linear-gradient(180deg, #e8edf5 0%, #d5dce8 55%, #c8d0de 100%);
-}
-
-.dial-call__content {
-  position: relative;
-  z-index: 1;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-height: 0;
-  padding: 44px 16px calc(10px + env(safe-area-inset-bottom, 0px));
-  color: #f4f4f8;
-}
-
-.dial-call__body {
-  flex: 1;
-  width: 100%;
-  max-width: 320px;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  overflow: hidden;
-}
-
-.dial-call__dock {
-  width: 100%;
-  max-width: 320px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 8px;
-}
-
-html[data-theme="light"] .dial-call__content {
-  color: #1a1f2b;
-}
-
-.dial-call__avatar-wrap {
-  position: relative;
-  margin-bottom: 14px;
-  flex-shrink: 0;
-}
-
-.dial-call__avatar-wrap--ringing .dial-call__avatar {
-  animation: dial-call-pulse 1.8s ease-in-out infinite;
-}
-
-.dial-call__avatar {
-  width: 88px;
-  height: 88px;
-  font-size: 1.65rem;
-  box-shadow: 0 12px 40px color-mix(in srgb, #000 35%, transparent);
-}
-
-.dial-call__ripple {
-  position: absolute;
-  inset: -18px;
-  border-radius: 50%;
-  border: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  animation: dial-call-ripple 1.8s ease-out infinite;
-  pointer-events: none;
-}
-
-@keyframes dial-call-pulse {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.03);
-  }
-}
-
-@keyframes dial-call-ripple {
-  0% {
-    transform: scale(0.92);
-    opacity: 0.75;
-  }
-  100% {
-    transform: scale(1.18);
-    opacity: 0;
-  }
-}
-
-.dial-call__name {
-  margin: 0;
-  font-size: 1.5rem;
-  font-weight: 650;
-  letter-spacing: 0.02em;
-  flex-shrink: 0;
-}
-
-.dial-call__status {
-  margin: 8px 0 0;
-  font-size: 0.92rem;
-  opacity: 0.72;
-}
-
-.dial-call__duration {
-  margin: 6px 0 0;
-  font-size: 0.88rem;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.85;
-}
-
-.dial-call__duration--pulse {
-  animation: dial-call-blink 1.2s ease-in-out infinite;
-}
-
-@keyframes dial-call-blink {
-  0%,
-  100% {
-    opacity: 0.55;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-.dial-call__wave {
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  gap: 5px;
-  height: 22px;
-  margin: 0;
-  flex-shrink: 0;
-}
-
-.dial-call__wave span {
-  width: 4px;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--accent) 70%, #fff);
-  animation: dial-call-wave 0.9s ease-in-out infinite;
-}
-
-.dial-call__wave span:nth-child(1) {
-  height: 10px;
-  animation-delay: 0s;
-}
-.dial-call__wave span:nth-child(2) {
-  height: 18px;
-  animation-delay: 0.12s;
-}
-.dial-call__wave span:nth-child(3) {
-  height: 24px;
-  animation-delay: 0.24s;
-}
-.dial-call__wave span:nth-child(4) {
-  height: 16px;
-  animation-delay: 0.36s;
-}
-.dial-call__wave span:nth-child(5) {
-  height: 11px;
-  animation-delay: 0.48s;
-}
-
-@keyframes dial-call-wave {
-  0%,
-  100% {
-    transform: scaleY(0.55);
-    opacity: 0.55;
-  }
-  50% {
-    transform: scaleY(1);
-    opacity: 1;
-  }
-}
-
-.dial-call__actions {
-  width: 100%;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 8px;
-  padding-top: 0;
-}
-
-.dial-call__btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: none;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  padding: 0;
-}
-
-.dial-call__btn--ghost {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: color-mix(in srgb, #fff 12%, transparent);
-  opacity: 0.35;
-}
-
-html[data-theme="light"] .dial-call__btn--ghost {
-  background: color-mix(in srgb, #000 8%, transparent);
-}
-
-.dial-call__btn--record {
-  width: 64px;
-}
-
-.dial-call__btn--voice {
-  width: 64px;
-}
-
-.dial-call__btn--voice-slot {
-  width: 64px;
-  flex-shrink: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-.dial-call__btn--voice .dial-call__btn-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-}
-
-.dial-call__btn-icon--mic {
-  line-height: 0;
-}
-
-.dial-call__btn-icon--mic svg {
-  display: block;
-  width: 22px;
-  height: 22px;
-  margin: 0;
-}
-
-.dial-call__btn--voice-on .dial-call__btn-icon {
-  border-color: color-mix(in srgb, var(--accent) 70%, #fff);
-  background: color-mix(in srgb, var(--accent) 24%, transparent);
-  color: color-mix(in srgb, var(--accent) 92%, #fff);
-  box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 18%, transparent);
-}
-
-.dial-call__btn--voice:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.dial-call__btn-icon {
-  display: block;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: color-mix(in srgb, #fff 16%, transparent);
-  border: 2px solid color-mix(in srgb, #fff 35%, transparent);
-  position: relative;
-}
-
-.dial-call__btn--record-on .dial-call__btn-icon {
-  background: color-mix(in srgb, #ff4d4f 88%, #fff);
-  border-color: #ff6b6b;
-  box-shadow: 0 0 0 6px color-mix(in srgb, #ff4d4f 22%, transparent);
-}
-
-.dial-call__btn--record-on .dial-call__btn-icon::after {
-  content: "";
-  position: absolute;
-  inset: 16px;
-  border-radius: 3px;
-  background: #fff;
-}
-
-.dial-call__btn--record:not(.dial-call__btn--record-on) .dial-call__btn-icon::after {
-  content: "";
-  position: absolute;
-  inset: 14px;
-  border-radius: 50%;
-  background: #ff4d4f;
-}
-
-.dial-call__btn-label {
-  font-size: 0.72rem;
-  opacity: 0.78;
-}
-
-.dial-call__btn--hangup {
-  width: 68px;
-  background: transparent;
-  box-shadow: none;
-}
-
-.dial-call__btn-hangup-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: #ff3b30;
-  color: #fff;
-  box-shadow: 0 6px 20px color-mix(in srgb, #ff3b30 42%, transparent);
-}
-
-.dial-call__hangup-glyph {
-  display: block;
-  transform: rotate(135deg);
-}
-
-.dial-call__btn--hangup:active .dial-call__btn-hangup-icon {
-  transform: scale(0.96);
-}
-
-.dial-call__btn-label--hangup {
-  color: color-mix(in srgb, currentColor 78%, transparent);
-}
-
-.dial-call__btn--hangup:active {
-  transform: none;
-}
-
-.dial-call__rec-badge {
-  position: absolute;
-  top: 18px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  padding: 5px 12px;
-  border-radius: 999px;
-  font-size: 0.76rem;
-  background: color-mix(in srgb, #ff4d4f 22%, transparent);
-  color: #ffb4b4;
-}
-
-html[data-theme="light"] .dial-call__rec-badge {
-  color: #c62828;
-  background: color-mix(in srgb, #ff4d4f 15%, #fff);
-}
-
-.dial-call__rec-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #ff4d4f;
-  animation: dial-call-blink 1s ease-in-out infinite;
-}
-
-.dial-call__transcript {
-  width: 100%;
-  flex: 1;
-  min-height: 0;
-  max-height: none;
-  margin: 8px 0 0;
-  padding: 0 4px;
-  overflow-y: auto;
-  text-align: center;
-  -webkit-overflow-scrolling: touch;
-}
-
-.dial-call__line {
-  margin: 0 0 8px;
-  font-size: 0.86rem;
-  line-height: 1.55;
-  opacity: 0.9;
-  text-shadow: none;
-}
-
-.dial-call__line--partner {
-  color: inherit;
-}
-
-.dial-call__line--user {
-  opacity: 0.62;
-  font-size: 0.78rem;
-}
-
-.dial-call__line--hint {
-  opacity: 0.55;
-  font-style: italic;
-}
-
-.dial-call__composer {
-  position: static;
-  left: auto;
-  right: auto;
-  bottom: auto;
-  width: 100%;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  z-index: auto;
-}
-
-.dial-call__mic {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border: 1px solid color-mix(in srgb, #fff 22%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, #fff 10%, transparent);
-  color: inherit;
-  cursor: pointer;
-}
-
-html[data-theme="light"] .dial-call__mic {
-  background: color-mix(in srgb, #fff 72%, transparent);
-  border-color: color-mix(in srgb, #000 10%, transparent);
-}
-
-.dial-call__mic--on {
-  border-color: color-mix(in srgb, var(--accent) 70%, #fff);
-  background: color-mix(in srgb, var(--accent) 24%, transparent);
-  color: color-mix(in srgb, var(--accent) 92%, #fff);
-}
-
-.dial-call__mic:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.dial-call__send:disabled,
-.dial-call__input:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.dial-call__input {
-  flex: 1;
-  min-width: 0;
-  border-radius: 999px;
-  padding: 10px 14px;
-  font-size: 0.88rem;
-  background: color-mix(in srgb, #fff 14%, transparent);
-  border: 1px solid color-mix(in srgb, #fff 22%, transparent);
-  color: inherit;
-}
-
-html[data-theme="light"] .dial-call__input {
-  background: color-mix(in srgb, #fff 72%, transparent);
-  border-color: color-mix(in srgb, #000 10%, transparent);
-}
-
-.dial-call__send {
-  flex-shrink: 0;
-  border: none;
-  border-radius: 999px;
-  padding: 10px 14px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  background: color-mix(in srgb, var(--accent) 88%, #fff);
-  color: #fff;
-  cursor: pointer;
-}
-
-.dial-call__wave--thinking span {
-  animation-duration: 0.55s;
-}
-
-.settings-panel--call .call-settings-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.settings-panel--call .call-settings-row__label {
-  font-size: 0.88rem;
-}
-
-.settings-panel--call .call-settings-grid {
-  margin-top: 4px;
-}
-
-.settings-panel--call .call-settings-grid__full {
-  grid-column: 1 / -1;
-}
-
-.settings-panel--call .call-settings-hint {
-  margin-top: 8px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .dial-call__avatar-wrap--ringing .dial-call__avatar,
-  .dial-call__ripple,
-  .dial-call__duration--pulse,
-  .dial-call__wave span,
-  .dial-call__rec-dot {
-    animation: none;
-  }
-}
-
-#overview-sub-knock .knock-chat--themed .phone-app__back,
-#overview-sub-knock .knock-chat--themed .phone-app__title,
-#overview-sub-knock .knock-chat--themed .phone-app__bar-action {
-  color: var(--text);
-}
-
-#overview-sub-knock .knock-chat__bar {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-  padding-right: 2px;
-  gap: 0;
 }
 
 #overview-sub-knock .knock-chat__bar .phone-app__back {
@@ -5453,21 +3986,24 @@ html[data-theme="dark"] .knock-chat__event--selected .knock-chat__event-check {
 
 .knock-sticker-panel__tab {
   flex: 0 0 auto;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
   border-radius: 999px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%);
   color: var(--muted);
   font: inherit;
   font-size: 0.72rem;
+  font-weight: 500;
   padding: 4px 10px;
   cursor: pointer;
   white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .knock-sticker-panel__tab--active {
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
   color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  font-weight: 600;
 }
 
 .knock-sticker-panel__manage {
@@ -5524,6 +4060,21 @@ html[data-theme="dark"] .knock-chat__event--selected .knock-chat__event-check {
   gap: 3px;
   width: 100%;
   min-width: 0;
+  position: relative;
+}
+
+.knock-sticker-panel__visual::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 44%;
+  height: 44%;
+  transform: translate(-50%, -58%);
+  border-radius: 50%;
+  border: 1px dashed color-mix(in srgb, var(--accent) 22%, transparent);
+  pointer-events: none;
+  opacity: 0.55;
 }
 
 .knock-sticker-panel__img,
@@ -5668,9 +4219,9 @@ html[data-theme="dark"] .knock-chat__event--selected .knock-chat__event-check {
 
 .knock-sticker-manage__pack-tab {
   flex: 0 0 auto;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
   border-radius: 999px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%);
   color: var(--muted);
   font: inherit;
   font-size: 0.78rem;
@@ -5684,7 +4235,7 @@ html[data-theme="dark"] .knock-chat__event--selected .knock-chat__event-check {
 .knock-sticker-manage__pack-tab--active {
   border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
   color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
   font-weight: 600;
 }
 
@@ -10901,6 +9452,20 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__cat-manage {
   width: 17px;
   height: 17px;
   display: block;
+}
+
+.phone-app__bar-actions--auto-pair {
+  gap: 0;
+  margin-left: 2px;
+}
+
+.phone-app__bar-actions--auto-pair .phone-wechat-gen-btn--auto-delete {
+  color: color-mix(in srgb, #111 52%, transparent);
+}
+
+.phone-app__bar-actions--auto-pair .phone-wechat-gen-btn--auto-delete:active:not(:disabled) {
+  color: #e54d42;
+  opacity: 0.85;
 }
 
 .phone-app__bar-action--select-active {
@@ -19552,10 +18117,19 @@ html[data-theme="dark"] .gen-ready-banner {
 .phone-jjwxc__bar-trail {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 0;
   flex-shrink: 0;
   min-width: 0;
   max-width: 58%;
+}
+
+.phone-jjwxc__bar-trail .phone-wechat-gen-btn--auto-delete {
+  color: color-mix(in srgb, #111 52%, transparent);
+}
+
+.phone-jjwxc__bar-trail .phone-wechat-gen-btn--auto-delete:active:not(:disabled) {
+  color: #e54d42;
+  opacity: 0.85;
 }
 
 .phone-jjwxc__bar:has(.phone-jjwxc__bar-trail) {
@@ -21466,4 +20040,2575 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
   border-bottom-color: rgba(255, 255, 255, 0.06);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+/* ── 收取功能 ── */
+#overview-sub-collect {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+#overview-sub-collect .feature-view-body,
+#overview-sub-collect #collect-content-slot {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+#collect-content-slot {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+#collect-content-slot:has(.collect-detail) {
+  overflow: hidden;
+}
+
+#collect-content-slot:has(.collect-screen--printer) {
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface) 92%, #e8e4de);
+}
+
+#collect-content-slot:has(.collect-history-detail) {
+  overflow: hidden;
+}
+
+.collect-screen--printer {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  --collect-slip-top-gap: 14px;
+  padding: var(--collect-slip-top-gap) 10px 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: stretch;
+  gap: 0;
+  overflow: hidden;
+}
+
+.collect-slip-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 16px 10px 0;
+  margin-bottom: -4px;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+
+.collect-slip-stage {
+  position: relative;
+  width: min(92%, 300px);
+  max-height: calc(100% - 10px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.collect-slip-stage:empty {
+  display: none;
+}
+
+.collect-slip {
+  --slip-paper: color-mix(in srgb, #fffef8 92%, var(--accent) 8%);
+  --slip-ink: color-mix(in srgb, #2a2520 88%, var(--accent) 12%);
+  position: relative;
+  width: 100%;
+  margin: 0;
+  padding: 18px 18px 14px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, white 40%, transparent) 0%,
+      transparent 12%
+    ),
+    repeating-linear-gradient(
+      0deg,
+      transparent 0 23px,
+      color-mix(in srgb, var(--slip-ink) 4%, transparent) 23px 24px
+    ),
+    var(--slip-paper);
+  color: var(--slip-ink);
+  border-radius: 3px 3px 2px 2px;
+  box-shadow:
+    0 1px 0 color-mix(in srgb, white 80%, transparent) inset,
+    0 -1px 0 color-mix(in srgb, var(--slip-ink) 6%, transparent) inset,
+    0 2px 8px -2px color-mix(in srgb, black 7%, transparent),
+    0 5px 14px -4px color-mix(in srgb, black 6%, transparent);
+  font-family: "ZCOOL XiaoWei", "Noto Serif TC", Georgia, serif;
+  font-size: 0.82rem;
+  line-height: 1.62;
+  pointer-events: auto;
+  transform: translateY(108%);
+  opacity: 0.55;
+  transform-origin: 50% 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.collect-slip::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.collect-slip::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--slip-ink) 5%, transparent) 0%,
+      transparent 10%,
+      transparent 90%,
+      color-mix(in srgb, var(--slip-ink) 5%, transparent) 100%
+    );
+  opacity: 0.14;
+}
+
+.collect-slip.is-printing {
+  animation: collect-slip-print 2.4s linear forwards;
+}
+
+.collect-slip.is-fade-in {
+  transform: translateY(0);
+  opacity: 0;
+  animation: collect-slip-fade-in 0.35s ease forwards;
+}
+
+.collect-slip.is-exiting {
+  animation: collect-slip-fade-out 0.42s ease forwards;
+  pointer-events: none;
+}
+
+.collect-slip__perforation {
+  position: absolute;
+  top: 6px;
+  left: 14px;
+  right: 14px;
+  height: 5px;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0 5px,
+    color-mix(in srgb, var(--slip-ink) 14%, transparent) 5px 7px
+  );
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+@keyframes collect-slip-print {
+  0% {
+    transform: translateY(108%);
+    opacity: 0.45;
+    filter: blur(0.6px);
+  }
+  6% {
+    transform: translateY(108%);
+    opacity: 0.55;
+  }
+  10% {
+    transform: translateY(92%);
+    filter: blur(0.4px);
+  }
+  11% {
+    transform: translateY(92%);
+  }
+  18% {
+    transform: translateY(92%);
+  }
+  22% {
+    transform: translateY(74%);
+  }
+  23% {
+    transform: translateY(74%);
+  }
+  32% {
+    transform: translateY(74%);
+  }
+  36% {
+    transform: translateY(54%);
+    filter: blur(0.2px);
+  }
+  37% {
+    transform: translateY(54%);
+  }
+  46% {
+    transform: translateY(54%);
+  }
+  50% {
+    transform: translateY(36%);
+  }
+  51% {
+    transform: translateY(36%);
+  }
+  60% {
+    transform: translateY(36%);
+  }
+  64% {
+    transform: translateY(20%);
+  }
+  65% {
+    transform: translateY(20%);
+  }
+  74% {
+    transform: translateY(20%);
+  }
+  78% {
+    transform: translateY(8%);
+  }
+  79% {
+    transform: translateY(8%);
+  }
+  86% {
+    transform: translateY(8%);
+  }
+  90% {
+    transform: translateY(2%);
+    filter: none;
+  }
+  93% {
+    transform: translateY(-1px);
+  }
+  96% {
+    transform: translateY(0.5px);
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+    filter: none;
+  }
+}
+
+@keyframes collect-slip-fade-out {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: none;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.985);
+    filter: blur(2px);
+  }
+}
+
+@keyframes collect-slip-fade-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.collect-slip__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--slip-ink) 22%, transparent);
+  font-family: "Courier New", "SF Mono", "Consolas", monospace;
+  font-size: 0.64rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.collect-slip__type {
+  font-weight: 700;
+  color: color-mix(in srgb, var(--accent) 70%, var(--slip-ink));
+}
+
+.collect-slip__end {
+  opacity: 0.4;
+  font-size: 0.58rem;
+}
+
+.collect-slip__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  z-index: 2;
+  text-align: left;
+}
+
+.collect-slip__text,
+.collect-slip__letter,
+.collect-slip__photo-scene,
+.collect-slip__dream-scene,
+.collect-slip__photo-back {
+  text-align: left;
+  text-indent: 2em;
+}
+
+.collect-slip__letter {
+  text-indent: 0;
+  padding-left: 12px;
+}
+
+.collect-slip__list,
+.collect-slip__dream-lines,
+.collect-slip__actions,
+.collect-slip__tag,
+.collect-slip__meta-line,
+.collect-slip__strikes {
+  text-indent: 0;
+}
+
+.collect-slip--whisper {
+  --slip-paper: color-mix(in srgb, #fff9f2 90%, var(--accent) 10%);
+}
+
+.collect-slip--whisper .collect-slip__text {
+  font-family: "ZCOOL XiaoWei", "Noto Serif TC", serif;
+  font-size: 0.9rem;
+  line-height: 1.75;
+  letter-spacing: 0.02em;
+  text-align: left;
+  text-indent: 2em;
+}
+
+.collect-slip--whisper .collect-slip__tag {
+  font-style: italic;
+}
+
+.collect-slip--letter {
+  --slip-paper: color-mix(in srgb, #faf8f4 88%, var(--accent) 12%);
+}
+
+.collect-slip--letter .collect-slip__letter {
+  font-family: Georgia, "Noto Serif SC", "Songti SC", serif;
+  font-size: 0.86rem;
+  line-height: 1.72;
+  padding-left: 12px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 28%, var(--slip-ink));
+  text-align: left;
+  text-indent: 0;
+}
+
+.collect-slip--draft {
+  --slip-paper: color-mix(in srgb, #f6f2e6 85%, #e8dcc8);
+}
+
+.collect-slip--draft .collect-slip__text--draft {
+  font-family: "Courier New", "SF Mono", monospace;
+  font-size: 0.8rem;
+  background: color-mix(in srgb, var(--slip-ink) 3%, transparent);
+  padding: 8px 10px;
+  border-radius: 2px;
+  text-align: left;
+  text-indent: 2em;
+}
+
+.collect-slip--greeting .collect-slip__headline {
+  font-family: "ZCOOL XiaoWei", serif;
+  font-size: 1.05rem;
+  text-align: center;
+  letter-spacing: 0.08em;
+}
+
+.collect-slip--greeting .collect-slip__list {
+  font-family: "ZCOOL XiaoWei", "Noto Serif TC", serif;
+  line-height: 1.85;
+  text-align: left;
+}
+
+.collect-slip--greeting .collect-slip__list li {
+  text-indent: 0;
+  padding-left: 0.2em;
+}
+
+.collect-slip--memo {
+  --slip-paper: color-mix(in srgb, #f4f6fa 88%, var(--accent) 12%);
+}
+
+.collect-slip--memo .collect-slip__text {
+  font-family: "Courier New", "SF Mono", monospace;
+  font-size: 0.78rem;
+  opacity: 0.92;
+  text-align: left;
+  text-indent: 2em;
+}
+
+.collect-slip--memo .collect-slip__meta-line::before {
+  content: "▶ ";
+  opacity: 0.5;
+  font-size: 0.6rem;
+}
+
+.collect-slip--dream {
+  --slip-paper: color-mix(in srgb, #f5f0ff 86%, var(--accent) 14%);
+}
+
+.collect-slip--dream .collect-slip__dream-lines {
+  font-family: "Ma Shan Zheng", "Liu Jian Mao Cao", cursive;
+  font-size: 0.95rem;
+  text-align: left;
+}
+
+.collect-slip--dream .collect-slip__dream-lines .collect-dream__line {
+  text-indent: 1.2em;
+}
+
+.collect-slip--photo {
+  --slip-paper: #fff;
+  overflow: visible;
+}
+
+.collect-slip--photo .collect-slip__photo-img {
+  border: 6px solid #fff;
+  box-shadow: 0 2px 12px color-mix(in srgb, black 14%, transparent);
+}
+
+.collect-slip--specialDay .collect-slip__headline {
+  font-family: "ZCOOL XiaoWei", serif;
+  font-size: 1rem;
+  text-align: center;
+}
+
+.collect-slip--specialDay .collect-slip__meta-line {
+  text-align: center;
+  font-family: "Courier New", monospace;
+  letter-spacing: 0.12em;
+  text-indent: 0;
+}
+
+.collect-slip--specialDay .collect-slip__text,
+.collect-slip--specialDay .collect-slip__footnote {
+  text-align: left;
+  text-indent: 2em;
+}
+
+.collect-slip__tag {
+  margin: 0;
+  font-size: 0.72rem;
+  color: color-mix(in srgb, var(--accent) 55%, var(--slip-ink));
+}
+
+.collect-slip__meta-line {
+  margin: 0;
+  font-size: 0.68rem;
+  opacity: 0.65;
+}
+
+.collect-slip__headline {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.45;
+  text-indent: 0;
+}
+
+.collect-slip__text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.collect-slip__text--draft {
+  position: relative;
+}
+
+.collect-slip__strike {
+  display: block;
+  text-decoration: line-through;
+  opacity: 0.42;
+  margin-bottom: 4px;
+}
+
+.collect-slip__strikes {
+  margin-bottom: 6px;
+}
+
+.collect-slip__caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: color-mix(in srgb, var(--accent) 75%, var(--slip-ink));
+  animation: collect-caret-blink 1s step-end infinite;
+}
+
+.collect-slip__list {
+  margin: 0;
+  padding-left: 1.1em;
+}
+
+.collect-slip__letter {
+  line-height: 1.65;
+  text-align: left;
+}
+
+.collect-slip__footnote {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px dashed color-mix(in srgb, var(--slip-ink) 18%, transparent);
+  font-size: 0.74rem;
+  opacity: 0.85;
+  font-style: italic;
+}
+
+.collect-slip__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin-top: 6px;
+  padding-top: 4px;
+}
+
+.collect-slip__action {
+  margin: 0;
+  padding: 4px 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-family: "Courier New", "SF Mono", monospace;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--accent) 72%, var(--slip-ink));
+  position: relative;
+}
+
+.collect-slip__action::before {
+  content: "▸";
+  margin-right: 4px;
+  opacity: 0.55;
+  font-size: 0.62rem;
+}
+
+.collect-slip__action.is-playing::before {
+  content: "❚❚";
+  letter-spacing: -0.12em;
+  opacity: 0.85;
+}
+
+.collect-slip__action.is-paused::before {
+  content: "▶";
+  opacity: 0.85;
+}
+
+.collect-slip__action:active:not(.is-disabled) {
+  opacity: 0.65;
+}
+
+.collect-slip__action.is-disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.collect-slip__action.is-playing,
+.collect-slip__action.is-paused {
+  color: color-mix(in srgb, var(--accent) 90%, #000);
+}
+
+.collect-slip__photo-flip {
+  perspective: 900px;
+  width: 100%;
+}
+
+.collect-slip__photo-inner {
+  position: relative;
+  width: 100%;
+  transform-style: preserve-3d;
+  transition: transform 0.55s ease;
+}
+
+.collect-slip__photo-flip.is-flipped .collect-slip__photo-inner {
+  transform: rotateY(180deg);
+}
+
+.collect-slip__photo-face {
+  width: 100%;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.collect-slip__photo-face--front {
+  position: relative;
+  transform: rotateY(0deg);
+}
+
+.collect-slip__photo-face--back {
+  position: absolute;
+  inset: 0;
+  transform: rotateY(180deg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: 18px 14px;
+  box-sizing: border-box;
+  border-radius: 2px;
+  background: linear-gradient(160deg, #faf6ee 0%, #f0e8d8 100%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--slip-ink) 8%, transparent);
+}
+
+.collect-slip__photo-img,
+.collect-slip__dream-img {
+  display: block;
+  width: 100%;
+  max-height: 160px;
+  object-fit: cover;
+  border-radius: 2px;
+  filter: sepia(0.12) contrast(0.98);
+}
+
+.collect-slip__dream-visual.is-developed .collect-slip__dream-img {
+  animation: collect-develop 1.2s ease forwards;
+}
+
+.collect-slip__photo-scene,
+.collect-slip__dream-scene {
+  margin: 0;
+  padding: 12px 0;
+  text-align: left;
+  text-indent: 2em;
+  opacity: 0.75;
+}
+
+.collect-slip__photo-cap {
+  margin: 6px 0 0;
+  text-align: left;
+  text-indent: 0;
+  padding-left: 0.2em;
+  font-size: 0.72rem;
+}
+
+.collect-slip__photo-back {
+  margin: 0;
+  padding: 0;
+  text-align: left;
+  text-indent: 2em;
+  font-family: "Ma Shan Zheng", cursive;
+  font-size: 1rem;
+  line-height: 1.65;
+  color: #3d3428;
+}
+
+.collect-slip__dream-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.collect-slip__dream-lines .collect-dream__line {
+  margin: 0;
+  padding: 0;
+  opacity: 0.72;
+  transition: opacity 0.25s ease;
+}
+
+.collect-slip__dream-lines .collect-dream__line.is-active {
+  opacity: 1;
+  color: color-mix(in srgb, var(--accent) 65%, var(--slip-ink));
+}
+
+.collect-slip__foot {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed color-mix(in srgb, var(--slip-ink) 18%, transparent);
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+  opacity: 0.45;
+  text-align: right;
+}
+
+.collect-printer-wrap {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 360px;
+  margin: 14px auto -28px;
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  position: relative;
+  z-index: 4;
+}
+
+.collect-printer {
+  position: relative;
+  width: 100%;
+}
+
+.collect-printer__slot {
+  height: 10px;
+  margin: 0 18%;
+  background: color-mix(in srgb, #1a1918 88%, var(--surface));
+  border-radius: 3px 3px 0 0;
+  box-shadow:
+    inset 0 2px 6px color-mix(in srgb, black 50%, transparent),
+    0 1px 0 color-mix(in srgb, white 20%, transparent);
+  position: relative;
+  z-index: 2;
+}
+
+.collect-printer__body {
+  padding: 14px 16px 12px;
+  border-radius: 22px 22px 18px 18px;
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--surface) 78%, #f3ece3) 0%,
+    color-mix(in srgb, var(--surface) 92%, #e9e2d8) 100%
+  );
+  border: 1px solid color-mix(in srgb, var(--accent) 10%, #d8d0c6);
+  box-shadow:
+    0 20px 48px color-mix(in srgb, black 14%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 55%, transparent);
+}
+
+.collect-printer__top {
+  display: grid;
+  grid-template-columns: 36px 1fr 36px;
+  align-items: center;
+  gap: 6px;
+}
+
+.collect-printer__icon-btn {
+  width: 36px;
+  height: 36px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 55%, transparent);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.collect-printer__icon-btn:active {
+  opacity: 0.65;
+}
+
+.collect-printer__brand {
+  margin: 0;
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: color-mix(in srgb, var(--text) 50%, transparent);
+}
+
+.collect-printer__subtitle {
+  margin: 4px 0 12px;
+  text-align: center;
+  font-size: 0.58rem;
+  letter-spacing: 0.18em;
+  color: color-mix(in srgb, var(--text) 38%, transparent);
+}
+
+.collect-printer__subtitle::before,
+.collect-printer__subtitle::after {
+  content: "—";
+  margin: 0 6px;
+  opacity: 0.5;
+}
+
+.collect-printer__screen {
+  margin-bottom: 14px;
+  padding: 14px 12px;
+  min-height: 52px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #141312 92%, var(--surface));
+  border: 2px solid color-mix(in srgb, #0a0a0a 80%, transparent);
+  box-shadow: inset 0 2px 10px color-mix(in srgb, black 55%, transparent);
+  display: flex;
+  align-items: center;
+}
+
+.collect-printer__display {
+  margin: 0;
+  width: 100%;
+  font-family: "Courier New", "SF Mono", monospace;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--accent) 72%, #ffb380);
+  text-shadow: 0 0 8px color-mix(in srgb, var(--accent) 35%, transparent);
+  word-break: break-word;
+}
+
+.collect-printer__keys {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px 10px;
+  padding: 2px 4px 6px;
+  justify-items: center;
+  overflow: hidden;
+}
+
+.collect-key {
+  position: relative;
+  margin: 0;
+  width: 100%;
+  max-width: 58px;
+  aspect-ratio: 1;
+  overflow: hidden;
+  isolation: isolate;
+  border: none;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 32% 28%,
+    color-mix(in srgb, white 75%, var(--surface)) 0%,
+    color-mix(in srgb, var(--surface) 82%, #ece4da) 48%,
+    color-mix(in srgb, var(--surface) 55%, #cfc4b8) 100%
+  );
+  color: color-mix(in srgb, var(--text) 68%, var(--accent));
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    0 1px 0 color-mix(in srgb, white 55%, transparent) inset,
+    0 -2px 4px color-mix(in srgb, black 10%, transparent) inset,
+    0 4px 0 color-mix(in srgb, #b5a99a 88%, transparent),
+    0 7px 14px color-mix(in srgb, black 16%, transparent);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, color 0.15s ease;
+}
+
+.collect-key:active:not(:disabled) {
+  transform: translateY(3px) scale(0.96);
+  box-shadow:
+    0 1px 0 color-mix(in srgb, white 35%, transparent) inset,
+    0 -1px 3px color-mix(in srgb, black 14%, transparent) inset,
+    0 1px 0 color-mix(in srgb, #b5a99a 88%, transparent),
+    0 3px 8px color-mix(in srgb, black 12%, transparent);
+}
+
+.collect-key:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  box-shadow:
+    0 1px 0 color-mix(in srgb, white 40%, transparent) inset,
+    0 2px 0 color-mix(in srgb, #c8bfb4 70%, transparent),
+    0 4px 8px color-mix(in srgb, black 8%, transparent);
+}
+
+.collect-key.is-active {
+  color: color-mix(in srgb, var(--accent) 82%, var(--text));
+  background: radial-gradient(
+    circle at 32% 28%,
+    color-mix(in srgb, var(--accent) 22%, white) 0%,
+    color-mix(in srgb, var(--accent) 14%, var(--surface)) 50%,
+    color-mix(in srgb, var(--accent) 28%, #cfc4b8) 100%
+  );
+  box-shadow:
+    0 1px 0 color-mix(in srgb, white 50%, transparent) inset,
+    0 -2px 4px color-mix(in srgb, var(--accent) 18%, transparent) inset,
+    0 4px 0 color-mix(in srgb, var(--accent) 45%, #a89888),
+    0 7px 16px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.collect-key.is-unread::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--surface) 80%, white);
+}
+
+.collect-key.is-loading::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    110deg,
+    transparent 30%,
+    color-mix(in srgb, var(--accent) 14%, white) 50%,
+    transparent 70%
+  );
+  animation: collect-shimmer 1.4s ease-in-out infinite;
+}
+
+.collect-key__svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  filter: drop-shadow(0 1px 0 color-mix(in srgb, white 40%, transparent));
+}
+
+.collect-screen {
+  min-height: 100%;
+  padding: 8px 14px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.collect-screen--hub {
+  min-height: calc(100vh - 120px);
+  min-height: calc(100dvh - 120px);
+  padding-bottom: 12px;
+  gap: 10px;
+}
+
+.collect-hub-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  min-height: 0;
+}
+
+.collect-header {
+  display: grid;
+  grid-template-columns: 40px 1fr 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 8px;
+}
+
+.collect-header__title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  text-align: center;
+}
+
+.collect-header__spacer {
+  width: 40px;
+  height: 40px;
+}
+
+.collect-banner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 20px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 16%, var(--surface)) 0%,
+    color-mix(in srgb, var(--accent) 8%, var(--surface)) 100%
+  );
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow:
+    0 8px 24px color-mix(in srgb, var(--accent) 12%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 40%, transparent);
+  overflow: hidden;
+}
+
+.collect-banner--dock {
+  flex-shrink: 0;
+  margin-top: auto;
+}
+
+.collect-banner__glow {
+  position: absolute;
+  top: -30px;
+  right: -20px;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 28%, transparent) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.collect-banner__avatar {
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  border: 2px solid color-mix(in srgb, var(--accent) 35%, white);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.collect-banner__from {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
+.collect-banner__label {
+  font-size: 0.78rem;
+  font-weight: 500;
+  opacity: 0.72;
+}
+
+.collect-banner__from strong {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--accent) 72%, var(--text));
+}
+
+.collect-banner__plot {
+  margin: 6px 0 0;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  opacity: 0.78;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.collect-gen-hint,
+.collect-empty-hint {
+  margin: 0;
+  text-align: center;
+  font-size: 0.82rem;
+  opacity: 0.82;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.collect-gen-hint__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: collect-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes collect-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+.collect-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.collect-item {
+  position: relative;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: 20px;
+  min-height: 118px;
+  padding: 16px 12px;
+  background: linear-gradient(
+    155deg,
+    color-mix(in srgb, var(--accent) 10%, var(--surface)) 0%,
+    var(--surface) 100%
+  );
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.collect-item:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.collect-item:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.collect-item--unread::after {
+  content: "";
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.collect-item--loading .collect-item__shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 30%,
+    color-mix(in srgb, var(--accent) 12%, white) 50%,
+    transparent 70%
+  );
+  animation: collect-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes collect-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.collect-item__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
+
+.collect-item__icon--whisper {
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.collect-item__icon--letter {
+  clip-path: polygon(0 30%, 50% 0, 100% 30%, 100% 100%, 0 100%);
+}
+
+.collect-item__icon--photo {
+  border-radius: 4px 4px 16px 16px;
+}
+
+.collect-item__icon--greeting {
+  border-radius: 4px;
+  transform: rotate(-3deg);
+}
+
+.collect-item__icon--memo {
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.collect-item__icon--draft {
+  border-radius: 14px 14px 4px 4px;
+  clip-path: none;
+}
+
+.collect-item__icon--specialDay {
+  border-radius: 4px 4px 0 0;
+  box-shadow: inset 0 -4px 0 color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.collect-item__icon--dream {
+  border-radius: 50% 50% 40% 40%;
+  opacity: 0.92;
+}
+
+.collect-item__label {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.collect-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 4px;
+}
+
+.collect-screen--settings {
+  gap: 16px;
+}
+
+.collect-settings-hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 28px 20px 22px;
+  border-radius: 22px;
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--accent) 18%, var(--surface)) 0%,
+    color-mix(in srgb, var(--accent) 6%, var(--surface)) 55%,
+    var(--surface) 100%
+  );
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--accent) 10%, transparent);
+  overflow: hidden;
+}
+
+.collect-settings-hero__glow {
+  position: absolute;
+  inset: -40% -20% auto;
+  height: 120px;
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--accent) 24%, transparent) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.collect-settings-hero__avatar {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border: 3px solid color-mix(in srgb, var(--accent) 40%, white);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.collect-settings-hero__name {
+  position: relative;
+  margin: 14px 0 8px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--accent) 65%, var(--text));
+}
+
+.collect-settings-hero__plot {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  line-height: 1.35;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  color: color-mix(in srgb, var(--text) 88%, var(--accent));
+}
+
+.collect-settings-panel {
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.collect-settings-panel__title {
+  margin: 0 0 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.collect-settings-kv {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.collect-settings-kv__row {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg));
+}
+
+.collect-settings-kv__key {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--accent) 55%, var(--text));
+}
+
+.collect-settings-kv__val {
+  font-size: 0.86rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.collect-settings-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.collect-settings-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  margin: 0;
+  padding: 12px 18px;
+  border-radius: 999px;
+  border: none;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.collect-settings-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.collect-settings-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.collect-settings-btn--ghost {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.collect-settings-btn--primary {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 92%, white) 0%,
+    var(--accent) 100%
+  );
+  color: var(--accent-contrast, #fff);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.collect-settings-btn__icon {
+  font-size: 1rem;
+  opacity: 0.9;
+}
+
+.collect-settings__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.collect-settings__hint {
+  margin: 0;
+  text-align: center;
+  font-size: 0.76rem;
+  line-height: 1.55;
+  opacity: 0.62;
+  padding: 0 8px;
+}
+
+/* ── 收取历史 ── */
+.collect-screen--history {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  padding-bottom: 12px;
+  gap: 8px;
+}
+
+.collect-history-subtitle {
+  margin: 0 16px 4px;
+  text-align: center;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  opacity: 0.58;
+}
+
+.collect-history-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 10px 24px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.collect-history-empty {
+  margin: 32px 12px 0;
+  text-align: center;
+  font-size: 0.82rem;
+  line-height: 1.65;
+  opacity: 0.58;
+}
+
+.collect-history-row {
+  position: relative;
+  padding-left: 20px;
+}
+
+.collect-history-row::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 20px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 32%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 8%, transparent) 100%
+  );
+}
+
+.collect-history-row__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.collect-history-row__dot {
+  position: absolute;
+  left: 0;
+  top: 5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--accent) 16%, var(--surface)),
+    0 2px 6px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.collect-history-row__time {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  opacity: 0.82;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.collect-history-row__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+.collect-history-row__panel {
+  padding: 12px 10px 14px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%);
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow:
+    0 4px 16px color-mix(in srgb, var(--accent) 6%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 40%, transparent);
+}
+
+.collect-history-row__scroll {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 2px 2px 6px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.collect-history-row__scroll::-webkit-scrollbar {
+  height: 4px;
+}
+
+.collect-history-row__scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: 999px;
+}
+
+.collect-history-card {
+  flex: 0 0 auto;
+  width: 92px;
+  min-height: 118px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
+  padding: 10px 7px 9px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--surface) 96%, white) 0%,
+    color-mix(in srgb, var(--surface) 90%, var(--accent) 10%) 100%
+  );
+  box-shadow:
+    0 2px 10px color-mix(in srgb, var(--accent) 8%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 50%, transparent);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.collect-history-card:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.collect-history-card.is-empty {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.collect-history-card__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent);
+}
+
+.collect-history-card__icon .collect-key__svg {
+  width: 20px;
+  height: 20px;
+}
+
+.collect-history-card__label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.collect-history-card__preview {
+  width: 100%;
+  margin-top: auto;
+  font-size: 0.6rem;
+  line-height: 1.35;
+  opacity: 0.58;
+  text-align: center;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+}
+
+.collect-history-card__polaroid {
+  display: block;
+  width: 100%;
+  margin-top: auto;
+  padding: 3px 3px 7px;
+  background: #fffef8;
+  border-radius: 3px;
+  box-shadow:
+    0 1px 0 color-mix(in srgb, black 8%, transparent),
+    0 4px 10px color-mix(in srgb, black 12%, transparent);
+  transform: rotate(-2deg);
+}
+
+.collect-history-card__polaroid--dream {
+  transform: rotate(1.5deg);
+}
+
+.collect-history-card__thumb {
+  display: block;
+  width: 100%;
+  height: 46px;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+.collect-history-detail {
+  position: absolute;
+  inset: 0;
+  z-index: 140;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 12px 10px;
+}
+
+.collect-history-detail__backdrop {
+  animation: collect-history-backdrop-in 0.3s ease forwards;
+}
+
+.collect-history-detail__stage {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: min(100%, 360px);
+  height: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  min-height: 0;
+  animation: collect-history-fade-in 0.35s ease forwards;
+}
+
+@keyframes collect-history-fade-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes collect-history-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.collect-history-detail__slip-wrap {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.collect-history-detail__slip-wrap .collect-slip {
+  max-height: 100%;
+  overflow-y: auto;
+  width: 100%;
+}
+
+.collect-photo-save {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 10px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.collect-photo-save:active {
+  transform: scale(0.98);
+  opacity: 0.85;
+}
+
+.collect-detail {
+  position: absolute;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 12px 16px;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.collect-detail__backdrop {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, black 52%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.collect-detail__stage {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: min(100%, 340px);
+  height: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  min-height: 0;
+  animation: collect-detail-in 0.38s ease;
+}
+
+@keyframes collect-detail-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.collect-detail__body {
+  flex: 1 1 0;
+  width: 100%;
+  min-height: 0;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  padding: 0 2px;
+  box-sizing: border-box;
+}
+
+.collect-detail__dismiss {
+  flex-shrink: 0;
+  min-width: 96px;
+  min-height: 36px;
+  margin: 0;
+  padding: 8px 22px;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, white 18%, transparent);
+  color: color-mix(in srgb, white 92%, transparent);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.collect-detail__dismiss:active {
+  transform: scale(0.97);
+  background: color-mix(in srgb, white 28%, transparent);
+}
+
+/* —— 私语 · 语音播放器 —— */
+.collect-voice {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 88%, white);
+  box-shadow:
+    0 10px 28px color-mix(in srgb, black 18%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 60%, transparent);
+}
+
+.collect-voice__btn {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--accent) 88%, white) 0%,
+    var(--accent) 100%
+  );
+  color: var(--accent-contrast, #fff);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 35%, transparent);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.collect-voice__btn:active:not(.is-disabled) {
+  transform: scale(0.94);
+}
+
+.collect-voice__btn.is-disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.collect-voice__btn-icon {
+  display: block;
+  width: 0;
+  height: 0;
+  margin-left: 3px;
+  border-style: solid;
+  border-width: 8px 0 8px 14px;
+  border-color: transparent transparent transparent currentColor;
+}
+
+.collect-voice__btn.is-playing .collect-voice__btn-icon {
+  width: 14px;
+  height: 14px;
+  margin-left: 0;
+  border: none;
+  background: currentColor;
+  border-radius: 2px;
+  clip-path: inset(0 58% 0 0);
+  box-shadow: inset 5px 0 0 currentColor;
+}
+
+.collect-voice__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.collect-voice__wave {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px;
+  height: 32px;
+  padding: 0 2px;
+}
+
+.collect-voice__wave span {
+  flex: 1;
+  max-width: 4px;
+  min-height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 55%, var(--text));
+  opacity: 0.35;
+  transform-origin: center bottom;
+}
+
+.collect-voice__btn.is-playing ~ .collect-voice__main .collect-voice__wave span,
+.collect-voice:has(.collect-voice__btn.is-playing) .collect-voice__wave span {
+  animation: collect-voice-bar 0.9s ease-in-out infinite;
+  opacity: 0.85;
+}
+
+.collect-voice__wave span:nth-child(1) { height: 8px; animation-delay: 0s; }
+.collect-voice__wave span:nth-child(2) { height: 14px; animation-delay: 0.06s; }
+.collect-voice__wave span:nth-child(3) { height: 20px; animation-delay: 0.12s; }
+.collect-voice__wave span:nth-child(4) { height: 12px; animation-delay: 0.18s; }
+.collect-voice__wave span:nth-child(5) { height: 24px; animation-delay: 0.04s; }
+.collect-voice__wave span:nth-child(6) { height: 16px; animation-delay: 0.1s; }
+.collect-voice__wave span:nth-child(7) { height: 22px; animation-delay: 0.16s; }
+.collect-voice__wave span:nth-child(8) { height: 10px; animation-delay: 0.22s; }
+.collect-voice__wave span:nth-child(9) { height: 18px; animation-delay: 0.08s; }
+.collect-voice__wave span:nth-child(10) { height: 26px; animation-delay: 0.14s; }
+.collect-voice__wave span:nth-child(11) { height: 14px; animation-delay: 0.2s; }
+.collect-voice__wave span:nth-child(12) { height: 20px; animation-delay: 0.02s; }
+.collect-voice__wave span:nth-child(13) { height: 11px; animation-delay: 0.11s; }
+.collect-voice__wave span:nth-child(14) { height: 17px; animation-delay: 0.17s; }
+.collect-voice__wave span:nth-child(15) { height: 23px; animation-delay: 0.05s; }
+.collect-voice__wave span:nth-child(16) { height: 9px; animation-delay: 0.13s; }
+.collect-voice__wave span:nth-child(17) { height: 19px; animation-delay: 0.19s; }
+.collect-voice__wave span:nth-child(18) { height: 13px; animation-delay: 0.07s; }
+.collect-voice__wave span:nth-child(19) { height: 21px; animation-delay: 0.15s; }
+.collect-voice__wave span:nth-child(20) { height: 15px; animation-delay: 0.21s; }
+
+@keyframes collect-voice-bar {
+  0%,
+  100% {
+    transform: scaleY(0.45);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.collect-voice__mood {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  letter-spacing: 0.06em;
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
+  opacity: 0.88;
+}
+
+.collect-whisper__text {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 2px 0 6px;
+  line-height: 1.78;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, var(--surface) 8%, white);
+  text-shadow: 0 1px 12px color-mix(in srgb, black 35%, transparent);
+}
+
+/* —— 信件 —— */
+.collect-letter-sheet {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 22px 18px 26px;
+  border-radius: 3px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #faf6ee 96%, var(--accent) 4%) 0%,
+      #f7f0e4 100%
+    );
+  box-shadow:
+    0 1px 0 color-mix(in srgb, white 70%, transparent) inset,
+    0 18px 48px color-mix(in srgb, black 22%, transparent),
+    0 2px 0 color-mix(in srgb, #d4c4a8 40%, transparent);
+  line-height: 1.85;
+  font-size: 0.96rem;
+  color: #3d3428;
+  animation: collect-letter-in 0.55s ease;
+  position: relative;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.collect-letter-sheet::before {
+  content: "";
+  position: absolute;
+  inset: 12px 18px auto;
+  height: 1px;
+  background: color-mix(in srgb, #c9b896 35%, transparent);
+  opacity: 0.6;
+}
+
+@keyframes collect-letter-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) rotate(-0.6deg);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) rotate(0);
+  }
+}
+
+.collect-letter-hand {
+  font-family: "Ma Shan Zheng", "Liu Jian Mao Cao", "KaiTi", cursive;
+}
+
+.collect-letter-listen {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  gap: 8px;
+  min-height: 42px;
+  margin: 0;
+  padding: 10px 22px;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 90%, white);
+  color: color-mix(in srgb, var(--accent) 75%, var(--text));
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 8px 24px color-mix(in srgb, black 16%, transparent);
+  transition: transform 0.15s ease;
+}
+
+.collect-letter-listen:active:not(.is-disabled) {
+  transform: scale(0.97);
+}
+
+.collect-letter-listen.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.collect-letter-listen.is-playing {
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
+
+.collect-letter-listen__icon {
+  display: block;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 6px 0 6px 10px;
+  border-color: transparent transparent transparent currentColor;
+}
+
+.collect-letter-listen.is-playing .collect-letter-listen__icon {
+  width: 10px;
+  height: 10px;
+  border: none;
+  background: currentColor;
+  border-radius: 1px;
+  clip-path: inset(0 58% 0 0);
+  box-shadow: inset 4px 0 0 currentColor;
+}
+
+.collect-detail--photo .collect-detail__body {
+  align-items: center;
+  justify-content: center;
+}
+
+.collect-photo {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.collect-photo--develop .collect-photo__img {
+  animation: collect-develop 1.2s ease forwards;
+}
+
+@keyframes collect-develop {
+  0% { filter: brightness(0.2) sepia(0.4); }
+  100% { filter: none; }
+}
+
+.collect-photo__img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: 0 10px 28px color-mix(in srgb, black 32%, transparent);
+}
+
+.collect-photo__scene {
+  margin: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 8px 4px;
+  font-size: 0.86rem;
+  line-height: 1.65;
+  color: color-mix(in srgb, white 88%, transparent);
+  text-align: center;
+}
+
+.collect-photo__caption {
+  flex-shrink: 0;
+  margin: 0;
+  max-width: 100%;
+  font-size: 0.8rem;
+  font-family: "Ma Shan Zheng", cursive;
+  color: color-mix(in srgb, white 90%, transparent);
+  text-align: center;
+  line-height: 1.45;
+}
+
+/* —— 拍立得翻面 —— */
+.collect-photo-flip {
+  perspective: 900px;
+  width: 100%;
+  max-width: 100%;
+}
+
+.collect-photo-flip__inner {
+  position: relative;
+  width: 100%;
+  transform-style: preserve-3d;
+  transition: transform 0.55s ease;
+}
+
+.collect-photo-flip.is-flipped .collect-photo-flip__inner {
+  transform: rotateY(180deg);
+}
+
+.collect-photo-flip__face {
+  width: 100%;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.collect-photo-flip__face--back {
+  position: absolute;
+  inset: 0;
+  transform: rotateY(180deg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.collect-photo-back {
+  width: 100%;
+  min-height: 160px;
+  padding: 28px 22px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  background: linear-gradient(160deg, #faf6ee 0%, #f0e8d8 100%);
+  color: #3d3428;
+  font-size: 1.05rem;
+  line-height: 1.75;
+  text-align: center;
+  box-shadow: 0 12px 32px color-mix(in srgb, black 28%, transparent);
+}
+
+.collect-photo-flip__toggle {
+  margin-top: 12px;
+  align-self: center;
+  border: none;
+  border-radius: 999px;
+  padding: 8px 20px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--surface) 88%, white);
+  color: color-mix(in srgb, white 92%, transparent);
+  box-shadow: 0 6px 18px color-mix(in srgb, black 18%, transparent);
+}
+
+.collect-photo-flip__toggle:active {
+  transform: scale(0.97);
+}
+
+/* —— 语音备忘 —— */
+.collect-detail--memo .collect-detail__body {
+  align-items: stretch;
+}
+
+.collect-memo {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.collect-memo__ambient {
+  margin: 0;
+  font-size: 0.82rem;
+  color: color-mix(in srgb, white 62%, transparent);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.collect-memo__player {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  border: 1px solid color-mix(in srgb, white 10%, transparent);
+}
+
+.collect-memo__play {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--accent) 75%, #e74c3c);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 35%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.collect-memo__play.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.collect-memo__play-icon {
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 7px 0 7px 12px;
+  border-color: transparent transparent transparent white;
+  margin-left: 3px;
+}
+
+.collect-memo__play.is-playing .collect-memo__play-icon {
+  width: 12px;
+  height: 12px;
+  border: none;
+  margin-left: 0;
+  background: white;
+  border-radius: 2px;
+}
+
+.collect-memo__wave {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 28px;
+  min-width: 0;
+}
+
+.collect-memo__wave span {
+  flex: 1;
+  max-width: 4px;
+  height: 6px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 55%, white);
+  opacity: 0.55;
+}
+
+.collect-memo__play.is-playing ~ .collect-memo__wave span,
+.collect-memo__player:has(.collect-memo__play.is-playing) .collect-memo__wave span {
+  animation: collect-voice-bar 0.85s ease-in-out infinite;
+}
+
+.collect-memo__duration {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, white 70%, transparent);
+}
+
+.collect-memo__mumble {
+  font-size: 0.92rem;
+  line-height: 1.75;
+  color: color-mix(in srgb, white 88%, transparent);
+  padding: 0 4px;
+}
+
+/* —— 未发送草稿 —— */
+.collect-detail--draft .collect-detail__body {
+  align-items: stretch;
+}
+
+.collect-draft {
+  width: 100%;
+  border-radius: 18px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface) 92%, #1c1c1e);
+  border: 1px solid color-mix(in srgb, white 8%, transparent);
+  box-shadow: 0 16px 40px color-mix(in srgb, black 35%, transparent);
+}
+
+.collect-draft__bar {
+  padding: 10px 14px;
+  background: color-mix(in srgb, var(--surface) 96%, #2c2c2e);
+  border-bottom: 1px solid color-mix(in srgb, white 6%, transparent);
+}
+
+.collect-draft__tag {
+  font-size: 0.76rem;
+  color: color-mix(in srgb, white 55%, transparent);
+}
+
+.collect-draft__input {
+  padding: 16px 14px 20px;
+  min-height: 120px;
+}
+
+.collect-draft__strikes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.collect-draft__strike {
+  font-size: 0.88rem;
+  color: color-mix(in srgb, white 38%, transparent);
+  text-decoration: line-through;
+}
+
+.collect-draft__text {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: color-mix(in srgb, white 92%, transparent);
+  word-break: break-word;
+}
+
+.collect-draft__caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: color-mix(in srgb, var(--accent) 80%, white);
+  animation: collect-caret-blink 1s step-end infinite;
+}
+
+@keyframes collect-caret-blink {
+  50% { opacity: 0; }
+}
+
+/* —— 特殊的日子 —— */
+.collect-detail--specialDay .collect-detail__body {
+  align-items: center;
+}
+
+.collect-special-day {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  padding: 28px 20px 24px;
+  border-radius: 6px 6px 14px 14px;
+  background: linear-gradient(
+    175deg,
+    color-mix(in srgb, #faf6ee 94%, var(--accent) 6%) 0%,
+    #f3ebe0 100%
+  );
+  color: #3a3228;
+  box-shadow:
+    0 2px 0 color-mix(in srgb, #d8ccb8 80%, transparent) inset,
+    0 20px 48px color-mix(in srgb, black 28%, transparent);
+  text-align: center;
+}
+
+.collect-special-day__tear {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 10px;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 4px,
+    color-mix(in srgb, #e8dfd0 90%, transparent) 4px,
+    color-mix(in srgb, #e8dfd0 90%, transparent) 8px
+  );
+  opacity: 0.85;
+}
+
+.collect-special-day__date {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  color: color-mix(in srgb, #6b5f4f 85%, transparent);
+}
+
+.collect-special-day__prefix {
+  margin: 0 0 8px;
+  font-size: 0.88rem;
+  font-weight: 650;
+  color: color-mix(in srgb, var(--accent) 55%, #5a4a38);
+}
+
+.collect-special-day__title {
+  margin: 0 0 14px;
+  font-family: "ZCOOL XiaoWei", "Noto Serif TC", serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.collect-special-day__note {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.75;
+  text-align: left;
+}
+
+.collect-special-day__whisper {
+  margin: 16px 0 0;
+  padding-top: 14px;
+  border-top: 1px dashed color-mix(in srgb, #c9b896 50%, transparent);
+  font-size: 0.86rem;
+  font-family: "Ma Shan Zheng", cursive;
+  color: color-mix(in srgb, #5a4a38 90%, transparent);
+}
+
+/* —— 梦话 —— */
+.collect-detail--dream .collect-detail__body {
+  align-items: stretch;
+  gap: 16px;
+}
+
+.collect-dream {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.collect-dream__figure {
+  margin: 0;
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: color-mix(in srgb, black 40%, transparent);
+}
+
+.collect-dream__figure--develop .collect-dream__img {
+  animation: collect-develop 1.4s ease forwards;
+}
+
+.collect-dream__img {
+  display: block;
+  width: 100%;
+  max-height: 200px;
+  object-fit: cover;
+  filter: saturate(0.75) contrast(0.95);
+}
+
+.collect-dream__scene {
+  margin: 0;
+  padding: 24px 16px;
+  font-size: 0.86rem;
+  line-height: 1.65;
+  color: color-mix(in srgb, white 75%, transparent);
+  text-align: center;
+}
+
+.collect-dream__lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.collect-dream__line {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: color-mix(in srgb, white 72%, transparent);
+  background: color-mix(in srgb, white 4%, transparent);
+  transition: color 0.25s ease, background 0.25s ease;
+}
+
+.collect-dream__line.is-active {
+  color: color-mix(in srgb, white 96%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.collect-dream__listen {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  gap: 8px;
+  min-height: 42px;
+  margin: 0;
+  padding: 10px 22px;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 90%, white);
+  color: color-mix(in srgb, white 88%, transparent);
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 8px 24px color-mix(in srgb, black 16%, transparent);
+}
+
+.collect-dream__listen.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.collect-dream__listen.is-playing {
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+}
+
+.collect-dream__listen-icon {
+  display: block;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 6px 0 6px 10px;
+  border-color: transparent transparent transparent currentColor;
+}
+
+.collect-dream__listen.is-playing .collect-dream__listen-icon {
+  width: 10px;
+  height: 10px;
+  border: none;
+  background: currentColor;
+  border-radius: 1px;
+}
+
+.collect-postcard {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 20px 16px;
+  border-radius: 12px;
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--accent) 8%, #fff) 0%,
+    #fff 60%
+  );
+  border: 1px solid color-mix(in srgb, var(--accent) 12%, #ddd);
+  box-shadow: 0 6px 20px color-mix(in srgb, black 8%, transparent);
+}
+
+.collect-postcard--flip {
+  animation: collect-flip-in 0.65s ease;
+}
+
+@keyframes collect-flip-in {
+  from { transform: perspective(600px) rotateY(-88deg); opacity: 0; }
+  to { transform: perspective(600px) rotateY(0); opacity: 1; }
+}
+
+.collect-postcard__head {
+  margin: 0 0 12px;
+  font-family: "ZCOOL XiaoWei", "Noto Serif TC", serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.collect-postcard__lines {
+  margin: 0;
+  padding-left: 1.1em;
+  font-family: "ZCOOL XiaoWei", "Noto Serif TC", serif;
+  line-height: 1.8;
+  font-size: 0.95rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collect-item--loading .collect-item__shimmer,
+  .collect-photo--develop .collect-photo__img,
+  .collect-dream__figure--develop .collect-dream__img,
+  .collect-photo-flip__inner,
+  .collect-draft__caret,
+  .collect-slip.is-printing,
+  .collect-slip.is-exiting,
+  .collect-slip__caret,
+  .collect-slip__dream-visual.is-developed .collect-slip__dream-img,
+  .collect-postcard--flip,
+  .collect-detail__stage,
+  .collect-letter-sheet,
+  .collect-voice:has(.collect-voice__btn.is-playing) .collect-voice__wave span,
+  .collect-memo__player:has(.collect-memo__play.is-playing) .collect-memo__wave span,
+  .collect-key.is-loading::before,
+  .collect-gen-hint__dot {
+    animation: none !important;
+    transition: none !important;
+  }
 }

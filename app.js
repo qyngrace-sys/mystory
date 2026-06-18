@@ -82,7 +82,6 @@
   const STORAGE_API_CONFIGS = "hj-api-configs-v1";
   const STORAGE_ACTIVE_API_ID = "hj-active-api-id-v1";
   const STORAGE_TTS_SETTINGS = "hj-tts-settings-v1";
-  const STORAGE_CALL_SETTINGS = "hj-call-settings-v1";
   const STORAGE_VISUAL_IMAGE_SETTINGS = "hj-visual-image-settings-v1";
   const STORAGE_ASSISTANT = "hj-assistant-v1";
   const STORAGE_POST_CLEAR_ASSISTANT_V1 = "hj-post-clear-assistant-v1";
@@ -1277,7 +1276,6 @@
     persistApiConfigs();
     persistAppearance();
     persistTtsSettings();
-    persistCallSettings();
     persistVisualImageSettings();
     const JSZip = getBackupLib();
     if (!JSZip) {
@@ -2050,28 +2048,6 @@
         applyAppearanceToDom();
         renderDynamic();
       }
-      if (btn.hasAttribute("data-phone-auto-delete")) {
-        const fanworkSlotEl = btn.closest("#fanwork-content-slot, #story-fanwork-slot");
-        const phoneSlotEl = btn.closest("#phone-content-slot, #story-phone-slot");
-        if (fanworkSlotEl) {
-          const fanNav = getFanworkNav(fanworkSlotEl);
-          const fanCur = String(fanNav.screen || "");
-          if (fanCur === "jjwxc" || fanCur === "jjwxc-novel" || fanCur === "jjwxc-chapter") {
-            pruneFanworkJjwxcNovelsWithoutDetail();
-          }
-          return;
-        }
-        if (phoneSlotEl) {
-          const phoneNav = getPhoneNav(phoneSlotEl);
-          const phoneCur = String(phoneNav.screen || "");
-          if (phoneCur === "forum" || phoneCur === "forum-post") {
-            prunePhoneForumPostsWithoutDetail();
-          } else if (phoneCur === "jjwxc" || phoneCur === "jjwxc-novel" || phoneCur === "jjwxc-chapter") {
-            prunePhoneJjwxcNovelsWithoutDetail();
-          }
-        }
-        return;
-      }
       if (btn.id === "btn-custom-palette-save") {
         const t1Input = root.querySelector("#custom-palette-tone-1");
         const t2Input = root.querySelector("#custom-palette-tone-2");
@@ -2563,10 +2539,14 @@
   ];
   const VISUAL_REF_IMAGE_MAX = 3;
   const DEFAULT_VISUAL_CELEBRITY_LOOKALIKE = "朴宝剑";
-  const DEFAULT_VISUAL_APPEARANCE_PROMPT =
+  const LEGACY_VISUAL_APPEARANCE_PROMPT =
     "Use the uploaded reference photos as the identity anchor. Reconstruct the same face across angles with consistent facial proportions, eye shape, nose bridge, lips, jawline, cheekbones, skin tone, hairstyle, hair volume, parting, and overall temperament. Preserve distinctive features from the reference and the celebrity lookalike only as a loose structural guide, not a different person. Ultra-realistic skin texture with natural pores and fine facial hair, believable asymmetry, soft natural light, 85mm lens, shallow depth of field, documentary-grade portrait realism.";
-  const DEFAULT_VISUAL_DAILY_PROMPT =
+  const LEGACY_VISUAL_DAILY_PROMPT =
     "Create a lived-in smartphone photo that feels like a real moment from a character's day, not a stock image. Keep the environment grounded, specific, and tied to the current剧情/关系/情绪: where the person is, what they are doing, what time of day it feels like, and what detail proves this is that exact moment. Favor candid framing, natural light, practical objects, subtle motion, and imperfect realism over beauty-shot polish. Include location clues, weather, reflections, clutter, and emotional atmosphere when relevant, shot like an authentic phone snapshot with realistic texture and depth.";
+  const DEFAULT_VISUAL_APPEARANCE_PROMPT =
+    "Use the uploaded reference photos as the identity anchor. Reconstruct the same face across angles with consistent facial proportions, eye shape, nose bridge, lips, jawline, cheekbones, skin tone, hairstyle, hair volume, parting, and overall temperament. Preserve distinctive features from the reference; the celebrity lookalike is only a loose facial-structure guide, not a different person. Render as an authentic smartphone portrait—front-camera selfie or rear-camera portrait with phone-lens characteristics: slight wide-angle edge distortion, natural skin texture with visible pores and fine facial hair, believable asymmetry, auto-exposure, mild noise or JPEG compression, casual imperfect framing. No studio lighting, no beauty-filter smoothing, no DSLR bokeh, no 85mm portrait look.";
+  const DEFAULT_VISUAL_DAILY_PROMPT =
+    "Create a lived-in rear-camera smartphone photo like a viral social-media check-in snapshot—not a stock image or professional photography. Scenes may include café food, street snacks, travel landmarks, café interiors, natural landscapes, city skylines, or everyday street corners, styled like popular influencer check-in photos online. Keep the environment grounded and tied to the current plot, relationship, and mood: where the person is, what they are doing, time of day, and the one detail that proves this exact moment. Favor candid phone framing, natural ambient light, auto white balance, slight lens distortion, mild grain or JPEG compression, imperfect composition, reflections, clutter, and emotional atmosphere. Phone rear-camera realism only—no DSLR, no cinematic grading, no overly polished beauty-shot look.";
   let ttsSettings = {
     enabled: true,
     region: "cn",
@@ -2595,11 +2575,10 @@
     "settings",
   ];
   /** 旧版底栏 tab，hash 兼容重定向到点星子视图 */
-  const LEGACY_OVERVIEW_SUB_TAB_IDS = { phone: "phone", fanwork: "fanwork", knock: "knock", dial: "dial" };
-  const DIAL_PHONE_PLOT_PREFIX = "__dial__";
+  const LEGACY_OVERVIEW_SUB_TAB_IDS = { phone: "phone", fanwork: "fanwork", knock: "knock", collect: "collect" };
 
   let activeTab = "overview";
-  /** 点星内嵌子页：null | "phone" | "fanwork" | "knock" | "dial" */
+  /** 点星内嵌子页：null | "phone" | "fanwork" | "knock" | "collect" */
   let overviewSubView = null;
   /** 敲敲：主视角角色 id（我的形象） */
   let knockUserCharId = null;
@@ -2639,8 +2618,9 @@
   let knockAvatarPick = null;
   /** 敲敲：角色横向列表滑动时避免误触选中 */
   let horizontalScrollGuard = null;
+  const horizontalScrollPosCache = Object.create(null);
   const HORIZONTAL_SCROLL_SELECTOR =
-    ".h-scroll, .pill-row, .phone-forum__pill-scroll, .phone-jjwxc__pill-scroll, .knock-sticker-panel__tabs, .knock-sticker-manage__pack-tabs";
+    ".h-scroll, .pill-row, .phone-forum__pill-scroll, .phone-jjwxc__pill-scroll, .knock-sticker-panel__tabs, .knock-sticker-manage__pack-tabs, .collect-history-row__scroll";
   /** 横向滑动分组时，临时锁住外层纵向滚动容器，避免弹窗/面板跟着上下位移 */
   let horizontalScrollAxisLock = null;
   /** 敲敲：用户自定义表情包分组 [{ id, name, stickers: [{ id, url, name? }], mounted?: boolean }]；挂载后仅主要角色 AI 可按名称发送 */
@@ -2717,54 +2697,6 @@
   /** 敲敲契机背景：目标篇幅（过长的输出易触顶 max_tokens 被截断，也拖慢生成） */
   const KNOCK_CONTEXT_TARGET_MIN_CHARS = 380;
   const KNOCK_CONTEXT_TARGET_MAX_CHARS = 520;
-  /** 拨通：当前主视角（我的形象）id */
-  let dialUserCharId = null;
-  /** 拨通：通讯录搜索关键词 */
-  let dialContactQuery = "";
-  /** 拨通：手机页签 recent | contacts | recordings */
-  let dialPhoneTab = "recent";
-  /** 拨通：是否展开「我的形象」选择/编辑面板 */
-  let dialIdentityOpen = false;
-  /** 拨通：形象面板内正在编辑人设的角色 id */
-  let dialIdentityEditCharId = null;
-  /** 拨通：形象横向列表滑动时避免误触选中 */
-  /** 拨通：各「我的形象」在本功能内的人设覆盖 */
-  let dialPersonaOverrides = {};
-  /** 拨通：联系人详情页当前角色 id（非我的形象） */
-  let dialContactDetailCharId = null;
-  /** 拨通：联系人详情页页签 history | favorites */
-  let dialContactDetailTab = "history";
-  /** 拨通：是否展开联系人通话人设编辑面板 */
-  let dialPartnerPersonaOpen = false;
-  /** 拨通：录音文字版详情 note id */
-  let dialRecordingDetailId = null;
-  /** 拨通：通话记录，key = selfCharId */
-  let dialCallHistory = {};
-  /** 拨通：当前通话会话（仅内存，不落盘） */
-  let dialCallSession = null;
-  /** 拨通：通话录音 data URL，key = noteId */
-  let dialCallRecordingBlobs = {};
-  let dialCallTimerId = null;
-  let dialCallRingTimerId = null;
-  let dialMediaRecorder = null;
-  let dialMediaStream = null;
-  let dialRecordedChunks = [];
-  let callSettings = {
-    sttEnabled: false,
-    sttProvider: "sherpa-ncnn",
-    sttApiKey: "",
-    sttEndpoint: "",
-    sttLanguage: "zh-CN",
-    autoRecord: false,
-    aiEnabled: true,
-    autoGreeting: true,
-    voiceReply: true,
-    useTurboTts: true,
-    replyMaxTokens: 380,
-    replyTemperature: 0.78,
-    contextMessageLimit: 10,
-    ringDelayMs: 1800,
-  };
   let visualImageSettings = {
     enabled: false,
     style: "realism",
@@ -2788,15 +2720,6 @@
       availableModels: [],
     },
   };
-  const DIAL_CALL_PERSONA_FIELD_MAX_CHARS = 200;
-  let dialCallTtsAudio = null;
-  let dialCallTtsObjectUrl = null;
-  let dialSttRecognition = null;
-  let dialSttListening = false;
-  let dialSttVoiceRecorder = null;
-  let dialSttVoiceStream = null;
-  let dialSttVoiceChunks = [];
-  let dialSttTranscribing = false;
   /** 敲敲契机背景：输出 token 上限（中文约 1.5～2.5 token/字，留足余量） */
   const KNOCK_CONTEXT_OUTPUT_MAX_TOKENS = 1800;
   /** 敲敲契机生成时每人设字段纳入 prompt 的上限 */
@@ -2875,6 +2798,38 @@
   let fanworkJjwxcCategoryGenerating = false;
   let fanworkJjwxcNovelGeneratingId = null;
   let fanworkJjwxcChapterGeneratingId = null;
+  /** 收取：剧情 id */
+  let collectPlotId = null;
+  /** 收取：主要角色 id（非我的形象） */
+  let collectCharId = null;
+  /** 收取设置弹窗：plot | char */
+  let collectHolderModalStep = "plot";
+  let collectHolderModalPlotId = null;
+  /** 收取弹窗模式：first 首次绑定 | settings 设置内更换 */
+  let collectHolderModalMode = "first";
+  /** 收取包：key = plotId + \\u001e + charId */
+  let collectPackData = {};
+  /** 收取历史：key = plotId + \\u001e + charId → [{ id, generatedAt, pack }] */
+  let collectHistoryData = {};
+  const COLLECT_HISTORY_MAX_PER_KEY = 50;
+  let collectGenerating = false;
+  /** 收取后台生图：photo=selfie, dream=梦境场景 */
+  let collectImageGenerating = { photo: null, dream: null };
+  let collectTtsAudio = null;
+  let collectTtsRevealRaf = null;
+  let collectAudioCtx = null;
+  let collectNoiseSource = null;
+  let collectMixedVoiceSource = null;
+  let collectTtsPlayingKind = null;
+  let collectTtsPaused = false;
+  let collectCardTransitionTimer = null;
+
+  const COLLECT_TTS_LABELS = {
+    whisper: "播放",
+    letter: "倾听",
+    memo: "播放",
+    dream: "梦话",
+  };
 
   const phoneNavBySlotId = {
     "phone-content-slot": { screen: "home", chatId: null },
@@ -2883,6 +2838,15 @@
   const fanworkNavBySlotId = {
     "fanwork-content-slot": { screen: "jjwxc", plotPickOpen: false },
     "story-fanwork-slot": { screen: "jjwxc", plotPickOpen: false },
+  };
+  const collectNavBySlotId = {
+    "collect-content-slot": {
+      screen: "hub",
+      detail: null,
+      openCards: [],
+      historyDetailEntryId: null,
+      historyDetailKind: null,
+    },
   };
 
   function getPhoneNav(slot) {
@@ -2899,6 +2863,23 @@
       fanworkNavBySlotId[slot.id] = { screen: "jjwxc", plotPickOpen: false };
     }
     return fanworkNavBySlotId[slot.id];
+  }
+
+  function getCollectNav(slot) {
+    if (!slot || !slot.id) return collectNavBySlotId["collect-content-slot"];
+    if (!collectNavBySlotId[slot.id]) {
+      collectNavBySlotId[slot.id] = {
+        screen: "hub",
+        detail: null,
+        openCards: [],
+        historyDetailEntryId: null,
+        historyDetailKind: null,
+      };
+    }
+    if (!Array.isArray(collectNavBySlotId[slot.id].openCards)) {
+      collectNavBySlotId[slot.id].openCards = [];
+    }
+    return collectNavBySlotId[slot.id];
   }
 
   let sheetPov = "第三人称";
@@ -3000,9 +2981,16 @@
     overviewSubPhone: () => document.getElementById("overview-sub-phone"),
     overviewSubFanwork: () => document.getElementById("overview-sub-fanwork"),
     overviewSubKnock: () => document.getElementById("overview-sub-knock"),
-    overviewSubDial: () => document.getElementById("overview-sub-dial"),
+    overviewSubCollect: () => document.getElementById("overview-sub-collect"),
     knockContentSlot: () => document.getElementById("knock-content-slot"),
-    dialContentSlot: () => document.getElementById("dial-content-slot"),
+    collectContentSlot: () => document.getElementById("collect-content-slot"),
+    modalCollectHolder: () => document.getElementById("modal-collect-holder"),
+    collectHolderClose: () => document.getElementById("collect-holder-close"),
+    collectHolderStepBack: () => document.getElementById("collect-holder-step-back"),
+    collectHolderTitle: () => document.getElementById("collect-holder-title"),
+    collectHolderHint: () => document.getElementById("collect-holder-hint"),
+    collectHolderPlotList: () => document.getElementById("collect-holder-plot-list"),
+    collectHolderPick: () => document.getElementById("collect-holder-pick"),
     modalAssistantProfile: () => document.getElementById("modal-assistant-profile"),
     assistantDedicatedApiSelect: () => document.getElementById("assistant-dedicated-api-select"),
     wbFilters: () => document.getElementById("wb-filters"),
@@ -6989,63 +6977,6 @@
     } catch (e) {}
   }
 
-  function loadCallSettings() {
-    try {
-      const raw = localStorage.getItem(STORAGE_CALL_SETTINGS);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object") return;
-      if (typeof parsed.sttEnabled === "boolean") callSettings.sttEnabled = parsed.sttEnabled;
-      if (typeof parsed.sttProvider === "string") callSettings.sttProvider = parsed.sttProvider;
-      if (typeof parsed.sttApiKey === "string") callSettings.sttApiKey = parsed.sttApiKey;
-      if (typeof parsed.sttEndpoint === "string") callSettings.sttEndpoint = parsed.sttEndpoint;
-      if (typeof parsed.sttLanguage === "string") callSettings.sttLanguage = parsed.sttLanguage;
-      if (callSettings.sttProvider === "minimax" && !String(callSettings.sttApiKey || "").trim()) {
-        callSettings.sttProvider = "sherpa-ncnn";
-      }
-      if (typeof parsed.autoRecord === "boolean") callSettings.autoRecord = parsed.autoRecord;
-      if (typeof parsed.aiEnabled === "boolean") callSettings.aiEnabled = parsed.aiEnabled;
-      if (typeof parsed.autoGreeting === "boolean") callSettings.autoGreeting = parsed.autoGreeting;
-      if (typeof parsed.voiceReply === "boolean") callSettings.voiceReply = parsed.voiceReply;
-      if (typeof parsed.useTurboTts === "boolean") callSettings.useTurboTts = parsed.useTurboTts;
-      if (typeof parsed.replyMaxTokens === "number" && parsed.replyMaxTokens > 0) {
-        callSettings.replyMaxTokens = Math.min(600, Math.floor(parsed.replyMaxTokens));
-      }
-      if (typeof parsed.replyTemperature === "number" && Number.isFinite(parsed.replyTemperature)) {
-        callSettings.replyTemperature = Math.max(0.3, Math.min(1.2, parsed.replyTemperature));
-      }
-      if (typeof parsed.contextMessageLimit === "number" && parsed.contextMessageLimit > 0) {
-        callSettings.contextMessageLimit = Math.min(24, Math.floor(parsed.contextMessageLimit));
-      }
-      if (typeof parsed.ringDelayMs === "number" && parsed.ringDelayMs >= 0) {
-        callSettings.ringDelayMs = Math.min(8000, Math.floor(parsed.ringDelayMs));
-      }
-    } catch (e) {}
-  }
-
-  function persistCallSettings() {
-    try {
-      localStorage.setItem(
-        STORAGE_CALL_SETTINGS,
-        JSON.stringify({
-          sttEnabled: callSettings.sttEnabled,
-          sttProvider: callSettings.sttProvider,
-          sttApiKey: callSettings.sttApiKey,
-          sttEndpoint: callSettings.sttEndpoint,
-          sttLanguage: callSettings.sttLanguage,
-          autoRecord: callSettings.autoRecord,
-          aiEnabled: callSettings.aiEnabled,
-          autoGreeting: callSettings.autoGreeting,
-          voiceReply: callSettings.voiceReply,
-          useTurboTts: callSettings.useTurboTts,
-          replyMaxTokens: callSettings.replyMaxTokens,
-          replyTemperature: callSettings.replyTemperature,
-          contextMessageLimit: callSettings.contextMessageLimit,
-          ringDelayMs: callSettings.ringDelayMs,
-        })
-      );
-    } catch (e) {}
-  }
 
   function loadVisualImageSettings() {
     try {
@@ -7116,6 +7047,22 @@
             .filter(Boolean);
         }
       }
+      let migrated = false;
+      const appearancePrompt = String(visualImageSettings.appearanceRef.prompt || "").trim();
+      if (appearancePrompt === LEGACY_VISUAL_APPEARANCE_PROMPT.trim()) {
+        visualImageSettings.appearanceRef.prompt = DEFAULT_VISUAL_APPEARANCE_PROMPT;
+        visualImageSettings.appearanceRef.visionCacheKey = "";
+        visualImageSettings.appearanceRef.visionCacheText = "";
+        migrated = true;
+      }
+      const dailyPrompt = String(visualImageSettings.dailyRef.prompt || "").trim();
+      if (dailyPrompt === LEGACY_VISUAL_DAILY_PROMPT.trim()) {
+        visualImageSettings.dailyRef.prompt = DEFAULT_VISUAL_DAILY_PROMPT;
+        visualImageSettings.dailyRef.visionCacheKey = "";
+        visualImageSettings.dailyRef.visionCacheText = "";
+        migrated = true;
+      }
+      if (migrated) persistVisualImageSettings();
     } catch (e) {}
   }
 
@@ -7227,11 +7174,26 @@
     return { endpoint: endpoint, apiKey: apiKey, model: model };
   }
 
+  const COLLECT_MINIMAX_IMAGE_MODEL = "image-01";
+
+  /** 收取照片生图：优先聊天发图配置，否则回退 MiniMax 语音 API Key */
+  function resolveCollectImageApiConfig() {
+    if (visualImageSettings.enabled) {
+      const visual = resolveVisualImageApiConfig();
+      if (visual) return visual;
+    }
+    const apiKey = String(ttsSettings.apiKey || "").trim();
+    if (!apiKey) return null;
+    const endpoint = resolveMinimaxBaseUrl();
+    if (!endpoint) return null;
+    return { endpoint: endpoint, apiKey: apiKey, model: COLLECT_MINIMAX_IMAGE_MODEL };
+  }
+
   function visualImageStylePromptSuffix() {
     const id = visualImageSettings.style || "realism";
     if (id === "film") return " Shot on 35mm film, subtle grain, warm color tones, cinematic.";
     if (id === "documentary") return " Documentary photography, candid framing, natural available light.";
-    return " Ultra-realistic photography, natural soft lighting, high detail, smartphone photo realism.";
+    return " Authentic smartphone photo realism: front or rear phone camera, natural ambient light, auto exposure and white balance, mild noise or JPEG compression, imperfect casual framing, no DSLR bokeh, no studio polish.";
   }
 
   function getVisualRefObj(refKey) {
@@ -7269,7 +7231,7 @@
       out +
       " The identity should still read as " +
       name +
-      ": preserve the same facial structure and hair silhouette as the reference photos, but do not copy styling from any unrelated image. Use the celebrity only as a loose face-structure reference, not a costume or pose reference. Outfit, mood, and atmosphere should follow the chat scene and world setting, not the reference photos."
+      ": preserve the same facial structure and hair silhouette as the reference photos, but do not copy styling from any unrelated image. Use the celebrity only as a loose face-structure reference, not a costume or pose reference. Outfit, mood, and atmosphere should follow the chat scene and world setting, not the reference photos. The result must look like a real phone-captured portrait, not a magazine or studio shoot."
     );
   }
 
@@ -7286,8 +7248,8 @@
       return { type: "image_url", image_url: { url: url, detail: "high" } };
     });
     const systemContent = isAppearance
-      ? "你是专业人像分析师。用户上传多张同一人物的参考照片。请综合所有角度，用英文写一段精确、可执行的文生图描述，仅限：脸型、颧骨、下颌、眼型、鼻型、唇形、发型、发色、肤色。不要描述衣着、场景、氛围、姿态或表情。只输出描述正文，不要标题、不要 markdown、不要中文。"
-      : "你是场景与影像分析师。用户上传多张日常/环境参考照片。请综合这些图，用英文写一段精确的场景与影像风格描述：地点类型、光线、色调、构图、氛围、常见物品与材质。只输出描述正文，不要标题、不要 markdown、不要中文。";
+      ? "你是专业人像分析师。用户上传多张同一人物的参考照片。请综合所有角度，用英文写一段精确、可执行的文生图描述，仅限：脸型、颧骨、下颌、眼型、鼻型、唇形、发型、发色、肤色。不要描述衣着、场景、氛围、姿态或表情。描述应适用于手机自拍/手机人像，不要写专业相机镜头参数。只输出描述正文，不要标题、不要 markdown、不要中文。"
+      : "你是场景与影像分析师。用户上传多张日常/环境参考照片。请综合这些图，用英文写一段精确的场景与影像风格描述：网红打卡照式 rear-camera 手机快照特征，包括地点类型、光线、色调、构图、氛围、常见打卡元素（美食、街景、自然风光、城市景色等）与材质。只输出描述正文，不要标题、不要 markdown、不要中文。";
     const userContent = [
       {
         type: "text",
@@ -7358,7 +7320,7 @@
     prompt +=
       " Subject: " +
       name +
-      ". Make it feel like an authentic front-camera phone selfie shared in a private chat: casual framing, imperfect composition, slight hand-held realism, natural expression, and believable screen-captured realism—not a studio portrait.";
+      ". Make it feel like an authentic front-camera phone selfie shared in a private chat: arm-length framing, slight wide-angle selfie distortion, casual imperfect composition, hand-held realism, natural expression, auto front-camera exposure, mild noise or JPEG compression—not a studio portrait or DSLR shot.";
     const chatContext = String(opts.chatContext || "").trim();
     if (chatContext) {
       prompt +=
@@ -7386,7 +7348,7 @@
     const dailyPrompt = await resolveVisualDailyPromptBase();
     let prompt =
       dailyPrompt +
-      " Environmental or scenic photo shared in chat: focus on place, objects, or atmosphere; make it unmistakably real, with lived-in details and a moment-in-time feeling rather than a generic landscape.";
+      " Rear-camera phone snapshot shared in chat, like an influencer check-in post: food close-ups, scenic views, city streets, or cozy indoor corners—all with phone auto-exposure, casual tilted framing, and mild compression artifacts. Environmental or scenic photo: focus on place, objects, or atmosphere; make it unmistakably real, with lived-in details and a moment-in-time feeling rather than a generic landscape.";
     const chatContext = String(opts.chatContext || "").trim();
     if (chatContext) {
       prompt +=
@@ -7547,10 +7509,12 @@
               "你是图像 prompt 工程师。根据微信私聊情境写一条英文生图 prompt，供 images/generations 使用。\n" +
               "只输出 prompt 正文：英文、无 markdown、无标题、无解释。\n" +
               "必须融合设置中的外貌/场景参考提示词与对方本轮画面描述，二者缺一不可。\n" +
-              "核心：照片是「聊天对象/对方」用手机拍下并发来的——自拍是对方本人，场景是对方眼前/对方所在之处。\n" +
+              "核心：照片是「聊天对象/对方」用手机拍下并发来的——自拍是对方本人前置手机自拍，场景是对方用手机 rear camera 拍下的打卡/环境照。\n" +
               "若对话里用户说自己在家、对方在别处，只画对方那边；用户侧地点、用户自拍、用户窗外景象一律不要画进去。\n" +
               "优先根据对方自己说过的话推断其地点与状态；用户消息仅作话题参考。\n" +
-              "包含可见细节（光线、环境、姿态、物品、情绪）。自拍：自然手机自拍；场景：环境为主、不要人脸特写。",
+              "包含可见细节（光线、环境、姿态、物品、情绪）。自拍：自然前置手机自拍；场景：后置手机打卡照，可含美食、宠物、自然风光、城市景色，环境为主、不要人脸特写。\n" +
+              "若 SNAP 描述的是动物/餐点/风景等眼前事物，按场景照处理，不要生成人脸自拍。\n" +
+              "禁止 DSLR、85mm 镜头、棚拍、电影调色、美颜滤镜；必须是真实手机直出照片质感。",
           },
           { role: "user", content: userContent },
         ],
@@ -7688,8 +7652,8 @@
     throw new Error("生图 API 返回格式不支持（需要 url 或 b64_json）");
   }
 
-  async function callVisualImageGeneration(prompt) {
-    const cfg = resolveVisualImageApiConfig();
+  async function callVisualImageGeneration(prompt, cfgOverride) {
+    const cfg = cfgOverride || resolveVisualImageApiConfig();
     if (!cfg) {
       throw new Error("请先在设置中启用聊天发图并填写生图 API");
     }
@@ -7727,6 +7691,7 @@
 
   function canRunKnockVisualImageTest() {
     if (!visualImageSettings.enabled) return { ok: false, reason: "disabled" };
+    if (!knockPartnerCanSendSnap()) return { ok: false, reason: "not_main" };
     if (!resolveVisualImageApiConfig()) return { ok: false, reason: "api" };
     return { ok: true, reason: "" };
   }
@@ -7744,23 +7709,31 @@
   }
 
   function buildKnockVisualImagePromptBlock() {
-    if (!visualImageSettings.enabled) return "";
+    if (!knockVisualSnapEnabled()) return "";
     return (
-      "\n\n【发图】你可在合适时机发照片（自拍、眼前景象、食物、宠物等），像真人微信一样克制，不要频繁发图。" +
-      "格式：单独一行 <<<SNAP>>>简短画面描述（中文或英文均可）<<<SNAP>>>，可与文字气泡混发。" +
-      "自拍是你本人出镜；景象是你此刻所在之处、你眼前看到的（不是用户那边）。" +
+      "\n\n【发图·仅主要角色】你可在合适时机发照片（手机自拍、手机随手拍的眼前景象），像真人微信一样克制，不要频繁发图；整段对话里通常 0～1 条 <<<SNAP>>> 即可，不要连续多轮都发。" +
+      "格式：单独一行 <<<SNAP>>>简短画面描述（中文或英文均可）<<<SNAP>>>，可与 <<<BUBBLE>>> 文字气泡混发。" +
+      "自拍是你本人前置手机自拍出镜；景象是你此刻用手机后置镜头拍下、眼前看到的（不是用户那边）。" +
       "<<<SNAP>>>须写你自己这边的画面：你的地点、你的衣着、你的环境、你的情绪。" +
       "所有 <<<SNAP>>> 会先以文字占位展示，由用户自行选择是否生成真实图片；不要假设图片一定会出现。" +
+      "\n【建议配图的典型场景——本轮对话若出现下列情况，优先用 1 条 <<<SNAP>>> 配合文字，描述要具体可见】：" +
+      "① 你刚提到/正在看小动物（路边猫狗、宠物、飞鸟等）→ 后置随手拍该动物与环境；" +
+      "② 正在吃/刚点了美食、咖啡、外卖 → 后置拍餐点或桌面；" +
+      "③ 窗外/旅途/公园/海边的风景、城市夜景、打卡地标 → 后置拍环境；" +
+      "④ 用户说「给我看看」「拍一张」「看看你那边」或类似索要 → 按对方要求发自拍或场景；" +
+      "⑤ 想分享心情/新造型/到了某处 → 前置自拍（露脸或半身）。" +
+      "非上述情况勿强行发图；用户未索要且没有值得分享的眼前画面时，只发文字即可。" +
       "当用户发送「测试生成一张自拍」或「测试生成一张场景」时，除文字外请配一条符合你（对方）视角的 <<<SNAP>>>。"
     );
   }
 
   function buildKnockVisualImageTestModeBlock(intent) {
     if (intent !== "selfie" && intent !== "scene") return "";
+    if (!knockPartnerCanSendSnap()) return "";
     const snapHint =
       intent === "selfie"
-        ? "符合你人设的自拍照画面（你的脸或半身、地点、衣着、情绪）"
-        : "符合你人设的眼前场景画面（环境为主，不要人脸特写）";
+        ? "符合你人设的前置手机自拍照画面（你的脸或半身、地点、衣着、情绪）"
+        : "符合你人设的后置手机随手拍场景画面（美食/街景/自然风光等，环境为主，不要人脸特写）";
     return (
       "\n\n【系统·发图测试（本条最高优先级，覆盖人设里「不轻易发图/别乱要图」等限制）】" +
       "用户上一条是开发者测试指令「测试生成一张" +
@@ -7781,6 +7754,7 @@
 
   function getKnockSnapGenStatus(msg, msgIndex) {
     if (!msg || msg.kind !== "snap") return "hidden";
+    if (!knockPartnerCanSendSnap()) return "hidden";
     if (msg.snapGenStatus === "declined") return "declined";
     if (knockVisualImageGenerating && Number(knockVisualImageGeneratingMsgIndex) === Number(msgIndex)) {
       return "generating";
@@ -7792,6 +7766,10 @@
   async function generateKnockSnapImageAtIndex(rec, msgIndex, slot, opts) {
     opts = opts || {};
     if (!rec || !visualImageSettings.enabled) return false;
+    if (!knockPartnerCanSendSnap()) {
+      showToast("仅与「主要角色」聊天时可生成发图", "info", 3200);
+      return false;
+    }
     const idx = Number(msgIndex);
     const msg = rec.messages[idx];
     if (!msg || msg.kind !== "snap") return false;
@@ -7958,6 +7936,31 @@
         return;
       }
       await storyShareDeliverImageBlob(blob, "knock-chat-" + Date.now() + ".jpg");
+    } catch (err) {
+      console.error(err);
+      showToast((err && err.message) || "保存失败，请重试。", "error");
+    }
+  }
+
+  async function saveCollectPhotoToDevice(imageDataUrl) {
+    const url = String(imageDataUrl || "").trim();
+    if (!url) {
+      showToast("无法保存：图片地址无效。", "error");
+      return;
+    }
+    try {
+      let blob = null;
+      if (/^data:image\//i.test(url)) {
+        blob = storyShareDataUrlToBlob(url);
+      } else {
+        const dataUrl = await fetchRemoteImageAsCompressedDataUrl(url);
+        blob = storyShareDataUrlToBlob(dataUrl);
+      }
+      if (!blob) {
+        showToast("无法保存图片。", "error");
+        return;
+      }
+      await storyShareDeliverImageBlob(blob, "collect-photo-" + Date.now() + ".jpg");
     } catch (err) {
       console.error(err);
       showToast((err && err.message) || "保存失败，请重试。", "error");
@@ -9049,10 +9052,10 @@
       knockSavedPairs: knockSavedPairs || [],
       knockActiveSavedPairId: knockActiveSavedPairId || null,
       knockStickerPacks: knockStickerPacks || [],
-      dialUserCharId: dialUserCharId || null,
-      dialCallRecordingBlobs: dialCallRecordingBlobs || {},
-      dialCallHistory: dialCallHistory || {},
-      dialPersonaOverrides: dialPersonaOverrides || {},
+      collectPlotId: collectPlotId || null,
+      collectCharId: collectCharId || null,
+      collectPackData: collectPackData || {},
+      collectHistoryData: collectHistoryData || {},
     });
   }
 
@@ -9387,6 +9390,31 @@
         fanworkPlotId = null;
         fanworkCpPartnerId = null;
       }
+      collectPlotId = null;
+      collectCharId = null;
+      if (typeof o.collectPlotId === "string" && o.collectPlotId.trim()) {
+        collectPlotId = o.collectPlotId.trim();
+      }
+      if (typeof o.collectCharId === "string" && o.collectCharId.trim()) {
+        collectCharId = o.collectCharId.trim();
+      }
+      collectPackData = {};
+      if (o.collectPackData && typeof o.collectPackData === "object" && !Array.isArray(o.collectPackData)) {
+        Object.keys(o.collectPackData).forEach(function (k) {
+          const v = normalizeCollectPack(o.collectPackData[k]);
+          if (v) collectPackData[k] = v;
+        });
+      }
+      collectHistoryData = {};
+      if (o.collectHistoryData && typeof o.collectHistoryData === "object" && !Array.isArray(o.collectHistoryData)) {
+        Object.keys(o.collectHistoryData).forEach(function (k) {
+          const arr = o.collectHistoryData[k];
+          if (!Array.isArray(arr)) return;
+          const normalized = arr.map(normalizeCollectHistoryEntry).filter(Boolean);
+          if (normalized.length) collectHistoryData[k] = normalized;
+        });
+      }
+      sanitizeCollectState();
       knockUserCharId =
         typeof o.knockUserCharId === "string" && o.knockUserCharId.trim() ? o.knockUserCharId.trim() : null;
       knockPartnerCharId =
@@ -9482,49 +9510,6 @@
       migrateKnockMomentsKeysIfNeeded();
       knockStickerPacks = normalizeKnockStickerPacks(o.knockStickerPacks);
       ensureKnockActiveStickerPack();
-      dialUserCharId =
-        typeof o.dialUserCharId === "string" && o.dialUserCharId.trim() ? o.dialUserCharId.trim() : null;
-      if (dialUserCharId && !getCharById(dialUserCharId)) dialUserCharId = null;
-      if (dialUserCharId && getCharById(dialUserCharId)?.categoryId !== CHAR_CATEGORY_SELF_ID) {
-        dialUserCharId = null;
-      }
-      dialCallRecordingBlobs = {};
-      if (o.dialCallRecordingBlobs && typeof o.dialCallRecordingBlobs === "object" && !Array.isArray(o.dialCallRecordingBlobs)) {
-        Object.keys(o.dialCallRecordingBlobs).forEach(function (k) {
-          const v = o.dialCallRecordingBlobs[k];
-          if (!v || typeof v !== "object") return;
-          const dataUrl = typeof v.dataUrl === "string" ? v.dataUrl.trim() : "";
-          if (!dataUrl) return;
-          dialCallRecordingBlobs[k] = {
-            dataUrl: dataUrl,
-            mime: typeof v.mime === "string" ? v.mime : "audio/webm",
-            durationMs: typeof v.durationMs === "number" ? v.durationMs : 0,
-            partnerCharId: typeof v.partnerCharId === "string" ? v.partnerCharId : "",
-            savedAt: typeof v.savedAt === "number" ? v.savedAt : Date.now(),
-          };
-        });
-      }
-      dialCallHistory = {};
-      if (o.dialCallHistory && typeof o.dialCallHistory === "object" && !Array.isArray(o.dialCallHistory)) {
-        Object.keys(o.dialCallHistory).forEach(function (k) {
-          const arr = o.dialCallHistory[k];
-          if (!Array.isArray(arr)) return;
-          dialCallHistory[k] = arr
-            .map(function (item) {
-              return normalizeDialCallHistoryEntry(item);
-            })
-            .filter(Boolean)
-            .slice(0, 200);
-        });
-      }
-      dialPersonaOverrides = {};
-      if (o.dialPersonaOverrides && typeof o.dialPersonaOverrides === "object" && !Array.isArray(o.dialPersonaOverrides)) {
-        Object.keys(o.dialPersonaOverrides).forEach(function (k) {
-          const v = o.dialPersonaOverrides[k];
-          if (!v || typeof v !== "object") return;
-          dialPersonaOverrides[k] = normalizeDialPersonaOverride(v);
-        });
-      }
       phoneForumSectionsByPlot = {};
       if (o.phoneForumSectionsByPlot && typeof o.phoneForumSectionsByPlot === "object" && !Array.isArray(o.phoneForumSectionsByPlot)) {
         Object.keys(o.phoneForumSectionsByPlot).forEach(function (plotId) {
@@ -9539,49 +9524,6 @@
             };
           });
           phoneSharedSectionStoreSetSections(
-            phoneForumSectionsByPlot,
-            plotId,
-            sections,
-            phoneSharedSectionEntryUpdatedAt(raw) || Date.now()
-          );
-        });
-      }
-      phoneBrowserSectionsByPlot = {};
-      if (o.phoneBrowserSectionsByPlot && typeof o.phoneBrowserSectionsByPlot === "object" && !Array.isArray(o.phoneBrowserSectionsByPlot)) {
-        Object.keys(o.phoneBrowserSectionsByPlot).forEach(function (plotId) {
-          const raw = o.phoneBrowserSectionsByPlot[plotId];
-          const arr = phoneSharedSectionEntrySections(raw);
-          if (!Array.isArray(arr) || !arr.length) return;
-          const sections = arr.map(function (s) {
-            return {
-              id: String((s && s.id) || ""),
-              name: String((s && s.name) || ""),
-              description: String((s && s.description) || ""),
-            };
-          });
-          phoneSharedSectionStoreSetSections(
-            phoneBrowserSectionsByPlot,
-            plotId,
-            sections,
-            phoneSharedSectionEntryUpdatedAt(raw) || Date.now()
-          );
-        });
-      }
-      phoneMemoSectionsByPlot = {};
-      if (o.phoneMemoSectionsByPlot && typeof o.phoneMemoSectionsByPlot === "object" && !Array.isArray(o.phoneMemoSectionsByPlot)) {
-        Object.keys(o.phoneMemoSectionsByPlot).forEach(function (plotId) {
-          const raw = o.phoneMemoSectionsByPlot[plotId];
-          const arr = phoneSharedSectionEntrySections(raw);
-          if (!Array.isArray(arr) || !arr.length) return;
-          const sections = arr.map(function (s) {
-            return {
-              id: String((s && s.id) || ""),
-              name: String((s && s.name) || ""),
-              description: String((s && s.description) || ""),
-            };
-          });
-          phoneSharedSectionStoreSetSections(
-            phoneMemoSectionsByPlot,
             plotId,
             sections,
             phoneSharedSectionEntryUpdatedAt(raw) || Date.now()
@@ -12254,12 +12196,10 @@
     }
     if (tab !== "overview") {
       closeKnockSetupPortal();
-      if (dialCallSession) void endDialCallSession({ saveRecording: true });
       overviewSubView = null;
     } else if (activeTab === "overview") {
       closeKnockSetupPortal();
       if (overviewSubView) {
-        if (overviewSubView === "dial" && dialCallSession) void endDialCallSession({ saveRecording: true });
         overviewSubView = null;
       }
     }
@@ -12286,7 +12226,7 @@
   }
 
   function isOverviewFeatureFullscreenView(view) {
-    return view === "phone" || view === "knock" || view === "dial";
+    return view === "phone" || view === "knock" || view === "collect";
   }
 
   function syncOverviewSubViewUi() {
@@ -12294,16 +12234,16 @@
     const phoneSub = els.overviewSubPhone();
     const fanSub = els.overviewSubFanwork();
     const knockSub = els.overviewSubKnock();
-    const dialSub = els.overviewSubDial();
+    const collectSub = els.overviewSubCollect();
     const showPhone = overviewSubView === "phone";
     const showFan = overviewSubView === "fanwork";
     const showKnock = overviewSubView === "knock";
-    const showDial = overviewSubView === "dial";
-    if (hub) hub.hidden = showPhone || showFan || showKnock || showDial;
+    const showCollect = overviewSubView === "collect";
+    if (hub) hub.hidden = showPhone || showFan || showKnock || showCollect;
     if (phoneSub) phoneSub.hidden = !showPhone;
     if (fanSub) fanSub.hidden = !showFan;
     if (knockSub) knockSub.hidden = !showKnock;
-    if (dialSub) dialSub.hidden = !showDial;
+    if (collectSub) collectSub.hidden = !showCollect;
     const shell = document.getElementById("app-shell");
     if (shell) {
       shell.classList.toggle("app-shell--feature-fullscreen", isOverviewFeatureFullscreenView(overviewSubView));
@@ -12319,12 +12259,11 @@
           ? "phone"
           : view === "knock"
             ? "knock"
-            : view === "dial"
-              ? "dial"
+            : view === "collect"
+              ? "collect"
               : null;
     if (!v) return;
     if (v === "knock") prepareKnockSession();
-    if (v === "dial") prepareDialSession();
     overviewSubView = v;
     if (activeTab !== "overview") {
       activeTab = "overview";
@@ -12343,7 +12282,11 @@
     if (v === "phone") renderPhoneScreen(els.phoneContentSlot());
     else if (v === "fanwork") renderFanworkScreen(els.fanworkContentSlot());
     else if (v === "knock") renderKnockScreen(els.knockContentSlot(), { scrollToEnd: true });
-    else if (v === "dial") renderDialScreen(els.dialContentSlot());
+    else if (v === "collect") {
+      renderCollectScreen(els.collectContentSlot());
+      sanitizeCollectState();
+      if (!collectPlotId || !collectCharId) openCollectHolderModal({ mode: "first" });
+    }
   }
 
   function knockChatStorageKey(userCharId, partnerCharId) {
@@ -12655,6 +12598,7 @@
     if (!rec.avatarOverrides) rec.avatarOverrides = normalizeKnockAvatarOverrides(null);
     const key = role === "partner" ? "partner" : "user";
     rec.avatarOverrides[key] = String(url || "").trim();
+    syncKnockChatAvatarToMoments(uid, pid, key, rec.avatarOverrides[key]);
     persistNarrative();
     return true;
   }
@@ -12823,9 +12767,21 @@
     return last.role === "user" || last.role === "assistant";
   }
 
-  function isKnockPartnerMainCharacter() {
-    const partner = knockPartnerCharId ? getKnockPartnerCharById(knockPartnerCharId) : null;
+  function isKnockPartnerMainCharacterById(partnerCharId) {
+    const partner = partnerCharId ? getKnockPartnerCharById(partnerCharId) : null;
     return !!(partner && partner.categoryId === CHAR_CATEGORY_MAIN_ID);
+  }
+
+  function isKnockPartnerMainCharacter() {
+    return isKnockPartnerMainCharacterById(knockPartnerCharId);
+  }
+
+  function knockPartnerCanSendSnap() {
+    return isKnockPartnerMainCharacter();
+  }
+
+  function knockVisualSnapEnabled() {
+    return visualImageSettings.enabled && knockPartnerCanSendSnap();
   }
 
   function normalizeKnockStickerName(raw) {
@@ -13101,6 +13057,152 @@
     return null;
   }
 
+  const CHAT_BRACKET_EMOJI_PROMPT_LINE =
+    "表达情绪请直接用 Unicode emoji（如 😊😂🥺），禁止输出 [微笑]、[捂脸] 等方括号表情文字。";
+
+  const CHAT_BRACKET_EMOJI_MAP = {
+    微笑: "😊",
+    呲牙: "😁",
+    偷笑: "🤭",
+    开心: "😄",
+    大笑: "😆",
+    憨笑: "😊",
+    可爱: "🥰",
+    色: "😍",
+    亲亲: "😘",
+    飞吻: "😘",
+    爱你: "😘",
+    拥抱: "🤗",
+    鼓掌: "👏",
+    握手: "🤝",
+    胜利: "✌️",
+    OK: "👌",
+    ok: "👌",
+    强: "👍",
+    弱: "👎",
+    拳头: "✊",
+    勾引: "😉",
+    坏笑: "😏",
+    鬼脸: "👻",
+    发怒: "😠",
+    生气: "😡",
+    咒骂: "🤬",
+    敲打: "👊",
+    糗大了: "😳",
+    疑问: "❓",
+    思考: "🤔",
+    晕: "😵",
+    衰: "😩",
+    睡: "😴",
+    感冒: "🤧",
+    难过: "😢",
+    流泪: "😭",
+    心碎: "💔",
+    玫瑰: "🌹",
+    爱心: "❤️",
+    星星: "⭐",
+    太阳: "☀️",
+    月亮: "🌙",
+    咖啡: "☕",
+    蛋糕: "🎂",
+    礼物: "🎁",
+    啤酒: "🍺",
+    西瓜: "🍉",
+    捂脸: "🤦",
+    笑哭: "😂",
+    冷汗: "😅",
+    尴尬: "😅",
+    抓狂: "🤯",
+    流汗: "😓",
+    害羞: "😊",
+    书呆子: "🤓",
+    酷: "😎",
+    可怜: "🥺",
+    菜刀: "🔪",
+    炸弹: "💣",
+    便便: "💩",
+    幽灵: "👻",
+    骷髅: "💀",
+    猪头: "🐷",
+    乒乓: "🏓",
+    篮球: "🏀",
+    足球: "⚽",
+    电话: "📞",
+    邮件: "📧",
+    电话铃: "📱",
+    挥手: "👋",
+    再见: "👋",
+    撇嘴: "😒",
+    白眼: "🙄",
+    傲慢: "😤",
+    饥饿: "😋",
+    困: "😪",
+    吓: "😱",
+    冷汗: "😅",
+    抠鼻: "🤏",
+    鼓掌: "👏",
+    糗大了: "😳",
+    左哼哼: "😤",
+    右哼哼: "😤",
+    哈欠: "🥱",
+    鄙视: "😒",
+    委屈: "🥺",
+    快哭了: "🥺",
+    阴险: "😏",
+    亲亲: "😘",
+    吓: "😨",
+    冷汗: "😅",
+    疯了: "🤪",
+    衰: "😩",
+    骷髅: "💀",
+    敲打: "👊",
+    擦汗: "😅",
+    抠鼻: "🤏",
+    鼓掌: "👏",
+    坏笑: "😏",
+    右太极: "☯️",
+    左太极: "☯️",
+    示爱: "💕",
+    爱情: "💕",
+    飞吻: "😘",
+    跳跳: "🦘",
+    发抖: "🥶",
+    怄火: "😤",
+    转圈: "🌀",
+    磕头: "🙇",
+    回头: "👀",
+    跳绳: "🏃",
+    激动: "🤩",
+    街舞: "💃",
+    献吻: "😘",
+    左太极: "☯️",
+    右太极: "☯️",
+  };
+
+  function sanitizeChatBracketEmojiText(text) {
+    return String(text || "").replace(/\[([^\[\]]{1,16})\]/g, function (_match, rawName) {
+      const name = String(rawName || "").trim();
+      if (!name) return "";
+      if (Object.prototype.hasOwnProperty.call(CHAT_BRACKET_EMOJI_MAP, name)) {
+        return CHAT_BRACKET_EMOJI_MAP[name];
+      }
+      return "";
+    });
+  }
+
+  function buildKnockStickerMessageFromCatalog(sticker, ts) {
+    if (!sticker || !sticker.url) return null;
+    const msg = {
+      role: "assistant",
+      kind: "sticker",
+      content: "[表情包]",
+      stickerUrl: sticker.url,
+      ts: ts != null ? ts : Date.now(),
+    };
+    if (sticker.name) msg.stickerName = sticker.name;
+    return msg;
+  }
+
   function getKnockMountedStickerUrls() {
     return getKnockMountedStickers().map(function (s) {
       return s.url;
@@ -13119,22 +13221,28 @@
       "\n\n【挂载表情包】\n" +
       "以下是你可发送的表情包（仅可使用下列名称，不得编造或使用未列出的表情）：\n" +
       lines +
-      "\n发某张表情包：单独一行且整行仅输出 <<<STICKER>>>名称<<<STICKER>>>，名称须与上列「」内完全一致。\n" +
+      "\n发某张表情包：单独一行且整行仅输出 <<<STICKER>>>名称<<<STICKER>>>，名称须与上列「」内完全一致；禁止在文字里写 [名称]。\n" +
       "文字消息仍用 <<<BUBBLE>>> 分隔；可与表情包混发。"
     );
   }
 
   function buildKnockSpecialActionPromptBlock() {
-    return (
+    let block =
       "\n\n【可选特殊消息】像真人用微信功能，但勿滥用——仍以 2～5 条短文字气泡为主；仅在剧情自然需要时穿插，可与 <<<BUBBLE>>> 混发：\n" +
-      "- 表情包：仅可使用【挂载表情包】中列出的名称，单独一行 <<<STICKER>>>名称<<<STICKER>>>；适合调侃、化解尴尬、表达情绪，不要每条都发\n" +
+      "- 表情包：仅可使用【挂载表情包】中列出的名称，单独一行 <<<STICKER>>>名称<<<STICKER>>>；适合调侃、化解尴尬、表达情绪，不要每条都发；禁止写 [名称]\n" +
       "- 转账：节日红包、赔礼、示好等，单独一行 <<<TRANSFER>>>金额|备注<<<TRANSFER>>>（备注可留空，如 <<<TRANSFER>>>52.00|<<<TRANSFER>>>）\n" +
-      "- 语音：带语气、不好打字的话，<<<VOICE>>>口语化文字<<<VOICE>>>；内容要口语化，可带语气词\n" +
-      "- 拍摄闪照：分享当下画面，<<<SNAP>>>画面描述<<<SNAP>>>；描述要具体可见\n" +
+      "- 语音：带语气、不好打字的话，<<<VOICE>>>口语化文字<<<VOICE>>>；内容要口语化，可带语气词\n";
+    if (knockVisualSnapEnabled()) {
+      block +=
+        "- 拍摄闪照：分享当下手机拍摄画面，<<<SNAP>>>画面描述<<<SNAP>>>；描述要具体可见（详见下方【发图】）\n";
+    } else {
+      block += "- 禁止输出 <<<SNAP>>> 或发照片闪照（仅主要角色且已启用聊天发图时可用）\n";
+    }
+    block +=
       "- 外卖/礼物：关心、撒娇、赔罪时自然使用；外卖 <<<DELIVERY>>>waimai|商品名|备注<<<DELIVERY>>>，礼物 <<<DELIVERY>>>gift|商品名|备注<<<DELIVERY>>>\n" +
       "- 位置：约见面、报平安、分享所在，<<<LOCATION>>>地点名|地址<<<LOCATION>>>\n" +
-      "原则：先回话再考虑特殊消息；关系尚不熟时少用转账/位置；表情包/语音与文字勿重复表达同一情绪；用户可能发照片、链接、转账等，请自然回应。"
-    );
+      "原则：先回话再考虑特殊消息；关系尚不熟时少用转账/位置；表情包/语音与文字勿重复表达同一情绪；用户可能发照片、链接、转账等，请自然回应。";
+    return block;
   }
 
   function formatKnockMessageForSummaryPrompt(msg, userChar, partnerChar) {
@@ -13497,6 +13605,12 @@
         return msg;
       }
     }
+    const bracketOnlyMatch = t.match(/^\[([^\[\]]{1,24})\]$/);
+    if (bracketOnlyMatch) {
+      const sticker = lookupKnockMountedStickerByName(bracketOnlyMatch[1]);
+      const stickerMsg = buildKnockStickerMessageFromCatalog(sticker, ts);
+      if (stickerMsg) return stickerMsg;
+    }
     const transferMatch = t.match(/^<<<TRANSFER>>>(.*?)<<<TRANSFER>>>$/);
     if (transferMatch) {
       const parts = String(transferMatch[1] || "").split("|");
@@ -13577,9 +13691,11 @@
         return msg;
       }
     }
+    const sanitized = sanitizeChatBracketEmojiText(t).replace(/\s{2,}/g, " ").trim();
+    if (!sanitized) return null;
     return {
       role: "assistant",
-      content: truncateCharsWithEllipsis(t, 500),
+      content: truncateCharsWithEllipsis(sanitized, 500),
       ts: ts,
     };
   }
@@ -13608,6 +13724,21 @@
     return messages;
   }
 
+  function normalizeKnockAssistantSnapForPartner(msg) {
+    if (!msg || msg.kind !== "snap") return msg;
+    if (knockPartnerCanSendSnap()) return msg;
+    const cap = String(msg.snapText || msg.content || "").trim();
+    if (!cap) return null;
+    const out = {
+      role: msg.role || "assistant",
+      kind: "text",
+      content: truncateCharsWithEllipsis(cap, 500),
+      ts: msg.ts != null ? msg.ts : Date.now(),
+    };
+    if (msg.replyBatchId) out.replyBatchId = msg.replyBatchId;
+    return out;
+  }
+
   function appendKnockAssistantReplyFromRaw(rec, raw) {
     if (!rec) return 0;
     const parsed = parseKnockAssistantReplyToMessages(raw);
@@ -13615,7 +13746,8 @@
       const batchId = uid("krb");
       parsed.forEach(function (m) {
         if (m.role === "assistant") m.replyBatchId = batchId;
-        const normalized = normalizeKnockMessage(m);
+        const adjusted = normalizeKnockAssistantSnapForPartner(m);
+        const normalized = normalizeKnockMessage(adjusted);
         if (normalized) rec.messages.push(normalized);
       });
       return parsed.length;
@@ -13662,6 +13794,10 @@
   }
 
   function toggleKnockComposerVoiceMode() {
+    if (!isKnockPartnerMainCharacter()) {
+      showToast("语音输入仅支持与「主要角色」的对话。", "info");
+      return;
+    }
     knockComposerMode = knockComposerMode === "voice" ? "text" : "voice";
     knockPlusPanelOpen = false;
   }
@@ -13834,14 +13970,18 @@
       return knockMessageWithBatchId(out, m);
     }
 
-    const content = String(m.content || "").trim();
+    let content = sanitizeChatBracketEmojiText(String(m.content || "").trim())
+      .replace(/\s{2,}/g, " ")
+      .trim();
     if (!content) return null;
     const out = { role: role, kind: "text", content: content, ts: ts };
     const ttsKey = String(m.ttsAudioKey || "").trim();
     if (ttsKey) out.ttsAudioKey = ttsKey;
     const quote = m.quote;
     if (quote && typeof quote === "object") {
-      const quoteText = String(quote.text || "").trim();
+      const quoteText = sanitizeChatBracketEmojiText(String(quote.text || "").trim())
+        .replace(/\s{2,}/g, " ")
+        .trim();
       if (quoteText) {
         out.quote = {
           text: truncateCharsWithEllipsis(quoteText, 200),
@@ -14113,7 +14253,7 @@
   function canKnockMessageListen(msg, msgIndex) {
     if (!msg || msg.role !== "assistant") return false;
     if (!isKnockPartnerMainCharacter()) return false;
-    if (!isKnockTextMessageKind(msg)) return false;
+    if (!isKnockTextMessageKind(msg) && msg.kind !== "voice") return false;
     return !!String(msg.content || "").trim();
   }
 
@@ -14382,7 +14522,7 @@
         "</span></span>";
     }
     html += '<span class="knock-msg-text">' + escapeHtml(String(msg.content || "")) + "</span>";
-    if (msg && msg.ttsAudioKey) {
+    if (msg && msg.ttsAudioKey && isKnockPartnerMainCharacter()) {
       html +=
         '<button type="button" class="knock-msg-tts-btn" data-knock-tts-play aria-label="重听" title="重听">' +
         '<svg class="icon-linear" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5a7 7 0 000 14h1a6 6 0 000-12h-1"/><path d="M9 9l-3 3 3 3"/></svg>' +
@@ -14420,15 +14560,19 @@
     const text = String(msg.content || "").trim();
     const sec = estimateKnockVoiceSeconds(msg.content, msg.voiceSec);
     const minW = knockVoiceBubbleMinWidthPx(sec);
+    const canSpeak = canKnockMessageListen(msg, idx);
     let html =
       '<span class="knock-msg-voice-block' +
       (expanded ? " knock-msg-voice-block--open" : "") +
+      (canSpeak ? "" : " knock-msg-voice-block--muted") +
       '">' +
       '<button type="button" class="phone-wechat-msg__bubble phone-wechat-msg__bubble--voice knock-msg-voice-btn" data-knock-voice-toggle data-knock-msg-index="' +
       idx +
       '" aria-expanded="' +
       (expanded ? "true" : "false") +
-      '" aria-label="语音消息" style="min-width:' +
+      '" aria-label="' +
+      (canSpeak ? "语音消息，点击播放" : "语音消息，点击展开文字") +
+      '" style="min-width:' +
       minW +
       'px">' +
       buildKnockVoiceBubbleInnerHtml(msg) +
@@ -15025,12 +15169,14 @@
 
   function isKnockStickerCenterTap(el, e) {
     if (!el || !e || typeof e.clientX !== "number" || typeof e.clientY !== "number") return false;
-    const rect = el.getBoundingClientRect();
+    const target =
+      el.querySelector(".knock-sticker-panel__img, .knock-sticker-manage__img") || el;
+    const rect = target.getBoundingClientRect();
     if (!rect.width || !rect.height) return false;
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
-    const halfW = rect.width * 0.25;
-    const halfH = rect.height * 0.25;
+    const halfW = rect.width * 0.28;
+    const halfH = rect.height * 0.28;
     return Math.abs(e.clientX - cx) <= halfW && Math.abs(e.clientY - cy) <= halfH;
   }
 
@@ -15103,7 +15249,7 @@
     return (
       '<div class="knock-sticker-panel" data-knock-sticker-panel>' +
       '<div class="knock-sticker-panel__bar">' +
-      '<div class="knock-sticker-panel__tabs h-scroll">' +
+      '<div class="knock-sticker-panel__tabs h-scroll" data-h-scroll-key="knock-sticker-panel-tabs">' +
       tabsHtml +
       "</div>" +
       '<button type="button" class="knock-sticker-panel__manage" data-knock-sticker-manage-open aria-label="管理表情包" title="管理表情包"' +
@@ -15170,7 +15316,7 @@
     const packCount = activePack ? activePack.stickers.length : 0;
     const bodyHtml = knockStickerPacks.length
       ? '<div class="knock-sticker-manage__pack-bar">' +
-        '<div class="knock-sticker-manage__pack-tabs h-scroll">' +
+        '<div class="knock-sticker-manage__pack-tabs h-scroll" data-h-scroll-key="knock-sticker-manage-tabs">' +
         packTabsHtml +
         "</div>" +
         (activePack
@@ -15236,7 +15382,10 @@
 
   function sendKnockSticker(url, name) {
     const stickerUrl = String(url || "").trim();
-    if (!/^https?:\/\//i.test(stickerUrl)) return;
+    if (!isSafeImageUrl(stickerUrl)) {
+      showToast("表情包地址无效", "error");
+      return;
+    }
     if (knockSelectMode || knockReplyGenerating) return;
     if (!isKnockChatReady()) return;
     const rec = getKnockChatRecordMutable();
@@ -15361,2880 +15510,6 @@
     syncOverviewSubViewUi();
   }
 
-  function formatDialDurationMmSs(totalSec) {
-    const sec = Math.max(0, Math.floor(Number(totalSec) || 0));
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return m + ":" + String(s).padStart(2, "0");
-  }
-
-  function getDialMemoDateKey() {
-    const d = new Date();
-    return (
-      d.getFullYear() +
-      "-" +
-      String(d.getMonth() + 1).padStart(2, "0") +
-      "-" +
-      String(d.getDate()).padStart(2, "0")
-    );
-  }
-
-  function getDialMemoVisitTime() {
-    const d = new Date();
-    return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
-  }
-
-  function buildDialWaveGlyph(seed) {
-    const glyphs = "▁▂▃▄▅▆▇▅▃";
-    let out = "";
-    const base = Math.abs(Number(seed) || 0);
-    for (let i = 0; i < 18; i++) {
-      out += glyphs[(base + i * 3) % glyphs.length];
-    }
-    return out;
-  }
-
-  function dialPhoneStorageKey(selfCharId) {
-    return phoneWechatStorageKey(DIAL_PHONE_PLOT_PREFIX, String(selfCharId || "").trim());
-  }
-
-  function ensureDialPhoneMemoBundle(selfCharId) {
-    const key = dialPhoneStorageKey(selfCharId);
-    if (!key || key.indexOf("\u001e") < 0) return null;
-    const sections = getPhoneMemoSectionsForPlot(PHONE_SHARED_SECTIONS_GLOBAL_KEY);
-    if (!phoneMemoData[key]) {
-      phoneMemoData[key] = {
-        sections: sections.map(function (s) {
-          return { id: s.id, name: s.name, description: s.description };
-        }),
-        notes: [],
-      };
-    }
-    if (!Array.isArray(phoneMemoData[key].notes)) phoneMemoData[key].notes = [];
-    phoneMemoData[key].sections = sections.map(function (s) {
-      return { id: s.id, name: s.name, description: s.description };
-    });
-    return { key: key, bundle: phoneMemoData[key] };
-  }
-
-  function blobToDataUrl(blob) {
-    return new Promise(function (resolve, reject) {
-      const reader = new FileReader();
-      reader.onload = function () {
-        resolve(String(reader.result || ""));
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  }
-
-  function resolveSttBrowserLanguage(lang) {
-    const s = String(lang || "zh-CN").trim();
-    return s || "zh-CN";
-  }
-
-  function resolveSttWhisperLanguage(lang) {
-    const s = String(lang || "zh-CN").trim().toLowerCase();
-    if (!s) return "zh";
-    if (s.indexOf("zh") === 0) return "zh";
-    return s.split("-")[0] || s;
-  }
-
-  function resolveSttApiKeyForProvider(provider) {
-    const custom = String(callSettings.sttApiKey || "").trim();
-    if (custom) return custom;
-    if (provider === "minimax") {
-      return String(ttsSettings.apiKey || "").trim();
-    }
-    if (provider === "openai") {
-      const cfg = apiConfigs.find(function (a) {
-        return a.id === activeApiId;
-      });
-      if (cfg && cfg.key) return String(cfg.key).trim();
-    }
-    return "";
-  }
-
-  function resolveSttEndpointForProvider(provider) {
-    const custom = String(callSettings.sttEndpoint || "").trim();
-    if (custom) return normalizeApiBase(custom);
-    if (provider === "minimax") return resolveMinimaxBaseUrl();
-    if (provider === "openai") {
-      const cfg = apiConfigs.find(function (a) {
-        return a.id === activeApiId;
-      });
-      if (cfg && cfg.endpoint) return normalizeApiBase(cfg.endpoint);
-      return "https://api.openai.com/v1";
-    }
-    return "";
-  }
-
-  function resolveSttApiKey() {
-    return resolveSttApiKeyForProvider(callSettings.sttProvider || "browser");
-  }
-
-  function resolveSttEndpoint() {
-    return resolveSttEndpointForProvider(callSettings.sttProvider || "browser");
-  }
-
-  function isBrowserSttSupported() {
-    return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
-  }
-
-  function createDialSpeechRecognition() {
-    const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Ctor) return null;
-    const rec = new Ctor();
-    rec.lang = resolveSttBrowserLanguage(callSettings.sttLanguage);
-    rec.continuous = false;
-    rec.interimResults = true;
-    rec.maxAlternatives = 1;
-    return rec;
-  }
-
-  function stopDialSttVoiceCapture() {
-    if (dialSttVoiceRecorder && dialSttVoiceRecorder.state !== "inactive") {
-      try {
-        dialSttVoiceRecorder.stop();
-      } catch (_e) {}
-    }
-    dialSttVoiceRecorder = null;
-    if (dialSttVoiceStream) {
-      dialSttVoiceStream.getTracks().forEach(function (t) {
-        try {
-          t.stop();
-        } catch (_e2) {}
-      });
-    }
-    dialSttVoiceStream = null;
-  }
-
-  function stopDialBrowserStt() {
-    if (dialSttRecognition) {
-      try {
-        dialSttRecognition.onresult = null;
-        dialSttRecognition.onerror = null;
-        dialSttRecognition.onend = null;
-        dialSttRecognition.stop();
-      } catch (_e) {}
-    }
-    dialSttRecognition = null;
-    dialSttListening = false;
-  }
-
-  function stopDialSttAll() {
-    stopDialBrowserStt();
-    stopDialSttVoiceCapture();
-    if (typeof SherpaStt !== "undefined" && SherpaStt.stopMic) SherpaStt.stopMic();
-    dialSttVoiceChunks = [];
-    dialSttTranscribing = false;
-  }
-
-  function parseWhisperTranscriptionResponse(data, rawText) {
-    if (data && typeof data.text === "string") return data.text.trim();
-    if (typeof rawText === "string" && rawText.trim()) {
-      try {
-        const parsed = JSON.parse(rawText);
-        if (parsed && typeof parsed.text === "string") return parsed.text.trim();
-      } catch (_e) {}
-      return rawText.trim();
-    }
-    return "";
-  }
-
-  async function transcribeAudioBlobWithWhisper(blob, opts) {
-    opts = opts || {};
-    const provider = opts.provider || callSettings.sttProvider || "browser";
-    const key = resolveSttApiKeyForProvider(provider);
-    if (!key) {
-      throw new Error(
-        provider === "minimax"
-          ? "请填写 STT API Key，或在上方 MiniMax 配置中填写订阅 Key"
-          : "请填写 STT API Key，或在设置 → API 中配置 Key"
-      );
-    }
-    const base = resolveSttEndpointForProvider(provider);
-    if (!base) throw new Error("请填写 STT API 站点地址");
-    const lang = resolveSttWhisperLanguage(callSettings.sttLanguage);
-    const mime = String((blob && blob.type) || "audio/webm");
-    let ext = "webm";
-    if (mime.indexOf("mp4") >= 0 || mime.indexOf("m4a") >= 0) ext = "mp4";
-    else if (mime.indexOf("wav") >= 0) ext = "wav";
-    else if (mime.indexOf("mpeg") >= 0 || mime.indexOf("mp3") >= 0) ext = "mp3";
-    const form = new FormData();
-    form.append("file", blob, "audio." + ext);
-    form.append("model", "whisper-1");
-    if (lang) form.append("language", lang);
-    form.append("response_format", "json");
-    const headers = { Authorization: "Bearer " + key };
-    if (provider === "minimax") {
-      const groupId = String(ttsSettings.groupId || "").trim();
-      if (groupId) headers["X-Group-Id"] = groupId;
-    }
-    let url = base + "/audio/transcriptions";
-    if (provider === "minimax") {
-      const groupId = String(ttsSettings.groupId || "").trim();
-      if (groupId) {
-        url += (url.indexOf("?") >= 0 ? "&" : "?") + "GroupId=" + encodeURIComponent(groupId);
-      }
-    }
-    let resp;
-    try {
-      resp = await fetch(url, { method: "POST", headers: headers, body: form });
-    } catch (netErr) {
-      const netMsg = netErr && netErr.message ? netErr.message : String(netErr);
-      if (/failed to fetch|networkerror|load failed/i.test(netMsg)) {
-        throw new Error("无法连接 STT 服务（请检查网络、Key 与 API 地址）");
-      }
-      throw netErr;
-    }
-    const raw = await resp.text();
-    if (!resp.ok) throw new Error(formatApiHttpError(resp.status, raw));
-    let data;
-    try {
-      data = JSON.parse(raw);
-    } catch (_e) {
-      data = null;
-    }
-    const text = parseWhisperTranscriptionResponse(data, raw);
-    if (!text) throw new Error("未识别到语音内容");
-    return text;
-  }
-
-  async function transcribeDialRecordingBlob(blob) {
-    if (!blob || !blob.size) throw new Error("音频为空");
-    const provider = callSettings.sttProvider || "browser";
-    if (provider === "sherpa-ncnn") {
-      if (typeof SherpaStt === "undefined") throw new Error("sherpa-ncnn 未加载");
-      return SherpaStt.transcribeBlob(blob);
-    }
-    if (provider === "openai" || provider === "minimax") {
-      return transcribeAudioBlobWithWhisper(blob, { provider: provider });
-    }
-    if (resolveSttApiKeyForProvider("minimax") && resolveSttEndpointForProvider("minimax")) {
-      return transcribeAudioBlobWithWhisper(blob, { provider: "minimax" });
-    }
-    if (resolveSttApiKeyForProvider("openai") && resolveSttEndpointForProvider("openai")) {
-      return transcribeAudioBlobWithWhisper(blob, { provider: "openai" });
-    }
-    if (typeof SherpaStt !== "undefined") {
-      return SherpaStt.transcribeBlob(blob);
-    }
-    throw new Error("浏览器 STT 不支持录音转写，请改用 sherpa-ncnn 或 Whisper");
-  }
-
-  async function transcribeAudioBlob(blob) {
-    return transcribeDialRecordingBlob(blob);
-  }
-
-  function applyDialSttTextToComposer(text, slot, autoSend) {
-    if (!dialCallSession) return;
-    const line = String(text || "").trim();
-    if (!line) return;
-    dialCallSession.composerDraft = line;
-    renderDialScreen(slot || els.dialContentSlot());
-    if (autoSend && !dialCallSession.replyGenerating) {
-      void generateDialPartnerReply(line, slot || els.dialContentSlot());
-    }
-  }
-
-  async function startDialVoiceInputRecording() {
-    if (dialCallSession && dialCallSession.isRecording) {
-      throw new Error("请先停止通话录音，再使用语音输入");
-    }
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error("当前浏览器不支持麦克风");
-    }
-    stopDialSttVoiceCapture();
-    dialSttVoiceChunks = [];
-    dialSttVoiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mimeCandidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", ""];
-    let mimeType = "";
-    for (let i = 0; i < mimeCandidates.length; i++) {
-      const m = mimeCandidates[i];
-      if (!m || (window.MediaRecorder && MediaRecorder.isTypeSupported(m))) {
-        mimeType = m;
-        break;
-      }
-    }
-    dialSttVoiceRecorder = mimeType
-      ? new MediaRecorder(dialSttVoiceStream, { mimeType: mimeType })
-      : new MediaRecorder(dialSttVoiceStream);
-    dialSttVoiceRecorder.addEventListener("dataavailable", function (ev) {
-      if (ev.data && ev.data.size > 0) dialSttVoiceChunks.push(ev.data);
-    });
-    dialSttVoiceRecorder.start(250);
-    return true;
-  }
-
-  function stopDialVoiceInputRecordingCollectBlob() {
-    return new Promise(function (resolve) {
-      if (!dialSttVoiceRecorder || dialSttVoiceRecorder.state === "inactive") {
-        stopDialSttVoiceCapture();
-        if (!dialSttVoiceChunks.length) {
-          resolve(null);
-          return;
-        }
-        const blob = new Blob(dialSttVoiceChunks, { type: dialSttVoiceChunks[0].type || "audio/webm" });
-        dialSttVoiceChunks = [];
-        resolve(blob);
-        return;
-      }
-      const rec = dialSttVoiceRecorder;
-      rec.addEventListener(
-        "stop",
-        function () {
-          stopDialSttVoiceCapture();
-          if (!dialSttVoiceChunks.length) {
-            resolve(null);
-            return;
-          }
-          const blob = new Blob(dialSttVoiceChunks, { type: dialSttVoiceChunks[0].type || rec.mimeType || "audio/webm" });
-          dialSttVoiceChunks = [];
-          resolve(blob);
-        },
-        { once: true }
-      );
-      try {
-        rec.stop();
-      } catch (_e) {
-        stopDialSttVoiceCapture();
-        resolve(null);
-      }
-    });
-  }
-
-  async function finishDialApiVoiceInput(slot) {
-    if (!dialCallSession || dialSttTranscribing) return;
-    dialSttTranscribing = true;
-    renderDialScreen(slot || els.dialContentSlot());
-    try {
-      const blob = await stopDialVoiceInputRecordingCollectBlob();
-      dialSttListening = false;
-      if (!blob || !blob.size) {
-        showToast("未采集到语音，请再试一次。", "info", 2200);
-        return;
-      }
-      const text = await transcribeAudioBlobWithWhisper(blob);
-      applyDialSttTextToComposer(text, slot, true);
-    } catch (err) {
-      const msg = (err && err.message) || "语音识别失败";
-      showToast(msg, "warning", 3600);
-    } finally {
-      dialSttTranscribing = false;
-      dialSttListening = false;
-      renderDialScreen(slot || els.dialContentSlot());
-    }
-  }
-
-  async function startDialSherpaStt(slot) {
-    if (typeof SherpaStt === "undefined") {
-      showToast("sherpa-ncnn 未加载，请确认 vendor/sherpa-ncnn 资源完整。", "warning", 3600);
-      return;
-    }
-    if (dialCallSession && dialCallSession.isRecording) {
-      showToast("请先停止通话录音，再使用语音输入。", "warning", 2800);
-      return;
-    }
-    try {
-      await SherpaStt.startMic({
-        onStatus: function (text) {
-          if (text && /downloading|loading|下载/i.test(text)) {
-            showToast(String(text).replace(/\s+/g, " ").trim(), "info", 1800);
-          }
-        },
-        onPartial: function (text) {
-          if (!dialCallSession) return;
-          dialCallSession.composerDraft = String(text || "").trim();
-          const input = (slot || els.dialContentSlot()).querySelector("[data-dial-call-input]");
-          if (input) input.value = dialCallSession.composerDraft;
-        },
-        onFinal: function (text) {
-          applyDialSttTextToComposer(text, slot, true);
-          stopDialSherpaStt(slot, false);
-        },
-      });
-      dialSttListening = true;
-      showToast("正在聆听…再次点击结束", "info", 2200);
-    } catch (err) {
-      dialSttListening = false;
-      const msg = (err && err.message) || "无法启动语音识别";
-      showToast(msg, "warning", 3600);
-    } finally {
-      renderDialScreen(slot || els.dialContentSlot());
-    }
-  }
-
-  function stopDialSherpaStt(slot, sendPending) {
-    if (typeof SherpaStt !== "undefined" && SherpaStt.stopMic) SherpaStt.stopMic();
-    dialSttListening = false;
-    if (sendPending && dialCallSession) {
-      const text = String(dialCallSession.composerDraft || "").trim();
-      if (text) applyDialSttTextToComposer(text, slot, true);
-      else dialCallSession.composerDraft = "";
-    }
-    renderDialScreen(slot || els.dialContentSlot());
-  }
-
-  function startDialBrowserStt(slot) {
-    if (!isBrowserSttSupported()) {
-      showToast("当前浏览器不支持内置语音识别，请改用 sherpa-ncnn 或 Whisper。", "warning", 3600);
-      return;
-    }
-    if (dialCallSession && dialCallSession.isRecording) {
-      showToast("请先停止通话录音，再使用语音输入。", "warning", 2800);
-      return;
-    }
-    stopDialBrowserStt();
-    const rec = createDialSpeechRecognition();
-    if (!rec) return;
-    dialSttRecognition = rec;
-    dialSttListening = true;
-    let interim = "";
-    rec.onresult = function (ev) {
-      let finalText = "";
-      interim = "";
-      for (let i = ev.resultIndex; i < ev.results.length; i++) {
-        const piece = ev.results[i][0] ? String(ev.results[i][0].transcript || "") : "";
-        if (ev.results[i].isFinal) finalText += piece;
-        else interim += piece;
-      }
-      if (dialCallSession) {
-        dialCallSession.composerDraft = (finalText || interim).trim();
-        const input = (slot || els.dialContentSlot()).querySelector("[data-dial-call-input]");
-        if (input) input.value = dialCallSession.composerDraft;
-      }
-      if (finalText.trim()) {
-        applyDialSttTextToComposer(finalText, slot, true);
-        stopDialBrowserStt();
-        renderDialScreen(slot || els.dialContentSlot());
-      }
-    };
-    rec.onerror = function (ev) {
-      const code = ev && ev.error ? String(ev.error) : "";
-      dialSttListening = false;
-      dialSttRecognition = null;
-      renderDialScreen(slot || els.dialContentSlot());
-      if (code === "aborted" || code === "no-speech") {
-        showToast(code === "no-speech" ? "未检测到语音，请再试一次。" : "", "info", 2200);
-        return;
-      }
-      if (code === "not-allowed") {
-        showToast("需要麦克风权限才能使用语音识别。", "warning", 3200);
-        return;
-      }
-      showToast("语音识别失败" + (code ? "：" + code : ""), "warning", 3200);
-    };
-    rec.onend = function () {
-      dialSttListening = false;
-      dialSttRecognition = null;
-      renderDialScreen(slot || els.dialContentSlot());
-    };
-    try {
-      rec.start();
-      renderDialScreen(slot || els.dialContentSlot());
-    } catch (err) {
-      stopDialBrowserStt();
-      const msg = err && err.message ? err.message : String(err);
-      showToast("无法启动语音识别：" + msg, "warning", 3200);
-    }
-  }
-
-  function isLocalFilePage() {
-    return typeof location !== "undefined" && location.protocol === "file:";
-  }
-
-  function showLocalHttpRequiredToast() {
-    showToast(
-      "不能直接双击 index.html。请在项目文件夹打开终端，运行 python -m http.server 8080，再用浏览器访问 http://localhost:8080",
-      "warning",
-      7000
-    );
-  }
-
-  async function toggleDialVoiceInput(slot) {
-    if (!dialCallSession || dialCallSession.phase !== "connected") return;
-    if (dialCallSession.replyGenerating || dialSttTranscribing) return;
-    if (!callSettings.sttEnabled) {
-      showToast("请先在设置中启用语音识别 STT。", "info", 2600);
-      return;
-    }
-    if (isLocalFilePage()) {
-      showLocalHttpRequiredToast();
-      return;
-    }
-    const provider = callSettings.sttProvider || "browser";
-    if (provider === "sherpa-ncnn") {
-      if (dialSttListening) stopDialSherpaStt(slot, true);
-      else void startDialSherpaStt(slot);
-      return;
-    }
-    if (provider === "browser") {
-      if (dialSttListening) stopDialBrowserStt();
-      else startDialBrowserStt(slot);
-      renderDialScreen(slot || els.dialContentSlot());
-      return;
-    }
-    if (dialSttListening) {
-      await finishDialApiVoiceInput(slot);
-      return;
-    }
-    try {
-      await startDialVoiceInputRecording();
-      dialSttListening = true;
-      renderDialScreen(slot || els.dialContentSlot());
-      showToast("正在聆听…再次点击结束并识别", "info", 2200);
-    } catch (err) {
-      stopDialSttVoiceCapture();
-      dialSttListening = false;
-      const msg = (err && err.message) || "无法开始录音";
-      showToast(msg, "warning", 3200);
-      renderDialScreen(slot || els.dialContentSlot());
-    }
-  }
-
-  async function saveDialRecordingToPhone(selfCharId, partnerChar, audioBlob, durationSec, callMessages) {
-    if (!selfCharId || !audioBlob) return null;
-    const pack = ensureDialPhoneMemoBundle(selfCharId);
-    if (!pack) return null;
-    const partnerName =
-      partnerChar && partnerChar.id
-        ? getDialPartnerDisplayName(partnerChar.id, "对方")
-        : partnerChar && partnerChar.name
-          ? String(partnerChar.name).trim()
-          : "对方";
-    const noteId = uid("dial-rec");
-    const durationStr = formatDialDurationMmSs(durationSec);
-    const dateKey = getDialMemoDateKey();
-    const visitTime = getDialMemoVisitTime();
-    let bodyText = callSettings.sttEnabled
-      ? "（通话录音，正在转写…）"
-      : "（通话录音，可在设置中开启语音识别转写）";
-    if (callSettings.sttEnabled) {
-      try {
-        const transcript = await transcribeAudioBlob(audioBlob);
-        if (transcript) bodyText = transcript;
-      } catch (err) {
-        const msg = (err && err.message) || "转写失败";
-        bodyText = "（通话录音，转写失败：" + msg + "）";
-      }
-    }
-    const transcript = normalizeDialRecordingTranscript(callMessages);
-    const note = {
-      id: noteId,
-      sectionId: "private",
-      kind: "audio",
-      title: "与「" + truncateCharsWithEllipsis(partnerName, 16) + "」通话录音",
-      preview: "语音 " + durationStr + " · " + partnerName,
-      body: bodyText,
-      meta: {
-        duration: durationStr,
-        wave: buildDialWaveGlyph(durationSec),
-        dialRecording: true,
-        partnerCharId: partnerChar && partnerChar.id ? partnerChar.id : "",
-        transcript: transcript,
-      },
-      time: "今天 " + visitTime,
-      dateKey: dateKey,
-      visitTime: visitTime,
-    };
-    pack.bundle.notes.unshift(note);
-    phoneMemoData[pack.key] = pack.bundle;
-    try {
-      const dataUrl = await blobToDataUrl(audioBlob);
-      dialCallRecordingBlobs[noteId] = {
-        dataUrl: dataUrl,
-        mime: audioBlob.type || "audio/webm",
-        durationMs: Math.round((Number(durationSec) || 0) * 1000),
-        partnerCharId: partnerChar && partnerChar.id ? partnerChar.id : "",
-        savedAt: Date.now(),
-      };
-    } catch (_e) {}
-    persistNarrative();
-    return noteId;
-  }
-
-  function clearDialCallTimers() {
-    if (dialCallTimerId) {
-      clearInterval(dialCallTimerId);
-      dialCallTimerId = null;
-    }
-    if (dialCallRingTimerId) {
-      clearTimeout(dialCallRingTimerId);
-      dialCallRingTimerId = null;
-    }
-  }
-
-  function stopDialMediaCapture() {
-    if (dialMediaRecorder && dialMediaRecorder.state !== "inactive") {
-      try {
-        dialMediaRecorder.stop();
-      } catch (_e) {}
-    }
-    dialMediaRecorder = null;
-    if (dialMediaStream) {
-      dialMediaStream.getTracks().forEach(function (t) {
-        try {
-          t.stop();
-        } catch (_e2) {}
-      });
-    }
-    dialMediaStream = null;
-  }
-
-  async function startDialRecording() {
-    if (!dialCallSession || dialCallSession.phase !== "connected") return false;
-    if (dialCallSession.isRecording) return true;
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      showToast("当前浏览器不支持麦克风录音。", "warning", 3200);
-      return false;
-    }
-    try {
-      dialRecordedChunks = [];
-      dialMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeCandidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", ""];
-      let mimeType = "";
-      for (let i = 0; i < mimeCandidates.length; i++) {
-        const m = mimeCandidates[i];
-        if (!m || (window.MediaRecorder && MediaRecorder.isTypeSupported(m))) {
-          mimeType = m;
-          break;
-        }
-      }
-      dialMediaRecorder = mimeType
-        ? new MediaRecorder(dialMediaStream, { mimeType: mimeType })
-        : new MediaRecorder(dialMediaStream);
-      dialMediaRecorder.addEventListener("dataavailable", function (ev) {
-        if (ev.data && ev.data.size > 0) dialRecordedChunks.push(ev.data);
-      });
-      dialMediaRecorder.start(500);
-      dialCallSession.isRecording = true;
-      dialCallSession.recordStartedAt = Date.now();
-      return true;
-    } catch (err) {
-      stopDialMediaCapture();
-      const msg = err && err.message ? err.message : String(err);
-      showToast(msg.indexOf("Permission") >= 0 ? "需要麦克风权限才能录音。" : "无法开始录音：" + msg, "warning", 3600);
-      return false;
-    }
-  }
-
-  function stopDialRecordingCollectBlob() {
-    return new Promise(function (resolve) {
-      if (!dialMediaRecorder || dialMediaRecorder.state === "inactive") {
-        stopDialMediaCapture();
-        if (!dialRecordedChunks.length) {
-          resolve(null);
-          return;
-        }
-        const blob = new Blob(dialRecordedChunks, { type: dialRecordedChunks[0].type || "audio/webm" });
-        dialRecordedChunks = [];
-        resolve(blob);
-        return;
-      }
-      const rec = dialMediaRecorder;
-      rec.addEventListener(
-        "stop",
-        function () {
-          stopDialMediaCapture();
-          if (!dialRecordedChunks.length) {
-            resolve(null);
-            return;
-          }
-          const blob = new Blob(dialRecordedChunks, { type: dialRecordedChunks[0].type || rec.mimeType || "audio/webm" });
-          dialRecordedChunks = [];
-          resolve(blob);
-        },
-        { once: true }
-      );
-      try {
-        rec.stop();
-      } catch (_e) {
-        stopDialMediaCapture();
-        resolve(null);
-      }
-    });
-  }
-
-  async function endDialCallSession(opts) {
-    opts = opts || {};
-    const session = dialCallSession;
-    if (!session) return;
-    clearDialCallTimers();
-    stopDialCallTts();
-    stopDialSttAll();
-    const wasRecording = !!session.isRecording;
-    const hadPendingBlob = !!(session.pendingBlob && session.pendingBlob.size > 0);
-    const recordDurationSec =
-      wasRecording && session.recordStartedAt
-        ? Math.max(1, Math.round((Date.now() - session.recordStartedAt) / 1000))
-        : session.pendingDurationSec
-          ? session.pendingDurationSec
-          : Math.max(0, Number(session.durationSec) || 0);
-    let audioBlob = session.pendingBlob || null;
-    if (wasRecording) {
-      session.isRecording = false;
-      const freshBlob = await stopDialRecordingCollectBlob();
-      if (freshBlob) audioBlob = freshBlob;
-    } else {
-      stopDialMediaCapture();
-      dialRecordedChunks = [];
-    }
-    const shouldSave = !!opts.saveRecording && audioBlob && audioBlob.size > 0 && (wasRecording || hadPendingBlob);
-    const selfChar = getCharById(dialUserCharId);
-    const partnerChar = getCharById(session.partnerCharId);
-    const wasConnected = !!(session.connectedAt && (session.phase === "connected" || session.durationSec > 0));
-    const callDurationSec = wasConnected
-      ? Math.max(
-          Number(session.durationSec) || 0,
-          session.connectedAt ? Math.floor((Date.now() - session.connectedAt) / 1000) : 0
-        )
-      : 0;
-    let savedNoteId = "";
-    const callMessages = Array.isArray(session.messages) ? session.messages.slice() : [];
-    dialCallSession = null;
-    renderDialScreen(els.dialContentSlot());
-    if (shouldSave && selfChar) {
-      if (callSettings.sttEnabled) {
-        showToast("正在转写通话录音…", "info", 2400);
-      }
-      savedNoteId = await saveDialRecordingToPhone(selfChar.id, partnerChar, audioBlob, recordDurationSec, callMessages);
-      if (savedNoteId) {
-        showToast("通话录音已保存至「" + (selfChar.name || "我的形象") + "」手机备忘录", "success", 3600);
-      }
-    } else if (wasRecording && opts.saveRecording) {
-      showToast("录音过短或未采集到音频，未保存。", "info", 2800);
-    }
-    if (selfChar && session.partnerCharId) {
-      appendDialCallHistory(selfChar.id, {
-        partnerCharId: session.partnerCharId,
-        status: wasConnected ? "answered" : "cancelled",
-        durationSec: wasConnected ? callDurationSec : 0,
-        hadRecording: !!savedNoteId,
-        recordingNoteId: savedNoteId || "",
-      });
-    }
-  }
-
-  function beginDialOutgoingCall(partnerCharId) {
-    if (dialCallSession) return;
-    if (!dialUserCharId) {
-      showToast("请先选择「我的形象」。", "info");
-      return;
-    }
-    const partner = getCharById(partnerCharId);
-    if (!partner || partner.categoryId === CHAR_CATEGORY_SELF_ID) return;
-    dialCallSession = {
-      partnerCharId: partner.id,
-      phase: "ringing",
-      durationSec: 0,
-      isRecording: false,
-      recordStartedAt: 0,
-      connectedAt: 0,
-      pendingBlob: null,
-      pendingDurationSec: 0,
-      messages: [],
-      replyGenerating: false,
-      composerDraft: "",
-    };
-    renderDialScreen(els.dialContentSlot());
-    const ringMs = Math.max(0, Math.min(8000, Number(callSettings.ringDelayMs) || 1800));
-    dialCallRingTimerId = setTimeout(function () {
-      if (!dialCallSession || dialCallSession.partnerCharId !== partner.id) return;
-      dialCallSession.phase = "connected";
-      dialCallSession.connectedAt = Date.now();
-      renderDialScreen(els.dialContentSlot());
-      if (callSettings.autoRecord) {
-        void startDialRecording().then(function (ok) {
-          if (ok) renderDialScreen(els.dialContentSlot());
-        });
-      }
-      if (callSettings.aiEnabled && callSettings.autoGreeting) {
-        void generateDialPartnerReply(null, els.dialContentSlot());
-      }
-      dialCallTimerId = setInterval(function () {
-        if (!dialCallSession || dialCallSession.phase !== "connected") return;
-        dialCallSession.durationSec = Math.max(
-          0,
-          Math.floor((Date.now() - dialCallSession.connectedAt) / 1000)
-        );
-        const el = document.querySelector("[data-dial-call-duration]");
-        if (el) el.textContent = formatDialDurationMmSs(dialCallSession.durationSec);
-      }, 1000);
-    }, ringMs);
-  }
-
-  function prepareDialSession() {
-    const selfList = getSelfCharacters();
-    const supList = getSupportingCharacters();
-    if (!dialUserCharId && selfList.length) dialUserCharId = selfList[0].id;
-    if (dialUserCharId && !getCharById(dialUserCharId)) dialUserCharId = null;
-    if (dialUserCharId && getCharById(dialUserCharId)?.categoryId !== CHAR_CATEGORY_SELF_ID) {
-      dialUserCharId = null;
-    }
-    if (!dialUserCharId && selfList.length) dialUserCharId = selfList[0].id;
-    return selfList.length > 0 && supList.length > 0;
-  }
-
-  async function openOverviewDialView() {
-    const selfList = getSelfCharacters();
-    const supList = getSupportingCharacters();
-    if (!selfList.length) {
-      await showAlert("请先在「角色」里添加至少 1 个「我的形象」。", "拨通");
-      setTab("characters");
-      charFilter = CHAR_CATEGORY_SELF_ID;
-      renderDynamic();
-      return;
-    }
-    if (!supList.length) {
-      await showAlert("请先在「角色」里添加至少 1 个可拨打的联系人（非「我的形象」）。", "拨通");
-      setTab("characters");
-      charFilter = "all";
-      renderDynamic();
-      return;
-    }
-    prepareDialSession();
-    openOverviewSubView("dial");
-  }
-
-  function closeOverviewPhoneView() {
-    const slot = els.phoneContentSlot();
-    if (slot) phoneNavHome(slot);
-    overviewSubView = null;
-    if (!location.hash.startsWith("#/story") && location.hash !== "#/tab/overview") {
-      location.hash = "#/tab/overview";
-    }
-    syncOverviewSubViewUi();
-  }
-
-  function closeOverviewDialView() {
-    void endDialCallSession({ saveRecording: true });
-    stopDialRecordingPlayback(true);
-    dialContactQuery = "";
-    dialIdentityOpen = false;
-    dialIdentityEditCharId = null;
-    dialContactDetailCharId = null;
-    dialContactDetailTab = "history";
-    dialPartnerPersonaOpen = false;
-    dialRecordingDetailId = null;
-    stopDialRecordingLineTts();
-    overviewSubView = null;
-    if (!location.hash.startsWith("#/story") && location.hash !== "#/tab/overview") {
-      location.hash = "#/tab/overview";
-    }
-    syncOverviewSubViewUi();
-  }
-
-  function normalizeDialCallHistoryEntry(raw) {
-    if (!raw || typeof raw !== "object") return null;
-    const partnerCharId = String(raw.partnerCharId || "").trim();
-    if (!partnerCharId) return null;
-    const status = raw.status === "answered" ? "answered" : "cancelled";
-    return {
-      id: String(raw.id || uid("dial-log")),
-      partnerCharId: partnerCharId,
-      status: status,
-      durationSec: Math.max(0, Math.floor(Number(raw.durationSec) || 0)),
-      hadRecording: !!raw.hadRecording,
-      recordingNoteId: String(raw.recordingNoteId || "").trim(),
-      starred: !!raw.starred,
-      ts: typeof raw.ts === "number" ? raw.ts : Date.now(),
-      dateKey: raw.dateKey ? String(raw.dateKey) : getDialMemoDateKey(),
-      visitTime: raw.visitTime ? String(raw.visitTime) : getDialMemoVisitTime(),
-    };
-  }
-
-  function appendDialCallHistory(selfCharId, partial) {
-    const sid = String(selfCharId || "").trim();
-    if (!sid || !partial) return;
-    if (!dialCallHistory[sid]) dialCallHistory[sid] = [];
-    const entry = normalizeDialCallHistoryEntry(
-      Object.assign(
-        {
-          id: uid("dial-log"),
-          ts: Date.now(),
-          dateKey: getDialMemoDateKey(),
-          visitTime: getDialMemoVisitTime(),
-        },
-        partial
-      )
-    );
-    if (!entry) return;
-    dialCallHistory[sid].unshift(entry);
-    if (dialCallHistory[sid].length > 200) dialCallHistory[sid].length = 200;
-    persistNarrative();
-  }
-
-  function getDialCallHistoryList() {
-    const sid = String(dialUserCharId || "").trim();
-    if (!sid || !Array.isArray(dialCallHistory[sid])) return [];
-    return dialCallHistory[sid].slice();
-  }
-
-  function getDialPartnerCallHistory(partnerCharId, opts) {
-    const pid = String(partnerCharId || "").trim();
-    if (!pid) return [];
-    const favoritesOnly = !!(opts && opts.favoritesOnly);
-    return getDialCallHistoryList().filter(function (entry) {
-      if (entry.partnerCharId !== pid) return false;
-      if (favoritesOnly && !entry.starred) return false;
-      return true;
-    });
-  }
-
-  function toggleDialCallHistoryFavorite(entryId) {
-    const sid = String(dialUserCharId || "").trim();
-    const eid = String(entryId || "").trim();
-    if (!sid || !eid || !Array.isArray(dialCallHistory[sid])) return false;
-    let hit = null;
-    dialCallHistory[sid].forEach(function (entry) {
-      if (entry.id === eid) hit = entry;
-    });
-    if (!hit) return false;
-    hit.starred = !hit.starred;
-    persistNarrative();
-    return true;
-  }
-
-  function normalizeDialPersonaOverride(raw) {
-    if (!raw || typeof raw !== "object") return { appearance: "", relationships: "", remark: "" };
-    if (raw.appearance != null || raw.relationships != null) {
-      return {
-        appearance: String(raw.appearance || "").trim(),
-        relationships: String(raw.relationships || "").trim(),
-        remark: String(raw.remark || "").trim(),
-      };
-    }
-    return {
-      appearance: String(raw.style || "").trim(),
-      relationships: "",
-      remark: String(raw.remark || "").trim(),
-    };
-  }
-
-  function getDialPersonaOverride(charId) {
-    const id = String(charId || "").trim();
-    const hit = dialPersonaOverrides[id];
-    if (!hit || typeof hit !== "object") return { appearance: "", relationships: "", remark: "" };
-    return normalizeDialPersonaOverride(hit);
-  }
-
-  /** 拨通：联系人显示名（有备注则用备注，否则角色库真名） */
-  function getDialPartnerDisplayName(charId, fallback) {
-    const id = String(charId || "").trim();
-    const ov = getDialPersonaOverride(id);
-    if (ov.remark) return ov.remark;
-    const char = getCharById(id);
-    const base = char && char.name != null ? String(char.name).trim() : "";
-    if (base) return base;
-    return fallback != null ? String(fallback).trim() || "未命名" : "未命名";
-  }
-
-  function getDialIdentityDisplayFields(charId) {
-    const char = getCharById(charId);
-    const ov = getDialPersonaOverride(charId);
-    const baseAppearance = char ? String(char.style || char.appearance || "").trim() : "";
-    const baseRelationships = char ? String(char.relationships || "").trim() : "";
-    return {
-      appearance: ov.appearance || baseAppearance,
-      relationships: ov.relationships || baseRelationships,
-    };
-  }
-
-  function persistDialIdentityDraftFromDom(root) {
-    const pickId = dialIdentityEditCharId || dialUserCharId;
-    if (!pickId || !root) return;
-    const appearanceEl = root.querySelector("[data-dial-identity-appearance]");
-    const relationshipsEl = root.querySelector("[data-dial-identity-relationships]");
-    const prev = getDialPersonaOverride(pickId);
-    dialPersonaOverrides[pickId] = {
-      remark: prev.remark,
-      appearance: appearanceEl ? String(appearanceEl.value || "").trim() : "",
-      relationships: relationshipsEl ? String(relationshipsEl.value || "").trim() : "",
-    };
-  }
-
-  function refreshDialIdentitySheetInDom(slot) {
-    if (!slot || !dialIdentityOpen) return;
-    const editId = dialIdentityEditCharId || dialUserCharId || "";
-    slot.querySelectorAll("[data-dial-identity-pick]").forEach(function (btn) {
-      const id = btn.getAttribute("data-dial-identity-pick");
-      btn.classList.toggle("dial-identity-pick__item--on", id === editId);
-    });
-    const fields = getDialIdentityDisplayFields(editId);
-    const appearanceEl = slot.querySelector("[data-dial-identity-appearance]");
-    const relationshipsEl = slot.querySelector("[data-dial-identity-relationships]");
-    if (appearanceEl) appearanceEl.value = fields.appearance;
-    if (relationshipsEl) relationshipsEl.value = fields.relationships;
-  }
-
-  function getDialEffectivePersona(char, isSelf) {
-    if (!char) return { appearance: "", relationships: "" };
-    const ov = getDialPersonaOverride(char.id);
-    const baseAppearance = String(char.style || char.appearance || "").trim();
-    const baseRelationships = String(char.relationships || "").trim();
-    return {
-      appearance: ov.appearance || baseAppearance,
-      relationships: ov.relationships || baseRelationships,
-    };
-  }
-
-  function buildDialPersonaBlock(char, label, isSelf) {
-    if (!char) return "";
-    const persona = getDialEffectivePersona(char, isSelf);
-    const lines = ["【" + label + "·" + String(char.name || "未命名").trim() + "】"];
-    const appearance = truncateCharsWithEllipsis(persona.appearance, DIAL_CALL_PERSONA_FIELD_MAX_CHARS);
-    const relationships = truncateCharsWithEllipsis(persona.relationships, DIAL_CALL_PERSONA_FIELD_MAX_CHARS);
-    if (appearance) lines.push("外貌及性格：" + appearance);
-    if (relationships && relationships !== appearance) lines.push("人物关系：" + relationships);
-    return lines.join("\n");
-  }
-
-  function buildDialCallSystemPrompt(userChar, partnerChar) {
-    const userName = String(userChar && userChar.name ? userChar.name : "用户").trim() || "用户";
-    const partnerName = String(partnerChar && partnerChar.name ? partnerChar.name : "对方").trim() || "对方";
-    return (
-      "你是互动叙事产品里的电话通话模拟器。你只扮演「" +
-      partnerName +
-      "」，用该角色口吻在电话里说话。\n" +
-      "通话另一方是「" +
-      userName +
-      "」（用户主视角）。\n" +
-      "严禁引用剧情正文、世界书、聊天记录或任何通话以外的背景；仅依据下方双方人设与本次通话已有对话。\n\n" +
-      buildDialPersonaBlock(userChar, "通话方（用户）", true) +
-      "\n\n" +
-      buildDialPersonaBlock(partnerChar, "你扮演的角色", false) +
-      "\n\n输出要求：\n" +
-      "· 模拟真实电话聊天口吻，像正常人打电话那样说话，不要像朗读课文或念稿。\n" +
-      "· 每次回复 2～4 句完整口语，总长约 40～180 字；每句必须有完整语义，并以句号、问号或感叹号等自然结束。\n" +
-      "· 可以主动接话、延伸话题、随口关心或分享小事，让对话有来有往。\n" +
-      "· 严禁半句话、断句、省略号悬停（如「今天……」就结束）、旁白、动作描写、Markdown、前缀角色名。\n" +
-      "· 语气自然，可有「嗯」「喂」等口头语，但不要啰嗦重复。"
-    );
-  }
-
-  function buildDialCallApiMessages(userChar, partnerChar, messages, newUserText) {
-    const lim = Math.max(4, Math.min(24, Number(callSettings.contextMessageLimit) || 10));
-    const out = [{ role: "system", content: buildDialCallSystemPrompt(userChar, partnerChar) }];
-    const recent = Array.isArray(messages) ? messages.slice(-lim) : [];
-    recent.forEach(function (m) {
-      if (!m || !m.content) return;
-      out.push({
-        role: m.role === "user" ? "user" : "assistant",
-        content: String(m.content).trim(),
-      });
-    });
-    if (newUserText) {
-      out.push({ role: "user", content: String(newUserText).trim() });
-    }
-    return out;
-  }
-
-  function isDialSpokenLineComplete(text) {
-    const s = String(text || "").trim();
-    if (!s || s.length < 6) return false;
-    if (/[。！？.!?…][」』"”]*$/.test(s)) return true;
-    if (/[吗呢吧啊呀喔哈嗯呐]$/.test(s)) return true;
-    return false;
-  }
-
-  function capDialSpokenText(text, maxChars) {
-    const raw = String(text || "").trim();
-    if (!raw || !maxChars || maxChars < 1) return "";
-    const arr = Array.from(raw);
-    if (arr.length <= maxChars) return raw;
-    const slice = arr.slice(0, maxChars).join("");
-    const m = slice.match(/^([\s\S]*[。！？.!?…])[」』"”]*$/);
-    if (m && m[1]) return m[1].trim();
-    return slice.trim();
-  }
-
-  function normalizeDialSpokenLine(raw) {
-    let text = String(raw || "").trim();
-    if (!text) return "";
-    text = text.replace(/^【[^】]+】\s*/g, "");
-    text = text.replace(/^[「『"“]+|[」』"”]+$/g, "");
-    const lines = text
-      .split(/\r?\n/)
-      .map(function (s) {
-        return s.trim();
-      })
-      .filter(Boolean);
-    text = lines.join("");
-    text = text.replace(/\s+/g, "");
-    return capDialSpokenText(text, 280);
-  }
-
-  function stopDialCallTts() {
-    if (dialCallTtsAudio) {
-      try {
-        dialCallTtsAudio.pause();
-      } catch (_e) {}
-      dialCallTtsAudio = null;
-    }
-    if (dialCallTtsObjectUrl) {
-      try {
-        URL.revokeObjectURL(dialCallTtsObjectUrl);
-      } catch (_e2) {}
-      dialCallTtsObjectUrl = null;
-    }
-  }
-
-  async function playDialPartnerLineTts(text, partnerChar) {
-    if (!ttsSettings.enabled || !resolveGlobalMinimaxVoiceId()) {
-      throw new Error("请先在设置中开启语音合成并配置音色。");
-    }
-    const speakText = normalizeDialSpokenLine(text);
-    if (!speakText) return null;
-    const prevModel = ttsSettings.model;
-    if (callSettings.useTurboTts) ttsSettings.model = "speech-2.8-turbo";
-    try {
-      const voicePrompt = buildMinimaxVoicePrompt(partnerChar, "", null, speakText, {});
-      const blob = await fetchStoryTtsBlob(speakText, voicePrompt, "");
-      const objectUrl = URL.createObjectURL(blob);
-      const audio = new Audio(objectUrl);
-      return { audio: audio, objectUrl: objectUrl };
-    } finally {
-      ttsSettings.model = prevModel;
-    }
-  }
-
-  function stopDialRecordingLineTts() {
-    if (dialRecordingLineTtsAudio) {
-      try {
-        dialRecordingLineTtsAudio.pause();
-      } catch (_e) {}
-      dialRecordingLineTtsAudio = null;
-    }
-    if (dialRecordingLineTtsObjectUrl) {
-      try {
-        URL.revokeObjectURL(dialRecordingLineTtsObjectUrl);
-      } catch (_e2) {}
-      dialRecordingLineTtsObjectUrl = null;
-    }
-    dialRecordingLineTtsKey = null;
-    dialRecordingLineTtsLoadingKey = null;
-  }
-
-  function updateDialRecordingLineTtsButtons(slot) {
-    const root = slot || els.dialContentSlot();
-    if (!root) return;
-    root.querySelectorAll("[data-dial-rec-line-tts]").forEach(function (btn) {
-      const key = btn.getAttribute("data-dial-rec-line-tts") || "";
-      const on = dialRecordingLineTtsKey === key;
-      const loading = dialRecordingLineTtsLoadingKey === key;
-      btn.classList.toggle("dial-rec-chat__tts--on", on);
-      btn.classList.toggle("dial-rec-chat__tts--loading", loading);
-      btn.disabled = loading;
-    });
-  }
-
-  async function playDialRecordingLineTts(noteId, lineIndex, slot) {
-    const item = findDialRecordingItem(noteId);
-    if (!item || !item.note) return;
-    const transcript = getDialRecordingTranscript(item.note);
-    const line = transcript.lines[lineIndex];
-    if (!line || line.role !== "assistant") return;
-    const partnerId = item.note.meta && item.note.meta.partnerCharId ? item.note.meta.partnerCharId : "";
-    const partner = getCharById(partnerId);
-    if (!partner) return;
-    const lineKey = String(noteId || "") + ":" + String(lineIndex);
-    if (dialRecordingLineTtsKey === lineKey && dialRecordingLineTtsAudio) {
-      stopDialRecordingLineTts();
-      updateDialRecordingLineTtsButtons(slot);
-      return;
-    }
-    stopDialRecordingLineTts();
-    stopDialRecordingPlayback(true);
-    dialRecordingLineTtsLoadingKey = lineKey;
-    updateDialRecordingLineTtsButtons(slot);
-    try {
-      const hit = await playDialPartnerLineTts(line.content, partner);
-      if (!hit) {
-        dialRecordingLineTtsLoadingKey = null;
-        updateDialRecordingLineTtsButtons(slot);
-        return;
-      }
-      dialRecordingLineTtsAudio = hit.audio;
-      dialRecordingLineTtsObjectUrl = hit.objectUrl;
-      dialRecordingLineTtsKey = lineKey;
-      dialRecordingLineTtsLoadingKey = null;
-      updateDialRecordingLineTtsButtons(slot);
-      dialRecordingLineTtsAudio.addEventListener(
-        "ended",
-        function () {
-          stopDialRecordingLineTts();
-          updateDialRecordingLineTtsButtons(slot);
-        },
-        { once: true }
-      );
-      await dialRecordingLineTtsAudio.play();
-    } catch (err) {
-      stopDialRecordingLineTts();
-      updateDialRecordingLineTtsButtons(slot);
-      showToast((err && err.message) || "语音播放失败", "warning", 3200);
-    }
-  }
-
-  async function playDialPartnerTts(text, partnerChar) {
-    if (!callSettings.voiceReply || !ttsSettings.enabled) return;
-    if (!resolveGlobalMinimaxVoiceId()) return;
-    stopDialCallTts();
-    try {
-      const hit = await playDialPartnerLineTts(text, partnerChar);
-      if (!hit) return;
-      dialCallTtsObjectUrl = hit.objectUrl;
-      dialCallTtsAudio = hit.audio;
-      dialCallTtsAudio.addEventListener(
-        "ended",
-        function () {
-          stopDialCallTts();
-        },
-        { once: true }
-      );
-      await dialCallTtsAudio.play();
-    } catch (err) {
-      stopDialCallTts();
-      const msg = (err && err.message) || "语音朗读失败";
-      showToast(msg, "warning", 3200);
-    }
-  }
-
-  function syncDialCallComposerFromDom(slot) {
-    if (!dialCallSession || !slot) return;
-    const input = slot.querySelector("[data-dial-call-input]");
-    if (input) dialCallSession.composerDraft = String(input.value || "");
-  }
-
-  function deleteDialCallHistoryEntry(entryId) {
-    const sid = String(dialUserCharId || "").trim();
-    if (!sid || !Array.isArray(dialCallHistory[sid])) return false;
-    const id = String(entryId || "").trim();
-    if (!id) return false;
-    const before = dialCallHistory[sid].length;
-    dialCallHistory[sid] = dialCallHistory[sid].filter(function (e) {
-      return e && e.id !== id;
-    });
-    if (dialCallHistory[sid].length === before) return false;
-    persistNarrative();
-    return true;
-  }
-
-  function deleteDialRecording(noteId) {
-    const sid = String(dialUserCharId || "").trim();
-    if (!sid) return false;
-    const pack = ensureDialPhoneMemoBundle(sid);
-    if (!pack) return false;
-    const id = String(noteId || "").trim();
-    if (!id) return false;
-    const notes = pack.bundle.notes || [];
-    const hit = notes.some(function (n) {
-      return n && n.id === id;
-    });
-    if (!hit) return false;
-    pack.bundle.notes = notes.filter(function (n) {
-      return n && n.id !== id;
-    });
-    phoneMemoData[pack.key] = pack.bundle;
-    delete dialCallRecordingBlobs[id];
-    if (dialRecordingActiveId === id) stopDialRecordingPlayback(true);
-    if (dialRecordingDetailId === id) {
-      dialRecordingDetailId = null;
-      stopDialRecordingLineTts();
-    }
-    persistNarrative();
-    return true;
-  }
-
-  async function requestDialPartnerReplyRaw(apiMsgs, maxTok, temp) {
-    const baseOpts = { apiConfigId: getWorkbenchApiId(), skipGenPaw: true };
-    try {
-      return await callChatCompletion(apiMsgs, temp, maxTok, baseOpts);
-    } catch (err) {
-      const errMsg = String((err && err.message) || "");
-      const isEmpty = (err && err.code === "empty_response") || errMsg.indexOf("正文为空") >= 0;
-      if (!isEmpty) throw err;
-      const merged = mergeSystemIntoUserMessages(apiMsgs);
-      return await callChatCompletion(merged, Math.min(temp, 0.62), Math.max(maxTok, 320), Object.assign({}, baseOpts, {
-        geminiMergedRetry: true,
-      }));
-    }
-  }
-
-  async function generateDialPartnerReply(userText, slot) {
-    if (!dialCallSession || dialCallSession.phase !== "connected") return;
-    if (!callSettings.aiEnabled) return;
-    if (dialCallSession.replyGenerating) return;
-    const userChar = getCharById(dialUserCharId);
-    const partnerChar = getCharById(dialCallSession.partnerCharId);
-    if (!userChar || !partnerChar) return;
-    const userLine = userText != null ? String(userText).trim() : "";
-    const isOpening = !userLine && (!dialCallSession.messages || !dialCallSession.messages.length);
-    if (!isOpening && !userLine) return;
-    dialCallSession.replyGenerating = true;
-    renderDialScreen(slot || els.dialContentSlot());
-    const partnerName = partnerChar.name || "对方";
-    const maxTok = Math.max(80, Math.min(600, Number(callSettings.replyMaxTokens) || 220));
-    const temp = Math.max(0.3, Math.min(1.2, Number(callSettings.replyTemperature) || 0.78));
-    try {
-      const apiMsgs = buildDialCallApiMessages(userChar, partnerChar, dialCallSession.messages, userLine || null);
-      if (isOpening) {
-        apiMsgs.push({
-          role: "user",
-          content:
-            "（电话已接通）请以「" +
-            partnerName +
-            "」的身份先开口：用 2～4 句完整口语自然打招呼，可随口提起一件小事或关心对方，每句说完整。",
-        });
-      }
-      let raw = await requestDialPartnerReplyRaw(apiMsgs, maxTok, temp);
-      let line = normalizeDialSpokenLine(raw);
-      if (line && !isDialSpokenLineComplete(line)) {
-        const retryMsgs = apiMsgs.concat([
-          { role: "assistant", content: line },
-          {
-            role: "user",
-            content: "（你刚才没说完，请把那句话自然说完，补全语义，不要从头重说。）",
-          },
-        ]);
-        raw = await requestDialPartnerReplyRaw(retryMsgs, Math.min(maxTok + 120, 600), temp);
-        line = normalizeDialSpokenLine(raw) || line;
-      }
-      if (!line) throw new Error("生成内容为空");
-      if (userLine) {
-        dialCallSession.messages.push({ role: "user", content: userLine, ts: Date.now() });
-      }
-      dialCallSession.messages.push({ role: "assistant", content: line, ts: Date.now() });
-      const lim = Math.max(4, Math.min(24, Number(callSettings.contextMessageLimit) || 10));
-      if (dialCallSession.messages.length > lim) {
-        dialCallSession.messages = dialCallSession.messages.slice(-lim);
-      }
-      dialCallSession.composerDraft = "";
-      renderDialScreen(slot || els.dialContentSlot());
-      void playDialPartnerTts(line, partnerChar);
-    } catch (err) {
-      const msg = (err && err.message) || "";
-      showToast(msg || "对方回复生成失败，请检查 API 配置。", "error", 3200);
-    } finally {
-      if (dialCallSession) dialCallSession.replyGenerating = false;
-      renderDialScreen(slot || els.dialContentSlot());
-    }
-  }
-
-  function sendDialCallMessage(slot) {
-    if (!dialCallSession || dialCallSession.replyGenerating) return;
-    syncDialCallComposerFromDom(slot);
-    const text = String(dialCallSession.composerDraft || "").trim();
-    if (!text) return;
-    void generateDialPartnerReply(text, slot);
-  }
-
-  function getDialRecordingsList() {
-    const sid = String(dialUserCharId || "").trim();
-    if (!sid) return [];
-    const key = dialPhoneStorageKey(sid);
-    const bundle = phoneMemoData[key];
-    const notes = bundle && Array.isArray(bundle.notes) ? bundle.notes : [];
-    return notes
-      .filter(function (n) {
-        return n && n.kind === "audio" && n.meta && n.meta.dialRecording;
-      })
-      .map(function (n) {
-        const blob = dialCallRecordingBlobs[n.id];
-        return {
-          note: n,
-          blob: blob || null,
-        };
-      });
-  }
-
-  function findDialRecordingItem(noteId) {
-    const id = String(noteId || "").trim();
-    if (!id) return null;
-    const list = getDialRecordingsList();
-    for (let i = 0; i < list.length; i++) {
-      if (list[i].note && list[i].note.id === id) return list[i];
-    }
-    return null;
-  }
-
-  function normalizeDialTranscriptEntry(raw) {
-    if (!raw || typeof raw !== "object") return null;
-    const role = raw.role === "user" ? "user" : raw.role === "assistant" ? "assistant" : null;
-    const content = String(raw.content || "").trim();
-    if (!role || !content) return null;
-    return {
-      role: role,
-      content: content,
-      ts: typeof raw.ts === "number" ? raw.ts : 0,
-    };
-  }
-
-  function normalizeDialRecordingTranscript(messages) {
-    if (!Array.isArray(messages)) return [];
-    return messages
-      .map(function (m) {
-        return normalizeDialTranscriptEntry(m);
-      })
-      .filter(Boolean);
-  }
-
-  function getDialRecordingTranscript(note) {
-    if (!note) return { lines: [], legacy: false, legacyText: "" };
-    const meta = note.meta && typeof note.meta === "object" ? note.meta : {};
-    const fromMeta = Array.isArray(meta.transcript)
-      ? meta.transcript
-          .map(function (m) {
-            return normalizeDialTranscriptEntry(m);
-          })
-          .filter(Boolean)
-      : [];
-    if (fromMeta.length) return { lines: fromMeta, legacy: false, legacyText: "" };
-    const body = String(note.body || "").trim();
-    const isPlaceholder =
-      !body ||
-      body.indexOf("（通话录音") === 0 ||
-      body.indexOf("正在转写") >= 0 ||
-      body.indexOf("转写失败") >= 0;
-    if (!isPlaceholder) return { lines: [], legacy: true, legacyText: body };
-    return { lines: [], legacy: false, legacyText: "" };
-  }
-
-  const DIAL_REC_TRANSCRIPT_SVG =
-    '<svg class="icon-linear dial-row-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/><line x1="9" y1="10" x2="15" y2="10"/><line x1="9" y1="14" x2="13" y2="14"/></svg>';
-
-  const DIAL_REC_LINE_TTS_SVG =
-    '<svg class="icon-linear dial-row-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/></svg>';
-
-  function buildDialRecordingTranscriptLineHtml(line, idx, userChar, partnerChar, noteId) {
-    const isUser = line.role === "user";
-    const char = isUser ? userChar : partnerChar;
-    const lineKey = escapeHtml(String(noteId || "") + ":" + String(idx));
-    const ttsKey = String(noteId || "") + ":" + String(idx);
-    const ttsOn = dialRecordingLineTtsKey === ttsKey;
-    const ttsLoading = dialRecordingLineTtsLoadingKey === ttsKey;
-    const avHtml =
-      '<span class="avatar dial-rec-chat__avatar" data-dial-av="' +
-      escapeHtml(char && char.id ? char.id : "") +
-      '"></span>';
-    let ttsBtnHtml = "";
-    if (!isUser && partnerChar) {
-      ttsBtnHtml =
-        '<button type="button" class="dial-rec-chat__tts dial-row-action icon-btn' +
-        (ttsOn ? " dial-rec-chat__tts--on" : "") +
-        (ttsLoading ? " dial-rec-chat__tts--loading" : "") +
-        '" data-dial-rec-line-tts="' +
-        lineKey +
-        '" aria-label="播放这句话"' +
-        (ttsLoading ? " disabled" : "") +
-        ">" +
-        DIAL_REC_LINE_TTS_SVG +
-        "</button>";
-    }
-    const bubbleHtml =
-      '<div class="dial-rec-chat__bubble">' +
-      '<p class="dial-rec-chat__text">' +
-      escapeHtml(line.content) +
-      "</p>" +
-      ttsBtnHtml +
-      "</div>";
-    if (isUser) {
-      return (
-        '<div class="dial-rec-chat dial-rec-chat--out">' +
-        bubbleHtml +
-        avHtml +
-        "</div>"
-      );
-    }
-    return (
-      '<div class="dial-rec-chat dial-rec-chat--in">' +
-      avHtml +
-      bubbleHtml +
-      "</div>"
-    );
-  }
-
-  function buildDialRecordingDetailHtml() {
-    const noteId = String(dialRecordingDetailId || "").trim();
-    const item = findDialRecordingItem(noteId);
-    if (!item || !item.note) {
-      return '<div class="dial-contacts__empty"><p>找不到该录音</p></div>';
-    }
-    const note = item.note;
-    const partnerId = note.meta && note.meta.partnerCharId ? note.meta.partnerCharId : "";
-    const partner = getCharById(partnerId);
-    const user = getCharById(dialUserCharId);
-    const dur = (note.meta && note.meta.duration) || "0:00";
-    const canPlay = !!(item.blob && item.blob.dataUrl);
-    const transcript = getDialRecordingTranscript(note);
-    let threadHtml = "";
-    if (transcript.lines.length) {
-      threadHtml =
-        '<div class="dial-rec-detail__section">' +
-        '<p class="dial-rec-detail__section-label">对话内容</p>' +
-        '<div class="dial-rec-detail__thread">' +
-        transcript.lines
-          .map(function (line, idx) {
-            return buildDialRecordingTranscriptLineHtml(line, idx, user, partner, noteId);
-          })
-          .join("") +
-        "</div></div>";
-    } else if (transcript.legacy) {
-      threadHtml =
-        '<div class="dial-rec-detail__legacy">' +
-        '<p class="dial-rec-detail__legacy-hint field__hint">暂无分句记录，以下为录音识别全文</p>' +
-        '<div class="dial-rec-detail__legacy-body">' +
-        escapeHtml(transcript.legacyText) +
-        "</div></div>";
-    } else {
-      threadHtml =
-        '<div class="dial-contacts__empty dial-rec-detail__empty">' +
-        "<p>暂无文字对话记录</p>" +
-        '<p class="field__hint">通话中对话并保存录音后，会自动生成分句文字版；也可在设置中开启语音识别获取全文转写。</p></div>';
-    }
-    return (
-      '<div class="dial-rec-detail">' +
-      '<div class="dial-rec-detail__audio">' +
-      buildDialRecPlayButtonHtml(noteId, canPlay) +
-      '<div class="dial-rec-detail__audio-main">' +
-      '<span class="dial-rec-detail__audio-label">完整录音</span>' +
-      '<span class="dial-rec-detail__audio-meta">' +
-      escapeHtml(dur) +
-      " · " +
-      escapeHtml(note.visitTime || "") +
-      "</span></div></div>" +
-      threadHtml +
-      "</div>"
-    );
-  }
-
-  function buildDialRecordingDetailShellHtml() {
-    const item = findDialRecordingItem(dialRecordingDetailId);
-    const note = item && item.note ? item.note : null;
-    const partnerId = note && note.meta && note.meta.partnerCharId ? note.meta.partnerCharId : "";
-    const partnerName = partnerId ? getDialPartnerDisplayName(partnerId, "通话录音") : "通话录音";
-    const dur = note && note.meta && note.meta.duration ? note.meta.duration : "";
-    const visitTime = note && note.visitTime ? note.visitTime : "";
-    const subParts = [dur, visitTime].filter(Boolean);
-    return (
-      '<div class="dial-app dial-app--phone phone-app dial-app--rec-detail" aria-label="通话文字版">' +
-      '<header class="phone-app__bar dial-app__bar dial-app__bar--centered">' +
-      '<button type="button" class="phone-app__back" data-dial-back aria-label="返回">' +
-      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
-      "</button>" +
-      '<div class="dial-app__bar-center">' +
-      '<h2 class="dial-app__title">' +
-      escapeHtml(partnerName) +
-      "</h2>" +
-      (subParts.length
-        ? '<p class="dial-app__identity-sub">' + escapeHtml(subParts.join(" · ")) + "</p>"
-        : "") +
-      "</div>" +
-      '<span class="dial-app__identity-btn icon-btn" aria-hidden="true"></span></header>' +
-      '<div class="dial-app__body dial-phone-body dial-phone-body--rec-detail">' +
-      buildDialRecordingDetailHtml() +
-      "</div></div>"
-    );
-  }
-
-  function dialHistoryGroupLabel(dateKey) {
-    const today = getDialMemoDateKey();
-    const d = new Date();
-    const y = new Date(d);
-    y.setDate(y.getDate() - 1);
-    const yesterday =
-      y.getFullYear() + "-" + String(y.getMonth() + 1).padStart(2, "0") + "-" + String(y.getDate()).padStart(2, "0");
-    const dk = String(dateKey || "").trim();
-    if (dk === today) return "今天";
-    if (dk === yesterday) return "昨天";
-    return "更早";
-  }
-
-  function groupDialCallHistory(entries) {
-    const groups = [];
-    const map = Object.create(null);
-    entries.forEach(function (entry) {
-      const label = dialHistoryGroupLabel(entry.dateKey);
-      if (!map[label]) {
-        map[label] = { label: label, items: [] };
-        groups.push(map[label]);
-      }
-      map[label].items.push(entry);
-    });
-    return groups;
-  }
-
-  function dialContactSortKey(name) {
-    const s = String(name || "").trim();
-    if (!s) return "#";
-    const ch = s.charAt(0).toUpperCase();
-    if (/[A-Z]/.test(ch)) return ch;
-    if (/[0-9]/.test(ch)) return "#";
-    return ch;
-  }
-
-  function groupDialContactsByLetter(list) {
-    const map = Object.create(null);
-    const order = [];
-    list.forEach(function (c) {
-      const key = dialContactSortKey(getDialPartnerDisplayName(c.id, c.name));
-      if (!map[key]) {
-        map[key] = [];
-        order.push(key);
-      }
-      map[key].push(c);
-    });
-    order.sort(function (a, b) {
-      if (a === "#") return 1;
-      if (b === "#") return -1;
-      return a.localeCompare(b, "zh-CN");
-    });
-    return order.map(function (k) {
-      return { letter: k, items: map[k] };
-    });
-  }
-
-  function filterDialContacts(list, query) {
-    const q = String(query || "").trim().toLowerCase();
-    if (!q) return list;
-    return list.filter(function (c) {
-      const name = String(c.name || "").toLowerCase();
-      const traits = traitsToLine(c).toLowerCase();
-      const remark = getDialPersonaOverride(c.id).remark.toLowerCase();
-      return name.indexOf(q) >= 0 || traits.indexOf(q) >= 0 || remark.indexOf(q) >= 0;
-    });
-  }
-
-  const DIAL_CALL_BTN_SVG =
-    '<svg class="icon-linear dial-row-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.12.81.3 1.6.54 2.36a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.76.24 1.55.42 2.36.54A2 2 0 0122 16.92z"/></svg>';
-
-  const DIAL_CONTACT_SETTINGS_SVG =
-    '<svg class="icon-linear dial-row-action-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>';
-
-  const DIAL_OUT_ICON_SVG =
-    '<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17l9.2-9.2M17 17V7H7"/></svg>';
-
-  function buildDialContactSettingsBtnHtml(partnerCharId, extraCls) {
-    return (
-      '<button type="button" class="dial-row-action dial-phone-row__settings icon-btn' +
-      (extraCls ? " " + extraCls : "") +
-      '" data-dial-contact-open="' +
-      escapeHtml(partnerCharId) +
-      '" aria-label="联系人详情" title="联系人详情">' +
-      DIAL_CONTACT_SETTINGS_SVG +
-      "</button>"
-    );
-  }
-
-  function buildDialContactCallBtnHtml(partnerCharId, extraCls) {
-    return (
-      '<button type="button" class="dial-row-action dial-phone-row__call-btn icon-btn' +
-      (extraCls ? " " + extraCls : "") +
-      '" data-dial-call="' +
-      escapeHtml(partnerCharId) +
-      '" aria-label="拨打">' +
-      DIAL_CALL_BTN_SVG +
-      "</button>"
-    );
-  }
-
-  function buildDialPhoneRowActionsHtml(opts) {
-    opts = opts || {};
-    const parts = [];
-    if (opts.time) {
-      parts.push('<span class="dial-phone-row__meta">' + escapeHtml(opts.time) + "</span>");
-    }
-    if (opts.partnerCharId) {
-      parts.push(buildDialContactSettingsBtnHtml(opts.partnerCharId));
-      if (opts.showCall !== false) parts.push(buildDialContactCallBtnHtml(opts.partnerCharId));
-    }
-    if (opts.showStar && opts.historyEntryId) {
-      const starOn = !!opts.starred;
-      parts.push(
-        '<button type="button" class="dial-row-action dial-history-star' +
-        (starOn ? " dial-history-star--on" : "") +
-        '" data-dial-toggle-history-star="' +
-        escapeHtml(opts.historyEntryId) +
-        '" aria-label="' +
-        (starOn ? "取消收藏" : "加入收藏") +
-        '" title="' +
-        (starOn ? "取消收藏" : "加入收藏") +
-        '"><span aria-hidden="true">' +
-        (starOn ? "★" : "☆") +
-        "</span></button>"
-      );
-    }
-    if (opts.deleteHistoryId) {
-      parts.push(
-        buildPhoneCardDeleteBtnHtml(
-          "dial-phone-row__delete dial-row-action",
-          "data-dial-delete-history",
-          opts.deleteHistoryId,
-          "删除通话记录"
-        )
-      );
-    }
-    if (!parts.length) return "";
-    return '<div class="dial-phone-row__actions">' + parts.join("") + "</div>";
-  }
-
-  function buildDialPhoneListRowHtml(opts) {
-    opts = opts || {};
-    const wrapCls =
-      "dial-phone-row-wrap" + (opts.detail ? " dial-phone-row-wrap--detail" : "") + (opts.contact ? " dial-phone-row-wrap--contact" : "");
-    const missedCls = opts.missed ? " dial-phone-row__name--missed" : "";
-    const openCharId = opts.openCharId ? String(opts.openCharId).trim() : "";
-    const bodyTap =
-      openCharId && !opts.staticBody
-        ? ' data-dial-contact-open="' + escapeHtml(openCharId) + '" role="button" tabindex="0"'
-        : "";
-    const bodyCls = "dial-phone-row__body" + (opts.staticBody ? " dial-phone-row__body--static" : " dial-phone-row__body--tap");
-    let leadHtml = "";
-    if (opts.showOutIcon) {
-      leadHtml +=
-        '<span class="dial-phone-row__icon dial-phone-row__icon--out" aria-hidden="true">' + DIAL_OUT_ICON_SVG + "</span>";
-    }
-    if (opts.avatarCharId) {
-      leadHtml +=
-        '<span class="avatar dial-phone-row__avatar" data-dial-av="' + escapeHtml(opts.avatarCharId) + '"></span>';
-    }
-    const subHtml = opts.sub
-      ? '<span class="dial-phone-row__sub">' + escapeHtml(opts.sub) + "</span>"
-      : "";
-    const actionsHtml = buildDialPhoneRowActionsHtml({
-      time: opts.time || "",
-      partnerCharId: opts.partnerCharId || "",
-      showCall: opts.showCall !== false,
-      showStar: opts.showStar,
-      starred: opts.starred,
-      historyEntryId: opts.historyEntryId || "",
-      deleteHistoryId: opts.deleteHistoryId || "",
-    });
-    return (
-      '<li class="dial-phone-list__item" role="listitem">' +
-      '<div class="' +
-      wrapCls +
-      '">' +
-      '<div class="' +
-      bodyCls +
-      '"' +
-      bodyTap +
-      ">" +
-      leadHtml +
-      '<span class="dial-phone-row__text">' +
-      '<span class="dial-phone-row__name' +
-      missedCls +
-      '">' +
-      escapeHtml(opts.name || "") +
-      "</span>" +
-      subHtml +
-      "</span></div>" +
-      actionsHtml +
-      "</div></li>"
-    );
-  }
-
-  function buildDialPartnerCallHistoryRowHtml(entry, opts) {
-    opts = opts || {};
-    const missed = entry.status !== "answered";
-    const sub = missed
-      ? "未接通"
-      : entry.hadRecording
-        ? formatDialDurationMmSs(entry.durationSec) + " · 含录音"
-        : formatDialDurationMmSs(entry.durationSec);
-    return buildDialPhoneListRowHtml({
-      detail: true,
-      staticBody: true,
-      showOutIcon: true,
-      name: sub,
-      sub: "",
-      missed: missed,
-      time: entry.visitTime || "",
-      partnerCharId: entry.partnerCharId,
-      showStar: opts.showStar !== false,
-      starred: entry.starred,
-      historyEntryId: entry.id,
-      deleteHistoryId: entry.id,
-    });
-  }
-
-  function buildDialPartnerPersonaSheetHtml(charId) {
-    const char = getCharById(charId);
-    if (!char) return "";
-    const displayFields = getDialIdentityDisplayFields(charId);
-    const ov = getDialPersonaOverride(charId);
-    const libraryName = String(char.name || "未命名").trim() || "未命名";
-    return (
-      '<div class="dial-identity-overlay" data-dial-partner-persona-overlay>' +
-      '<div class="dial-identity-overlay__sheet modal-sheet">' +
-      '<div class="sheet-handle" aria-hidden="true"></div>' +
-      '<div class="modal-header">' +
-      '<h2 class="modal-title">' +
-      escapeHtml(libraryName) +
-      " · 通话人设</h2>" +
-      '<button type="button" class="icon-btn" data-dial-partner-persona-close aria-label="关闭">' +
-      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
-      "</button></div>" +
-      '<div class="dial-identity-overlay__body">' +
-      '<p class="field__hint dial-identity-overlay__hint">仅用于「拨通」功能，不会修改角色库原设定。</p>' +
-      '<div class="dial-identity-edit form-stack">' +
-      '<label class="field"><span class="field__label">通话备注名</span>' +
-      '<input class="field__input" type="text" data-dial-partner-persona-remark value="' +
-      escapeHtml(ov.remark) +
-      '" placeholder="留空则显示角色库：' +
-      escapeHtml(truncateCharsWithEllipsis(libraryName, 24)) +
-      '" autocomplete="off" maxlength="32" aria-label="通话备注名" />' +
-      '<span class="field__hint">在通话记录、联系人等界面显示；角色库真名不变。</span></label>' +
-      '<label class="field"><span class="field__label">外貌及性格（本功能覆盖）</span>' +
-      '<textarea class="field__input field__textarea" data-dial-partner-persona-appearance rows="3" placeholder="预填角色库外貌及性格，可在此覆盖">' +
-      escapeHtml(displayFields.appearance) +
-      "</textarea></label>" +
-      '<label class="field"><span class="field__label">人物关系（本功能覆盖）</span>' +
-      '<textarea class="field__input field__textarea" data-dial-partner-persona-relationships rows="2" placeholder="预填角色库人物关系，可在此覆盖">' +
-      escapeHtml(displayFields.relationships) +
-      "</textarea></label></div>" +
-      '<div class="dial-identity-overlay__actions">' +
-      '<button type="button" class="btn btn--primary btn--pill btn--block" data-dial-partner-persona-save>保存人设</button>' +
-      "</div></div></div></div>"
-    );
-  }
-
-  function saveDialPartnerPersonaFromDom(slot) {
-    const root = slot || els.dialContentSlot();
-    if (!root || !dialContactDetailCharId) return false;
-    const remarkEl = root.querySelector("[data-dial-partner-persona-remark]");
-    const appearanceEl = root.querySelector("[data-dial-partner-persona-appearance]");
-    const relationshipsEl = root.querySelector("[data-dial-partner-persona-relationships]");
-    dialPersonaOverrides[dialContactDetailCharId] = {
-      remark: remarkEl ? String(remarkEl.value || "").trim() : "",
-      appearance: appearanceEl ? String(appearanceEl.value || "").trim() : "",
-      relationships: relationshipsEl ? String(relationshipsEl.value || "").trim() : "",
-    };
-    dialPartnerPersonaOpen = false;
-    persistNarrative();
-    return true;
-  }
-
-  function buildDialContactDetailHtml() {
-    const partnerId = String(dialContactDetailCharId || "").trim();
-    const partner = getCharById(partnerId);
-    if (!partner) return "";
-    const partnerName = getDialPartnerDisplayName(partnerId, "未命名");
-    const tab = dialContactDetailTab === "favorites" ? "favorites" : "history";
-    const history =
-      tab === "favorites"
-        ? getDialPartnerCallHistory(partnerId, { favoritesOnly: true })
-        : getDialPartnerCallHistory(partnerId);
-    const favCount = getDialPartnerCallHistory(partnerId, { favoritesOnly: true }).length;
-    let listHtml = "";
-    if (!history.length) {
-      listHtml =
-        '<div class="dial-contacts__empty dial-contact-detail__empty">' +
-        "<p>" +
-        (tab === "favorites" ? "还没有收藏的通话" : "暂无与该联系人的通话记录") +
-        "</p>" +
-        (tab === "favorites"
-          ? '<p class="field__hint">在「全部记录」中点 ☆ 可加入收藏</p>'
-          : '<p class="field__hint">点下方按钮即可拨号</p>') +
-        "</div>";
-    } else {
-      const groups = groupDialCallHistory(history);
-      listHtml =
-        '<div class="dial-contact-detail__list">' +
-        groups
-          .map(function (g) {
-            return (
-              '<section class="dial-phone-section">' +
-              '<h3 class="dial-phone-section__title">' +
-              escapeHtml(g.label) +
-              "</h3>" +
-              '<ul class="dial-phone-list" role="list">' +
-              g.items
-                .map(function (entry) {
-                  return buildDialPartnerCallHistoryRowHtml(entry, { showStar: tab === "history" });
-                })
-                .join("") +
-              "</ul></section>"
-            );
-          })
-          .join("") +
-        "</div>";
-    }
-    return (
-      '<div class="dial-contact-detail">' +
-      '<div class="dial-contact-detail__hero">' +
-      '<span class="avatar dial-contact-detail__avatar" data-dial-av="' +
-      escapeHtml(partnerId) +
-      '"></span>' +
-      '<h3 class="dial-contact-detail__name">' +
-      escapeHtml(partnerName) +
-      "</h3>" +
-      '<button type="button" class="dial-contact-detail__call-btn" data-dial-call="' +
-      escapeHtml(partnerId) +
-      '">' +
-      DIAL_CALL_BTN_SVG +
-      "<span>呼叫</span></button>" +
-      "</div>" +
-      '<nav class="dial-contact-detail__tabs" aria-label="联系人通话">' +
-      '<button type="button" class="dial-contact-detail__tab' +
-      (tab === "history" ? " dial-contact-detail__tab--on" : "") +
-      '" data-dial-contact-detail-tab="history" aria-current="' +
-      (tab === "history" ? "page" : "false") +
-      '">全部记录</button>' +
-      '<button type="button" class="dial-contact-detail__tab' +
-      (tab === "favorites" ? " dial-contact-detail__tab--on" : "") +
-      '" data-dial-contact-detail-tab="favorites" aria-current="' +
-      (tab === "favorites" ? "page" : "false") +
-      '">收藏' +
-      (favCount ? " · " + favCount : "") +
-      "</button></nav>" +
-      listHtml +
-      "</div>"
-    );
-  }
-
-  function buildDialContactDetailShellHtml() {
-    const partner = getCharById(dialContactDetailCharId);
-    const partnerName = dialContactDetailCharId
-      ? getDialPartnerDisplayName(dialContactDetailCharId, "联系人")
-      : "联系人";
-    const user = getCharById(dialUserCharId);
-    const userName = user ? user.name || "我的形象" : "我的形象";
-    const personaSheet =
-      dialPartnerPersonaOpen && dialContactDetailCharId
-        ? buildDialPartnerPersonaSheetHtml(dialContactDetailCharId)
-        : "";
-    return (
-      '<div class="dial-app dial-app--phone phone-app dial-app--contact-detail" aria-label="联系人详情">' +
-      '<header class="phone-app__bar dial-app__bar dial-app__bar--centered">' +
-      '<button type="button" class="phone-app__back" data-dial-back aria-label="返回">' +
-      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
-      "</button>" +
-      '<div class="dial-app__bar-center">' +
-      '<h2 class="dial-app__title">' +
-      escapeHtml(partnerName) +
-      "</h2>" +
-      '<p class="dial-app__identity-sub">以「' +
-      escapeHtml(userName) +
-      "」的身份呼叫</p></div>" +
-      '<button type="button" class="dial-app__identity-btn icon-btn" data-dial-partner-persona-open aria-label="编辑通话人设" title="编辑通话人设">' +
-      DIAL_CONTACT_SETTINGS_SVG +
-      "</button></header>" +
-      '<div class="dial-app__body dial-phone-body">' +
-      buildDialContactDetailHtml() +
-      "</div>" +
-      personaSheet +
-      "</div>"
-    );
-  }
-
-  function buildDialPhoneTabsHtml() {
-    const tabs = [
-      { id: "recent", label: "通话记录", icon: "clock" },
-      { id: "contacts", label: "联系人", icon: "person" },
-      { id: "recordings", label: "录音", icon: "wave" },
-    ];
-    return (
-      '<nav class="dial-phone-tabs" aria-label="电话导航">' +
-      tabs
-        .map(function (t) {
-          const on = dialPhoneTab === t.id;
-          let iconSvg = "";
-          if (t.icon === "clock") {
-            iconSvg =
-              '<svg class="icon-linear dial-phone-tabs__icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
-          } else if (t.icon === "person") {
-            iconSvg =
-              '<svg class="icon-linear dial-phone-tabs__icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>';
-          } else {
-            iconSvg =
-              '<svg class="icon-linear dial-phone-tabs__icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/></svg>';
-          }
-          return (
-            '<button type="button" class="dial-phone-tabs__item' +
-            (on ? " dial-phone-tabs__item--on" : "") +
-            '" data-dial-tab="' +
-            escapeHtml(t.id) +
-            '" aria-current="' +
-            (on ? "page" : "false") +
-            '">' +
-            iconSvg +
-            "<span>" +
-            escapeHtml(t.label) +
-            "</span></button>"
-          );
-        })
-        .join("") +
-      "</nav>"
-    );
-  }
-
-  function buildDialRecentTabHtml() {
-    const history = getDialCallHistoryList();
-    if (!history.length) {
-      return (
-        '<div class="dial-phone-panel dial-phone-panel--recent">' +
-        '<div class="dial-contacts__empty"><p>暂无通话记录</p>' +
-        '<p class="field__hint">在「联系人」中拨号后，记录会显示在这里</p></div></div>'
-      );
-    }
-    const groups = groupDialCallHistory(history);
-    return (
-      '<div class="dial-phone-panel dial-phone-panel--recent">' +
-      groups
-        .map(function (g) {
-          return (
-            '<section class="dial-phone-section">' +
-            '<h3 class="dial-phone-section__title">' +
-            escapeHtml(g.label) +
-            "</h3>" +
-            '<ul class="dial-phone-list" role="list">' +
-            g.items
-              .map(function (entry) {
-                const name = getDialPartnerDisplayName(entry.partnerCharId, "未知");
-                const missed = entry.status !== "answered";
-                const sub = missed
-                  ? "未接通"
-                  : entry.hadRecording
-                    ? formatDialDurationMmSs(entry.durationSec) + " · 含录音"
-                    : formatDialDurationMmSs(entry.durationSec);
-                return buildDialPhoneListRowHtml({
-                  showOutIcon: true,
-                  avatarCharId: entry.partnerCharId,
-                  openCharId: entry.partnerCharId,
-                  name: name,
-                  sub: sub,
-                  missed: missed,
-                  time: entry.visitTime || "",
-                  partnerCharId: entry.partnerCharId,
-                  deleteHistoryId: entry.id,
-                });
-              })
-              .join("") +
-            "</ul></section>"
-          );
-        })
-        .join("") +
-      "</div>"
-    );
-  }
-
-  function buildDialContactsTabHtml() {
-    const contacts = filterDialContacts(getSupportingCharacters(), dialContactQuery);
-    if (!contacts.length) {
-      return (
-        '<div class="dial-phone-panel dial-phone-panel--contacts">' +
-        '<div class="dial-contacts__search">' +
-        '<input class="field__input dial-contacts__search-input" type="search" placeholder="搜索" value="' +
-        escapeHtml(dialContactQuery) +
-        '" data-dial-contact-search autocomplete="off" aria-label="搜索联系人" />' +
-        "</div>" +
-        '<div class="dial-contacts__empty"><p>没有匹配的联系人</p></div></div>'
-      );
-    }
-    const groups = groupDialContactsByLetter(contacts);
-    return (
-      '<div class="dial-phone-panel dial-phone-panel--contacts">' +
-      '<div class="dial-contacts__search">' +
-      '<input class="field__input dial-contacts__search-input" type="search" placeholder="搜索" value="' +
-      escapeHtml(dialContactQuery) +
-      '" data-dial-contact-search autocomplete="off" aria-label="搜索联系人" />' +
-      "</div>" +
-      groups
-        .map(function (g) {
-          return (
-            '<section class="dial-phone-section dial-phone-section--letter">' +
-            '<h3 class="dial-phone-section__letter">' +
-            escapeHtml(g.letter) +
-            "</h3>" +
-            '<ul class="dial-phone-list" role="list">' +
-            g.items
-              .map(function (c) {
-                return buildDialPhoneListRowHtml({
-                  contact: true,
-                  avatarCharId: c.id,
-                  openCharId: c.id,
-                  name: getDialPartnerDisplayName(c.id, "未命名"),
-                  partnerCharId: c.id,
-                });
-              })
-              .join("") +
-            "</ul></section>"
-          );
-        })
-        .join("") +
-      "</div>"
-    );
-  }
-
-  function buildDialRecordingsTabHtml() {
-    const recs = getDialRecordingsList();
-    if (!recs.length) {
-      return (
-        '<div class="dial-phone-panel dial-phone-panel--recordings">' +
-        '<div class="dial-contacts__empty"><p>暂无通话录音</p>' +
-        '<p class="field__hint">通话中点「录音」，挂断后将保存在这里</p></div></div>'
-      );
-    }
-    return (
-      '<div class="dial-phone-panel dial-phone-panel--recordings">' +
-      '<ul class="dial-phone-list dial-phone-list--recordings" role="list">' +
-      recs
-        .map(function (item) {
-          const note = item.note;
-          const name = note.meta && note.meta.partnerCharId
-            ? getDialPartnerDisplayName(note.meta.partnerCharId, note.title || "通话录音")
-            : note.title || "通话录音";
-          const dur = (note.meta && note.meta.duration) || "0:00";
-          const canPlay = !!(item.blob && item.blob.dataUrl);
-          return (
-            '<li class="dial-phone-list__item" role="listitem">' +
-            '<div class="dial-rec-row">' +
-            buildDialRecPlayButtonHtml(note.id, canPlay) +
-            '<div class="dial-rec-row__main">' +
-            '<span class="dial-rec-row__name">' +
-            escapeHtml(truncateCharsWithEllipsis(name, 20)) +
-            "</span>" +
-            '<span class="dial-rec-row__meta">' +
-            escapeHtml(dur) +
-            " · " +
-            escapeHtml(note.visitTime || "") +
-            "</span></div>" +
-            '<div class="dial-rec-row__actions">' +
-            '<button type="button" class="dial-row-action dial-rec-row__text-btn icon-btn" data-dial-recording-transcript="' +
-            escapeHtml(note.id) +
-            '" aria-label="文字版" title="文字版">' +
-            DIAL_REC_TRANSCRIPT_SVG +
-            "</button>" +
-            buildPhoneCardDeleteBtnHtml("dial-rec-row__delete", "data-dial-delete-recording", note.id, "删除录音") +
-            "</div>" +
-            "</div></li>"
-          );
-        })
-        .join("") +
-      "</ul></div>"
-    );
-  }
-
-  function buildDialPhonePanelHtml() {
-    if (dialPhoneTab === "contacts") return buildDialContactsTabHtml();
-    if (dialPhoneTab === "recordings") return buildDialRecordingsTabHtml();
-    return buildDialRecentTabHtml();
-  }
-
-  function buildDialIdentitySheetHtml() {
-    const selfList = getSelfCharacters();
-    const editId = dialIdentityEditCharId || dialUserCharId || (selfList[0] && selfList[0].id) || "";
-    const editChar = getCharById(editId);
-    const displayFields = getDialIdentityDisplayFields(editId);
-    return (
-      '<div class="dial-identity-overlay" data-dial-identity-overlay>' +
-      '<div class="dial-identity-overlay__sheet modal-sheet">' +
-      '<div class="sheet-handle" aria-hidden="true"></div>' +
-      '<div class="modal-header">' +
-      '<h2 class="modal-title">我的形象</h2>' +
-      '<button type="button" class="icon-btn" data-dial-identity-close aria-label="关闭">' +
-      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
-      "</button></div>" +
-      '<div class="dial-identity-overlay__body">' +
-      '<p class="field__hint dial-identity-overlay__hint">仅用于「拨通」功能，不会修改角色库原设定。</p>' +
-      '<div class="dial-identity-pick h-scroll" role="list" aria-label="选择形象">' +
-      selfList
-        .map(function (c) {
-          const on = c.id === editId;
-          return (
-            '<button type="button" class="dial-identity-pick__item' +
-            (on ? " dial-identity-pick__item--on" : "") +
-            '" data-dial-identity-pick="' +
-            escapeHtml(c.id) +
-            '" role="listitem">' +
-            '<span class="avatar dial-identity-pick__avatar" data-dial-av="' +
-            escapeHtml(c.id) +
-            '"></span>' +
-            '<span class="dial-identity-pick__name">' +
-            escapeHtml(c.name || "未命名") +
-            "</span></button>"
-          );
-        })
-        .join("") +
-      "</div>" +
-      (editChar
-        ? '<div class="dial-identity-edit form-stack">' +
-          '<label class="field"><span class="field__label">外貌及性格（本功能覆盖）</span>' +
-          '<textarea class="field__input field__textarea" data-dial-identity-appearance rows="3" placeholder="预填角色库外貌及性格，可在此覆盖">' +
-          escapeHtml(displayFields.appearance) +
-          "</textarea></label>" +
-          '<label class="field"><span class="field__label">人物关系（本功能覆盖）</span>' +
-          '<textarea class="field__input field__textarea" data-dial-identity-relationships rows="2" placeholder="预填角色库人物关系，可在此覆盖">' +
-          escapeHtml(displayFields.relationships) +
-          "</textarea></label></div>"
-        : "") +
-      '<div class="dial-identity-overlay__actions">' +
-      '<button type="button" class="btn btn--primary btn--pill btn--block" data-dial-identity-save>确认使用此形象</button>' +
-      "</div></div></div></div>"
-    );
-  }
-
-  function buildDialContactsHtml() {
-    if (dialRecordingDetailId && dialPhoneTab === "recordings") {
-      return buildDialRecordingDetailShellHtml();
-    }
-    if (dialContactDetailCharId) {
-      return buildDialContactDetailShellHtml();
-    }
-    const user = getCharById(dialUserCharId);
-    const userName = user ? user.name || "我的形象" : "我的形象";
-    const identitySheet = dialIdentityOpen ? buildDialIdentitySheetHtml() : "";
-    return (
-      '<div class="dial-app dial-app--phone phone-app" aria-label="拨通电话">' +
-      '<header class="phone-app__bar dial-app__bar dial-app__bar--centered">' +
-      '<button type="button" class="phone-app__back" data-dial-back aria-label="返回">' +
-      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
-      "</button>" +
-      '<div class="dial-app__bar-center">' +
-      '<h2 class="dial-app__title">拨通</h2>' +
-      '<p class="dial-app__identity-sub">以「' +
-      escapeHtml(userName) +
-      "」的身份呼叫</p></div>" +
-      '<button type="button" class="dial-app__identity-btn icon-btn" data-dial-identity-open aria-label="选择我的形象">' +
-      '<svg class="icon-linear dial-app__identity-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' +
-      "</button></header>" +
-      '<div class="dial-app__body dial-phone-body">' +
-      buildDialPhonePanelHtml() +
-      "</div>" +
-      buildDialPhoneTabsHtml() +
-      identitySheet +
-      "</div>"
-    );
-  }
-
-  function saveDialIdentityFromDom(slot) {
-    const root = slot || els.dialContentSlot();
-    if (!root) return false;
-    const pickId = dialIdentityEditCharId || dialUserCharId;
-    if (!pickId) return false;
-    const appearanceEl = root.querySelector("[data-dial-identity-appearance]");
-    const relationshipsEl = root.querySelector("[data-dial-identity-relationships]");
-    const prev = getDialPersonaOverride(pickId);
-    dialPersonaOverrides[pickId] = {
-      remark: prev.remark,
-      appearance: appearanceEl ? String(appearanceEl.value || "").trim() : "",
-      relationships: relationshipsEl ? String(relationshipsEl.value || "").trim() : "",
-    };
-    dialUserCharId = pickId;
-    dialIdentityOpen = false;
-    dialIdentityEditCharId = null;
-    persistNarrative();
-    return true;
-  }
-
-  let dialRecordingAudio = null;
-  let dialRecordingActiveId = null;
-  let dialRecordingPlayState = null;
-  let dialRecordingLineTtsAudio = null;
-  let dialRecordingLineTtsObjectUrl = null;
-  let dialRecordingLineTtsKey = null;
-  let dialRecordingLineTtsLoadingKey = null;
-
-  const DIAL_REC_PLAY_ICON =
-    '<svg class="icon-linear dial-rec-row__play-svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
-  const DIAL_REC_PAUSE_ICON =
-    '<svg class="icon-linear dial-rec-row__play-svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
-  const DIAL_REC_STOP_ICON =
-    '<svg class="icon-linear dial-rec-row__play-svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>';
-
-  function getDialRecordingPlayBtnState(noteId) {
-    const id = String(noteId || "").trim();
-    if (!id || dialRecordingActiveId !== id || !dialRecordingPlayState) return "idle";
-    return dialRecordingPlayState;
-  }
-
-  function buildDialRecPlayButtonHtml(noteId, canPlay) {
-    const id = String(noteId || "").trim();
-    const state = getDialRecordingPlayBtnState(id);
-    let stateCls = "";
-    if (state === "playing") stateCls = " dial-rec-row__play--playing";
-    else if (state === "paused") stateCls = " dial-rec-row__play--paused";
-    else if (state === "ended") stateCls = " dial-rec-row__play--ended";
-    let label = "播放录音";
-    if (state === "playing") label = "暂停";
-    else if (state === "paused") label = "继续播放";
-    else if (state === "ended") label = "已播完，点击重播";
-    return (
-      '<button type="button" class="dial-rec-row__play' +
-      stateCls +
-      (canPlay ? "" : " dial-rec-row__play--disabled") +
-      '" data-dial-play-recording="' +
-      escapeHtml(id) +
-      '"' +
-      (canPlay ? "" : " disabled") +
-      ' aria-label="' +
-      escapeHtml(label) +
-      '">' +
-      '<span class="dial-rec-row__play-icon dial-rec-row__play-icon--play">' +
-      DIAL_REC_PLAY_ICON +
-      "</span>" +
-      '<span class="dial-rec-row__play-icon dial-rec-row__play-icon--pause">' +
-      DIAL_REC_PAUSE_ICON +
-      "</span>" +
-      '<span class="dial-rec-row__play-icon dial-rec-row__play-icon--stop">' +
-      DIAL_REC_STOP_ICON +
-      "</span></button>"
-    );
-  }
-
-  function updateDialRecordingPlayButtons(slot) {
-    const root = slot || els.dialContentSlot();
-    if (!root) return;
-    root.querySelectorAll("[data-dial-play-recording]").forEach(function (btn) {
-      const id = btn.getAttribute("data-dial-play-recording");
-      const state = getDialRecordingPlayBtnState(id);
-      btn.classList.remove("dial-rec-row__play--playing", "dial-rec-row__play--paused", "dial-rec-row__play--ended");
-      if (state === "playing") btn.classList.add("dial-rec-row__play--playing");
-      else if (state === "paused") btn.classList.add("dial-rec-row__play--paused");
-      else if (state === "ended") btn.classList.add("dial-rec-row__play--ended");
-      let label = "播放录音";
-      if (state === "playing") label = "暂停";
-      else if (state === "paused") label = "继续播放";
-      else if (state === "ended") label = "已播完，点击重播";
-      btn.setAttribute("aria-label", label);
-    });
-  }
-
-  function stopDialRecordingPlayback(resetState) {
-    if (dialRecordingAudio) {
-      try {
-        dialRecordingAudio.pause();
-      } catch (_e) {}
-      dialRecordingAudio = null;
-    }
-    if (resetState) {
-      dialRecordingActiveId = null;
-      dialRecordingPlayState = null;
-    }
-  }
-
-  function startDialRecordingPlayback(noteId, slot) {
-    const id = String(noteId || "").trim();
-    const blob = dialCallRecordingBlobs[id];
-    if (!blob || !blob.dataUrl) {
-      showToast("找不到录音文件。", "info");
-      return;
-    }
-    stopDialRecordingPlayback(true);
-    stopDialRecordingLineTts();
-    dialRecordingAudio = new Audio(blob.dataUrl);
-    dialRecordingActiveId = id;
-    dialRecordingPlayState = "playing";
-    dialRecordingAudio.addEventListener("ended", function () {
-      dialRecordingPlayState = "ended";
-      dialRecordingAudio = null;
-      updateDialRecordingPlayButtons(slot);
-    });
-    void dialRecordingAudio.play().catch(function () {
-      stopDialRecordingPlayback(true);
-      showToast("无法播放该录音。", "warning");
-      updateDialRecordingPlayButtons(slot);
-    });
-    updateDialRecordingPlayButtons(slot);
-  }
-
-  function toggleDialRecordingPlayback(noteId, slot) {
-    const id = String(noteId || "").trim();
-    if (!id) return;
-    if (dialRecordingActiveId === id && dialRecordingPlayState === "playing") {
-      if (dialRecordingAudio) {
-        try {
-          dialRecordingAudio.pause();
-        } catch (_e) {}
-      }
-      dialRecordingPlayState = "paused";
-      updateDialRecordingPlayButtons(slot);
-      return;
-    }
-    if (dialRecordingActiveId === id && dialRecordingPlayState === "paused") {
-      if (dialRecordingAudio) {
-        stopDialRecordingLineTts();
-        dialRecordingPlayState = "playing";
-        void dialRecordingAudio.play().catch(function () {
-          showToast("无法播放该录音。", "warning");
-        });
-        updateDialRecordingPlayButtons(slot);
-      } else {
-        startDialRecordingPlayback(id, slot);
-      }
-      return;
-    }
-    if (dialRecordingActiveId === id && dialRecordingPlayState === "ended") {
-      startDialRecordingPlayback(id, slot);
-      return;
-    }
-    startDialRecordingPlayback(id, slot);
-  }
-
-  function playDialRecording(noteId, slot) {
-    toggleDialRecordingPlayback(noteId, slot);
-  }
-
-  function buildDialCallScreenHtml() {
-    const session = dialCallSession;
-    if (!session) return "";
-    const partnerName = getDialPartnerDisplayName(session.partnerCharId, "对方");
-    const phase = session.phase || "ringing";
-    const isRinging = phase === "ringing";
-    const isConnected = phase === "connected";
-    const statusText = isRinging ? "正在呼叫…" : isConnected ? "通话中" : "结束";
-    const durationHtml = isConnected
-      ? '<p class="dial-call__duration" data-dial-call-duration>' +
-        escapeHtml(formatDialDurationMmSs(session.durationSec || 0)) +
-        "</p>"
-      : isRinging
-        ? '<p class="dial-call__duration dial-call__duration--pulse">等待接听</p>'
-        : "";
-    const recordCls =
-      "dial-call__btn dial-call__btn--record" + (session.isRecording ? " dial-call__btn--record-on" : "");
-    const recordLabel = session.isRecording ? "停止录音" : "录音";
-    const msgs = Array.isArray(session.messages) ? session.messages : [];
-    const lastLines = msgs.slice(-4);
-    let transcriptHtml = "";
-    if (isConnected && lastLines.length) {
-      transcriptHtml =
-        '<div class="dial-call__transcript" aria-live="polite">' +
-        lastLines
-          .map(function (m) {
-            const isUser = m.role === "user";
-            return (
-              '<p class="dial-call__line dial-call__line--' +
-              (isUser ? "user" : "partner") +
-              '">' +
-              escapeHtml(String(m.content || "")) +
-              "</p>"
-            );
-          })
-          .join("") +
-        "</div>";
-    } else if (isConnected && session.replyGenerating) {
-      if (lastLines.length) {
-        transcriptHtml =
-          '<div class="dial-call__transcript" aria-live="polite">' +
-          lastLines
-            .map(function (m) {
-              const isUser = m.role === "user";
-              return (
-                '<p class="dial-call__line dial-call__line--' +
-                (isUser ? "user" : "partner") +
-                '">' +
-                escapeHtml(String(m.content || "")) +
-                "</p>"
-              );
-            })
-            .join("") +
-          '<p class="dial-call__line dial-call__line--hint">对方正在说话…</p></div>';
-      } else {
-        transcriptHtml =
-          '<div class="dial-call__transcript"><p class="dial-call__line dial-call__line--hint">对方正在说话…</p></div>';
-      }
-    }
-    const composerDraft = String(session.composerDraft || "");
-    const sttActive = !!(callSettings.sttEnabled && isConnected);
-    const sttBusy = !!(session.replyGenerating || dialSttTranscribing);
-    const sttOn = !!(dialSttListening || dialSttTranscribing);
-    const sttMicSvg =
-      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>';
-    let sttVoiceLabel = "语音";
-    if (dialSttTranscribing) sttVoiceLabel = "识别中";
-    else if (dialSttListening) {
-      sttVoiceLabel =
-        callSettings.sttProvider === "browser" || callSettings.sttProvider === "sherpa-ncnn" ? "聆听中" : "录音中";
-    }
-    let thirdActionHtml = "";
-    if (isConnected && sttActive) {
-      thirdActionHtml =
-        '<button type="button" class="dial-call__btn dial-call__btn--voice' +
-        (sttOn ? " dial-call__btn--voice-on" : "") +
-        '" data-dial-stt-mic aria-label="' +
-        escapeHtml(sttVoiceLabel) +
-        '" title="' +
-        escapeHtml(sttVoiceLabel) +
-        '"' +
-        (sttBusy ? " disabled" : "") +
-        '><span class="dial-call__btn-icon dial-call__btn-icon--mic">' +
-        sttMicSvg +
-        '</span><span class="dial-call__btn-label">' +
-        escapeHtml(sttVoiceLabel) +
-        "</span></button>";
-    } else if (isConnected) {
-      thirdActionHtml = '<span class="dial-call__btn dial-call__btn--voice-slot" aria-hidden="true"></span>';
-    } else {
-      thirdActionHtml =
-        '<button type="button" class="dial-call__btn dial-call__btn--ghost" disabled aria-hidden="true"><span class="dial-call__btn-icon"></span></button>';
-    }
-    const showWave = isConnected && session.replyGenerating && !lastLines.length;
-    const composerHtml = isConnected
-      ? '<div class="dial-call__composer">' +
-        '<input class="field__input dial-call__input" type="text" data-dial-call-input placeholder="' +
-        (sttActive ? "说点什么，或点下方「语音」…" : "说点什么…") +
-        '" value="' +
-        escapeHtml(composerDraft) +
-        '" autocomplete="off" aria-label="通话输入"' +
-        (session.replyGenerating ? " disabled" : "") +
-        " />" +
-        '<button type="button" class="dial-call__send" data-dial-call-send aria-label="诉说"' +
-        (session.replyGenerating ? " disabled" : "") +
-        ">诉说</button></div>"
-      : "";
-    return (
-      '<div class="dial-call" data-dial-call-overlay aria-label="通话界面">' +
-      '<div class="dial-call__backdrop"></div>' +
-      '<div class="dial-call__content">' +
-      '<div class="dial-call__body">' +
-      '<div class="dial-call__avatar-wrap' +
-      (isRinging ? " dial-call__avatar-wrap--ringing" : "") +
-      '">' +
-      '<span class="avatar dial-call__avatar" data-dial-av="' +
-      escapeHtml(session.partnerCharId) +
-      '"></span>' +
-      (isRinging ? '<span class="dial-call__ripple" aria-hidden="true"></span>' : "") +
-      "</div>" +
-      '<h2 class="dial-call__name">' +
-      escapeHtml(partnerName) +
-      "</h2>" +
-      '<p class="dial-call__status">' +
-      escapeHtml(statusText) +
-      "</p>" +
-      durationHtml +
-      transcriptHtml +
-      "</div>" +
-      '<div class="dial-call__dock">' +
-      (showWave
-        ? session.replyGenerating
-          ? '<div class="dial-call__wave dial-call__wave--thinking" aria-hidden="true"><span></span><span></span><span></span></div>'
-          : '<div class="dial-call__wave" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>'
-        : "") +
-      composerHtml +
-      '<div class="dial-call__actions">' +
-      (isConnected
-        ? '<button type="button" class="' +
-          recordCls +
-          '" data-dial-toggle-record aria-label="' +
-          escapeHtml(recordLabel) +
-          '" title="' +
-          escapeHtml(recordLabel) +
-          '"><span class="dial-call__btn-icon" aria-hidden="true"></span><span class="dial-call__btn-label">' +
-          escapeHtml(recordLabel) +
-          "</span></button>"
-        : '<button type="button" class="dial-call__btn dial-call__btn--ghost" disabled aria-hidden="true"><span class="dial-call__btn-icon"></span></button>') +
-      '<button type="button" class="dial-call__btn dial-call__btn--hangup" data-dial-hangup aria-label="挂断" title="挂断">' +
-      '<span class="dial-call__btn-hangup-icon" aria-hidden="true">' +
-      '<svg class="icon-linear dial-call__hangup-glyph" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z"/></svg>' +
-      '</span><span class="dial-call__btn-label dial-call__btn-label--hangup">挂断</span></button>' +
-      thirdActionHtml +
-      "</div></div>" +
-      (session.isRecording
-        ? '<p class="dial-call__rec-badge" aria-live="polite"><span class="dial-call__rec-dot"></span>录音中</p>'
-        : "") +
-      "</div></div>"
-    );
-  }
-
-  function fillDialAvatarElements(root) {
-    if (!root) return;
-    root.querySelectorAll("[data-dial-av]").forEach(function (el) {
-      const id = el.getAttribute("data-dial-av");
-      const c = getCharById(id);
-      if (c) fillAvatarElement(el, c);
-    });
-  }
-
-  function renderDialScreen(slot) {
-    if (!slot) return;
-    if (!dialUserCharId) {
-      slot.innerHTML = "";
-      return;
-    }
-    let identityPickScrollLeft = 0;
-    if (dialIdentityOpen) {
-      const pickRow = slot.querySelector(".dial-identity-pick");
-      if (pickRow) identityPickScrollLeft = pickRow.scrollLeft;
-    }
-    const callHtml = dialCallSession ? buildDialCallScreenHtml() : "";
-    slot.innerHTML = buildDialContactsHtml() + callHtml;
-    fillDialAvatarElements(slot);
-    if (dialIdentityOpen && identityPickScrollLeft > 0) {
-      const pickRow = slot.querySelector(".dial-identity-pick");
-      if (pickRow) pickRow.scrollLeft = identityPickScrollLeft;
-    }
-    if (dialCallSession && dialCallSession.phase === "connected") {
-      const input = slot.querySelector("[data-dial-call-input]");
-      if (input && !dialCallSession.replyGenerating) {
-        input.focus();
-      }
-      const transcript = slot.querySelector(".dial-call__transcript");
-      if (transcript) transcript.scrollTop = transcript.scrollHeight;
-    }
-    if (dialPhoneTab === "contacts" && dialContactQuery) {
-      const searchEl = slot.querySelector("[data-dial-contact-search]");
-      if (searchEl) {
-        searchEl.focus();
-        try {
-          const len = searchEl.value.length;
-          searchEl.setSelectionRange(len, len);
-        } catch (_e) {}
-      }
-    }
-  }
-
-  function handleDialContentTap(e, slot) {
-    if (e.target.closest("[data-dial-back]")) {
-      if (dialCallSession) {
-        void endDialCallSession({ saveRecording: true });
-        return true;
-      }
-      if (dialPartnerPersonaOpen) {
-        dialPartnerPersonaOpen = false;
-        renderDialScreen(slot);
-        return true;
-      }
-      if (dialIdentityOpen) {
-        dialIdentityOpen = false;
-        dialIdentityEditCharId = null;
-        renderDialScreen(slot);
-        return true;
-      }
-      if (dialContactDetailCharId) {
-        dialContactDetailCharId = null;
-        dialContactDetailTab = "history";
-        renderDialScreen(slot);
-        return true;
-      }
-      if (dialRecordingDetailId) {
-        stopDialRecordingLineTts();
-        dialRecordingDetailId = null;
-        renderDialScreen(slot);
-        return true;
-      }
-      closeOverviewDialView();
-      return true;
-    }
-    if (e.target.closest("[data-dial-hangup]")) {
-      void endDialCallSession({ saveRecording: true });
-      return true;
-    }
-    if (e.target.closest("[data-dial-toggle-record]")) {
-      if (!dialCallSession || dialCallSession.phase !== "connected") return true;
-      if (dialCallSession.isRecording) {
-        const started = dialCallSession.recordStartedAt;
-        dialCallSession.isRecording = false;
-        void stopDialRecordingCollectBlob().then(function (blob) {
-          if (blob) {
-            dialCallSession.pendingBlob = blob;
-            dialCallSession.pendingDurationSec = started
-              ? Math.max(1, Math.round((Date.now() - started) / 1000))
-              : dialCallSession.pendingDurationSec || 1;
-          }
-          renderDialScreen(slot);
-          showToast("已停止录音，挂断后将保存至手机备忘录。", "info", 2800);
-        });
-      } else {
-        dialCallSession.pendingBlob = null;
-        dialCallSession.pendingDurationSec = 0;
-        void startDialRecording().then(function (ok) {
-          if (ok) {
-            renderDialScreen(slot);
-            showToast("开始录音", "success", 1800);
-          }
-        });
-      }
-      return true;
-    }
-    const userPick = e.target.closest("[data-dial-user-char]");
-    if (userPick && !dialCallSession) {
-      dialUserCharId = userPick.getAttribute("data-dial-user-char") || null;
-      persistNarrative();
-      renderDialScreen(slot);
-      return true;
-    }
-    if (e.target.closest("[data-dial-identity-open]")) {
-      dialIdentityOpen = true;
-      dialIdentityEditCharId = dialUserCharId;
-      renderDialScreen(slot);
-      return true;
-    }
-    if (e.target.closest("[data-dial-identity-close]")) {
-      dialIdentityOpen = false;
-      dialIdentityEditCharId = null;
-      renderDialScreen(slot);
-      return true;
-    }
-    if (e.target.closest("[data-dial-identity-overlay]") && !e.target.closest(".dial-identity-overlay__sheet")) {
-      dialIdentityOpen = false;
-      dialIdentityEditCharId = null;
-      renderDialScreen(slot);
-      return true;
-    }
-    const identityPick = e.target.closest("[data-dial-identity-pick]");
-    if (identityPick) {
-      if (shouldIgnoreHorizontalScrollTap()) return true;
-      persistDialIdentityDraftFromDom(slot);
-      const nextId = identityPick.getAttribute("data-dial-identity-pick") || null;
-      if (nextId === dialIdentityEditCharId) return true;
-      dialIdentityEditCharId = nextId;
-      refreshDialIdentitySheetInDom(slot);
-      return true;
-    }
-    if (e.target.closest("[data-dial-identity-save]")) {
-      if (saveDialIdentityFromDom(slot)) {
-        showToast("已切换形象", "success", 1800);
-        renderDialScreen(slot);
-      }
-      return true;
-    }
-    const contactOpen = e.target.closest("[data-dial-contact-open]");
-    if (contactOpen && !dialCallSession) {
-      const pid = contactOpen.getAttribute("data-dial-contact-open") || null;
-      if (pid && getCharById(pid)) {
-        dialContactDetailCharId = pid;
-        dialContactDetailTab = "history";
-        dialPartnerPersonaOpen = false;
-        renderDialScreen(slot);
-      }
-      return true;
-    }
-    const contactTab = e.target.closest("[data-dial-contact-detail-tab]");
-    if (contactTab && dialContactDetailCharId) {
-      const tab = contactTab.getAttribute("data-dial-contact-detail-tab");
-      if (tab === "history" || tab === "favorites") {
-        dialContactDetailTab = tab;
-        renderDialScreen(slot);
-      }
-      return true;
-    }
-    if (e.target.closest("[data-dial-partner-persona-open]")) {
-      if (dialContactDetailCharId) {
-        dialPartnerPersonaOpen = true;
-        renderDialScreen(slot);
-      }
-      return true;
-    }
-    if (e.target.closest("[data-dial-partner-persona-close]")) {
-      dialPartnerPersonaOpen = false;
-      renderDialScreen(slot);
-      return true;
-    }
-    if (
-      e.target.closest("[data-dial-partner-persona-overlay]") &&
-      !e.target.closest(".dial-identity-overlay__sheet")
-    ) {
-      dialPartnerPersonaOpen = false;
-      renderDialScreen(slot);
-      return true;
-    }
-    if (e.target.closest("[data-dial-partner-persona-save]")) {
-      if (saveDialPartnerPersonaFromDom(slot)) {
-        showToast("已保存通话人设", "success", 1800);
-        renderDialScreen(slot);
-      }
-      return true;
-    }
-    const starBtn = e.target.closest("[data-dial-toggle-history-star]");
-    if (starBtn) {
-      const entryId = starBtn.getAttribute("data-dial-toggle-history-star");
-      if (toggleDialCallHistoryFavorite(entryId)) {
-        renderDialScreen(slot);
-        const sid = String(dialUserCharId || "").trim();
-        const entry =
-          sid && Array.isArray(dialCallHistory[sid])
-            ? dialCallHistory[sid].find(function (x) {
-                return x.id === entryId;
-              })
-            : null;
-        showToast(entry && entry.starred ? "已加入收藏" : "已取消收藏", "info", 1600);
-      }
-      return true;
-    }
-    const tabBtn = e.target.closest("[data-dial-tab]");
-    if (tabBtn && !dialCallSession) {
-      const tab = tabBtn.getAttribute("data-dial-tab");
-      if (tab === "recent" || tab === "contacts" || tab === "recordings") {
-        if (tab !== "recordings" && dialRecordingPlayState === "playing") {
-          if (dialRecordingAudio) {
-            try {
-              dialRecordingAudio.pause();
-            } catch (_e) {}
-            dialRecordingPlayState = "paused";
-          }
-        }
-        if (tab !== "recordings") {
-          dialRecordingDetailId = null;
-          stopDialRecordingLineTts();
-        }
-        dialPhoneTab = tab;
-        renderDialScreen(slot);
-      }
-      return true;
-    }
-    const playBtn = e.target.closest("[data-dial-play-recording]");
-    if (playBtn) {
-      toggleDialRecordingPlayback(playBtn.getAttribute("data-dial-play-recording"), slot);
-      return true;
-    }
-    const transcriptBtn = e.target.closest("[data-dial-recording-transcript]");
-    if (transcriptBtn && !dialCallSession) {
-      const nid = transcriptBtn.getAttribute("data-dial-recording-transcript") || "";
-      if (nid && findDialRecordingItem(nid)) {
-        stopDialRecordingPlayback(true);
-        stopDialRecordingLineTts();
-        dialRecordingDetailId = nid;
-        renderDialScreen(slot);
-      }
-      return true;
-    }
-    const lineTtsBtn = e.target.closest("[data-dial-rec-line-tts]");
-    if (lineTtsBtn) {
-      const key = lineTtsBtn.getAttribute("data-dial-rec-line-tts") || "";
-      const colon = key.lastIndexOf(":");
-      if (colon > 0) {
-        const noteId = key.slice(0, colon);
-        const lineIndex = parseInt(key.slice(colon + 1), 10);
-        if (noteId && !isNaN(lineIndex)) {
-          void playDialRecordingLineTts(noteId, lineIndex, slot);
-        }
-      }
-      return true;
-    }
-    const delHistoryBtn = e.target.closest("[data-dial-delete-history]");
-    if (delHistoryBtn) {
-      const hid = delHistoryBtn.getAttribute("data-dial-delete-history");
-      if (deleteDialCallHistoryEntry(hid)) {
-        renderDialScreen(slot);
-        showToast("已删除通话记录。", "info", 2200);
-      }
-      return true;
-    }
-    const delRecBtn = e.target.closest("[data-dial-delete-recording]");
-    if (delRecBtn) {
-      const rid = delRecBtn.getAttribute("data-dial-delete-recording");
-      if (deleteDialRecording(rid)) {
-        renderDialScreen(slot);
-        showToast("已删除录音。", "info", 2200);
-      }
-      return true;
-    }
-    if (e.target.closest("[data-dial-call-send]")) {
-      sendDialCallMessage(slot);
-      return true;
-    }
-    if (e.target.closest("[data-dial-stt-mic]")) {
-      void toggleDialVoiceInput(slot);
-      return true;
-    }
-    const callBtn = e.target.closest("[data-dial-call]");
-    if (callBtn && !dialCallSession) {
-      beginDialOutgoingCall(callBtn.getAttribute("data-dial-call"));
-      return true;
-    }
-    return false;
-  }
 
   function getKnockChatRecordMutable() {
     if (!isKnockChatReady()) return null;
@@ -18514,7 +15789,9 @@
         String(latestEvent.content).trim();
     }
     prompt +=
-      "\n\n输出要求：像真人发微信，每条极短（最多一句半）；优先 2～5 条，用 <<<BUBBLE>>> 分隔（整行仅含此 11 字符）。不要用 Markdown，不要前缀角色名。对方可能发表情包、语音、转账、照片、外卖、位置或链接，请自然回应；你也可以在合适时机主动使用这些功能（见下方说明），但不要喧宾夺主；总结仅用于回忆更早内容，不得与最近 " +
+      "\n\n输出要求：像真人发微信，每条极短（最多一句半）；优先 2～5 条，用 <<<BUBBLE>>> 分隔（整行仅含此 11 字符）。不要用 Markdown，不要前缀角色名。" +
+      CHAT_BRACKET_EMOJI_PROMPT_LINE +
+      "对方可能发表情包、语音、转账、照片、外卖、位置或链接，请自然回应；你也可以在合适时机主动使用这些功能（见下方说明），但不要喧宾夺主；总结仅用于回忆更早内容，不得与最近 " +
       KNOCK_CHAT_HISTORY_LIMIT +
       " 条消息矛盾。";
     prompt +=
@@ -18954,12 +16231,36 @@
     if (scrollEl) scrollEl.scrollTop = scrollTop;
   }
 
+  function saveHorizontalScrollPositions(root) {
+    if (!root || !root.querySelectorAll) return;
+    root.querySelectorAll(HORIZONTAL_SCROLL_SELECTOR).forEach(function (el) {
+      const key = el.getAttribute("data-h-scroll-key");
+      if (key) horizontalScrollPosCache[key] = el.scrollLeft;
+    });
+  }
+
+  function restoreHorizontalScrollPositions(root) {
+    if (!root || !root.querySelectorAll) return;
+    function apply() {
+      root.querySelectorAll(HORIZONTAL_SCROLL_SELECTOR).forEach(function (el) {
+        const key = el.getAttribute("data-h-scroll-key");
+        if (key && horizontalScrollPosCache[key] != null) {
+          el.scrollLeft = horizontalScrollPosCache[key];
+        }
+      });
+    }
+    apply();
+    requestAnimationFrame(function () {
+      apply();
+      requestAnimationFrame(apply);
+    });
+  }
+
   function getHorizontalScrollContextFromEvent(e) {
     if (!e || !e.target || typeof e.target.closest !== "function") return null;
     const row = e.target.closest(HORIZONTAL_SCROLL_SELECTOR);
     if (!row) return null;
     if (row.closest("#knock-content-slot") && getKnockEventRoot(e)) return "knock";
-    if (row.closest("#dial-content-slot") && getDialEventRoot(e)) return "dial";
     if (row.closest("#phone-content-slot, #story-phone-slot")) return "phone";
     if (row.closest("#fanwork-content-slot, #story-fanwork-slot")) return "fanwork";
     return null;
@@ -19201,7 +16502,11 @@
         const av = document.createElement("div");
         av.className = "avatar";
         b.appendChild(av);
-        fillAvatarElement(av, c);
+        const displayChar =
+          knockPartnerCharId && c.id === knockUserCharId
+            ? getKnockDisplayCharForPair(c, "user", c.id, knockPartnerCharId)
+            : c;
+        fillAvatarElement(av, displayChar);
         userPick.appendChild(b);
       });
     }
@@ -19211,17 +16516,30 @@
         const b = document.createElement("button");
         b.type = "button";
         const partnerSelected = c.id === knockPartnerCharId;
-        b.className = "char-pick-avatar" + (partnerSelected ? " is-selected" : "");
+        const binding = getKnockPartnerBinding(c.id, knockUserCharId);
+        const boundElsewhere = !!binding;
+        b.className =
+          "char-pick-avatar" +
+          (partnerSelected ? " is-selected" : "") +
+          (boundElsewhere ? " is-bound" : "");
         b.dataset.knockPartnerChar = c.id;
         b.style.zIndex = partnerSelected ? "20" : String(idx + 1);
-        if (partnerSelected) {
+        if (boundElsewhere) {
+          const boundUser = getCharById(binding.userCharId);
+          b.title = "已与「" + (boundUser ? boundUser.name || "其他形象" : "其他形象") + "」绑定";
+          b.setAttribute("aria-disabled", "true");
+        } else if (partnerSelected) {
           b.setAttribute("aria-label", "已选中");
           b.setAttribute("aria-current", "true");
         }
         const av = document.createElement("div");
         av.className = "avatar";
         b.appendChild(av);
-        fillAvatarElement(av, c);
+        const displayChar =
+          knockUserCharId
+            ? getKnockDisplayCharForPair(c, "partner", knockUserCharId, c.id)
+            : c;
+        fillAvatarElement(av, displayChar);
         partnerPick.appendChild(b);
       });
     }
@@ -19918,6 +17236,96 @@
     return un + " · " + pn;
   }
 
+  function knockPairSelectToken(userCharId, partnerCharId) {
+    return String(userCharId || "") + "\u001f" + String(partnerCharId || "");
+  }
+
+  function parseKnockPairSelectToken(token) {
+    const parts = String(token || "").split("\u001f");
+    if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+    return { userCharId: parts[0], partnerCharId: parts[1] };
+  }
+
+  function isKnockPairContextConfirmed(userCharId, partnerCharId) {
+    const rec = knockChatData[knockChatStorageKey(userCharId, partnerCharId)];
+    return !!(rec && rec.contextConfirmed);
+  }
+
+  function knockPairHasGeneratedContext(userCharId, partnerCharId) {
+    const rec = knockChatData[knockChatStorageKey(userCharId, partnerCharId)];
+    if (!rec) return false;
+    return !!(rec.contextConfirmed || rec.contextBackground || rec.contextDraft);
+  }
+
+  function collectKnockConfirmedPairs() {
+    const items = [];
+    Object.keys(knockChatData).forEach(function (key) {
+      const parts = key.split("\u001e");
+      if (parts.length !== 2) return;
+      const userCharId = parts[0];
+      const partnerCharId = parts[1];
+      if (!knockPairHasGeneratedContext(userCharId, partnerCharId)) return;
+      const user = getCharById(userCharId);
+      const partner = getKnockPartnerCharById(partnerCharId);
+      if (!user || !partner || !isKnockPartnerMainCharacterById(partnerCharId)) return;
+      const saved = knockSavedPairs.find(function (p) {
+        return p.userCharId === userCharId && p.partnerCharId === partnerCharId;
+      });
+      const confirmed = isKnockPairContextConfirmed(userCharId, partnerCharId);
+      items.push({
+        userCharId: userCharId,
+        partnerCharId: partnerCharId,
+        name: saved ? saved.name : getDefaultKnockSavedPairName(userCharId, partnerCharId),
+        savedAt: saved ? saved.savedAt || 0 : confirmed ? 1 : 0,
+        savedPairId: saved ? saved.id : null,
+        isActive: userCharId === knockUserCharId && partnerCharId === knockPartnerCharId,
+        contextConfirmed: confirmed,
+      });
+    });
+    return items.sort(function (a, b) {
+      return (b.savedAt || 0) - (a.savedAt || 0);
+    });
+  }
+
+  function getKnockPartnerBinding(partnerCharId, allowUserCharId) {
+    const pid = String(partnerCharId || "").trim();
+    const allowUid = String(allowUserCharId || "").trim();
+    if (!pid) return null;
+    let found = null;
+    Object.keys(knockChatData).some(function (key) {
+      const parts = key.split("\u001e");
+      if (parts.length !== 2 || parts[1] !== pid) return false;
+      if (allowUid && parts[0] === allowUid) return false;
+      if (!isKnockPairContextConfirmed(parts[0], parts[1])) return false;
+      found = { userCharId: parts[0], partnerCharId: parts[1] };
+      return true;
+    });
+    return found;
+  }
+
+  function syncKnockChatAvatarToMoments(userCharId, partnerCharId, role, url) {
+    const uid = String(userCharId || "").trim();
+    const pid = String(partnerCharId || "").trim();
+    if (!uid) return;
+    const key = knockMomentsStorageKey(uid, pid);
+    if (!key) return;
+    let bundle = knockMomentsData[key];
+    if (!bundle || typeof bundle !== "object") {
+      bundle = { posts: [], generatedAt: Date.now() };
+    }
+    const ov = ensureKnockMomentsAvatarOverrides(bundle);
+    const nextUrl = String(url || "").trim();
+    if (role === "partner") {
+      const partner = getKnockPartnerCharById(pid);
+      const name = partner ? String(partner.name || "").trim() : "";
+      if (name) ov.byKey[name] = nextUrl;
+    } else {
+      ov.holder = nextUrl;
+    }
+    bundle.avatarOverrides = ov;
+    knockMomentsData[key] = bundle;
+  }
+
   function syncKnockSetupPhaseFromPair() {
     if (!isKnockChatReady()) {
       knockSetupPhase = "select";
@@ -19932,6 +17340,9 @@
     opts = opts || {};
     knockUserCharId = userCharId;
     knockPartnerCharId = partnerCharId;
+    if (!isKnockPartnerMainCharacter() && knockComposerMode === "voice") {
+      knockComposerMode = "text";
+    }
     if (userCharId) {
       const meta = getKnockSessionMetaMutable();
       meta.pinnedPartnerId = partnerCharId;
@@ -19940,15 +17351,30 @@
     if (opts.persist !== false) persistNarrative();
   }
 
-  function activateKnockSavedPair(pairId, slot) {
-    const pair = knockSavedPairs.find(function (p) {
-      return p.id === pairId;
+  function ensureKnockMomentsKeyForPair(userCharId, partnerCharId) {
+    const uid = String(userCharId || "").trim();
+    const pid = String(partnerCharId || "").trim();
+    if (!uid || !pid) return;
+    const pairKey = knockChatStorageKey(uid, pid);
+    if (knockMomentsData[uid] && uid !== pairKey && !knockMomentsData[pairKey]) {
+      knockMomentsData[pairKey] = knockMomentsData[uid];
+      delete knockMomentsData[uid];
+    }
+    if (knockMomentsCovers[uid] && uid !== pairKey && !knockMomentsCovers[pairKey]) {
+      knockMomentsCovers[pairKey] = knockMomentsCovers[uid];
+      delete knockMomentsCovers[uid];
+    }
+  }
+
+  function activateKnockPairSelection(userCharId, partnerCharId, slot) {
+    if (!userCharId || !partnerCharId) return;
+    ensureKnockMomentsKeyForPair(userCharId, partnerCharId);
+    const saved = knockSavedPairs.find(function (p) {
+      return p.userCharId === userCharId && p.partnerCharId === partnerCharId;
     });
-    if (!pair) return;
-    knockActiveSavedPairId = pairId;
-    activateKnockPair(pair.userCharId, pair.partnerCharId, { persist: true });
-    const rec = getKnockChatRecordForPair(pair.userCharId, pair.partnerCharId);
-    if (rec && rec.contextConfirmed) {
+    knockActiveSavedPairId = saved ? saved.id : null;
+    activateKnockPair(userCharId, partnerCharId, { persist: true });
+    if (isKnockPairContextConfirmed(userCharId, partnerCharId)) {
       knockMainTab = "chat";
       knockSubScreen = null;
     } else {
@@ -19957,6 +17383,55 @@
     }
     resetKnockTransientUiState();
     renderKnockScreen(slot || els.knockContentSlot());
+  }
+
+  function activateKnockSavedPair(pairId, slot) {
+    const pair = knockSavedPairs.find(function (p) {
+      return p.id === pairId;
+    });
+    if (!pair) return;
+    activateKnockPairSelection(pair.userCharId, pair.partnerCharId, slot);
+  }
+
+  function deleteKnockPair(userCharId, partnerCharId, slot) {
+    const uid = String(userCharId || "").trim();
+    const pid = String(partnerCharId || "").trim();
+    if (!uid || !pid) return false;
+    const key = knockChatStorageKey(uid, pid);
+    delete knockChatData[key];
+    knockSavedPairs = knockSavedPairs.filter(function (p) {
+      return !(p.userCharId === uid && p.partnerCharId === pid);
+    });
+    if (knockActiveSavedPairId) {
+      const active = knockSavedPairs.find(function (p) {
+        return p.id === knockActiveSavedPairId;
+      });
+      if (!active) knockActiveSavedPairId = null;
+    }
+    const momentsKey = knockMomentsStorageKey(uid, pid);
+    if (momentsKey) {
+      delete knockMomentsData[momentsKey];
+      delete knockMomentsCovers[momentsKey];
+    }
+    if (knockUserCharId === uid && knockPartnerCharId === pid) {
+      const remaining = collectKnockConfirmedPairs();
+      if (remaining.length) {
+        activateKnockPair(remaining[0].userCharId, remaining[0].partnerCharId, { persist: false });
+        const nextSaved = knockSavedPairs.find(function (p) {
+          return p.userCharId === remaining[0].userCharId && p.partnerCharId === remaining[0].partnerCharId;
+        });
+        knockActiveSavedPairId = nextSaved ? nextSaved.id : null;
+      } else {
+        const mainList = getKnockMainCharacters();
+        knockPartnerCharId = mainList.length ? mainList[0].id : null;
+        knockActiveSavedPairId = null;
+        knockMainTab = "me";
+      }
+    }
+    persistNarrative();
+    renderKnockScreen(slot || els.knockContentSlot());
+    showToast("组合已删除", "success");
+    return true;
   }
 
   function saveCurrentKnockPair(name) {
@@ -19990,14 +17465,14 @@
     return true;
   }
 
-  function buildKnockSavedPairItemHtml(pair) {
-    const user = getCharById(pair.userCharId);
-    const partner = getKnockPartnerCharById(pair.partnerCharId);
-    const rec = getKnockChatRecordForPair(pair.userCharId, pair.partnerCharId);
-    const status = rec && rec.contextConfirmed ? "已设定契机" : "待设定契机";
-    const active = pair.id === knockActiveSavedPairId ? " knock-saved-pair--active" : "";
-    const userAv = user ? getKnockLibraryAvatarUrl(user) : "";
-    const partnerAv = partner ? getKnockLibraryAvatarUrl(partner) : "";
+  function buildKnockSavedPairItemHtml(item) {
+    const user = getCharById(item.userCharId);
+    const partner = getKnockPartnerCharById(item.partnerCharId);
+    const status = item.contextConfirmed ? "已确认契机" : "待确认契机";
+    const active = item.isActive ? " knock-saved-pair--active" : "";
+    const userAv = getKnockAvatarUrlForPair(item.userCharId, item.partnerCharId, "user");
+    const partnerAv = getKnockAvatarUrlForPair(item.userCharId, item.partnerCharId, "partner");
+    const selectToken = knockPairSelectToken(item.userCharId, item.partnerCharId);
     const userInner = userAv
       ? '<img src="' + escapeHtml(userAv) + '" alt="" />'
       : escapeHtml((user && user.name ? user.name : "我").slice(0, 1));
@@ -20005,10 +17480,11 @@
       ? '<img src="' + escapeHtml(partnerAv) + '" alt="" />'
       : escapeHtml((partner && partner.name ? partner.name : "?").slice(0, 1));
     return (
+      '<div class="knock-saved-pair-row">' +
       '<button type="button" class="knock-saved-pair' +
       active +
-      '" data-knock-saved-pair="' +
-      escapeHtml(pair.id) +
+      '" data-knock-pair-select="' +
+      escapeHtml(selectToken) +
       '">' +
       '<span class="knock-saved-pair__avatars" aria-hidden="true">' +
       '<span class="knock-saved-pair__av">' +
@@ -20019,17 +17495,22 @@
       "</span></span>" +
       '<span class="knock-saved-pair__body">' +
       '<span class="knock-saved-pair__name">' +
-      escapeHtml(pair.name) +
+      escapeHtml(item.name) +
       "</span>" +
       '<span class="knock-saved-pair__status">' +
       escapeHtml(status) +
-      "</span></span></button>"
+      "</span></span></button>" +
+      '<button type="button" class="knock-saved-pair__delete" data-knock-pair-delete="' +
+      escapeHtml(selectToken) +
+      '" aria-label="删除组合" title="删除组合">' +
+      '<svg class="icon-linear" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M7 6l1 14h8l1-14"/><path d="M10 11v5M14 11v5"/></svg>' +
+      "</button></div>"
     );
   }
 
   function buildKnockSavedPairsSectionHtml() {
     const rec = isKnockChatReady() ? getKnockChatRecordMutable() : null;
-    const canSave = rec && rec.contextConfirmed;
+    const canSave = rec && rec.contextConfirmed && isKnockPartnerMainCharacter();
     const defaultName = canSave ? getDefaultKnockSavedPairName(knockUserCharId, knockPartnerCharId) : "";
     const saveBlock = canSave
       ? '<div class="knock-me-page__save-pair">' +
@@ -20041,15 +17522,10 @@
         '<button type="button" class="btn btn--secondary btn--pill btn--block" data-knock-pair-save>保存当前组合</button>' +
         "</div>"
       : "";
-    const listHtml = knockSavedPairs.length
-      ? knockSavedPairs
-          .slice()
-          .sort(function (a, b) {
-            return (b.savedAt || 0) - (a.savedAt || 0);
-          })
-          .map(buildKnockSavedPairItemHtml)
-          .join("")
-      : '<p class="field__hint knock-me-page__saved-empty">确认契机后可命名保存，便于切换不同角色对。</p>';
+    const confirmedPairs = collectKnockConfirmedPairs();
+    const listHtml = confirmedPairs.length
+      ? confirmedPairs.map(buildKnockSavedPairItemHtml).join("")
+      : '<p class="field__hint knock-me-page__saved-empty">生成契机后会出现在此，可直接切换或删除；确认契机后可命名保存。</p>';
     return (
       '<section class="knock-me-page__section">' +
       '<h3 class="knock-me-page__section-title">已保存组合</h3>' +
@@ -20141,16 +17617,21 @@
     return knockChatStorageKey(uid, pid);
   }
 
-  function getKnockMomentsBundleRecord() {
-    const key = knockMomentsStorageKey(knockUserCharId);
+  function getKnockMomentsBundleForPair(userCharId, partnerCharId) {
+    const key = knockMomentsStorageKey(userCharId, partnerCharId);
     if (!key) return null;
     const rec = knockMomentsData[key];
-    if (!rec || !Array.isArray(rec.posts) || !rec.posts.length) return null;
+    if (!rec || !Array.isArray(rec.posts)) return null;
     return rec;
   }
 
+  function getKnockMomentsBundleRecord() {
+    return getKnockMomentsBundleForPair(knockUserCharId, knockPartnerCharId);
+  }
+
   function hasKnockMomentsGenerated() {
-    return !!getKnockMomentsBundleRecord();
+    const rec = getKnockMomentsBundleRecord();
+    return !!(rec && rec.posts.length);
   }
 
   function getKnockMomentsPosts() {
@@ -20159,8 +17640,11 @@
     return null;
   }
 
-  function persistKnockMomentsBundle(bundle) {
-    const key = knockMomentsStorageKey(knockUserCharId);
+  function persistKnockMomentsBundle(bundle, userCharId, partnerCharId) {
+    const key = knockMomentsStorageKey(
+      userCharId != null ? userCharId : knockUserCharId,
+      partnerCharId != null ? partnerCharId : knockPartnerCharId
+    );
     if (!key || !bundle) return;
     knockMomentsData[key] = bundle;
     persistNarrative();
@@ -20182,6 +17666,9 @@
   function getKnockMomentsProfileAvatarUrl() {
     const ov = getKnockMomentsAvatarOverrides();
     if (ov.holder) return ov.holder;
+    if (knockUserCharId && knockPartnerCharId) {
+      return getKnockAvatarUrlForPair(knockUserCharId, knockPartnerCharId, "user");
+    }
     const user = knockUserCharId ? getCharById(knockUserCharId) : null;
     if (user && user.avatarUrl) return String(user.avatarUrl).trim();
     return "";
@@ -20193,8 +17680,18 @@
     if (name && ov.byKey[name]) return ov.byKey[name];
     const user = knockUserCharId ? getCharById(knockUserCharId) : null;
     const userName = user ? String(user.name || "").trim() : "";
-    if (userName && name === userName && ov.holder) return ov.holder;
-    if (userName && name === userName && user.avatarUrl) return String(user.avatarUrl).trim();
+    if (userName && name === userName) {
+      if (ov.holder) return ov.holder;
+      if (knockUserCharId && knockPartnerCharId) {
+        return getKnockAvatarUrlForPair(knockUserCharId, knockPartnerCharId, "user");
+      }
+      if (user.avatarUrl) return String(user.avatarUrl).trim();
+    }
+    const partner = knockPartnerCharId ? getKnockPartnerCharById(knockPartnerCharId) : null;
+    const partnerName = partner ? String(partner.name || "").trim() : "";
+    if (partnerName && name === partnerName && knockUserCharId && knockPartnerCharId) {
+      return getKnockAvatarUrlForPair(knockUserCharId, knockPartnerCharId, "partner");
+    }
     const hit = getSupportingCharacters().find(function (c) {
       return String(c.name || "").trim() === name;
     });
@@ -20421,7 +17918,10 @@
     if (!authorName) return null;
     const excludeUserAuthor = !!opts.excludeUserAuthor;
     if (excludeUserAuthor && (!!item.isHolder || knockMomentsAuthorIsUser(authorName, userChar))) return null;
-    const text = truncateCharsWithEllipsis(String(item.text || item.content || "").trim(), PHONE_MOMENTS_TEXT_MAX);
+    const text = truncateCharsWithEllipsis(
+      sanitizeChatBracketEmojiText(String(item.text || item.content || "").trim()).replace(/\s{2,}/g, " ").trim(),
+      PHONE_MOMENTS_TEXT_MAX
+    );
     if (!text) return null;
     const time = String(item.time || "").trim() || "刚刚";
     const isHolder = !!item.isHolder || (userName && authorName === userName);
@@ -20568,7 +18068,8 @@
       showToast("请先在「我」中选择我的形象。", "warning");
       return;
     }
-    const key = knockMomentsStorageKey(knockUserCharId);
+    ensureKnockMomentsKeyForPair(knockUserCharId, knockPartnerCharId);
+    const key = knockMomentsStorageKey(knockUserCharId, knockPartnerCharId);
     const existing = knockMomentsData[key] || null;
     const isRegenerate = !!(existing && existing.posts && existing.posts.length);
     knockMomentsGenerating = true;
@@ -21452,7 +18953,8 @@
       return;
     }
     const audienceIds = (knockMomentsComposerDraft.audienceIds || []).slice();
-    const key = knockMomentsStorageKey(knockUserCharId);
+    ensureKnockMomentsKeyForPair(knockUserCharId, knockPartnerCharId);
+    const key = knockMomentsStorageKey(knockUserCharId, knockPartnerCharId);
     let bundle = knockMomentsData[key];
     if (!bundle || !Array.isArray(bundle.posts)) {
       bundle = { posts: [], generatedAt: Date.now() };
@@ -21846,10 +19348,23 @@
       pendingSetup || knockSelectMode || knockReplyGenerating || knockVisualImageGenerating || knockXhsLinkGenerating;
     const plusActiveCls =
       knockPlusPanelOpen || knockStickerPanelOpen ? " knock-chat__plus-btn--active" : "";
-    const voiceMode = knockComposerMode === "voice";
+    const voiceMode = knockComposerMode === "voice" && isKnockPartnerMainCharacter();
     const composerCls =
       "phone-wechat__composer knock-chat__composer" + (voiceMode ? " knock-chat__composer--voice" : "");
     const inputPlaceholder = voiceMode ? "语音内容…" : "发消息…";
+    const voiceModeBtnHtml = isKnockPartnerMainCharacter()
+      ? '<button type="button" class="knock-chat__mode-btn' +
+        (voiceMode ? " knock-chat__mode-btn--voice" : "") +
+        '" data-knock-mode-toggle aria-label="' +
+        (voiceMode ? "键盘" : "语音") +
+        '" title="' +
+        (voiceMode ? "键盘" : "语音") +
+        '"' +
+        (composerDisabled ? " disabled" : "") +
+        ">" +
+        buildKnockModeIconSvg(voiceMode ? "voice" : "text") +
+        "</button>"
+      : "";
     const appearanceActiveCls = knockChatAppearanceOpen ? " phone-wechat-chat-action--active" : "";
     return (
       '<div class="knock-chat knock-chat--themed phone-app phone-wechat phone-wechat--chat' +
@@ -21917,17 +19432,7 @@
       '<div class="' +
       composerCls +
       '">' +
-      '<button type="button" class="knock-chat__mode-btn' +
-      (voiceMode ? " knock-chat__mode-btn--voice" : "") +
-      '" data-knock-mode-toggle aria-label="' +
-      (voiceMode ? "键盘" : "语音") +
-      '" title="' +
-      (voiceMode ? "键盘" : "语音") +
-      '"' +
-      (composerDisabled ? " disabled" : "") +
-      ">" +
-      buildKnockModeIconSvg(voiceMode ? "voice" : "text") +
-      "</button>" +
+      voiceModeBtnHtml +
       '<div class="knock-chat__composer-main">' +
       (knockQuoteDraft
         ? '<div class="knock-chat__quote" data-knock-quote-bar>' +
@@ -22019,6 +19524,7 @@
     const threadScrollTop = opts.scrollToEnd ? null : saveKnockThreadScroll(slot);
     const composerDraft = saveKnockComposerDraft(slot);
     const pageScrollY = window.scrollY || window.pageYOffset || 0;
+    saveHorizontalScrollPositions(slot);
     slot.innerHTML =
       buildKnockChatHtml() + (knockPersonaEditTarget ? buildKnockPersonaEditOverlayHtml() : "");
     fillKnockAvatarElements(slot);
@@ -22030,6 +19536,7 @@
     } else if (threadScrollTop != null) {
       restoreKnockThreadScroll(slot, threadScrollTop);
     }
+    restoreHorizontalScrollPositions(slot);
     if ((window.scrollY || window.pageYOffset || 0) !== pageScrollY) {
       window.scrollTo(0, pageScrollY);
     }
@@ -22051,6 +19558,7 @@
     const momentsScrollTop =
       knockMainTab === "moments" ? saveKnockMomentsScroll(slot) : null;
     const pageScrollY = window.scrollY || window.pageYOffset || 0;
+    saveHorizontalScrollPositions(slot);
     slot.innerHTML = buildKnockShellHtml();
     const panelOpts = Object.assign({}, opts);
     if (momentsScrollTop != null) panelOpts.momentsScrollTop = momentsScrollTop;
@@ -22058,6 +19566,7 @@
     if (knockMainTab === "me") {
       restoreKnockPickScrollPositions(slot, pickScrollPos);
     }
+    restoreHorizontalScrollPositions(slot);
     if ((window.scrollY || window.pageYOffset || 0) !== pageScrollY) {
       window.scrollTo(0, pageScrollY);
     }
@@ -22307,7 +19816,9 @@
         showToast(
           gate.reason === "disabled"
             ? "测试发图需先在设置中启用「聊天发图」"
-            : "请先在设置 → 聊天发图 中填写站点、Key 与模型",
+            : gate.reason === "not_main"
+              ? "测试发图仅支持与「主要角色」的对话"
+              : "请先在设置 → 聊天发图 中填写站点、Key 与模型",
           "warning",
           4200
         );
@@ -23377,7 +20888,7 @@
     if (overviewSubView === "phone") renderPhoneScreen(els.phoneContentSlot());
     else if (overviewSubView === "fanwork") renderFanworkScreen(els.fanworkContentSlot());
     else if (overviewSubView === "knock") renderKnockScreen(els.knockContentSlot(), { scrollToEnd: true });
-    else if (overviewSubView === "dial") renderDialScreen(els.dialContentSlot());
+    else if (overviewSubView === "collect") renderCollectScreen(els.collectContentSlot());
     if (els.modalAssistantProfile() && !els.modalAssistantProfile().hidden) {
       renderAssistantProfileModal();
     }
@@ -24451,10 +21962,6 @@
       void openOverviewKnockView();
       return;
     }
-    if (id === "dial" || id === "dial-call" || id === "call") {
-      void openOverviewDialView();
-      return;
-    }
     if (id === "phone") {
       openOverviewSubView("phone");
       return;
@@ -24463,14 +21970,18 @@
       openOverviewSubView("fanwork");
       return;
     }
+    if (id === "collect") {
+      openOverviewSubView("collect");
+      return;
+    }
     const labelMap = {
       theme: "题材方向",
       "rewrite-persona": "改写人设",
       "gen-worldbook": "生成世界书",
       knock: "敲敲",
-      dial: "拨通",
       phone: "查手机",
       fanwork: "小狗饭",
+      collect: "收取",
     };
     const label = labelMap[id] || "该功能";
     showToast(
@@ -25171,6 +22682,11 @@
               phoneHolderPlotId = null;
               phoneHolderCharId = null;
             }
+            if (collectPlotId === id) {
+              collectPlotId = null;
+              collectCharId = null;
+            }
+            purgeCollectDataForPlot(id);
             purgePhoneWechatDataForPlot(id);
             purgePhoneMomentsDataForPlot(id);
             purgePhoneMusicDataForPlot(id);
@@ -25795,6 +23311,12 @@
       });
   }
 
+  function getCollectCharacterCandidatesForPlot(plotId) {
+    return getPhoneHolderCandidatesForPlot(plotId).filter(function (c) {
+      return c && c.categoryId === CHAR_CATEGORY_MAIN_ID;
+    });
+  }
+
   function migratePhoneHolderPlotIdFromCharOnce() {
     if (phoneHolderPlotId || !phoneHolderCharId) return;
     const hit = plots.find(function (p) {
@@ -25831,6 +23353,41 @@
     const c = getCharById(phoneHolderCharId);
     if (!c || c.categoryId === CHAR_CATEGORY_SELF_ID) return null;
     return c;
+  }
+
+  function getPhoneHolderPlot() {
+    sanitizePhoneHolderState();
+    if (!phoneHolderPlotId) return null;
+    return (
+      plots.find(function (p) {
+        return p.id === phoneHolderPlotId;
+      }) || null
+    );
+  }
+
+  function findPlotCharIdByDisplayName(plot, name) {
+    const n = String(name || "").trim();
+    if (!plot || !n) return null;
+    const ids = getPlotParticipantCharIds(plot);
+    for (let i = 0; i < ids.length; i++) {
+      const ch = getCharById(ids[i]);
+      if (ch && String(ch.name || "").trim() === n) return ids[i];
+    }
+    return null;
+  }
+
+  function getPhonePlotCharacterAvatarUrl(characterIdOrName) {
+    const plot = getPhoneHolderPlot();
+    if (!plot) return "";
+    let cid = String(characterIdOrName || "").trim();
+    if (!cid) return "";
+    if (!getCharById(cid)) {
+      const byName = findPlotCharIdByDisplayName(plot, cid);
+      if (byName) cid = byName;
+      else return "";
+    }
+    const view = getPlotCharacterView(plot, cid);
+    return view.avatarUrl ? String(view.avatarUrl).trim() : "";
   }
 
   function getPhoneHolderOwnerText() {
@@ -25989,6 +23546,2208 @@
     modal.hidden = true;
     phoneHolderModalStep = "plot";
     phoneHolderModalPlotId = null;
+  }
+
+  function collectStorageKey(plotId, charId) {
+    return String(plotId || "").trim() + "\u001e" + String(charId || "").trim();
+  }
+
+  const COLLECT_AMBIENT_TYPES = ["rain", "night", "indoor", "street", "wind", "default"];
+
+  function normalizeCollectAmbientType(raw) {
+    const t = String(raw || "").trim().toLowerCase();
+    return COLLECT_AMBIENT_TYPES.indexOf(t) >= 0 ? t : "default";
+  }
+
+  function normalizeCollectPack(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const whisper = raw.whisper && typeof raw.whisper === "object" ? raw.whisper : {};
+    const letter = raw.letter && typeof raw.letter === "object" ? raw.letter : {};
+    const greeting = raw.greeting && typeof raw.greeting === "object" ? raw.greeting : {};
+    const photo = raw.photo && typeof raw.photo === "object" ? raw.photo : {};
+    const memo = raw.memo && typeof raw.memo === "object" ? raw.memo : {};
+    const draft = raw.draft && typeof raw.draft === "object" ? raw.draft : {};
+    const specialDay =
+      raw.specialDay && typeof raw.specialDay === "object" ? raw.specialDay : {};
+    const dream = raw.dream && typeof raw.dream === "object" ? raw.dream : {};
+    const rs = raw.readState && typeof raw.readState === "object" ? raw.readState : {};
+    const timingRaw = String(specialDay.timing || "").trim().toLowerCase();
+    const daysOffset = Number(specialDay.daysOffset);
+    const pack = {
+      generatedAt: typeof raw.generatedAt === "number" ? raw.generatedAt : Date.now(),
+      version: 2,
+      whisper: {
+        text: String(whisper.text || "").trim(),
+        mood: String(whisper.mood || "").trim(),
+      },
+      letter: {
+        salutation: String(letter.salutation || "").trim(),
+        body: String(letter.body || "").trim(),
+        signOff: String(letter.signOff || "").trim(),
+      },
+      greeting: {
+        headline: String(greeting.headline || "").trim(),
+        lines: Array.isArray(greeting.lines)
+          ? greeting.lines
+              .map(function (x) {
+                return String(x || "").trim();
+              })
+              .filter(Boolean)
+          : [],
+      },
+      photo: {
+        caption: String(photo.caption || "").trim(),
+        sceneText: String(photo.sceneText || "").trim(),
+        backText: String(photo.backText || "").trim(),
+        imageDataUrl:
+          typeof photo.imageDataUrl === "string" && photo.imageDataUrl.trim()
+            ? photo.imageDataUrl.trim()
+            : "",
+        imagePrompt: String(photo.imagePrompt || "").trim(),
+      },
+      memo: {
+        ambient: String(memo.ambient || "").trim(),
+        ambientType: normalizeCollectAmbientType(memo.ambientType),
+        mumble: String(memo.mumble || "").trim(),
+        durationHint: String(memo.durationHint || "").trim(),
+      },
+      draft: {
+        context: String(draft.context || "").trim(),
+        text: String(draft.text || "").trim(),
+        strikes: Array.isArray(draft.strikes)
+          ? draft.strikes
+              .map(function (x) {
+                return String(x || "").trim();
+              })
+              .filter(Boolean)
+              .slice(0, 2)
+          : [],
+      },
+      specialDay: {
+        timing: timingRaw === "future" ? "future" : timingRaw === "past" ? "past" : "",
+        daysOffset: Number.isFinite(daysOffset) ? Math.round(daysOffset) : 0,
+        title: String(specialDay.title || "").trim(),
+        note: String(specialDay.note || "").trim(),
+        whisper: String(specialDay.whisper || "").trim(),
+      },
+      dream: {
+        lines: Array.isArray(dream.lines)
+          ? dream.lines
+              .map(function (x) {
+                return String(x || "").trim();
+              })
+              .filter(Boolean)
+          : [],
+        sceneText: String(dream.sceneText || "").trim(),
+        imageDataUrl:
+          typeof dream.imageDataUrl === "string" && dream.imageDataUrl.trim()
+            ? dream.imageDataUrl.trim()
+            : "",
+        imagePrompt: String(dream.imagePrompt || "").trim(),
+      },
+      readState: {
+        whisper: !!rs.whisper,
+        letter: !!rs.letter,
+        photo: !!rs.photo,
+        greeting: !!rs.greeting,
+        memo: !!rs.memo,
+        draft: !!rs.draft,
+        specialDay: !!rs.specialDay,
+        dream: !!rs.dream,
+      },
+    };
+    if (
+      !pack.whisper.text &&
+      !pack.letter.body &&
+      !pack.greeting.headline &&
+      !pack.photo.sceneText &&
+      !pack.photo.caption &&
+      !pack.memo.mumble &&
+      !pack.draft.text &&
+      !pack.specialDay.title &&
+      !pack.dream.lines.length &&
+      !pack.dream.sceneText
+    ) {
+      return null;
+    }
+    return pack;
+  }
+
+  function collectPackItemReady(pack, kind) {
+    if (!pack) return false;
+    if (kind === "whisper") return !!pack.whisper.text;
+    if (kind === "letter") return !!pack.letter.body;
+    if (kind === "photo") {
+      return !!(pack.photo.sceneText || pack.photo.caption || pack.photo.imagePrompt);
+    }
+    if (kind === "greeting") {
+      return !!(pack.greeting.headline || (pack.greeting.lines && pack.greeting.lines.length));
+    }
+    if (kind === "memo") return !!(pack.memo && pack.memo.mumble);
+    if (kind === "draft") return !!(pack.draft && pack.draft.text);
+    if (kind === "specialDay") return !!(pack.specialDay && pack.specialDay.title);
+    if (kind === "dream") {
+      return !!(
+        (pack.dream && pack.dream.lines && pack.dream.lines.length) ||
+        (pack.dream && pack.dream.sceneText)
+      );
+    }
+    return false;
+  }
+
+  function sanitizeCollectState() {
+    if (
+      !collectPlotId ||
+      !plots.some(function (p) {
+        return p.id === collectPlotId;
+      })
+    ) {
+      collectPlotId = null;
+      collectCharId = null;
+      return;
+    }
+    const candidates = getCollectCharacterCandidatesForPlot(collectPlotId);
+    if (
+      !collectCharId ||
+      !candidates.some(function (c) {
+        return c.id === collectCharId;
+      })
+    ) {
+      collectCharId = null;
+    }
+  }
+
+  function getCollectPlot() {
+    sanitizeCollectState();
+    if (!collectPlotId) return null;
+    return (
+      plots.find(function (p) {
+        return p.id === collectPlotId;
+      }) || null
+    );
+  }
+
+  function getCollectCharacter() {
+    sanitizeCollectState();
+    if (!collectCharId) return null;
+    const c = getCharById(collectCharId);
+    if (!c || c.categoryId !== CHAR_CATEGORY_MAIN_ID) return null;
+    return c;
+  }
+
+  function getCollectPackForCurrent() {
+    const plot = getCollectPlot();
+    const sender = getCollectCharacter();
+    if (!plot || !sender) return null;
+    return collectPackData[collectStorageKey(plot.id, sender.id)] || null;
+  }
+
+  function purgeCollectDataForPlot(plotId) {
+    const pid = String(plotId || "").trim();
+    if (!pid) return;
+    Object.keys(collectPackData).forEach(function (k) {
+      if (k.indexOf(pid + "\u001e") === 0) delete collectPackData[k];
+    });
+    Object.keys(collectHistoryData).forEach(function (k) {
+      if (k.indexOf(pid + "\u001e") === 0) delete collectHistoryData[k];
+    });
+  }
+
+  function normalizeCollectHistoryEntry(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const pack = normalizeCollectPack(raw.pack);
+    if (!pack) return null;
+    const generatedAt =
+      typeof raw.generatedAt === "number" ? raw.generatedAt : pack.generatedAt || Date.now();
+    const id =
+      typeof raw.id === "string" && raw.id.trim()
+        ? raw.id.trim()
+        : "ch_" + generatedAt + "_" + Math.random().toString(36).slice(2, 8);
+    return { id: id, generatedAt: generatedAt, pack: pack };
+  }
+
+  function archiveCollectPackToHistory(plotId, charId, pack) {
+    if (!pack) return;
+    const key = collectStorageKey(plotId, charId);
+    if (!collectHistoryData[key]) collectHistoryData[key] = [];
+    const snapshot = normalizeCollectPack(pack);
+    if (!snapshot) return;
+    collectHistoryData[key].unshift({
+      id: "ch_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+      generatedAt: snapshot.generatedAt || Date.now(),
+      pack: snapshot,
+    });
+    if (collectHistoryData[key].length > COLLECT_HISTORY_MAX_PER_KEY) {
+      collectHistoryData[key] = collectHistoryData[key].slice(0, COLLECT_HISTORY_MAX_PER_KEY);
+    }
+    schedulePersistNarrative();
+  }
+
+  function getCollectHistoryRowsForCurrent() {
+    const plot = getCollectPlot();
+    const sender = getCollectCharacter();
+    if (!plot || !sender) return [];
+    const key = collectStorageKey(plot.id, sender.id);
+    const rows = [];
+    const current = collectPackData[key];
+    if (current) {
+      rows.push({
+        id: "current",
+        generatedAt: current.generatedAt || Date.now(),
+        pack: current,
+        isCurrent: true,
+      });
+    }
+    (collectHistoryData[key] || []).forEach(function (entry) {
+      if (entry && entry.pack) {
+        rows.push({
+          id: entry.id,
+          generatedAt: entry.generatedAt || entry.pack.generatedAt || Date.now(),
+          pack: entry.pack,
+          isCurrent: false,
+        });
+      }
+    });
+    rows.sort(function (a, b) {
+      return (b.generatedAt || 0) - (a.generatedAt || 0);
+    });
+    return rows;
+  }
+
+  function resolveCollectPackForTts(slot) {
+    const nav = slot ? getCollectNav(slot) : null;
+    if (nav && nav.screen === "history" && nav.historyDetailEntryId) {
+      const row = getCollectHistoryRowsForCurrent().find(function (r) {
+        return r.id === nav.historyDetailEntryId;
+      });
+      if (row && row.pack) return row.pack;
+    }
+    return getCollectPackForCurrent();
+  }
+
+  function resolveCollectTtsCacheSuffix(slot, storageKey) {
+    const nav = slot ? getCollectNav(slot) : null;
+    if (nav && nav.screen === "history" && nav.historyDetailEntryId) {
+      return storageKey + ":" + nav.historyDetailEntryId;
+    }
+    return storageKey;
+  }
+
+  function buildCollectGenerationPrompt(plot, sender) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, sender);
+    const senderName = sender && sender.name ? String(sender.name).trim() : "TA";
+    const lines = [
+      "请为「收取」功能生成 JSON。发送者是「" + senderName + "」，收件人是剧情中的「我的形象」主角「" + ctx.protagName + "」。",
+      "八项内容均须与下文剧情、人设、记忆、总结一致，语气私密、生活化，像真实的人在关心对方。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push(
+      "输出要求：\n" +
+        "1. 只输出一个 JSON 对象，无 markdown 围栏。\n" +
+        "2. 格式：\n" +
+        '{"whisper":{"text":"120~260字第一人称私语，只对' +
+        ctx.protagName +
+        '说","mood":"2~4字情绪"},"letter":{"salutation":"称呼","body":"100~220字手写信正文","signOff":"署名"},"greeting":{"headline":"短标题","lines":["2~3条生活化问候句"]},"photo":{"caption":"拍立得底部12字内","sceneText":"60~100字场景描述","backText":"背面手写12~40字，仅两人懂的梗/昵称/承诺","imagePrompt":"English selfie prompt for ' +
+        senderName +
+        ': outfit, location, mood, pose and front-camera phone selfie lighting must match the current plot moment"},"memo":{"ambient":"≤40字环境描写（雨声/厨房/站台等）","ambientType":"rain|night|indoor|street|wind|default","mumble":"60~120字对着录音机的碎语","durationHint":"如0:23"},"draft":{"context":"≤8字场景标签","text":"80~150字未发送草稿正文","strikes":["0~2条被删掉的短语"]},"specialDay":{"timing":"past|future","daysOffset":整数,"title":"≤12字","note":"40~80字","whisper":"≤30字"},"dream":{"lines":["3~5条跳跃的梦话残片"],"sceneText":"60~100字梦境场景","imagePrompt":"English dream scene, rear-camera or ambient phone snapshot style, no face, no portrait, soft focus"}}\n' +
+        "3. whisper/letter/greeting/memo/draft/specialDay/dream 用中文；photo.imagePrompt 与 dream.imagePrompt 用英文。\n" +
+        "4. memo.ambient/mumble 须引用最近剧情场景与感官细节；draft 须体现欲言又止，strikes 为删改痕迹。\n" +
+        "5. specialDay.daysOffset 相对剧情「今天」：负数为过去，正数为未来；timing 须与符号一致，须能从剧情时间线或记忆合理化。\n" +
+        "6. dream.lines/sceneText 重组最近剧情符号，语句不完整；dream.imagePrompt 无人物正脸，偏朦胧梦境场景（非 selfie），rear-camera 或环境手机快照风格。\n" +
+        "7. photo.backText 须紧扣上文，仅对" +
+        ctx.protagName +
+        " 有意义；内容精炼但情感到位。\n" +
+        "8. photo.imagePrompt 须为英文前置手机自拍指令：人物必须是发送者「" +
+        senderName +
+        "」本人正面或半身出镜；脸型、五官、发型、气质第一优先对齐设置中的明星外貌参考图，再写衣着、地点、表情与手机自拍光线。"
+    );
+    return lines.join("\n");
+  }
+
+  async function buildCollectPhotoGenerationPrompt(plot, sender, imagePrompt, sceneText) {
+    const appearanceBase = await resolveVisualAppearancePromptBase();
+    const celebrity = getVisualRefCelebrityLookalike("appearance");
+    const persona = sender && sender.persona ? sender.persona : {};
+    const styleField = String(persona.style || (sender && sender.style) || "").trim();
+    const name = String((sender && sender.name) || "the character").trim();
+    const snapParts = [String(sceneText || "").trim(), String(imagePrompt || "").trim()].filter(Boolean);
+    const snapLine = snapParts.join(" — ");
+    let chatContext = "";
+    if (plot && sender) {
+      chatContext = buildPhoneWechatPlotContextBlocks(plot, sender)
+        .lines.join("\n")
+        .slice(0, 2600);
+    }
+    let prompt =
+      "HIGHEST PRIORITY — Face identity lock: This polaroid selfie MUST depict " +
+      name +
+      " with unmistakable facial structure, bone structure, eye shape, nose, lips, jawline, and hair silhouette matching the uploaded appearance reference photos and celebrity lookalike " +
+      celebrity +
+      ". If any scene detail conflicts, preserve face identity first. " +
+      appearanceBase;
+    if (styleField) {
+      prompt += " Persona appearance notes: " + truncateCharsWithEllipsis(styleField, 420) + ".";
+    }
+    prompt +=
+      " Format: authentic front-camera phone selfie for a private polaroid keepsake—arm-length framing, slight wide-angle selfie distortion, casual imperfect composition, hand-held realism, natural expression, auto front-camera exposure, mild noise or JPEG compression, not a studio portrait or DSLR shot.";
+    if (chatContext) {
+      prompt +=
+        " Secondary — plot context for outfit, location, mood and moment (must not change face identity): " +
+        truncateCharsWithEllipsis(chatContext, 2000) +
+        ".";
+    }
+    if (snapLine) {
+      prompt += " This specific shot: " + snapLine + ".";
+    }
+    prompt += visualImageStylePromptSuffix();
+    return prompt;
+  }
+
+  async function buildCollectDreamPhotoGenerationPrompt(plot, sender, imagePrompt, sceneText) {
+    const snapParts = [String(sceneText || "").trim(), String(imagePrompt || "").trim()].filter(Boolean);
+    const snapLine = snapParts.join(" — ");
+    let chatContext = "";
+    if (plot && sender) {
+      chatContext = buildPhoneWechatPlotContextBlocks(plot, sender)
+        .lines.join("\n")
+        .slice(0, 2600);
+    }
+    const base = await buildKnockSceneGenerationPrompt({
+      chatContext: chatContext,
+      snapLine: snapLine,
+    });
+    return (
+      base +
+      " Soft focus, dreamlike, muted colors, hazy atmosphere, surreal but grounded in the plot moment. Phone snapshot with soft dream haze. No portrait, no face, no person as subject."
+    );
+  }
+
+  async function generateCollectPhotoInBackground(key, imagePrompt, slot) {
+    const packDraft = collectPackData[key];
+    const photoDraft = packDraft && packDraft.photo ? packDraft.photo : {};
+    const sceneText = String(photoDraft.sceneText || "").trim();
+    const promptSeed = String(imagePrompt || photoDraft.imagePrompt || sceneText || "").trim();
+    if (!key || !promptSeed) return;
+    const imgCfg = resolveCollectImageApiConfig();
+    if (!imgCfg) {
+      const cur = getCollectPackForCurrent();
+      if (cur && collectPackData[key] === cur) {
+        showToast("照片将以文字展示。请在设置中启用聊天发图，或配置 MiniMax 语音 API Key", "warning", 4200);
+      }
+      return;
+    }
+    collectImageGenerating.photo = key;
+    if (slot) renderCollectScreen(slot);
+    try {
+      const plot = getCollectPlot();
+      const sender = getCollectCharacter();
+      const prompt = await buildCollectPhotoGenerationPrompt(
+        plot,
+        sender,
+        String(imagePrompt || photoDraft.imagePrompt || "").trim(),
+        sceneText
+      );
+      const imageDataUrl = await callVisualImageGeneration(prompt, imgCfg);
+      const pack = collectPackData[key];
+      if (pack && pack.photo) {
+        pack.photo.imageDataUrl = imageDataUrl;
+        schedulePersistNarrative();
+        const cur = getCollectPackForCurrent();
+        if (cur === pack && slot) renderCollectScreen(slot);
+      }
+    } catch (imgErr) {
+      try {
+        console.warn(imgErr);
+      } catch (_e) {}
+      const curPack = collectPackData[key];
+      const cur = getCollectPackForCurrent();
+      if (curPack && cur === curPack) {
+        showToast(
+          imgErr && imgErr.message ? imgErr.message : "照片生成失败，请检查生图 API 与外貌参考设置",
+          "error",
+          4200
+        );
+      }
+    } finally {
+      if (collectImageGenerating.photo === key) collectImageGenerating.photo = null;
+      if (slot) renderCollectScreen(slot);
+    }
+  }
+
+  async function generateCollectDreamPhotoInBackground(key, imagePrompt, slot) {
+    if (!key || !imagePrompt) return;
+    const imgCfg = resolveCollectImageApiConfig();
+    if (!imgCfg) return;
+    collectImageGenerating.dream = key;
+    if (slot) renderCollectScreen(slot);
+    try {
+      const plot = getCollectPlot();
+      const sender = getCollectCharacter();
+      const packDraft = collectPackData[key];
+      const sceneText =
+        packDraft && packDraft.dream ? String(packDraft.dream.sceneText || "").trim() : "";
+      const prompt = await buildCollectDreamPhotoGenerationPrompt(
+        plot,
+        sender,
+        imagePrompt,
+        sceneText
+      );
+      const imageDataUrl = await callVisualImageGeneration(prompt, imgCfg);
+      const pack = collectPackData[key];
+      if (pack && pack.dream) {
+        pack.dream.imageDataUrl = imageDataUrl;
+        schedulePersistNarrative();
+        const cur = getCollectPackForCurrent();
+        if (cur === pack && slot) renderCollectScreen(slot);
+      }
+    } catch (imgErr) {
+      try {
+        console.warn(imgErr);
+      } catch (_e2) {}
+    } finally {
+      if (collectImageGenerating.dream === key) collectImageGenerating.dream = null;
+      if (slot) renderCollectScreen(slot);
+    }
+  }
+
+  async function generateCollectPack(slot) {
+    if (collectGenerating) return;
+    sanitizeCollectState();
+    const plot = getCollectPlot();
+    const sender = getCollectCharacter();
+    if (!plot || !sender) {
+      showToast("请先选择剧情与收取角色。", "warning");
+      return;
+    }
+    const key = collectStorageKey(plot.id, sender.id);
+    collectGenerating = true;
+    collectImageGenerating = { photo: null, dream: null };
+    if (slot) renderCollectScreen(slot);
+    try {
+      preparePhoneStoryDateForGeneration(plot);
+      showToast("正在收取来自「" + (sender.name || "TA") + "」的内容…", "info");
+      setGenCallContext(buildGenCallOpts("collect-pack", { slot: slot }));
+      const systemPrompt =
+        "你是中文互动叙事助手。根据剧情生成「收取」JSON，只输出 JSON，无 markdown 围栏。";
+      const userPrompt = buildCollectGenerationPrompt(plot, sender);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.78,
+        8192
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const pack = normalizeCollectPack(parsed);
+      if (!pack || !pack.whisper.text) throw new Error("生成结果不完整，请重试");
+      if (pack.photo) pack.photo.imageDataUrl = "";
+      if (pack.dream) pack.dream.imageDataUrl = "";
+      const oldPack = collectPackData[key];
+      if (oldPack) archiveCollectPackToHistory(plot.id, sender.id, oldPack);
+      collectPackData[key] = pack;
+      schedulePersistNarrative();
+      finalizePhoneStoryDateAfterGeneration(plot);
+      if (slot) renderCollectScreen(slot);
+      const collectImgCfg = resolveCollectImageApiConfig();
+      const canGenImage = !!collectImgCfg;
+      const willGenPhoto =
+        !!(pack.photo && (pack.photo.imagePrompt || pack.photo.sceneText)) && canGenImage;
+      const willGenDream = !!(pack.dream && pack.dream.imagePrompt) && canGenImage;
+      if (willGenPhoto || willGenDream) {
+        showToast("收取完成，图像正在生成…", "success");
+      } else if (
+        pack.photo &&
+        (pack.photo.imagePrompt || pack.photo.sceneText) &&
+        !canGenImage
+      ) {
+        showToast(
+          "收取完成。照片将以文字展示；启用聊天发图或配置 MiniMax 语音 API Key 后可生成自拍",
+          "info",
+          4800
+        );
+      } else {
+        showToast("收取完成", "success");
+      }
+      if (willGenPhoto) {
+        void generateCollectPhotoInBackground(
+          key,
+          pack.photo.imagePrompt || pack.photo.sceneText,
+          slot
+        );
+      }
+      if (willGenDream) void generateCollectDreamPhotoInBackground(key, pack.dream.imagePrompt, slot);
+    } catch (err) {
+      try {
+        console.error(err);
+      } catch (_e2) {}
+      showToast(err && err.message ? err.message : "收取失败，请检查 API 配置", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      collectGenerating = false;
+      if (slot) renderCollectScreen(slot);
+    }
+  }
+
+  function syncCollectHolderModalChrome() {
+    const onCharStep = collectHolderModalStep === "char";
+    const titleEl = els.collectHolderTitle();
+    const hintEl = els.collectHolderHint();
+    const backBtn = els.collectHolderStepBack();
+    const plotList = els.collectHolderPlotList();
+    const pick = els.collectHolderPick();
+    const plot = plots.find(function (p) {
+      return p.id === collectHolderModalPlotId;
+    });
+    if (titleEl) titleEl.textContent = onCharStep ? "选择角色" : "选择剧情";
+    if (hintEl) {
+      hintEl.textContent = onCharStep
+        ? plot
+          ? "《" + (plot.title || "未命名剧情") + "》· 点选一名主要角色（不含「我的形象」）"
+          : "点选主要角色（不含「我的形象」）"
+        : collectHolderModalMode === "settings"
+          ? "点选要更换的收取剧情"
+          : "先选择要收取内容的所在剧情";
+    }
+    if (backBtn) backBtn.hidden = !onCharStep;
+    if (plotList) plotList.hidden = onCharStep;
+    if (pick) pick.hidden = !onCharStep;
+  }
+
+  function renderCollectHolderPlotList() {
+    const listEl = els.collectHolderPlotList();
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    if (!plots.length) {
+      const ph = document.createElement("p");
+      ph.className = "field__hint phone-holder-empty";
+      ph.textContent = "暂无剧情，请先在「剧情」中创建。";
+      listEl.appendChild(ph);
+      return;
+    }
+    plots.forEach(function (p) {
+      const candidates = getCollectCharacterCandidatesForPlot(p.id);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "phone-holder-plot-row" + (collectPlotId === p.id ? " is-current" : "");
+      btn.dataset.plotId = p.id;
+      const title = document.createElement("span");
+      title.className = "phone-holder-plot-row__title";
+      title.textContent = p.title || "未命名剧情";
+      const meta = document.createElement("span");
+      meta.className = "phone-holder-plot-row__meta";
+      meta.textContent =
+        candidates.length > 0 ? candidates.length + " 名主要角色可收取" : "暂无主要角色可收取";
+      btn.appendChild(title);
+      btn.appendChild(meta);
+      btn.addEventListener("click", function () {
+        if (!candidates.length) {
+          showToast("该剧情下没有「主要角色」可收取。", "warning");
+          return;
+        }
+        collectHolderModalPlotId = p.id;
+        collectHolderModalStep = "char";
+        renderCollectHolderModal();
+      });
+      listEl.appendChild(btn);
+    });
+  }
+
+  function finishCollectHolderSelection(charId) {
+    const plotId = collectHolderModalPlotId;
+    const plot = plots.find(function (p) {
+      return p.id === plotId;
+    });
+    const sender = getCharById(charId);
+    if (!plot || !sender) return;
+    const isFirst = collectHolderModalMode === "first";
+    collectPlotId = plotId;
+    collectCharId = charId;
+    sanitizeCollectState();
+    schedulePersistNarrative();
+    closeCollectHolderModal();
+    const slot = els.collectContentSlot();
+    if (isFirst) {
+      showToast("已选择「" + (sender.name || "TA") + "」，开始收取…", "success");
+      void generateCollectPack(slot);
+    } else {
+      showToast("已切换为「" + (sender.name || "TA") + "」，可点「重新收取」生成新内容", "success");
+      if (slot) renderCollectScreen(slot);
+    }
+  }
+
+  function renderCollectHolderCharPick() {
+    const pick = els.collectHolderPick();
+    if (!pick) return;
+    pick.innerHTML = "";
+    const list = getCollectCharacterCandidatesForPlot(collectHolderModalPlotId);
+    if (!list.length) {
+      const ph = document.createElement("p");
+      ph.className = "field__hint phone-holder-empty";
+      ph.textContent = "该剧情下没有「主要角色」可收取（配角/NPC 不可选）。";
+      pick.appendChild(ph);
+      return;
+    }
+    list.forEach(function (c) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className =
+        "char-pick-avatar" +
+        (c.id === collectCharId && collectPlotId === collectHolderModalPlotId ? " is-selected" : "");
+      b.dataset.id = c.id;
+      b.title = c.name || "未命名";
+      b.setAttribute("aria-label", c.name || "未命名");
+      const av = document.createElement("div");
+      av.className = "avatar";
+      b.appendChild(av);
+      fillAvatarElement(av, c);
+      b.addEventListener("click", function () {
+        finishCollectHolderSelection(c.id);
+      });
+      pick.appendChild(b);
+    });
+  }
+
+  function renderCollectHolderModal() {
+    syncCollectHolderModalChrome();
+    if (collectHolderModalStep === "char") {
+      renderCollectHolderCharPick();
+      return;
+    }
+    renderCollectHolderPlotList();
+  }
+
+  function openCollectHolderModal(opts) {
+    opts = opts || {};
+    const modal = els.modalCollectHolder();
+    if (!modal) return;
+    collectHolderModalMode = opts.mode === "settings" ? "settings" : "first";
+    collectHolderModalStep = "plot";
+    collectHolderModalPlotId = collectPlotId;
+    renderCollectHolderModal();
+    modal.hidden = false;
+  }
+
+  function collectHolderModalBackToPlot() {
+    collectHolderModalStep = "plot";
+    renderCollectHolderModal();
+  }
+
+  function closeCollectHolderModal() {
+    const modal = els.modalCollectHolder();
+    if (!modal) return;
+    modal.hidden = true;
+    collectHolderModalStep = "plot";
+    collectHolderModalPlotId = null;
+    if (collectHolderModalMode === "first" && (!collectPlotId || !collectCharId)) {
+      closeOverviewCollectView();
+    }
+  }
+
+  function setCollectTtsButtonState(slot, kind, state) {
+    const btn = slot && slot.querySelector('[data-collect-tts="' + kind + '"]');
+    if (!btn || btn.classList.contains("is-disabled")) return;
+    btn.classList.remove("is-playing", "is-paused", "is-loading");
+    const defaultLabel = COLLECT_TTS_LABELS[kind] || "播放";
+    if (state === "playing") {
+      btn.classList.add("is-playing");
+      btn.textContent = "暂停";
+    } else if (state === "paused") {
+      btn.classList.add("is-paused");
+      btn.textContent = "继续";
+    } else {
+      btn.textContent = defaultLabel;
+    }
+  }
+
+  function resetAllCollectTtsButtons(slot) {
+    if (!slot) return;
+    slot.querySelectorAll("[data-collect-tts]").forEach(function (btn) {
+      setCollectTtsButtonState(slot, btn.getAttribute("data-collect-tts"), "idle");
+    });
+  }
+
+  function stopCollectAudio() {
+    if (collectTtsRevealRaf) {
+      cancelAnimationFrame(collectTtsRevealRaf);
+      collectTtsRevealRaf = null;
+    }
+    if (collectMixedVoiceSource) {
+      try {
+        collectMixedVoiceSource.stop(0);
+      } catch (_e0) {}
+      collectMixedVoiceSource.disconnect();
+      collectMixedVoiceSource = null;
+    }
+    if (collectNoiseSource) {
+      try {
+        collectNoiseSource.stop(0);
+      } catch (_e1) {}
+      collectNoiseSource.disconnect();
+      collectNoiseSource = null;
+    }
+    if (collectTtsAudio) {
+      try {
+        collectTtsAudio.pause();
+        collectTtsAudio.src = "";
+      } catch (_e2) {}
+      collectTtsAudio = null;
+    }
+    if (collectAudioCtx) {
+      try {
+        collectAudioCtx.close();
+      } catch (_e3) {}
+      collectAudioCtx = null;
+    }
+    collectTtsPlayingKind = null;
+    collectTtsPaused = false;
+    const slot = document.getElementById("collect-content-slot");
+    if (slot) resetAllCollectTtsButtons(slot);
+    document.querySelectorAll("#collect-content-slot .collect-dream__line.is-active").forEach(function (el) {
+      el.classList.remove("is-active");
+    });
+  }
+
+  function stopCollectTts() {
+    stopCollectAudio();
+  }
+
+  function createCollectAmbientNoiseBuffer(ctx, ambientType) {
+    const sampleRate = ctx.sampleRate;
+    const duration = 4;
+    const length = sampleRate * duration;
+    const buffer = ctx.createBuffer(1, length, sampleRate);
+    const data = buffer.getChannelData(0);
+    const type = normalizeCollectAmbientType(ambientType);
+    let b0 = 0;
+    for (let i = 0; i < length; i++) {
+      const white = Math.random() * 2 - 1;
+      if (type === "rain") {
+        b0 = 0.98 * b0 + white * 0.04;
+        const drop = Math.random() < 0.002 ? Math.random() * 0.35 : 0;
+        data[i] = b0 * 0.55 + drop;
+      } else if (type === "night") {
+        b0 = (b0 + 0.02 * white) / 1.02;
+        data[i] = b0 * 0.7;
+      } else if (type === "indoor") {
+        b0 = (b0 + 0.015 * white) / 1.015;
+        data[i] = b0 * 0.35;
+      } else if (type === "street") {
+        b0 = (b0 + 0.025 * white) / 1.025;
+        const hum = Math.sin((i / sampleRate) * 60 * Math.PI * 2) * 0.04;
+        data[i] = b0 * 0.45 + hum;
+      } else if (type === "wind") {
+        b0 = (b0 + 0.03 * white) / 1.03;
+        const gust = Math.sin((i / sampleRate) * 0.4 * Math.PI * 2) * 0.12;
+        data[i] = b0 * 0.5 + gust * b0;
+      } else {
+        b0 = (b0 + 0.02 * white) / 1.02;
+        data[i] = b0 * 0.5;
+      }
+    }
+    return buffer;
+  }
+
+  function startCollectNoiseLoop(ctx, ambientType, volume) {
+    const buffer = createCollectAmbientNoiseBuffer(ctx, ambientType);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    const gain = ctx.createGain();
+    gain.gain.value = volume;
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    source.start(0);
+    collectNoiseSource = source;
+    return source;
+  }
+
+  function buildCollectVoicePrompt(sender, speakText, plot, kind) {
+    const base = buildMinimaxVoicePrompt(sender, speakText, plot, speakText, {});
+    if (kind === "memo") {
+      return (
+        base +
+        " 语气随意、像对着录音机随口说，不必完整句子，可带停顿。"
+      ).slice(0, 500);
+    }
+    if (kind === "dream") {
+      return (
+        base +
+        " 半睡半醒、含混、梦呓般，语速偏慢，句子可断裂。"
+      ).slice(0, 500);
+    }
+    return base;
+  }
+
+  async function playCollectMixedTts(opts) {
+    opts = opts || {};
+    const blob = opts.blob;
+    const ambientType = opts.ambientType || "default";
+    const mode = opts.mode || "memo";
+    const voiceDelay = mode === "memo" ? 0.8 : 0.3;
+    const noiseVolume = mode === "dream" ? 0.18 : 0.12;
+    const voiceGainVal = mode === "dream" ? 0.75 : 0.95;
+    const onEnded = typeof opts.onEnded === "function" ? opts.onEnded : null;
+    const onVoiceStart = typeof opts.onVoiceStart === "function" ? opts.onVoiceStart : null;
+    if (!blob) return;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) throw new Error("当前环境不支持 Web Audio");
+    const ctx = new AudioCtx();
+    collectAudioCtx = ctx;
+    startCollectNoiseLoop(ctx, mode === "dream" ? "night" : ambientType, noiseVolume);
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+    const voiceSource = ctx.createBufferSource();
+    voiceSource.buffer = audioBuffer;
+    const voiceGain = ctx.createGain();
+    voiceGain.gain.value = voiceGainVal;
+    let voiceOut = voiceGain;
+    if (mode === "dream") {
+      const filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = 900;
+      voiceSource.connect(filter);
+      filter.connect(voiceGain);
+    } else {
+      voiceSource.connect(voiceGain);
+    }
+    voiceGain.connect(ctx.destination);
+    collectMixedVoiceSource = voiceSource;
+    voiceSource.onended = function () {
+      stopCollectAudio();
+      if (onEnded) onEnded();
+    };
+    const startAt = ctx.currentTime + voiceDelay;
+    voiceSource.start(startAt);
+    if (onVoiceStart) {
+      setTimeout(function () {
+        if (collectMixedVoiceSource === voiceSource) onVoiceStart();
+      }, Math.round(voiceDelay * 1000));
+    }
+  }
+
+  function playCollectDreamLineHighlight(slot, lineCount, durationSec, delaySec) {
+    if (!slot || !lineCount) return;
+    const lines = slot.querySelectorAll(".collect-dream__line");
+    if (!lines.length) return;
+    const startMs = Math.max(0, (delaySec || 0) * 1000);
+    const durMs = Math.max(800, (durationSec || 6) * 1000);
+    const step = durMs / lineCount;
+    let idx = 0;
+    function activate(i) {
+      lines.forEach(function (el, j) {
+        el.classList.toggle("is-active", j === i);
+      });
+    }
+    function tick() {
+      activate(idx);
+      idx += 1;
+      if (idx < lineCount) setTimeout(tick, step);
+    }
+    setTimeout(tick, startMs);
+  }
+
+  function playCollectSyncedReveal(textEl, audio) {
+    if (!textEl || !audio) return;
+    const full = String(textEl.dataset.fullText || textEl.textContent || "");
+    textEl.dataset.fullText = full;
+    const chars = Array.from(full);
+    function tick() {
+      if (!audio || audio.paused || audio.ended) {
+        if (audio && audio.ended) textEl.textContent = full;
+        collectTtsRevealRaf = null;
+        return;
+      }
+      const dur = audio.duration;
+      const ratio = dur && isFinite(dur) && dur > 0 ? audio.currentTime / dur : 0;
+      const count = Math.max(1, Math.ceil(chars.length * Math.min(ratio, 1)));
+      textEl.textContent = chars.slice(0, count).join("");
+      collectTtsRevealRaf = requestAnimationFrame(tick);
+    }
+    textEl.textContent = "";
+    collectTtsRevealRaf = requestAnimationFrame(tick);
+  }
+
+  async function playCollectTts(slot, kind) {
+    const pack = resolveCollectPackForTts(slot);
+    const plot = getCollectPlot();
+    const sender = getCollectCharacter();
+    if (!pack || !sender) return;
+    let speakText = "";
+    if (kind === "whisper") speakText = pack.whisper.text;
+    else if (kind === "letter") {
+      speakText = [pack.letter.salutation, pack.letter.body, pack.letter.signOff]
+        .filter(Boolean)
+        .join("。");
+    } else if (kind === "memo") {
+      speakText = pack.memo ? pack.memo.mumble : "";
+    } else if (kind === "dream") {
+      speakText =
+        pack.dream && pack.dream.lines && pack.dream.lines.length
+          ? pack.dream.lines.join("……")
+          : "";
+    }
+    if (!speakText) return;
+    if (!resolveGlobalMinimaxVoiceId()) {
+      showToast("请先在设置 → 剧情朗读中配置 MiniMax 音色", "warning");
+      return;
+    }
+    if (collectTtsPlayingKind === kind) {
+      if (collectAudioCtx && collectAudioCtx.state === "running") {
+        await collectAudioCtx.suspend();
+        collectTtsPaused = true;
+        setCollectTtsButtonState(slot, kind, "paused");
+        return;
+      }
+      if (collectAudioCtx && collectAudioCtx.state === "suspended") {
+        await collectAudioCtx.resume();
+        collectTtsPaused = false;
+        setCollectTtsButtonState(slot, kind, "playing");
+        return;
+      }
+      if (collectTtsAudio && !collectTtsAudio.paused && !collectTtsAudio.ended) {
+        collectTtsAudio.pause();
+        collectTtsPaused = true;
+        setCollectTtsButtonState(slot, kind, "paused");
+        if (collectTtsRevealRaf) {
+          cancelAnimationFrame(collectTtsRevealRaf);
+          collectTtsRevealRaf = null;
+        }
+        return;
+      }
+      if (collectTtsAudio && collectTtsAudio.paused && !collectTtsAudio.ended) {
+        collectTtsPaused = false;
+        setCollectTtsButtonState(slot, kind, "playing");
+        if (kind === "whisper") {
+          const textEl = slot && slot.querySelector(".collect-slip--whisper .collect-slip__reveal-text");
+          if (textEl) playCollectSyncedReveal(textEl, collectTtsAudio);
+        }
+        await collectTtsAudio.play();
+        return;
+      }
+    }
+    stopCollectAudio();
+    const btn = slot && slot.querySelector('[data-collect-tts="' + kind + '"]');
+    if (btn) btn.classList.add("is-loading");
+    const storageKey = collectStorageKey(plot.id, sender.id);
+    const ttsCacheKey = resolveCollectTtsCacheSuffix(slot, storageKey);
+    try {
+      const voicePrompt = buildCollectVoicePrompt(sender, speakText, plot, kind);
+      const blob = await getOrCreateStoryTtsBlob(
+        speakText,
+        voicePrompt,
+        speakText,
+        "collect:" + kind + ":" + ttsCacheKey
+      );
+      if (kind === "memo" || kind === "dream") {
+        collectTtsPlayingKind = kind;
+        collectTtsPaused = false;
+        if (btn) btn.classList.remove("is-loading");
+        setCollectTtsButtonState(slot, kind, "playing");
+        const dreamLines =
+          kind === "dream" && pack.dream && pack.dream.lines ? pack.dream.lines.length : 0;
+        await playCollectMixedTts({
+          blob: blob,
+          ambientType: kind === "memo" && pack.memo ? pack.memo.ambientType : "night",
+          mode: kind,
+          onVoiceStart: function () {
+            if (kind === "dream" && dreamLines) {
+              playCollectDreamLineHighlight(slot, dreamLines, 10, 0.3);
+            }
+          },
+          onEnded: function () {
+            stopCollectAudio();
+          },
+        });
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      collectTtsAudio = new Audio(url);
+      collectTtsPlayingKind = kind;
+      collectTtsPaused = false;
+      collectTtsAudio.addEventListener("ended", function () {
+        stopCollectAudio();
+      });
+      if (kind === "whisper") {
+        const textEl = slot && slot.querySelector(".collect-slip--whisper .collect-slip__reveal-text");
+        if (textEl) playCollectSyncedReveal(textEl, collectTtsAudio);
+      }
+      if (btn) btn.classList.remove("is-loading");
+      setCollectTtsButtonState(slot, kind, "playing");
+      await collectTtsAudio.play();
+    } catch (err) {
+      if (btn) btn.classList.remove("is-loading");
+      setCollectTtsButtonState(slot, kind, "idle");
+      showToast(err && err.message ? err.message : "语音播放失败", "error");
+    }
+  }
+
+  function markCollectItemRead(kind) {
+    const plot = getCollectPlot();
+    const sender = getCollectCharacter();
+    if (!plot || !sender) return;
+    const key = collectStorageKey(plot.id, sender.id);
+    const pack = collectPackData[key];
+    if (!pack) return;
+    if (!pack.readState) pack.readState = {};
+    pack.readState[kind] = true;
+    schedulePersistNarrative();
+  }
+
+  const COLLECT_KINDS = [
+    {
+      id: "whisper",
+      label: "私语",
+      tilt: -4.2,
+      icon: '<svg class="collect-key__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M12 3a3 3 0 00-3 3v5a3 3 0 006 0V6a3 3 0 00-3-3z"/><path d="M8 11v1a4 4 0 008 0v-1"/><path d="M12 16v3"/></svg>',
+    },
+    {
+      id: "letter",
+      label: "信件",
+      tilt: 3.6,
+      icon: '<svg class="collect-key__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><path d="M4 7l8 5 8-5"/><rect x="4" y="5" width="16" height="14" rx="1"/></svg>',
+    },
+    {
+      id: "photo",
+      label: "照片",
+      tilt: -2.8,
+      icon: '<svg class="collect-key__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="4" y="6" width="16" height="14" rx="2"/><circle cx="9" cy="11" r="1.5"/><path d="M4 16l4.5-4.5 3 3L14 12l6 6"/></svg>',
+    },
+    {
+      id: "greeting",
+      label: "问候",
+      tilt: 5.1,
+      icon: '<svg class="collect-key__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M12 21s-6-4.5-6-10a4 4 0 018 0 4 4 0 018 0c0 5.5-6 10-6 10z"/></svg>',
+    },
+    {
+      id: "memo",
+      label: "备忘",
+      tilt: -3.4,
+      icon: '<svg class="collect-key__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M8 12h.01M12 12h.01M16 12h.01"/><rect x="5" y="4" width="14" height="16" rx="2"/></svg>',
+    },
+    {
+      id: "draft",
+      label: "草稿",
+      tilt: 2.2,
+      icon: '<svg class="collect-key__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>',
+    },
+    {
+      id: "specialDay",
+      label: "日子",
+      tilt: -5.3,
+      icon: '<svg class="collect-key__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>',
+    },
+    {
+      id: "dream",
+      label: "梦话",
+      tilt: 4.5,
+      icon: '<svg class="collect-key__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M21 14a4 4 0 01-4 4H8l-5 3 1.5-5.5A4 4 0 017 10h10a4 4 0 014 4z"/></svg>',
+    },
+  ];
+
+  function getCollectKindMeta(kind) {
+    return (
+      COLLECT_KINDS.find(function (k) {
+        return k.id === kind;
+      }) || { id: kind, label: kind, tilt: 0, icon: "" }
+    );
+  }
+
+  function buildCollectSlipActionHtml(kind, label, disabled, title) {
+    return (
+      '<button type="button" class="collect-slip__action' +
+      (disabled ? " is-disabled" : "") +
+      '" data-collect-tts="' +
+      kind +
+      '"' +
+      (disabled ? ' disabled title="' + escapeHtml(title || "") + '"' : "") +
+      ">" +
+      escapeHtml(label) +
+      "</button>"
+    );
+  }
+
+  function buildCollectPhotoSaveBtnHtml(imageDataUrl) {
+    if (!isSafeImageUrl(imageDataUrl)) return "";
+    return (
+      '<button type="button" class="collect-slip__action" data-collect-save-photo data-collect-photo-url="' +
+      escapeHtml(imageDataUrl) +
+      '">保存图片</button>'
+    );
+  }
+
+  function buildCollectSlipBodyHtml(kind, pack, plot) {
+    const ttsReady = !!resolveGlobalMinimaxVoiceId();
+    const ttsOff = !ttsReady ? "请先在设置配置 MiniMax" : "";
+    if (kind === "whisper") {
+      const w = pack && pack.whisper ? pack.whisper : {};
+      return (
+        (w.mood ? '<p class="collect-slip__tag">' + escapeHtml(w.mood) + "</p>" : "") +
+        '<p class="collect-slip__text collect-slip__reveal-text">' +
+        escapeHtml(w.text || "") +
+        "</p>" +
+        '<div class="collect-slip__actions">' +
+        buildCollectSlipActionHtml("whisper", "播放", !ttsReady, ttsOff) +
+        "</div>"
+      );
+    }
+    if (kind === "letter") {
+      const letter = pack && pack.letter ? pack.letter : {};
+      const bodyHtml =
+        escapeHtml(letter.salutation || "") +
+        (letter.salutation ? "<br><br>" : "") +
+        escapeHtml(letter.body || "").replace(/\n/g, "<br>") +
+        (letter.signOff ? "<br><br>" + escapeHtml(letter.signOff) : "");
+      return (
+        '<div class="collect-slip__letter">' +
+        bodyHtml +
+        "</div>" +
+        '<div class="collect-slip__actions">' +
+        buildCollectSlipActionHtml("letter", "倾听", !ttsReady, ttsOff) +
+        "</div>"
+      );
+    }
+    if (kind === "photo") {
+      const photo = pack && pack.photo ? pack.photo : {};
+      const hasImg = isSafeImageUrl(photo.imageDataUrl);
+      const hasBack = !!String(photo.backText || "").trim();
+      const frontInner = hasImg
+        ? '<img class="collect-slip__photo-img" src="' +
+          escapeHtml(photo.imageDataUrl) +
+          '" alt="' +
+          escapeHtml(photo.caption || "照片") +
+          '"/>'
+        : '<p class="collect-slip__photo-scene">' +
+          escapeHtml(photo.sceneText || "显影中…") +
+          "</p>";
+      const flipBtn = hasBack
+        ? '<button type="button" class="collect-slip__action" data-collect-flip-photo>翻面</button>'
+        : "";
+      const saveBtn = buildCollectPhotoSaveBtnHtml(photo.imageDataUrl);
+      return (
+        '<div class="collect-slip__photo-flip' +
+        (hasBack ? "" : " collect-slip__photo-flip--single") +
+        '">' +
+        '<div class="collect-slip__photo-inner">' +
+        '<div class="collect-slip__photo-face collect-slip__photo-face--front">' +
+        frontInner +
+        (photo.caption
+          ? '<p class="collect-slip__photo-cap">' + escapeHtml(photo.caption) + "</p>"
+          : "") +
+        "</div>" +
+        (hasBack
+          ? '<div class="collect-slip__photo-face collect-slip__photo-face--back"><p class="collect-slip__photo-back">' +
+            escapeHtml(photo.backText) +
+            "</p></div>"
+          : "") +
+        "</div></div>" +
+        '<div class="collect-slip__actions">' +
+        saveBtn +
+        flipBtn +
+        "</div>"
+      );
+    }
+    if (kind === "greeting") {
+      const g = pack && pack.greeting ? pack.greeting : {};
+      const lines = Array.isArray(g.lines) ? g.lines : [];
+      return (
+        (g.headline ? '<p class="collect-slip__headline">' + escapeHtml(g.headline) + "</p>" : "") +
+        '<ul class="collect-slip__list">' +
+        lines
+          .map(function (line) {
+            return "<li>" + escapeHtml(line) + "</li>";
+          })
+          .join("") +
+        "</ul>"
+      );
+    }
+    if (kind === "memo") {
+      const memo = pack && pack.memo ? pack.memo : {};
+      return (
+        (memo.ambient ? '<p class="collect-slip__tag">' + escapeHtml(memo.ambient) + "</p>" : "") +
+        '<p class="collect-slip__meta-line">' +
+        escapeHtml(memo.durationHint || "0:00") +
+        "</p>" +
+        '<p class="collect-slip__text">' +
+        escapeHtml(memo.mumble || "") +
+        "</p>" +
+        '<div class="collect-slip__actions">' +
+        buildCollectSlipActionHtml("memo", "播放", !ttsReady, ttsOff) +
+        "</div>"
+      );
+    }
+    if (kind === "draft") {
+      const draft = pack && pack.draft ? pack.draft : {};
+      const strikes = Array.isArray(draft.strikes) ? draft.strikes : [];
+      const strikesHtml = strikes.length
+        ? strikes
+            .map(function (s) {
+              return '<span class="collect-slip__strike">' + escapeHtml(s) + "</span>";
+            })
+            .join("")
+        : "";
+      const ctx = draft.context ? escapeHtml(draft.context) + " · 未发送" : "未发送";
+      return (
+        '<p class="collect-slip__tag">' +
+        ctx +
+        "</p>" +
+        (strikesHtml ? '<div class="collect-slip__strikes">' + strikesHtml + "</div>" : "") +
+        '<p class="collect-slip__text collect-slip__text--draft">' +
+        escapeHtml(draft.text || "") +
+        '<span class="collect-slip__caret" aria-hidden="true"></span></p>'
+      );
+    }
+    if (kind === "specialDay") {
+      const sd = pack && pack.specialDay ? pack.specialDay : {};
+      const head = buildCollectSpecialDayHeadline(pack, plot);
+      return (
+        (head.dateLabel ? '<p class="collect-slip__meta-line">' + escapeHtml(head.dateLabel) + "</p>" : "") +
+        (head.prefix ? '<p class="collect-slip__tag">' + escapeHtml(head.prefix) + "</p>" : "") +
+        '<p class="collect-slip__headline">' +
+        escapeHtml(head.title || sd.title || "") +
+        "</p>" +
+        (sd.note ? '<p class="collect-slip__text">' + escapeHtml(sd.note) + "</p>" : "") +
+        (sd.whisper ? '<p class="collect-slip__footnote">' + escapeHtml(sd.whisper) + "</p>" : "")
+      );
+    }
+    if (kind === "dream") {
+      const dream = pack && pack.dream ? pack.dream : {};
+      const lines = Array.isArray(dream.lines) ? dream.lines : [];
+      const hasImg = isSafeImageUrl(dream.imageDataUrl);
+      const sceneInner = hasImg
+        ? '<img class="collect-slip__dream-img" src="' +
+          escapeHtml(dream.imageDataUrl) +
+          '" alt="梦境"/>'
+        : '<p class="collect-slip__dream-scene">' +
+          escapeHtml(dream.sceneText || "梦境成形中…") +
+          "</p>";
+      return (
+        '<div class="collect-slip__dream-visual' +
+        (hasImg ? " is-developed" : "") +
+        '">' +
+        sceneInner +
+        "</div>" +
+        '<ul class="collect-slip__dream-lines">' +
+        lines
+          .map(function (line) {
+            return '<li class="collect-dream__line">' + escapeHtml(line) + "</li>";
+          })
+          .join("") +
+        "</ul>" +
+        '<div class="collect-slip__actions">' +
+        buildCollectSlipActionHtml("dream", "梦话", !ttsReady, ttsOff) +
+        "</div>"
+      );
+    }
+    return "";
+  }
+
+  function buildCollectSlipHtml(kind, pack, plot, opts) {
+    opts = opts || {};
+    const animation = opts.animation === "fade" ? "fade" : "print";
+    const animClass = animation === "fade" ? " is-fade-in" : " is-printing";
+    const meta = getCollectKindMeta(kind);
+    const body = buildCollectSlipBodyHtml(kind, pack, plot);
+    return (
+      '<article class="collect-slip collect-slip--' +
+      kind +
+      animClass +
+      '" data-collect-slip="' +
+      kind +
+      '">' +
+      '<div class="collect-slip__perforation" aria-hidden="true"></div>' +
+      '<header class="collect-slip__head">' +
+      '<span class="collect-slip__type">' +
+      escapeHtml(meta.label) +
+      "</span>" +
+      '<span class="collect-slip__end">///</span>' +
+      "</header>" +
+      '<div class="collect-slip__body">' +
+      body +
+      "</div>" +
+      '<footer class="collect-slip__foot"><span>END OF SLIP</span></footer>' +
+      "</article>"
+    );
+  }
+
+  function buildCollectActiveSlipHtml(pack, plot, openCards) {
+    if (!openCards || !openCards.length) return "";
+    const kind = openCards[openCards.length - 1];
+    return buildCollectSlipHtml(kind, pack, plot);
+  }
+
+  function findCollectPhotoFlipEl(fromEl) {
+    if (!fromEl) return null;
+    const inFlip = fromEl.closest(".collect-slip__photo-flip, .collect-photo-flip");
+    if (inFlip) return inFlip;
+    const slip = fromEl.closest(".collect-slip, .collect-detail--photo");
+    if (slip) {
+      return slip.querySelector(".collect-slip__photo-flip, .collect-photo-flip");
+    }
+    return null;
+  }
+
+  function toggleCollectPhotoFlip(flipBtn) {
+    const flipEl = findCollectPhotoFlipEl(flipBtn);
+    if (
+      !flipEl ||
+      flipEl.classList.contains("collect-slip__photo-flip--single") ||
+      flipEl.classList.contains("collect-photo-flip--single")
+    ) {
+      return;
+    }
+    const flipped = flipEl.classList.toggle("is-flipped");
+    if (flipBtn) {
+      flipBtn.textContent = flipped ? "正面" : "翻面";
+      flipBtn.setAttribute("aria-label", flipped ? "返回正面" : "翻面");
+    }
+  }
+
+  function animateCollectCardExit(slot, onDone) {
+    const slip = slot && slot.querySelector(".collect-slip");
+    if (!slip) {
+      if (onDone) onDone();
+      return;
+    }
+    if (collectCardTransitionTimer) {
+      clearTimeout(collectCardTransitionTimer);
+      collectCardTransitionTimer = null;
+    }
+    slip.classList.remove("is-printing");
+    slip.classList.add("is-exiting");
+    collectCardTransitionTimer = setTimeout(function () {
+      collectCardTransitionTimer = null;
+      if (onDone) onDone();
+    }, 420);
+  }
+
+  function buildCollectPrinterKeyHtml(slot, kindMeta, pack, generating, imageLoading) {
+    const kind = kindMeta.id;
+    const read = pack && pack.readState && pack.readState[kind];
+    const itemReady = collectPackItemReady(pack, kind);
+    const ready = itemReady && !generating;
+    const loading =
+      generating ||
+      (kind === "photo" && imageLoading === "photo") ||
+      (kind === "dream" && imageLoading === "dream");
+    const nav = getCollectNav(slot);
+    const isOpen = nav.openCards && nav.openCards.length > 0 && nav.openCards[nav.openCards.length - 1] === kind;
+    return (
+      '<button type="button" class="collect-key' +
+      (isOpen ? " is-active" : "") +
+      (loading ? " is-loading" : "") +
+      (ready && !read && !loading ? " is-unread" : "") +
+      '" data-collect-open="' +
+      kind +
+      '"' +
+      (ready ? "" : ' disabled aria-disabled="true"') +
+      ' aria-label="' +
+      escapeHtml(kindMeta.label) +
+      '">' +
+      kindMeta.icon +
+      "</button>"
+    );
+  }
+
+  function buildCollectPrinterDisplayHtml(pack, generating, plot, sender, photoGen, dreamGen) {
+    if (generating) return "正在收取内容…";
+    if (photoGen && dreamGen) return "照片显影 · 梦境成形";
+    if (photoGen) return "照片正在显影…";
+    if (dreamGen) return "梦境正在成形…";
+    if (!pack) return "请在设置中重新收取…";
+    const name = sender && sender.name ? sender.name : "TA";
+    const plotTitle = plot && plot.title ? plot.title : "未命名";
+    return "来自 " + name + " · " + plotTitle;
+  }
+
+  function buildCollectPrinterHtml(slot, pack, generating, openCards) {
+    const plot = getCollectPlot();
+    const sender = getCollectCharacter();
+    const key = plot && sender ? collectStorageKey(plot.id, sender.id) : "";
+    const photoGenerating = !!key && collectImageGenerating.photo === key;
+    const dreamGenerating = !!key && collectImageGenerating.dream === key;
+    const displayText = buildCollectPrinterDisplayHtml(
+      pack,
+      generating,
+      plot,
+      sender,
+      photoGenerating,
+      dreamGenerating
+    );
+    const keysHtml = COLLECT_KINDS.map(function (km) {
+      const imgLoad =
+        km.id === "photo" && photoGenerating
+          ? "photo"
+          : km.id === "dream" && dreamGenerating
+            ? "dream"
+            : false;
+      return buildCollectPrinterKeyHtml(slot, km, pack, generating, imgLoad);
+    }).join("");
+    return (
+      '<div class="collect-screen collect-screen--printer">' +
+      '<div class="collect-slip-area">' +
+      '<div class="collect-slip-stage" aria-live="polite">' +
+      buildCollectActiveSlipHtml(pack, plot, openCards) +
+      "</div></div>" +
+      '<div class="collect-printer-wrap">' +
+      '<div class="collect-printer">' +
+      '<div class="collect-printer__slot" aria-hidden="true"></div>' +
+      '<div class="collect-printer__body">' +
+      '<div class="collect-printer__top">' +
+      '<button type="button" class="collect-printer__icon-btn" data-collect-back aria-label="返回">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<p class="collect-printer__brand">收取 · PAGER</p>' +
+      '<button type="button" class="collect-printer__icon-btn" data-collect-settings aria-label="设置">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>' +
+      "</button></div>" +
+      '<p class="collect-printer__subtitle">DIGITAL NOTE PRINTER</p>' +
+      '<div class="collect-printer__screen"><p class="collect-printer__display">' +
+      escapeHtml(displayText) +
+      "</p></div>" +
+      '<div class="collect-printer__keys">' +
+      keysHtml +
+      "</div></div></div></div></div>"
+    );
+  }
+
+  function buildCollectHeaderHtml(title, showBack, showSettings) {
+    return (
+      '<header class="collect-header">' +
+      (showBack
+        ? '<button type="button" class="icon-btn collect-header__back" data-collect-back aria-label="返回">' +
+          '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M15 6l-6 6 6 6"/></svg>' +
+          "</button>"
+        : '<span class="collect-header__spacer"></span>') +
+      '<h1 class="collect-header__title">' +
+      escapeHtml(title) +
+      "</h1>" +
+      (showSettings
+        ? '<button type="button" class="icon-btn collect-header__settings" data-collect-settings aria-label="设置">' +
+          '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>' +
+          "</button>"
+        : '<span class="collect-header__spacer"></span>') +
+      "</header>"
+    );
+  }
+
+  function buildCollectSenderBannerHtml(plot, sender, docked) {
+    const plotTitle = plot ? plot.title || "未命名剧情" : "";
+    const name = sender ? sender.name || "TA" : "";
+    return (
+      '<div class="collect-banner' +
+      (docked ? " collect-banner--dock" : "") +
+      '">' +
+      '<div class="collect-banner__glow" aria-hidden="true"></div>' +
+      '<div class="collect-banner__avatar avatar" data-collect-sender-avatar></div>' +
+      '<div class="collect-banner__meta">' +
+      '<p class="collect-banner__from"><span class="collect-banner__label">来自</span> <strong>' +
+      escapeHtml(name) +
+      "</strong></p>" +
+      '<p class="collect-banner__plot">' +
+      escapeHtml(plotTitle) +
+      "</p>" +
+      "</div></div>"
+    );
+  }
+
+  function buildCollectHubItemHtml(kind, label, iconClass, pack, generating, imageLoading) {
+    const read = pack && pack.readState && pack.readState[kind];
+    const itemReady = collectPackItemReady(pack, kind);
+    const ready = itemReady && !generating;
+    const loading = generating || !!imageLoading;
+    const shimmer = loading ? " collect-item--loading" : "";
+    const unread = ready && !read && !loading ? " collect-item--unread" : "";
+    return (
+      '<button type="button" class="collect-item collect-item--' +
+      kind +
+      shimmer +
+      unread +
+      '" data-collect-open="' +
+      kind +
+      '"' +
+      (ready ? "" : ' disabled aria-disabled="true"') +
+      ">" +
+      '<span class="collect-item__icon ' +
+      iconClass +
+      '" aria-hidden="true"></span>' +
+      '<span class="collect-item__label">' +
+      escapeHtml(label) +
+      "</span>" +
+      (loading ? '<span class="collect-item__shimmer"></span>' : "") +
+      "</button>"
+    );
+  }
+
+  function buildCollectGenHintHtml(generating, photoGen, dreamGen) {
+    if (generating) {
+      return '<p class="collect-gen-hint"><span class="collect-gen-hint__dot"></span>正在收取内容…</p>';
+    }
+    const parts = [];
+    if (photoGen) parts.push("照片正在显影");
+    if (dreamGen) parts.push("梦境正在成形");
+    if (!parts.length) return "";
+    return (
+      '<p class="collect-gen-hint collect-gen-hint--photo"><span class="collect-gen-hint__dot"></span>' +
+      escapeHtml(parts.join(" · ")) +
+      "</p>"
+    );
+  }
+
+  function getCollectStoryTodayKey(plot) {
+    if (!plot) return toPhoneBrowserDateKey(new Date());
+    ensurePlotExtendedState(plot);
+    if (plot.phoneStoryDateKey && isValidPhoneDateKey(plot.phoneStoryDateKey)) {
+      return plot.phoneStoryDateKey;
+    }
+    return syncPhoneStoryDateAnchor(plot);
+  }
+
+  function buildCollectSpecialDayHeadline(pack, plot) {
+    const sd = pack && pack.specialDay ? pack.specialDay : {};
+    if (!sd.title) return { prefix: "", title: "", dateLabel: "" };
+    const offset = Number(sd.daysOffset) || 0;
+    const absDays = Math.abs(offset);
+    const todayKey = getCollectStoryTodayKey(plot);
+    const targetKey = todayKey ? shiftPhoneDateKey(todayKey, offset) : "";
+    const dateLabel = targetKey ? getPhoneDiaryDateLabel(targetKey) : "";
+    let prefix = "";
+    if (sd.timing === "future" || offset > 0) {
+      prefix = absDays === 0 ? "就是今天" : "还有 " + absDays + " 天";
+    } else if (sd.timing === "past" || offset < 0) {
+      prefix = absDays === 0 ? "今天" : absDays + " 天前";
+    } else if (offset !== 0) {
+      prefix = offset > 0 ? "还有 " + absDays + " 天" : absDays + " 天前";
+    }
+    return { prefix: prefix, title: sd.title, dateLabel: dateLabel };
+  }
+
+  function buildCollectHubHtml(slot, pack, generating) {
+    const plot = getCollectPlot();
+    const sender = getCollectCharacter();
+    const key =
+      plot && sender ? collectStorageKey(plot.id, sender.id) : "";
+    const photoGenerating = !!key && collectImageGenerating.photo === key;
+    const dreamGenerating = !!key && collectImageGenerating.dream === key;
+    const emptyHint =
+      !pack && !generating && plot && sender
+        ? '<p class="collect-empty-hint">尚未收取内容，请在设置中点「重新收取」。</p>'
+        : "";
+    const genHint = buildCollectGenHintHtml(generating, photoGenerating, dreamGenerating);
+    return (
+      '<div class="collect-screen collect-screen--hub">' +
+      buildCollectHeaderHtml("收取", true, true) +
+      '<div class="collect-hub-main">' +
+      genHint +
+      '<div class="collect-grid">' +
+      buildCollectHubItemHtml("whisper", "私语", "collect-item__icon--whisper", pack, generating, false) +
+      buildCollectHubItemHtml("letter", "信件", "collect-item__icon--letter", pack, generating, false) +
+      buildCollectHubItemHtml("photo", "照片", "collect-item__icon--photo", pack, generating, photoGenerating) +
+      buildCollectHubItemHtml("greeting", "问候", "collect-item__icon--greeting", pack, generating, false) +
+      buildCollectHubItemHtml("memo", "语音备忘", "collect-item__icon--memo", pack, generating, false) +
+      buildCollectHubItemHtml("draft", "草稿", "collect-item__icon--draft", pack, generating, false) +
+      buildCollectHubItemHtml("specialDay", "特殊的日子", "collect-item__icon--specialDay", pack, generating, false) +
+      buildCollectHubItemHtml("dream", "梦话", "collect-item__icon--dream", pack, generating, dreamGenerating) +
+      "</div>" +
+      emptyHint +
+      "</div>" +
+      buildCollectSenderBannerHtml(plot, sender, true) +
+      "</div>"
+    );
+  }
+
+  function buildCollectHistoryCardHtml(row, kindMeta, pack) {
+    const ready = collectPackItemReady(pack, kindMeta.id);
+    const preview = buildCollectHistoryCardPreview(kindMeta.id, pack);
+    return (
+      '<button type="button" class="collect-history-card collect-history-card--' +
+      kindMeta.id +
+      (ready ? "" : " is-empty") +
+      '" data-collect-history-entry="' +
+      escapeHtml(row.id) +
+      '" data-collect-history-open="' +
+      kindMeta.id +
+      '"' +
+      (ready ? "" : ' disabled aria-disabled="true"') +
+      ' aria-label="' +
+      escapeHtml(kindMeta.label) +
+      '">' +
+      '<span class="collect-history-card__icon" aria-hidden="true">' +
+      kindMeta.icon +
+      "</span>" +
+      '<span class="collect-history-card__label">' +
+      escapeHtml(kindMeta.label) +
+      "</span>" +
+      (preview ? '<span class="collect-history-card__preview">' + preview + "</span>" : "") +
+      "</button>"
+    );
+  }
+
+  function buildCollectHistoryCardPreview(kind, pack) {
+    if (!pack) return "";
+    if (kind === "whisper") {
+      const t = pack.whisper && pack.whisper.text ? pack.whisper.text : "";
+      return t ? escapeHtml(t.slice(0, 28) + (t.length > 28 ? "…" : "")) : "";
+    }
+    if (kind === "letter") {
+      const t = pack.letter && pack.letter.body ? pack.letter.body : "";
+      return t ? escapeHtml(t.slice(0, 28) + (t.length > 28 ? "…" : "")) : "";
+    }
+    if (kind === "photo") {
+      if (isSafeImageUrl(pack.photo && pack.photo.imageDataUrl)) {
+        return (
+          '<span class="collect-history-card__polaroid">' +
+          '<img class="collect-history-card__thumb" src="' +
+          escapeHtml(pack.photo.imageDataUrl) +
+          '" alt=""/>' +
+          "</span>"
+        );
+      }
+      const t = pack.photo && (pack.photo.caption || pack.photo.sceneText) ? pack.photo.caption || pack.photo.sceneText : "";
+      return t ? escapeHtml(t.slice(0, 20) + (t.length > 20 ? "…" : "")) : "";
+    }
+    if (kind === "greeting") {
+      const t =
+        pack.greeting && (pack.greeting.headline || (pack.greeting.lines && pack.greeting.lines[0]))
+          ? pack.greeting.headline || pack.greeting.lines[0]
+          : "";
+      return t ? escapeHtml(String(t).slice(0, 24) + (String(t).length > 24 ? "…" : "")) : "";
+    }
+    if (kind === "memo") {
+      const t = pack.memo && pack.memo.mumble ? pack.memo.mumble : "";
+      return t ? escapeHtml(t.slice(0, 24) + (t.length > 24 ? "…" : "")) : "";
+    }
+    if (kind === "draft") {
+      const t = pack.draft && pack.draft.text ? pack.draft.text : "";
+      return t ? escapeHtml(t.slice(0, 24) + (t.length > 24 ? "…" : "")) : "";
+    }
+    if (kind === "specialDay") {
+      const t = pack.specialDay && pack.specialDay.title ? pack.specialDay.title : "";
+      return t ? escapeHtml(t) : "";
+    }
+    if (kind === "dream") {
+      if (isSafeImageUrl(pack.dream && pack.dream.imageDataUrl)) {
+        return (
+          '<span class="collect-history-card__polaroid collect-history-card__polaroid--dream">' +
+          '<img class="collect-history-card__thumb" src="' +
+          escapeHtml(pack.dream.imageDataUrl) +
+          '" alt=""/>' +
+          "</span>"
+        );
+      }
+      const lines = pack.dream && pack.dream.lines ? pack.dream.lines : [];
+      const t = lines[0] || (pack.dream && pack.dream.sceneText) || "";
+      return t ? escapeHtml(String(t).slice(0, 24) + (String(t).length > 24 ? "…" : "")) : "";
+    }
+    return "";
+  }
+
+  function buildCollectHistoryRowHtml(row, plot) {
+    const timeLabel = buildStorySelectionCardTime(row.generatedAt);
+    const cardsHtml = COLLECT_KINDS.map(function (km) {
+      return buildCollectHistoryCardHtml(row, km, row.pack);
+    }).join("");
+    return (
+      '<section class="collect-history-row">' +
+      '<div class="collect-history-row__head">' +
+      '<span class="collect-history-row__dot" aria-hidden="true"></span>' +
+      '<time class="collect-history-row__time" datetime="' +
+      escapeHtml(String(row.generatedAt || "")) +
+      '">' +
+      escapeHtml(timeLabel) +
+      (row.isCurrent ? '<span class="collect-history-row__badge">当前</span>' : "") +
+      "</time></div>" +
+      '<div class="collect-history-row__panel">' +
+      '<div class="collect-history-row__scroll" data-h-scroll-key="collect-history-' +
+      escapeHtml(row.id) +
+      '">' +
+      cardsHtml +
+      "</div></div></section>"
+    );
+  }
+
+  function buildCollectHistoryDetailHtml(row, kind, plot) {
+    const slipHtml = buildCollectSlipHtml(kind, row.pack, plot, { animation: "fade" });
+    return (
+      '<div class="collect-history-detail">' +
+      '<div class="collect-detail__backdrop collect-history-detail__backdrop" data-collect-history-close></div>' +
+      '<div class="collect-history-detail__stage">' +
+      '<div class="collect-history-detail__slip-wrap">' +
+      slipHtml +
+      "</div>" +
+      '<button type="button" class="collect-detail__dismiss" data-collect-history-close>收起</button>' +
+      "</div></div>"
+    );
+  }
+
+  function buildCollectHistoryHtml(slot) {
+    const plot = getCollectPlot();
+    const sender = getCollectCharacter();
+    const nav = getCollectNav(slot);
+    const rows = getCollectHistoryRowsForCurrent();
+    const name = sender ? sender.name || "TA" : "未选择";
+    let rowsHtml = "";
+    if (!rows.length) {
+      rowsHtml =
+        '<p class="collect-history-empty">暂无历史收取记录。完成一次收取后，每次点「重新收取」都会在此保留上一版。</p>';
+    } else {
+      rowsHtml = rows
+        .map(function (row) {
+          return buildCollectHistoryRowHtml(row, plot);
+        })
+        .join("");
+    }
+    let overlayHtml = "";
+    if (nav.historyDetailEntryId && nav.historyDetailKind) {
+      const row = rows.find(function (r) {
+        return r.id === nav.historyDetailEntryId;
+      });
+      if (row) overlayHtml = buildCollectHistoryDetailHtml(row, nav.historyDetailKind, plot);
+    }
+    return (
+      '<div class="collect-screen collect-screen--history">' +
+      buildCollectHeaderHtml("历史收取", true, false) +
+      '<p class="collect-history-subtitle">仅显示当前绑定「' +
+      escapeHtml(name) +
+      "」的收取记录 · 保存在本机</p>" +
+      '<div class="collect-history-list">' +
+      rowsHtml +
+      "</div>" +
+      overlayHtml +
+      "</div>"
+    );
+  }
+
+  function buildCollectSettingsHtml() {
+    const plot = getCollectPlot();
+    const sender = getCollectCharacter();
+    const name = sender ? sender.name || "未命名" : "未选择";
+    const plotTitle = plot ? plot.title || "未命名剧情" : "未选择";
+    return (
+      '<div class="collect-screen collect-screen--settings">' +
+      buildCollectHeaderHtml("收取设置", true, false) +
+      '<div class="collect-settings-hero">' +
+      '<div class="collect-settings-hero__glow" aria-hidden="true"></div>' +
+      '<div class="collect-settings-hero__avatar avatar" data-collect-settings-avatar></div>' +
+      '<p class="collect-settings-hero__name">' +
+      escapeHtml(name) +
+      "</p>" +
+      '<span class="collect-settings-hero__plot">' +
+      escapeHtml(plotTitle) +
+      "</span>" +
+      "</div>" +
+      '<div class="collect-settings-panel">' +
+      '<h3 class="collect-settings-panel__title">当前绑定</h3>' +
+      '<div class="collect-settings-kv">' +
+      '<div class="collect-settings-kv__row">' +
+      '<span class="collect-settings-kv__key">剧情</span>' +
+      '<span class="collect-settings-kv__val">' +
+      escapeHtml(plotTitle) +
+      "</span></div>" +
+      '<div class="collect-settings-kv__row">' +
+      '<span class="collect-settings-kv__key">角色</span>' +
+      '<span class="collect-settings-kv__val">' +
+      escapeHtml(name) +
+      "</span></div></div></div>" +
+      '<div class="collect-settings-actions">' +
+      '<button type="button" class="collect-settings-btn collect-settings-btn--ghost" data-collect-change-holder>' +
+      '<span class="collect-settings-btn__icon" aria-hidden="true">↻</span>更换剧情 / 角色</button>' +
+      '<button type="button" class="collect-settings-btn collect-settings-btn--primary" data-collect-regenerate' +
+      (collectGenerating ? " disabled" : "") +
+      '><span class="collect-settings-btn__icon" aria-hidden="true">✦</span>重新收取</button>' +
+      '<button type="button" class="collect-settings-btn collect-settings-btn--ghost" data-collect-view-history>' +
+      '<span class="collect-settings-btn__icon" aria-hidden="true">◷</span>查看历史收取</button>' +
+      "</div>" +
+      '<p class="collect-settings__hint">更换绑定不会自动重新生成；点「重新收取」才会更新八项内容。</p>' +
+      "</div>"
+    );
+  }
+
+  function buildCollectWhisperDetailHtml(pack) {
+    const text = pack && pack.whisper ? pack.whisper.text : "";
+    const mood = pack && pack.whisper ? pack.whisper.mood : "";
+    const ttsReady = !!resolveGlobalMinimaxVoiceId();
+    return (
+      '<div class="collect-detail collect-detail--whisper">' +
+      '<div class="collect-detail__backdrop" data-collect-detail-close></div>' +
+      '<div class="collect-detail__stage">' +
+      '<div class="collect-detail__body">' +
+      '<div class="collect-voice" role="group" aria-label="私语播放">' +
+      '<button type="button" class="collect-voice__btn' +
+      (ttsReady ? "" : " is-disabled") +
+      '" data-collect-tts="whisper"' +
+      (ttsReady ? "" : ' title="请先在设置配置 MiniMax"') +
+      ' aria-label="播放私语">' +
+      '<span class="collect-voice__btn-icon" aria-hidden="true"></span>' +
+      "</button>" +
+      '<div class="collect-voice__main">' +
+      '<div class="collect-voice__wave" aria-hidden="true">' +
+      "<span></span><span></span><span></span><span></span><span></span>" +
+      "<span></span><span></span><span></span><span></span><span></span>" +
+      "<span></span><span></span><span></span><span></span><span></span>" +
+      "<span></span><span></span><span></span><span></span><span></span>" +
+      "</div>" +
+      (mood ? '<p class="collect-voice__mood">' + escapeHtml(mood) + "</p>" : "") +
+      "</div></div>" +
+      '<div class="collect-whisper__text">' +
+      escapeHtml(text) +
+      "</div></div>" +
+      '<button type="button" class="collect-detail__dismiss" data-collect-detail-close>收起</button>' +
+      "</div></div>"
+    );
+  }
+
+  function buildCollectLetterDetailHtml(pack) {
+    const letter = pack && pack.letter ? pack.letter : {};
+    const bodyHtml =
+      escapeHtml(letter.salutation || "") +
+      (letter.salutation ? "<br><br>" : "") +
+      escapeHtml(letter.body || "").replace(/\n/g, "<br>") +
+      (letter.signOff ? "<br><br>" + escapeHtml(letter.signOff) : "");
+    const ttsReady = !!resolveGlobalMinimaxVoiceId();
+    return (
+      '<div class="collect-detail collect-detail--letter">' +
+      '<div class="collect-detail__backdrop" data-collect-detail-close></div>' +
+      '<div class="collect-detail__stage">' +
+      '<div class="collect-detail__body">' +
+      '<article class="collect-letter-sheet collect-letter-hand">' +
+      bodyHtml +
+      "</article>" +
+      '<button type="button" class="collect-letter-listen' +
+      (ttsReady ? "" : " is-disabled") +
+      '" data-collect-tts="letter"' +
+      (ttsReady ? "" : ' title="请先在设置配置 MiniMax"') +
+      ' aria-label="倾听信件">' +
+      '<span class="collect-letter-listen__icon" aria-hidden="true"></span>倾听' +
+      "</button></div>" +
+      '<button type="button" class="collect-detail__dismiss" data-collect-detail-close>收起</button>' +
+      "</div></div>"
+    );
+  }
+
+  function buildCollectPhotoDetailHtml(pack) {
+    const photo = pack && pack.photo ? pack.photo : {};
+    const hasImg = isSafeImageUrl(photo.imageDataUrl);
+    const hasBack = !!String(photo.backText || "").trim();
+    const frontInner = hasImg
+      ? '<img class="collect-photo__img" src="' +
+        escapeHtml(photo.imageDataUrl) +
+        '" alt="' +
+        escapeHtml(photo.caption || "照片") +
+        '"/>'
+      : '<p class="collect-photo__scene">' + escapeHtml(photo.sceneText || "暂无场景描述") + "</p>";
+    const frontHtml =
+      '<div class="collect-photo-flip__face collect-photo-flip__face--front">' +
+      '<figure class="collect-photo collect-photo--develop">' +
+      frontInner +
+      (photo.caption
+        ? '<figcaption class="collect-photo__caption">' + escapeHtml(photo.caption) + "</figcaption>"
+        : "") +
+      "</figure></div>";
+    const backHtml = hasBack
+      ? '<div class="collect-photo-flip__face collect-photo-flip__face--back">' +
+        '<div class="collect-photo-back collect-letter-hand">' +
+        escapeHtml(photo.backText) +
+        "</div></div>"
+      : "";
+    const flipBtn = hasBack
+      ? '<button type="button" class="collect-photo-flip__toggle" data-collect-flip-photo aria-label="翻面">翻面</button>'
+      : "";
+    const saveBtn = hasImg
+      ? '<button type="button" class="collect-photo-save" data-collect-save-photo data-collect-photo-url="' +
+        escapeHtml(photo.imageDataUrl) +
+        '">保存图片</button>'
+      : "";
+    return (
+      '<div class="collect-detail collect-detail--photo">' +
+      '<div class="collect-detail__backdrop" data-collect-detail-close></div>' +
+      '<div class="collect-detail__stage">' +
+      '<div class="collect-detail__body">' +
+      '<div class="collect-photo-flip' +
+      (hasBack ? "" : " collect-photo-flip--single") +
+      '">' +
+      '<div class="collect-photo-flip__inner">' +
+      frontHtml +
+      backHtml +
+      "</div></div>" +
+      flipBtn +
+      saveBtn +
+      "</div>" +
+      '<button type="button" class="collect-detail__dismiss" data-collect-detail-close>收起</button>' +
+      "</div></div>"
+    );
+  }
+
+  function buildCollectMemoDetailHtml(pack) {
+    const memo = pack && pack.memo ? pack.memo : {};
+    const ttsReady = !!resolveGlobalMinimaxVoiceId();
+    const duration = memo.durationHint || "0:00";
+    return (
+      '<div class="collect-detail collect-detail--memo">' +
+      '<div class="collect-detail__backdrop" data-collect-detail-close></div>' +
+      '<div class="collect-detail__stage">' +
+      '<div class="collect-detail__body">' +
+      '<div class="collect-memo" role="group" aria-label="语音备忘">' +
+      (memo.ambient
+        ? '<p class="collect-memo__ambient">' + escapeHtml(memo.ambient) + "</p>"
+        : "") +
+      '<div class="collect-memo__player">' +
+      '<button type="button" class="collect-memo__play' +
+      (ttsReady ? "" : " is-disabled") +
+      '" data-collect-tts="memo"' +
+      (ttsReady ? "" : ' title="请先在设置配置 MiniMax"') +
+      ' aria-label="播放备忘">' +
+      '<span class="collect-memo__play-icon" aria-hidden="true"></span></button>' +
+      '<div class="collect-memo__wave" aria-hidden="true">' +
+      "<span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>" +
+      "</div>" +
+      '<span class="collect-memo__duration">' +
+      escapeHtml(duration) +
+      "</span></div>" +
+      '<div class="collect-memo__mumble">' +
+      escapeHtml(memo.mumble || "") +
+      "</div></div></div>" +
+      '<button type="button" class="collect-detail__dismiss" data-collect-detail-close>收起</button>' +
+      "</div></div>"
+    );
+  }
+
+  function buildCollectDraftDetailHtml(pack) {
+    const draft = pack && pack.draft ? pack.draft : {};
+    const strikes = Array.isArray(draft.strikes) ? draft.strikes : [];
+    const strikesHtml = strikes.length
+      ? '<div class="collect-draft__strikes">' +
+        strikes
+          .map(function (s) {
+            return '<span class="collect-draft__strike">' + escapeHtml(s) + "</span>";
+          })
+          .join("") +
+        "</div>"
+      : "";
+    const contextLabel = draft.context ? escapeHtml(draft.context) + " · 未发送" : "未发送";
+    return (
+      '<div class="collect-detail collect-detail--draft">' +
+      '<div class="collect-detail__backdrop" data-collect-detail-close></div>' +
+      '<div class="collect-detail__stage">' +
+      '<div class="collect-detail__body">' +
+      '<div class="collect-draft">' +
+      '<div class="collect-draft__bar">' +
+      '<span class="collect-draft__tag">' +
+      contextLabel +
+      "</span></div>" +
+      '<div class="collect-draft__input">' +
+      strikesHtml +
+      '<p class="collect-draft__text">' +
+      escapeHtml(draft.text || "") +
+      '<span class="collect-draft__caret" aria-hidden="true"></span></p>' +
+      "</div></div></div>" +
+      '<button type="button" class="collect-detail__dismiss" data-collect-detail-close>收起</button>' +
+      "</div></div>"
+    );
+  }
+
+  function buildCollectSpecialDayDetailHtml(pack, plot) {
+    const sd = pack && pack.specialDay ? pack.specialDay : {};
+    const head = buildCollectSpecialDayHeadline(pack, plot);
+    const whisperHtml = sd.whisper
+      ? '<p class="collect-special-day__whisper">' + escapeHtml(sd.whisper) + "</p>"
+      : "";
+    return (
+      '<div class="collect-detail collect-detail--specialDay">' +
+      '<div class="collect-detail__backdrop" data-collect-detail-close></div>' +
+      '<div class="collect-detail__stage">' +
+      '<div class="collect-detail__body">' +
+      '<div class="collect-special-day">' +
+      '<div class="collect-special-day__tear" aria-hidden="true"></div>' +
+      (head.dateLabel
+        ? '<p class="collect-special-day__date">' + escapeHtml(head.dateLabel) + "</p>"
+        : "") +
+      (head.prefix
+        ? '<p class="collect-special-day__prefix">' + escapeHtml(head.prefix) + "</p>"
+        : "") +
+      '<h3 class="collect-special-day__title">' +
+      escapeHtml(head.title || sd.title || "") +
+      "</h3>" +
+      (sd.note ? '<p class="collect-special-day__note">' + escapeHtml(sd.note) + "</p>" : "") +
+      whisperHtml +
+      "</div></div>" +
+      '<button type="button" class="collect-detail__dismiss" data-collect-detail-close>收起</button>' +
+      "</div></div>"
+    );
+  }
+
+  function buildCollectDreamDetailHtml(pack) {
+    const dream = pack && pack.dream ? pack.dream : {};
+    const lines = Array.isArray(dream.lines) ? dream.lines : [];
+    const hasImg = isSafeImageUrl(dream.imageDataUrl);
+    const sceneInner = hasImg
+      ? '<img class="collect-dream__img" src="' +
+        escapeHtml(dream.imageDataUrl) +
+        '" alt="梦境"/>'
+      : '<p class="collect-dream__scene">' + escapeHtml(dream.sceneText || "梦境正在成形…") + "</p>";
+    const figureCls = "collect-dream__figure" + (hasImg ? " collect-dream__figure--develop" : "");
+    const ttsReady = !!resolveGlobalMinimaxVoiceId();
+    return (
+      '<div class="collect-detail collect-detail--dream">' +
+      '<div class="collect-detail__backdrop" data-collect-detail-close></div>' +
+      '<div class="collect-detail__stage">' +
+      '<div class="collect-detail__body">' +
+      '<div class="collect-dream">' +
+      '<figure class="' +
+      figureCls +
+      '">' +
+      sceneInner +
+      "</figure>" +
+      '<ul class="collect-dream__lines">' +
+      lines
+        .map(function (line) {
+          return '<li class="collect-dream__line collect-letter-hand">' + escapeHtml(line) + "</li>";
+        })
+        .join("") +
+      "</ul>" +
+      '<button type="button" class="collect-dream__listen' +
+      (ttsReady ? "" : " is-disabled") +
+      '" data-collect-tts="dream"' +
+      (ttsReady ? "" : ' title="请先在设置配置 MiniMax"') +
+      ' aria-label="播放梦话">' +
+      '<span class="collect-dream__listen-icon" aria-hidden="true"></span>白噪音中的梦话</button>' +
+      "</div></div>" +
+      '<button type="button" class="collect-detail__dismiss" data-collect-detail-close>收起</button>' +
+      "</div></div>"
+    );
+  }
+
+  function buildCollectGreetingDetailHtml(pack) {
+    const g = pack && pack.greeting ? pack.greeting : {};
+    const lines = Array.isArray(g.lines) ? g.lines : [];
+    return (
+      '<div class="collect-detail collect-detail--greeting">' +
+      '<div class="collect-detail__backdrop" data-collect-detail-close></div>' +
+      '<div class="collect-detail__stage">' +
+      '<div class="collect-detail__body">' +
+      '<div class="collect-postcard collect-postcard--flip">' +
+      '<div class="collect-postcard__inner">' +
+      (g.headline ? '<h3 class="collect-postcard__head">' + escapeHtml(g.headline) + "</h3>" : "") +
+      '<ul class="collect-postcard__lines">' +
+      lines
+        .map(function (line) {
+          return "<li>" + escapeHtml(line) + "</li>";
+        })
+        .join("") +
+      "</ul></div></div></div>" +
+      '<button type="button" class="collect-detail__dismiss" data-collect-detail-close>收起</button>' +
+      "</div></div>"
+    );
+  }
+
+  function renderCollectScreen(slot) {
+    if (!slot) return;
+    slot.classList.remove("story-placeholder");
+    sanitizeCollectState();
+    const nav = getCollectNav(slot);
+    const pack = getCollectPackForCurrent();
+    const plot = getCollectPlot();
+    const sender = getCollectCharacter();
+    let html = "";
+    if (nav.screen === "settings") {
+      html = buildCollectSettingsHtml();
+    } else if (nav.screen === "history") {
+      html = buildCollectHistoryHtml(slot);
+    } else {
+      nav.screen = "hub";
+      if (!Array.isArray(nav.openCards)) nav.openCards = [];
+      html = buildCollectPrinterHtml(slot, pack, collectGenerating, nav.openCards);
+    }
+    saveHorizontalScrollPositions(slot);
+    slot.innerHTML = html;
+    slot.querySelectorAll("[data-collect-settings-avatar]").forEach(function (av) {
+      if (sender) fillAvatarElement(av, sender);
+    });
+    const whisperText = slot.querySelector(".collect-slip--whisper .collect-slip__reveal-text");
+    if (whisperText && pack && pack.whisper) whisperText.dataset.fullText = pack.whisper.text;
+    if (nav.screen === "history" && nav.historyDetailEntryId) {
+      const rows = getCollectHistoryRowsForCurrent();
+      const row = rows.find(function (r) {
+        return r.id === nav.historyDetailEntryId;
+      });
+      const histWhisper = slot.querySelector(
+        ".collect-history-detail .collect-slip--whisper .collect-slip__reveal-text"
+      );
+      if (histWhisper && row && row.pack && row.pack.whisper) {
+        histWhisper.dataset.fullText = row.pack.whisper.text;
+      }
+    }
+    restoreHorizontalScrollPositions(slot);
+  }
+
+  function toggleCollectCard(slot, kind) {
+    const nav = getCollectNav(slot);
+    if (!Array.isArray(nav.openCards)) nav.openCards = [];
+    if (nav.cardTransitioning) return;
+    const current = nav.openCards.length ? nav.openCards[nav.openCards.length - 1] : null;
+    if (current === kind) {
+      stopCollectAudio();
+      nav.cardTransitioning = true;
+      animateCollectCardExit(slot, function () {
+        nav.cardTransitioning = false;
+        nav.openCards = [];
+        renderCollectScreen(slot);
+      });
+      return;
+    }
+    stopCollectAudio();
+    const openNew = function () {
+      nav.openCards = [kind];
+      markCollectItemRead(kind);
+      renderCollectScreen(slot);
+    };
+    if (current) {
+      nav.cardTransitioning = true;
+      animateCollectCardExit(slot, function () {
+        nav.cardTransitioning = false;
+        openNew();
+      });
+    } else {
+      openNew();
+    }
+  }
+
+  function openCollectDetail(slot, kind) {
+    toggleCollectCard(slot, kind);
+  }
+
+  function closeCollectDetail(slot) {
+    stopCollectAudio();
+    const nav = getCollectNav(slot);
+    nav.openCards = [];
+    renderCollectScreen(slot);
+  }
+
+  function closeOverviewCollectView() {
+    stopCollectAudio();
+    const nav = getCollectNav(els.collectContentSlot());
+    nav.screen = "hub";
+    nav.detail = null;
+    nav.openCards = [];
+    nav.historyDetailEntryId = null;
+    nav.historyDetailKind = null;
+    overviewSubView = null;
+    if (!location.hash.startsWith("#/story") && location.hash !== "#/tab/overview") {
+      location.hash = "#/tab/overview";
+    }
+    syncOverviewSubViewUi();
+  }
+
+  function closeOverviewPhoneView() {
+    const slot = els.phoneContentSlot();
+    if (slot) phoneNavHome(slot);
+    overviewSubView = null;
+    if (!location.hash.startsWith("#/story") && location.hash !== "#/tab/overview") {
+      location.hash = "#/tab/overview";
+    }
+    syncOverviewSubViewUi();
   }
 
   function getPhoneWallpaperUrlForChar(charId) {
@@ -26523,7 +26282,10 @@
     const ov = getPhoneWechatAvatarOverrides();
     if (ov.holder) return ov.holder;
     const holder = getPhoneHolderCharacter();
-    if (holder && holder.avatarUrl) return String(holder.avatarUrl).trim();
+    if (!holder) return "";
+    const plotAv = getPhonePlotCharacterAvatarUrl(holder.id);
+    if (plotAv) return plotAv;
+    if (holder.avatarUrl) return String(holder.avatarUrl).trim();
     return "";
   }
 
@@ -26531,6 +26293,11 @@
     const id = String(chatId || "").trim();
     const ov = getPhoneWechatAvatarOverrides();
     if (id && ov.byKey[id]) return ov.byKey[id];
+    const chat = getPhoneWechatChat(id);
+    if (chat && chat.name) {
+      const plotAv = getPhonePlotCharacterAvatarUrl(chat.name);
+      if (plotAv) return plotAv;
+    }
     return "";
   }
 
@@ -26577,7 +26344,10 @@
     const ov = getPhoneMomentsAvatarOverrides();
     if (ov.holder) return ov.holder;
     const holder = getPhoneHolderCharacter();
-    if (holder && holder.avatarUrl) return String(holder.avatarUrl).trim();
+    if (!holder) return "";
+    const plotAv = getPhonePlotCharacterAvatarUrl(holder.id);
+    if (plotAv) return plotAv;
+    if (holder.avatarUrl) return String(holder.avatarUrl).trim();
     return "";
   }
 
@@ -26588,6 +26358,8 @@
     const holder = getPhoneHolderCharacter();
     const holderName = holder ? String(holder.name || "").trim() : "";
     if (holderName && name === holderName && ov.holder) return ov.holder;
+    const plotAv = getPhonePlotCharacterAvatarUrl(name);
+    if (plotAv) return plotAv;
     if (holderName && name === holderName && holder.avatarUrl) return String(holder.avatarUrl).trim();
     return "";
   }
@@ -26740,7 +26512,10 @@
     (Array.isArray(msgsIn) ? msgsIn : []).forEach(function (m) {
       if (!m || typeof m !== "object") return;
       const side = normalizePhoneWechatMessageSide(m, holderName, contactName);
-      const text = truncateCharsWithEllipsis(String(m.text || "").trim(), 80);
+      const text = truncateCharsWithEllipsis(
+        sanitizeChatBracketEmojiText(String(m.text || "").trim()).replace(/\s{2,}/g, " ").trim(),
+        80
+      );
       if (!text) return;
       messages.push({ side: side, text: text });
     });
@@ -26863,7 +26638,7 @@
         "3. 每条 chat 字段：id（英文短 id，唯一）、name（列表显示名）、preview（列表预览≤24字）、time（如 14:20、昨天）、messages（4～12 条；side 为 in 或 out）；与「我的形象」主角的私聊请加 \"isProtagonistChat\": true。\n" +
         buildPhoneWechatSideRuleLines(holder, "各会话的 name").join("\n") +
         "\n" +
-        "4. 对白像真实微信，口语化，可带 emoji；单条 messages.text ≤80 字。\n" +
+        "4. 对白像真实微信，口语化，可带 Unicode emoji（如 😊）；禁止 [微笑]、[捂脸] 等方括号表情文字。单条 messages.text ≤80 字。\n" +
         "5. 须与上文剧情、人设、记忆、总结一致；头像由界面取 name 首字，无需额外字段。"
     );
     return lines.join("\n");
@@ -26933,7 +26708,7 @@
         "4. 若某会话无需更新，可不写入 appendToChats。preview/time 可随最新消息更新。\n" +
         buildPhoneWechatSideRuleLines(holder, "各 appendToChats/newChats 项的 name").join("\n") +
         "\n" +
-        "5. 对白口语化像微信，单条 text ≤80 字；须与最新剧情、人设、记忆、总结一致。\n" +
+        "5. 对白口语化像微信，可带 Unicode emoji；禁止 [微笑]、[捂脸] 等方括号表情文字。单条 text ≤80 字；须与最新剧情、人设、记忆、总结一致。\n" +
         "6. 若误用 {\"chats\":[...]} 全量格式，也须保证各 id 与上文一致且 messages 仅追加新内容。"
     );
     return lines.join("\n");
@@ -27224,7 +26999,10 @@
     (Array.isArray(commentsIn) ? commentsIn : []).forEach(function (c) {
       if (!c || typeof c !== "object") return;
       const author = truncateCharsWithEllipsis(String(c.author || c.name || "").trim(), 24);
-      const text = truncateCharsWithEllipsis(String(c.text || c.content || "").trim(), PHONE_MOMENTS_COMMENT_MAX);
+      const text = truncateCharsWithEllipsis(
+        sanitizeChatBracketEmojiText(String(c.text || c.content || "").trim()).replace(/\s{2,}/g, " ").trim(),
+        PHONE_MOMENTS_COMMENT_MAX
+      );
       if (!author || !text) return;
       const replyTo = truncateCharsWithEllipsis(String(c.replyTo || c.replyToName || "").trim(), 24);
       const item = { author: author, text: text };
@@ -27256,7 +27034,10 @@
     if (seenIds) seenIds.add(id);
     const authorName = String(item.authorName || item.name || item.author || "").trim();
     if (!authorName) return null;
-    const text = truncateCharsWithEllipsis(String(item.text || item.content || "").trim(), PHONE_MOMENTS_TEXT_MAX);
+    const text = truncateCharsWithEllipsis(
+      sanitizeChatBracketEmojiText(String(item.text || item.content || "").trim()).replace(/\s{2,}/g, " ").trim(),
+      PHONE_MOMENTS_TEXT_MAX
+    );
     if (!text) return null;
     const time = String(item.time || "").trim() || "刚刚";
     const isHolder = !!item.isHolder || (holderName && authorName === holderName);
@@ -29399,23 +29180,45 @@
 
   function prunePhoneForumPostsWithoutDetail() {
     let removed = 0;
-    phoneForumData = Object.keys(phoneForumData).reduce(function (acc, key) {
-      const rec = phoneForumData[key];
-      if (!rec) return acc;
-      const nextPosts = (rec.posts || []).filter(function (post) {
-        const keep = !phoneForumPostIsUngeneratedStub(post);
-        if (!keep) removed += 1;
-        return keep;
-      });
-      acc[key] = Object.assign({}, rec, { posts: nextPosts });
-      return acc;
-    }, {});
+    const rec = getPhoneForumBundleMutable();
+    if (!rec || !rec.bundle) {
+      showToast("当前没有可自动删除的未展开帖子", "info");
+      return;
+    }
+    const bundle = rec.bundle;
+    bundle.posts = (bundle.posts || []).filter(function (post) {
+      const keep = !phoneForumPostIsUngeneratedStub(post);
+      if (!keep) removed += 1;
+      return keep;
+    });
     if (removed > 0) {
       schedulePersistNarrative();
       renderDynamic();
       showToast("已删除 " + removed + " 条未展开帖子", "success");
     } else {
       showToast("当前没有可自动删除的未展开帖子", "info");
+    }
+  }
+
+  function handlePhoneAutoDeleteClick(slot) {
+    if (!slot) return;
+    const fanworkSlotEl = slot.closest("#fanwork-content-slot, #story-fanwork-slot");
+    if (fanworkSlotEl) {
+      const fanNav = getFanworkNav(fanworkSlotEl);
+      const fanCur = String(fanNav.screen || "");
+      if (fanCur === "jjwxc" || fanCur === "jjwxc-novel" || fanCur === "jjwxc-chapter") {
+        pruneFanworkJjwxcNovelsWithoutDetail();
+      }
+      return;
+    }
+    const phoneSlotEl = slot.closest("#phone-content-slot, #story-phone-slot");
+    if (!phoneSlotEl) return;
+    const phoneNav = getPhoneNav(phoneSlotEl);
+    const phoneCur = String(phoneNav.screen || "");
+    if (phoneCur === "forum" || phoneCur === "forum-post") {
+      prunePhoneForumPostsWithoutDetail();
+    } else if (phoneCur === "jjwxc" || phoneCur === "jjwxc-novel" || phoneCur === "jjwxc-chapter") {
+      prunePhoneJjwxcNovelsWithoutDetail();
     }
   }
 
@@ -30081,10 +29884,7 @@
     const loadingCls =
       phoneForumGenerating || phoneForumSectionGenerating || postGen ? " phone-wechat-gen-btn--loading" : "";
     const disabled = isAnyPhoneAiGenerating();
-    const autoDeleteBtn =
-      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn phone-wechat-gen-btn--auto-delete" data-phone-auto-delete aria-label="自动删除未展开内容" title="自动删除未展开内容"' +
-      (disabled ? " disabled" : "") +
-      '><svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M7 6l1 14h8l1-14"/><path d="M10 11v5M14 11v5"/></svg></button>';
+    const autoDeleteBtn = buildPhoneAutoDeleteBtnHtml();
     const genBtn =
       '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
       loadingCls +
@@ -33010,8 +32810,10 @@
     const ph = !!placeholder;
 
     if (kind === "photo") {
-      const scene = ph ? "…".repeat(24) : body || meta.scene || "";
-      const caption = ph ? "" : meta.scene && body && body !== meta.scene ? body : "";
+      const sceneText = ph ? "" : String(meta.scene || "").trim();
+      const bodyText = ph ? "" : body;
+      const scene = ph ? "…".repeat(24) : sceneText || bodyText;
+      const caption = ph ? "" : sceneText && bodyText && bodyText !== sceneText ? bodyText : "";
       return (
         '<div class="phone-memo-card phone-memo-card--photo">' +
         '<div class="phone-memo-card__polaroid">' +
@@ -37961,10 +37763,7 @@
     const title = String(titleText || "晋江文学城").trim() || "晋江文学城";
     const genAttrName =
       generateAttr !== false ? String(generateAttr || "data-phone-jjwxc-generate").trim() : "";
-    const autoDeleteBtn =
-      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn phone-wechat-gen-btn--auto-delete" data-phone-auto-delete aria-label="自动删除未展开内容" title="自动删除未展开内容"' +
-      (disabled ? " disabled" : "") +
-      '><svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M7 6l1 14h8l1-14"/><path d="M10 11v5M14 11v5"/></svg></button>';
+    const autoDeleteBtn = buildPhoneAutoDeleteBtnHtml();
     const genBtn = genAttrName
       ? '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
         loadingCls +
@@ -40761,10 +40560,7 @@
         : typeof generateAttr === "string" && generateAttr.trim()
           ? generateAttr.trim()
           : "data-fanwork-jjwxc-generate";
-    const autoDeleteBtn =
-      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn phone-wechat-gen-btn--auto-delete" data-phone-auto-delete aria-label="自动删除未展开内容" title="自动删除未展开内容"' +
-      (disabled ? " disabled" : "") +
-      '><svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M7 6l1 14h8l1-14"/><path d="M10 11v5M14 11v5"/></svg></button>';
+    const autoDeleteBtn = buildPhoneAutoDeleteBtnHtml();
     const genBtn =
       genAttr
         ? '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
@@ -42192,7 +41988,7 @@
         "1. messages 仅含本次新增消息（4～12 条），须自然衔接上文最近 " +
         PHONE_WECHAT_MSG_HISTORY_REF +
         " 条。\n" +
-        "2. 单条 text ≤80 字，口语化像微信；须与最新剧情、人设、记忆、总结一致。\n" +
+        "2. 单条 text ≤80 字，口语化像微信，可带 Unicode emoji；禁止 [微笑]、[捂脸] 等方括号表情文字；须与最新剧情、人设、记忆、总结一致。\n" +
         "3. preview/time 可随最新消息更新，也可省略。"
     );
     return lines.join("\n");
@@ -42359,6 +42155,22 @@
       '<path d="M12 2l1.6 5.2L19 9l-5.4 1.8L12 16l-1.6-5.2L5 9l5.4-1.8L12 2z"/>' +
       '<path d="M19 4l.8 2.4h2.5l-2 1.5.8 2.4L19 9.2l-2.1 1.5.8-2.4-2-1.5h2.5L19 4z"/>' +
       "</svg>"
+    );
+  }
+
+  function buildPhoneAutoDeleteIconSvg() {
+    return (
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/><path d="M10 11v6M14 11v6"/>' +
+      "</svg>"
+    );
+  }
+
+  function buildPhoneAutoDeleteBtnHtml() {
+    return (
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn phone-wechat-gen-btn--auto-delete" data-phone-auto-delete aria-label="自动删除未展开内容" title="自动删除未展开内容">' +
+      buildPhoneAutoDeleteIconSvg() +
+      "</button>"
     );
   }
 
@@ -42696,14 +42508,6 @@
     return !!(slot && slot.id === "phone-content-slot");
   }
 
-  function buildPhoneOverviewBackBtnHtml() {
-    return (
-      '<button type="button" class="phone-app__back phone-home__overview-back" data-phone-overview-back aria-label="返回主屏幕" title="返回主屏幕">' +
-      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
-      "</button>"
-    );
-  }
-
   function wrapPhoneDeviceShell(innerHtml, mode) {
     const modeCls = mode === "home" ? "phone-device--home" : "phone-device--app";
     return (
@@ -42721,36 +42525,18 @@
     );
   }
 
-  function ensurePhoneOverviewBackButton(slot) {
-    if (!isPhoneOverviewSlot(slot)) return;
-    const nav = getPhoneNav(slot);
-    if (nav.screen !== "home") return;
-    const home = slot.querySelector(".phone-home");
-    if (!home) return;
-    home.classList.add("phone-home--overview");
-    if (home.querySelector("[data-phone-overview-back]")) return;
-    const wallpaper = home.querySelector(".phone-home__wallpaper");
-    if (wallpaper) {
-      wallpaper.insertAdjacentHTML("afterend", buildPhoneOverviewBackBtnHtml());
-    } else {
-      home.insertAdjacentHTML("afterbegin", buildPhoneOverviewBackBtnHtml());
-    }
-  }
-
   function renderPhoneScreen(slot) {
     if (!slot) return;
     slot.classList.remove("story-placeholder");
     const nav = getPhoneNav(slot);
-    const overviewMode = isPhoneOverviewSlot(slot);
     if (nav.screen === "home") {
       if (slot.dataset.phoneHomeRendered === "1" && slot.querySelector(".phone-home__wallpaper")) {
         tickStatusClock();
         updatePhoneHomeOwnerLabels();
         applyPhoneWallpaperStyles();
-        ensurePhoneOverviewBackButton(slot);
         return;
       }
-      slot.innerHTML = wrapPhoneDeviceShell(buildPhoneHomeHtml({ showOverviewBack: overviewMode }), "home");
+      slot.innerHTML = wrapPhoneDeviceShell(buildPhoneHomeHtml(), "home");
       slot.dataset.phoneHomeRendered = "1";
       applyPhoneWallpaperStyles();
       return;
@@ -43183,9 +42969,7 @@
     }
   }
 
-  function buildPhoneHomeHtml(opts) {
-    const o = opts && typeof opts === "object" ? opts : {};
-    const showOverviewBack = !!o.showOverviewBack;
+  function buildPhoneHomeHtml() {
     const timeText = formatClockTime(new Date());
     const appsHtml = PHONE_HOME_APPS.map(function (app) {
       return (
@@ -43204,11 +42988,8 @@
       );
     }).join("");
     return (
-      '<div class="phone-home' +
-      (showOverviewBack ? " phone-home--overview" : "") +
-      '" aria-label="手机桌面">' +
+      '<div class="phone-home" aria-label="手机桌面">' +
       '<div class="phone-home__wallpaper" aria-hidden="true"></div>' +
-      (showOverviewBack ? buildPhoneOverviewBackBtnHtml() : "") +
       '<div class="phone-home__top">' +
       '<time class="phone-home__clock" datetime="' +
       escapeHtml(timeText) +
@@ -43318,7 +43099,25 @@
   function buildGenCallOpts(kind, params) {
     params = params || {};
     const slot = params.slot;
-    const slotId = resolveGenSlotId(slot, kind.indexOf("fanwork") >= 0 ? "fanwork-content-slot" : "phone-content-slot");
+    const slotId = resolveGenSlotId(
+      slot,
+      kind.indexOf("fanwork") >= 0
+        ? "fanwork-content-slot"
+        : kind.indexOf("collect") >= 0
+          ? "collect-content-slot"
+          : "phone-content-slot"
+    );
+
+    if (kind === "collect-pack") {
+      return {
+        genReady: {
+          message: "收取已完成",
+          navigate: function () {
+            openOverviewSubView("collect");
+          },
+        },
+      };
+    }
 
     if (kind === "fanwork-jjwxc-chapter") {
       const hit = findFanworkJjwxcNovel(params.novelId);
@@ -47745,7 +47544,7 @@
     return buildVisualMultiRefSectionHtml({
       refKey: "appearance",
       sectionTitle: "外貌参考（自拍/人像）",
-      uploadHint: "点击空位上传，建议补充正脸、侧脸等不同角度",
+      uploadHint: "点击空位上传，建议补充手机自拍或日常人像参考（正脸、侧脸等不同角度）",
       slotLabel: "角度",
     });
   }
@@ -47753,8 +47552,8 @@
   function buildVisualDailyRefSectionHtml() {
     return buildVisualMultiRefSectionHtml({
       refKey: "daily",
-      sectionTitle: "日常参考（物品/环境）",
-      uploadHint: "点击空位上传，可补充物品特写、场景全景等",
+      sectionTitle: "日常参考（打卡/环境）",
+      uploadHint: "点击空位上传，可参考网红打卡照：美食、街景、自然风光等",
       slotLabel: "参考",
     });
   }
@@ -47804,7 +47603,7 @@
       "</span>" +
       '<div class="visual-image-enable-card__text">' +
       '<span class="visual-image-enable-card__title">启用聊天发图</span>' +
-      '<span class="visual-image-enable-card__hint">开启后，聊天可自动生成写实风格图片；在敲敲里发送「测试生成一张自拍」或「测试生成一张场景」可一键测试</span>' +
+      '<span class="visual-image-enable-card__hint">开启后，与「主要角色」敲敲聊天可发图（收取拍立得同用此 API）；写实手机拍照风格。发送「测试生成一张自拍/场景」可一键测试</span>' +
       "</div></div>" +
       '<button type="button" class="story-summaries-switch' +
       (visualImageSettings.enabled ? " story-summaries-switch--on" : "") +
@@ -48199,258 +47998,6 @@
     });
   }
 
-  function syncCallSttFormState(rootEl) {
-    if (!rootEl) return;
-    const on = !!callSettings.sttEnabled;
-    const provider = callSettings.sttProvider || "sherpa-ncnn";
-    const needCloudKey = provider === "openai" || provider === "minimax";
-    rootEl.querySelectorAll("#call-stt-provider, #call-stt-language").forEach(function (el) {
-      if (el) el.disabled = !on;
-    });
-    ["#call-stt-api-key", "#call-stt-endpoint"].forEach(function (sel) {
-      const el = rootEl.querySelector(sel);
-      if (!el) return;
-      el.disabled = !on || !needCloudKey;
-      const row = el.closest(".call-settings-grid__full") || el.parentElement;
-      if (row) row.style.display = needCloudKey ? "" : "none";
-    });
-  }
-
-  function collectCallSettingsFromForm(rootEl) {
-    if (!rootEl) return;
-    const sttToggle = rootEl.querySelector("#call-stt-enabled-toggle");
-    const provider = rootEl.querySelector("#call-stt-provider");
-    const apiKey = rootEl.querySelector("#call-stt-api-key");
-    const endpoint = rootEl.querySelector("#call-stt-endpoint");
-    const language = rootEl.querySelector("#call-stt-language");
-    const autoRecord = rootEl.querySelector("#call-auto-record-toggle");
-    const aiEnabled = rootEl.querySelector("#call-ai-enabled-toggle");
-    const autoGreeting = rootEl.querySelector("#call-auto-greeting-toggle");
-    const voiceReply = rootEl.querySelector("#call-voice-reply-toggle");
-    const useTurboTts = rootEl.querySelector("#call-turbo-tts-toggle");
-    const maxTokens = rootEl.querySelector("#call-reply-max-tokens");
-    const ctxLimit = rootEl.querySelector("#call-context-limit");
-    const ringDelay = rootEl.querySelector("#call-ring-delay");
-    if (sttToggle) callSettings.sttEnabled = sttToggle.getAttribute("aria-checked") === "true";
-    if (provider) callSettings.sttProvider = provider.value || "sherpa-ncnn";
-    if (apiKey) callSettings.sttApiKey = String(apiKey.value || "").trim();
-    if (endpoint) callSettings.sttEndpoint = String(endpoint.value || "").trim();
-    if (language) callSettings.sttLanguage = String(language.value || "zh-CN").trim() || "zh-CN";
-    if (autoRecord) callSettings.autoRecord = autoRecord.getAttribute("aria-checked") === "true";
-    if (aiEnabled) callSettings.aiEnabled = aiEnabled.getAttribute("aria-checked") === "true";
-    if (autoGreeting) callSettings.autoGreeting = autoGreeting.getAttribute("aria-checked") === "true";
-    if (voiceReply) callSettings.voiceReply = voiceReply.getAttribute("aria-checked") === "true";
-    if (useTurboTts) callSettings.useTurboTts = useTurboTts.getAttribute("aria-checked") === "true";
-    if (maxTokens) {
-      const n = parseInt(maxTokens.value, 10);
-      if (n > 0) callSettings.replyMaxTokens = n;
-    }
-    if (ctxLimit) {
-      const n = parseInt(ctxLimit.value, 10);
-      if (n > 0) callSettings.contextMessageLimit = n;
-    }
-    if (ringDelay) {
-      const n = parseInt(ringDelay.value, 10);
-      if (n >= 0) callSettings.ringDelayMs = n;
-    }
-  }
-
-  function bindCallSettingsSwitch(rootEl, id, key) {
-    const el = rootEl.querySelector(id);
-    if (!el) return;
-    el.addEventListener("click", function () {
-      const on = el.getAttribute("aria-checked") !== "true";
-      el.setAttribute("aria-checked", on ? "true" : "false");
-      el.classList.toggle("story-summaries-switch--on", on);
-      callSettings[key] = on;
-      persistCallSettings();
-    });
-  }
-
-  function buildCallSettingsSectionHtml() {
-    const providerOpts = [
-      { id: "sherpa-ncnn", label: "sherpa-ncnn 本地离线（推荐）" },
-      { id: "openai", label: "OpenAI Whisper" },
-      { id: "minimax", label: "MiniMax / Token Plan（Whisper）" },
-      { id: "browser", label: "浏览器内置" },
-    ]
-      .map(function (p) {
-        return (
-          '<option value="' +
-          escapeHtml(p.id) +
-          '"' +
-          (callSettings.sttProvider === p.id ? " selected" : "") +
-          ">" +
-          escapeHtml(p.label) +
-          "</option>"
-        );
-      })
-      .join("");
-    const tokenOpts = [
-      { v: 220, label: "较短" },
-      { v: 380, label: "适中（推荐）" },
-      { v: 520, label: "较长" },
-    ]
-      .map(function (o) {
-        return (
-          '<option value="' +
-          o.v +
-          '"' +
-          (callSettings.replyMaxTokens === o.v ? " selected" : "") +
-          ">" +
-          escapeHtml(o.label) +
-          "</option>"
-        );
-      })
-      .join("");
-    return (
-      '<section class="settings-panel settings-panel--call">' +
-      '<div class="settings-panel__head"><h3 class="settings-panel__title">拨通 · 语音通话</h3></div>' +
-      '<div class="settings-panel__body tts-settings-compact">' +
-      '' +
-      '<div class="call-settings-row">' +
-      '<span class="call-settings-row__label">AI 通话对话</span>' +
-      '<button type="button" class="story-summaries-switch' +
-      (callSettings.aiEnabled ? " story-summaries-switch--on" : "") +
-      '" id="call-ai-enabled-toggle" role="switch" aria-checked="' +
-      (callSettings.aiEnabled ? "true" : "false") +
-      '" aria-label="AI 通话对话"><span class="story-summaries-switch__track" aria-hidden="true"><span class="story-summaries-switch__thumb"></span></span></button></div>' +
-      '<div class="call-settings-row">' +
-      '<span class="call-settings-row__label">接通后自动问候</span>' +
-      '<button type="button" class="story-summaries-switch' +
-      (callSettings.autoGreeting ? " story-summaries-switch--on" : "") +
-      '" id="call-auto-greeting-toggle" role="switch" aria-checked="' +
-      (callSettings.autoGreeting ? "true" : "false") +
-      '" aria-label="接通后自动问候"><span class="story-summaries-switch__track" aria-hidden="true"><span class="story-summaries-switch__thumb"></span></span></button></div>' +
-      '<div class="call-settings-row">' +
-      '<span class="call-settings-row__label">朗读对方回复（TTS）</span>' +
-      '<button type="button" class="story-summaries-switch' +
-      (callSettings.voiceReply ? " story-summaries-switch--on" : "") +
-      '" id="call-voice-reply-toggle" role="switch" aria-checked="' +
-      (callSettings.voiceReply ? "true" : "false") +
-      '" aria-label="朗读对方回复"><span class="story-summaries-switch__track" aria-hidden="true"><span class="story-summaries-switch__thumb"></span></span></button></div>' +
-      '<div class="call-settings-row">' +
-      '<span class="call-settings-row__label">TTS 使用 Turbo 模型</span>' +
-      '<button type="button" class="story-summaries-switch' +
-      (callSettings.useTurboTts ? " story-summaries-switch--on" : "") +
-      '" id="call-turbo-tts-toggle" role="switch" aria-checked="' +
-      (callSettings.useTurboTts ? "true" : "false") +
-      '" aria-label="TTS Turbo"><span class="story-summaries-switch__track" aria-hidden="true"><span class="story-summaries-switch__thumb"></span></span></button></div>' +
-      '<div class="call-settings-row">' +
-      '<span class="call-settings-row__label">接通后自动录音</span>' +
-      '<button type="button" class="story-summaries-switch' +
-      (callSettings.autoRecord ? " story-summaries-switch--on" : "") +
-      '" id="call-auto-record-toggle" role="switch" aria-checked="' +
-      (callSettings.autoRecord ? "true" : "false") +
-      '" aria-label="接通后自动录音"><span class="story-summaries-switch__track" aria-hidden="true"><span class="story-summaries-switch__thumb"></span></span></button></div>' +
-      '<div class="tts-settings-compact__grid call-settings-grid">' +
-      '<label class="field"><span class="field__label">回复长度上限</span>' +
-      '<select class="field__input" id="call-reply-max-tokens" aria-label="回复长度">' +
-      tokenOpts +
-      "</select></label>" +
-      '<label class="field"><span class="field__label">纳入上下文条数</span>' +
-      '<input class="field__input" id="call-context-limit" type="number" min="4" max="24" step="1" value="' +
-      escapeHtml(String(callSettings.contextMessageLimit || 10)) +
-      '" /></label>' +
-      '<label class="field call-settings-grid__full"><span class="field__label">振铃时长（毫秒，越短越快接通）</span>' +
-      '<input class="field__input" id="call-ring-delay" type="number" min="0" max="8000" step="100" value="' +
-      escapeHtml(String(callSettings.ringDelayMs != null ? callSettings.ringDelayMs : 1800)) +
-      '" /></label></div>' +
-      '<div class="call-settings-row">' +
-      '<span class="call-settings-row__label">启用语音识别 STT</span>' +
-      '<button type="button" class="story-summaries-switch' +
-      (callSettings.sttEnabled ? " story-summaries-switch--on" : "") +
-      '" id="call-stt-enabled-toggle" role="switch" aria-checked="' +
-      (callSettings.sttEnabled ? "true" : "false") +
-      '" aria-label="启用语音识别"><span class="story-summaries-switch__track" aria-hidden="true"><span class="story-summaries-switch__thumb"></span></span></button></div>' +
-      '<div class="tts-settings-compact__grid call-settings-grid">' +
-      '<select class="field__input" id="call-stt-provider" aria-label="STT 提供商"' +
-      (callSettings.sttEnabled ? "" : " disabled") +
-      ">" +
-      providerOpts +
-      "</select>" +
-      '<input class="field__input" id="call-stt-language" type="text" placeholder="语言，如 zh-CN" value="' +
-      escapeHtml(callSettings.sttLanguage || "zh-CN") +
-      '" autocomplete="off"' +
-      (callSettings.sttEnabled ? "" : " disabled") +
-      " />" +
-      '<input class="field__input call-settings-grid__full" id="call-stt-api-key" type="password" placeholder="STT API Key（MiniMax 可留空，复用上方订阅 Key）" value="' +
-      escapeHtml(callSettings.sttApiKey || "") +
-      '" autocomplete="off"' +
-      (callSettings.sttEnabled ? "" : " disabled") +
-      " />" +
-      '<input class="field__input call-settings-grid__full" id="call-stt-endpoint" type="url" placeholder="STT API 地址（可选，默认 MiniMax 或当前 API 站点）" value="' +
-      escapeHtml(callSettings.sttEndpoint || "") +
-      '" autocomplete="off"' +
-      (callSettings.sttEnabled ? "" : " disabled") +
-      " />" +
-      "</div>" +
-      '' +
-      '<div class="tts-settings-compact__actions">' +
-      '<button type="button" class="btn btn--primary btn--pill" id="call-settings-save-btn">保存通话设置</button>' +
-      "</div></div></section>"
-    );
-  }
-
-  function bindCallSettingsHandlers(rootEl) {
-    if (!rootEl) return;
-    bindCallSettingsSwitch(rootEl, "#call-auto-record-toggle", "autoRecord");
-    bindCallSettingsSwitch(rootEl, "#call-ai-enabled-toggle", "aiEnabled");
-    bindCallSettingsSwitch(rootEl, "#call-auto-greeting-toggle", "autoGreeting");
-    bindCallSettingsSwitch(rootEl, "#call-voice-reply-toggle", "voiceReply");
-    bindCallSettingsSwitch(rootEl, "#call-turbo-tts-toggle", "useTurboTts");
-    bindCallSettingsSwitch(rootEl, "#call-stt-enabled-toggle", "sttEnabled");
-    const sttToggle = rootEl.querySelector("#call-stt-enabled-toggle");
-    if (sttToggle) {
-      sttToggle.addEventListener("click", function () {
-        syncCallSttFormState(rootEl);
-        if (
-          callSettings.sttEnabled &&
-          (callSettings.sttProvider || "sherpa-ncnn") === "sherpa-ncnn" &&
-          typeof SherpaStt !== "undefined"
-        ) {
-          showToast("正在后台加载语音识别模型…", "info", 2400);
-          void SherpaStt.load({
-            onStatus: function (text) {
-              if (text && /downloading|loading|下载/i.test(text)) {
-                showToast(String(text).replace(/\s+/g, " ").trim(), "info", 2000);
-              }
-            },
-          }).catch(function (err) {
-            const msg = (err && err.message) || "模型加载失败";
-            showToast(msg, "warning", 3600);
-          });
-        }
-      });
-    }
-    const providerSel = rootEl.querySelector("#call-stt-provider");
-    if (providerSel) {
-      providerSel.addEventListener("change", function () {
-        callSettings.sttProvider = providerSel.value || "sherpa-ncnn";
-        syncCallSttFormState(rootEl);
-        persistCallSettings();
-      });
-    }
-    syncCallSttFormState(rootEl);
-    const saveBtn = rootEl.querySelector("#call-settings-save-btn");
-    if (saveBtn) {
-      saveBtn.addEventListener("click", function () {
-        collectCallSettingsFromForm(rootEl);
-        persistCallSettings();
-        showToast("通话设置已保存", "success");
-      });
-    }
-    rootEl
-      .querySelectorAll(
-        "#call-stt-provider, #call-stt-language, #call-stt-api-key, #call-stt-endpoint, #call-reply-max-tokens, #call-context-limit, #call-ring-delay"
-      )
-      .forEach(function (el) {
-        el.addEventListener("change", function () {
-          collectCallSettingsFromForm(rootEl);
-          persistCallSettings();
-        });
-      });
-  }
 
   function bindApiSettingsHandlers(rootEl) {
     if (!rootEl) return;
@@ -48766,14 +48313,12 @@
       "</div></div></section>";
 
     html += buildTtsSettingsSectionHtml();
-    html += buildCallSettingsSectionHtml();
     html += buildVisualImageSettingsSectionHtml();
 
     el.innerHTML = html;
     bindApiSettingsHandlers(el);
     bindVisualImageSettingsHandlers(el);
     bindTtsSettingsHandlers(el);
-    bindCallSettingsHandlers(el);
     enhanceCustomSelectsIn(el);
     void refreshSettingsFontDiagnostics(el);
   }
@@ -48850,6 +48395,7 @@
       if (overviewSubView === "phone") renderPhoneScreen(els.phoneContentSlot());
       else if (overviewSubView === "fanwork") renderFanworkScreen(els.fanworkContentSlot());
       else if (overviewSubView === "knock") renderKnockScreen(els.knockContentSlot(), { scrollToEnd: true });
+      else if (overviewSubView === "collect") renderCollectScreen(els.collectContentSlot());
     }
     if (els.modalAssistantProfile() && !els.modalAssistantProfile().hidden) {
       renderAssistantProfileModal();
@@ -48935,15 +48481,6 @@
           void openOverviewKnockView();
           return;
         }
-        if (t === "dial") {
-          els.layerStory().hidden = true;
-          activeTab = "overview";
-          els.views().forEach((v) => v.classList.toggle("view--active", v.dataset.view === "overview"));
-          els.navItems().forEach((btn) => btn.classList.toggle("is-active", btn.dataset.tab === "overview"));
-          syncMainScrollMode();
-          void openOverviewDialView();
-          return;
-        }
         overviewSubView = LEGACY_OVERVIEW_SUB_TAB_IDS[t];
         t = "overview";
       } else if (t === "overview") {
@@ -48973,7 +48510,7 @@
     if (!root) return;
     let lastTapAt = 0;
     function onWorkbenchAction(e) {
-      const chip = e.target.closest(".workbench-widgets [data-assistant-action]");
+      const chip = e.target.closest(".workbench-tools [data-assistant-action], .workbench-features [data-assistant-action]");
       if (!chip || !root.contains(chip)) return;
       const now = Date.now();
       if (now - lastTapAt < 320) return;
@@ -48985,12 +48522,33 @@
     }
     root.addEventListener("click", onWorkbenchAction);
     root.addEventListener("touchend", onWorkbenchAction, { passive: false });
+
+    // 信封照片上传
+    const envelope = root.querySelector(".workbench-envelope");
+    if (envelope) {
+      const fileInput = envelope.querySelector(".envelope-file-input");
+      const photoImg = envelope.querySelector(".envelope-photo");
+      const hint = envelope.querySelector(".envelope-upload-hint");
+      if (fileInput && photoImg) {
+        fileInput.addEventListener("change", (e) => {
+          const file = e.target.files && e.target.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            photoImg.src = ev.target.result;
+            photoImg.hidden = false;
+            if (hint) hint.style.display = "none";
+          };
+          reader.readAsDataURL(file);
+        });
+      }
+    }
   }
 
   document.getElementById("view-overview").addEventListener("click", (e) => {
     const chip = e.target.closest("[data-assistant-action]");
     if (!chip || !document.getElementById("view-overview").contains(chip)) return;
-    if (chip.closest(".workbench-widgets")) return;
+    if (chip.closest(".workbench-tools") || chip.closest(".workbench-features")) return;
     const action = chip.getAttribute("data-assistant-action");
     if (action) handleAssistantQuickAction(action);
   });
@@ -49228,83 +48786,6 @@
     }
   });
 
-  function getDialEventRoot(e) {
-    return e.target.closest("#dial-content-slot");
-  }
-
-  document.addEventListener("click", function (e) {
-    const root = getDialEventRoot(e);
-    if (!root || !root.contains(e.target)) return;
-    if (handleDialContentTap(e, root)) return;
-  });
-  document.addEventListener(
-    "touchend",
-    function (e) {
-      const root = getDialEventRoot(e);
-      if (!root || !root.contains(e.target)) return;
-      if (handleDialContentTap(e, root)) {
-        e.preventDefault();
-      }
-    },
-    { passive: false }
-  );
-  document.addEventListener(
-    "pointerdown",
-    function (e) {
-      beginHorizontalScrollGuard(e);
-    },
-    { passive: true }
-  );
-  document.addEventListener(
-    "pointermove",
-    function (e) {
-      trackHorizontalScrollGuardMove(e);
-    },
-    { passive: true }
-  );
-  document.addEventListener(
-    "pointerup",
-    function () {
-      if (!horizontalScrollGuard || !horizontalScrollGuard.moved) {
-        horizontalScrollGuard = null;
-      }
-    },
-    { passive: true }
-  );
-  document.addEventListener(
-    "pointercancel",
-    function () {
-      horizontalScrollGuard = null;
-    },
-    { passive: true }
-  );
-  document.addEventListener(
-    "input",
-    function (e) {
-      const callInput = e.target.closest("[data-dial-call-input]");
-      if (callInput && getDialEventRoot(e) && dialCallSession) {
-        dialCallSession.composerDraft = String(callInput.value || "");
-        return;
-      }
-      const input = e.target.closest("[data-dial-contact-search]");
-      if (!input || !getDialEventRoot(e)) return;
-      dialContactQuery = String(input.value || "");
-      renderDialScreen(els.dialContentSlot());
-    },
-    true
-  );
-  document.addEventListener(
-    "keydown",
-    function (e) {
-      if (e.key !== "Enter") return;
-      const callInput = e.target.closest("[data-dial-call-input]");
-      const root = callInput && getDialEventRoot(e);
-      if (!root || !callInput) return;
-      e.preventDefault();
-      sendDialCallMessage(root);
-    },
-    true
-  );
 
   function handleKnockContentTap(e, slot) {
     if (e.target.closest("[data-knock-back]")) {
@@ -49573,7 +49054,19 @@
               else if (pick.key) ov.byKey[pick.key] = dataUrl;
               bundle.avatarOverrides = ov;
               knockMomentsData[key] = bundle;
-              persistNarrative();
+              if (pick.kind === "holder" && knockUserCharId && knockPartnerCharId) {
+                setKnockAvatarOverride("user", dataUrl, knockPartnerCharId);
+              } else if (pick.key && knockUserCharId && knockPartnerCharId) {
+                const partner = getKnockPartnerCharById(knockPartnerCharId);
+                const partnerName = partner ? String(partner.name || "").trim() : "";
+                if (partnerName && pick.key === partnerName) {
+                  setKnockAvatarOverride("partner", dataUrl, knockPartnerCharId);
+                } else {
+                  persistNarrative();
+                }
+              } else {
+                persistNarrative();
+              }
               showToast("头像已更新", "success");
               renderKnockScreen(pick.slot || els.knockContentSlot());
             } catch (_err) {
@@ -49600,6 +49093,18 @@
         showToast("组合已保存", "success");
         renderKnockScreen(slot);
       }
+      return true;
+    }
+    const pairDeleteBtn = e.target.closest("[data-knock-pair-delete]");
+    if (pairDeleteBtn) {
+      const parsed = parseKnockPairSelectToken(pairDeleteBtn.getAttribute("data-knock-pair-delete"));
+      if (parsed) deleteKnockPair(parsed.userCharId, parsed.partnerCharId, slot);
+      return true;
+    }
+    const pairSelectBtn = e.target.closest("[data-knock-pair-select]");
+    if (pairSelectBtn) {
+      const parsed = parseKnockPairSelectToken(pairSelectBtn.getAttribute("data-knock-pair-select"));
+      if (parsed) activateKnockPairSelection(parsed.userCharId, parsed.partnerCharId, slot);
       return true;
     }
     const savedPairBtn = e.target.closest("[data-knock-saved-pair]");
@@ -49706,6 +49211,12 @@
       }
       if (shouldIgnoreHorizontalScrollTap()) return true;
       knockUserCharId = nextId;
+      if (knockPartnerCharId && getKnockPartnerBinding(knockPartnerCharId, nextId)) {
+        const mainList = getKnockMainCharacters().filter(function (c) {
+          return !getKnockPartnerBinding(c.id, nextId);
+        });
+        knockPartnerCharId = mainList.length ? mainList[0].id : null;
+      }
       applyKnockCharPickUpdate(slot);
       return true;
     }
@@ -49717,6 +49228,15 @@
         return true;
       }
       if (shouldIgnoreHorizontalScrollTap()) return true;
+      const binding = getKnockPartnerBinding(nextId, knockUserCharId);
+      if (binding) {
+        const boundUser = getCharById(binding.userCharId);
+        showToast(
+          "该角色已与「" + (boundUser ? boundUser.name || "其他形象" : "其他形象") + "」绑定，请先在下方删除对应组合。",
+          "info"
+        );
+        return true;
+      }
       knockPartnerCharId = nextId;
       getKnockSessionMetaMutable().pinnedPartnerId = nextId;
       applyKnockCharPickUpdate(slot);
@@ -49732,7 +49252,15 @@
     }
     const voiceToggle = e.target.closest("[data-knock-voice-toggle]");
     if (voiceToggle && !knockSelectMode) {
-      toggleKnockVoiceExpanded(voiceToggle.getAttribute("data-knock-msg-index"));
+      const msgIdx = Number(voiceToggle.getAttribute("data-knock-msg-index"));
+      const hit = getKnockListenHit(msgIdx);
+      if (hit) {
+        const msgRow = voiceToggle.closest("[data-knock-msg-index]");
+        const avEl = msgRow ? msgRow.querySelector(".knock-chat__avatar") : null;
+        void playKnockMessageTts(msgIdx, avEl);
+      } else {
+        toggleKnockVoiceExpanded(msgIdx);
+      }
       renderKnockScreen(slot);
       return true;
     }
@@ -49916,7 +49444,10 @@
     const stickerPick = e.target.closest("[data-knock-sticker-pick]");
     if (stickerPick) {
       if (shouldIgnoreHorizontalScrollTap()) return true;
-      if (!isKnockStickerCenterTap(stickerPick, e)) return true;
+      if (!isKnockStickerCenterTap(stickerPick, e)) {
+        showToast("请点击表情中央发送", "info");
+        return true;
+      }
       const url = stickerPick.getAttribute("data-sticker-url");
       const name = stickerPick.getAttribute("data-sticker-name") || "";
       sendKnockSticker(url, name);
@@ -50513,9 +50044,124 @@
       if (e.target.id === "modal-phone-holder") closePhoneHolderModal();
     });
   }
+  if (els.collectHolderClose()) {
+    els.collectHolderClose().addEventListener("click", closeCollectHolderModal);
+  }
+  if (els.collectHolderStepBack()) {
+    els.collectHolderStepBack().addEventListener("click", collectHolderModalBackToPlot);
+  }
+  if (els.modalCollectHolder()) {
+    els.modalCollectHolder().addEventListener("click", function (e) {
+      if (e.target.id === "modal-collect-holder") closeCollectHolderModal();
+    });
+  }
+  document.addEventListener("click", function (e) {
+    const slot = e.target.closest("#collect-content-slot");
+    if (!slot || !slot.contains(e.target)) return;
+
+    if (e.target.closest("[data-collect-back]")) {
+      const nav = getCollectNav(slot);
+      if (nav.screen === "history") {
+        if (nav.historyDetailEntryId) {
+          stopCollectAudio();
+          nav.historyDetailEntryId = null;
+          nav.historyDetailKind = null;
+          renderCollectScreen(slot);
+        } else {
+          nav.screen = "settings";
+          renderCollectScreen(slot);
+        }
+      } else if (nav.screen === "settings") {
+        nav.screen = "hub";
+        renderCollectScreen(slot);
+      } else {
+        closeOverviewCollectView();
+      }
+      return;
+    }
+
+    if (e.target.closest("[data-collect-settings]")) {
+      const nav = getCollectNav(slot);
+      nav.screen = "settings";
+      renderCollectScreen(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-collect-change-holder]")) {
+      openCollectHolderModal({ mode: "settings" });
+      return;
+    }
+
+    if (e.target.closest("[data-collect-regenerate]")) {
+      void generateCollectPack(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-collect-view-history]")) {
+      const nav = getCollectNav(slot);
+      nav.screen = "history";
+      nav.historyDetailEntryId = null;
+      nav.historyDetailKind = null;
+      renderCollectScreen(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-collect-history-close]")) {
+      const nav = getCollectNav(slot);
+      stopCollectAudio();
+      nav.historyDetailEntryId = null;
+      nav.historyDetailKind = null;
+      renderCollectScreen(slot);
+      return;
+    }
+
+    const historyOpenBtn = e.target.closest("[data-collect-history-open]");
+    if (historyOpenBtn && !historyOpenBtn.disabled) {
+      const nav = getCollectNav(slot);
+      stopCollectAudio();
+      nav.historyDetailEntryId = historyOpenBtn.getAttribute("data-collect-history-entry");
+      nav.historyDetailKind = historyOpenBtn.getAttribute("data-collect-history-open");
+      renderCollectScreen(slot);
+      return;
+    }
+
+    const openBtn = e.target.closest("[data-collect-open]");
+    if (openBtn && !openBtn.disabled) {
+      toggleCollectCard(slot, openBtn.getAttribute("data-collect-open"));
+      return;
+    }
+
+    if (e.target.closest("[data-collect-detail-close]")) {
+      closeCollectDetail(slot);
+      return;
+    }
+
+    const ttsBtn = e.target.closest("[data-collect-tts]");
+    if (ttsBtn && !ttsBtn.classList.contains("is-disabled")) {
+      void playCollectTts(slot, ttsBtn.getAttribute("data-collect-tts"));
+      return;
+    }
+
+    const flipBtn = e.target.closest("[data-collect-flip-photo]");
+    if (flipBtn) {
+      toggleCollectPhotoFlip(flipBtn);
+      return;
+    }
+
+    const savePhotoBtn = e.target.closest("[data-collect-save-photo]");
+    if (savePhotoBtn) {
+      void saveCollectPhotoToDevice(savePhotoBtn.getAttribute("data-collect-photo-url"));
+      return;
+    }
+  });
   document.addEventListener("click", function (e) {
     const slot = e.target.closest("#phone-content-slot, #story-phone-slot");
     if (!slot || !slot.contains(e.target)) return;
+
+    if (e.target.closest("[data-phone-auto-delete]")) {
+      handlePhoneAutoDeleteClick(slot);
+      return;
+    }
 
     if (e.target.closest("[data-phone-list-select-toggle]")) {
       handlePhoneListSelectToggle(slot);
@@ -51051,15 +50697,13 @@
       }
     }
 
-    if (e.target.closest("[data-phone-overview-back]")) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (slot.id === "phone-content-slot") closeOverviewPhoneView();
-      return;
-    }
-
     if (e.target.closest("[data-phone-home]")) {
-      phoneNavHome(slot);
+      const nav = getPhoneNav(slot);
+      if (isPhoneOverviewSlot(slot) && nav.screen === "home") {
+        closeOverviewPhoneView();
+      } else {
+        phoneNavHome(slot);
+      }
       return;
     }
 
@@ -51086,6 +50730,11 @@
   document.addEventListener("click", function (e) {
     const slot = e.target.closest("#fanwork-content-slot, #story-fanwork-slot");
     if (!slot || !slot.contains(e.target)) return;
+
+    if (e.target.closest("[data-phone-auto-delete]")) {
+      handlePhoneAutoDeleteClick(slot);
+      return;
+    }
 
     if (e.target.closest("[data-fanwork-back]")) {
       fanworkNavBack(slot);
@@ -52351,7 +52000,6 @@
   loadUiBrightnessAndApply();
   loadApiConfigs();
   loadTtsSettings();
-  loadCallSettings();
   loadVisualImageSettings();
   loadAssistantState();
   applyPostClearAssistantBlankStateIfNeeded();
