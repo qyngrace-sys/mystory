@@ -13,9 +13,11 @@
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import mimetypes
 import os
+import socket
 import sys
 import urllib.error
 import urllib.parse
@@ -26,6 +28,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 UPSTREAM = os.environ.get("UPSTREAM", "https://api.dzzi.ai").rstrip("/")
 PORT = int(os.environ.get("PORT", "8080"))
+ALLOWED_ORIGINS = frozenset(
+    {
+        f"http://127.0.0.1:{PORT}",
+        f"http://localhost:{PORT}",
+    }
+)
 
 
 def map_api_path(path: str) -> str | None:
@@ -36,12 +44,42 @@ def map_api_path(path: str) -> str | None:
     return None
 
 
+def is_safe_public_fetch_url(url: str) -> bool:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return False
+    host = parsed.hostname
+    if not host:
+        return False
+    lowered = host.lower()
+    if lowered in {"localhost", "127.0.0.1", "0.0.0.0", "::1"} or lowered.endswith(".local"):
+        return False
+    try:
+        for info in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM):
+            ip = ipaddress.ip_address(info[4][0])
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_multicast
+                or ip.is_reserved
+                or ip.is_unspecified
+            ):
+                return False
+    except OSError:
+        return False
+    return True
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         sys.stderr.write("[serve] " + (fmt % args) + "\n")
 
     def send_cors(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = self.headers.get("Origin", "")
+        if origin in ALLOWED_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
@@ -113,6 +151,9 @@ class Handler(BaseHTTPRequestHandler):
         target = (qs.get("url") or [""])[0].strip()
         if not target.startswith(("http://", "https://")):
             self.send_error(400, "missing or invalid url")
+            return
+        if not is_safe_public_fetch_url(target):
+            self.send_error(403, "url not allowed")
             return
         req = urllib.request.Request(
             target,

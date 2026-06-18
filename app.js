@@ -52,10 +52,6 @@
       tones: ["#c2d3de", "#f0f6f9", "#85a6c2"],
     },
   ];
-  const THEME_PALETTE_MAP = THEME_PALETTES.reduce(function (acc, item) {
-    acc[item.id] = item;
-    return acc;
-  }, {});
   const APPEARANCE_DYNAMIC_VARS = [
     "--bg",
     "--surface",
@@ -263,6 +259,9 @@
   /** 仍可接受的最旧 manifest.version（旧备份固定为 1） */
   const BACKUP_IMPORT_MIN_VERSION = 1;
   const BACKUP_IMPORT_MAX_SIZE = 100 * 1024 * 1024;
+  /** ZIP 内 IndexedDB 附加资源清单（TTS 语音缓存等；剧情 narrativeV1 与 userFont 单独处理） */
+  const BACKUP_IDB_ASSETS_MANIFEST = "idb-assets/manifest.json";
+  const IDB_USER_FONT_KEY = "userFont";
   /** 单个自定义字体上限（节选/完整中文族、可变字体可达数十 MB） */
   const FONT_UPLOAD_MAX_BYTES = 96 * 1024 * 1024;
   const FONT_UPLOAD_MAX_LABEL = Math.round(FONT_UPLOAD_MAX_BYTES / (1024 * 1024)) + "MB";
@@ -641,96 +640,33 @@
     else if (mq.addListener) mq.addListener(onSchemeChange);
   }
 
-  const GLOBAL_GEN_PAW_MODAL_IDS = [
-    "modal-assistant-theme",
-    "modal-assistant-rewrite",
-    "modal-assistant-gen-wb",
-    "modal-assistant-plot-reply",
-    "modal-assistant-switch",
-  ];
-  const globalGenPawCounts = Object.create(null);
-  let globalGenPawKeyStack = [];
-  let globalGenPawWatchHandle = 0;
   let pendingGenCallContext = null;
   /** API 已成功但业务尚未收尾时暂存，在 clearGenCallContext 后统一弹出（与加载态同步） */
   let deferredGenReadyNotice = null;
   let genReadyBannerEl = null;
   let genReadyBannerTimer = 0;
 
-  function totalGlobalGenPawActive() {
-    let n = 0;
-    for (const k in globalGenPawCounts) {
-      if (Object.prototype.hasOwnProperty.call(globalGenPawCounts, k)) n += globalGenPawCounts[k];
-    }
-    return n;
+  function escapeHtml(raw) {
+    return String(raw || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
-  function getGlobalGenPawContext() {
-    for (let i = 0; i < GLOBAL_GEN_PAW_MODAL_IDS.length; i++) {
-      const id = GLOBAL_GEN_PAW_MODAL_IDS[i];
-      const modal = document.getElementById(id);
-      if (modal && !modal.hidden) {
-        const root = modal.querySelector(".modal-sheet") || modal;
-        return { key: "modal:" + id, root: root };
-      }
-    }
-    const modalStoryPhone = document.getElementById("modal-story-phone");
-    if (modalStoryPhone && !modalStoryPhone.hidden) {
-      const slot = document.getElementById("story-phone-slot");
-      const nav = getPhoneNav(slot);
-      return {
-        key: "story:phone:" + phoneNavContextKey(nav),
-        root: resolveGenPawRootFromSlot(slot) || slot,
-      };
-    }
-    const modalStoryFanwork = document.getElementById("modal-story-fanwork");
-    if (modalStoryFanwork && !modalStoryFanwork.hidden) {
-      const slot = document.getElementById("story-fanwork-slot");
-      const nav = getFanworkNav(slot);
-      return {
-        key: "story:fanwork:" + fanworkNavContextKey(nav),
-        root: resolveGenPawRootFromSlot(slot) || slot,
-      };
-    }
-    const layerStory = document.getElementById("layer-story");
-    if (layerStory && !layerStory.hidden) {
-      const playPanel = document.getElementById("story-panel-play");
-      const setupPanel = document.getElementById("story-panel-setup");
-      let root = layerStory;
-      let sub = "layer";
-      if (playPanel && !playPanel.hidden) {
-        root = playPanel;
-        sub = "play";
-      } else if (setupPanel && !setupPanel.hidden) {
-        root = setupPanel;
-        sub = "setup";
-      }
-      const pid = lastStoryPlotId || "unknown";
-      return { key: "story:" + pid + ":" + sub, root: root };
-    }
-    if (activeTab === "overview") {
-      if (overviewSubView === "phone") {
-        const slot = document.getElementById("phone-content-slot");
-        const ctx = buildPhonePawContext(slot);
-        return { key: "overview:" + ctx.key, root: ctx.root };
-      }
-      if (overviewSubView === "fanwork") {
-        const slot = document.getElementById("fanwork-content-slot");
-        const ctx = buildFanworkPawContext(slot);
-        return { key: "overview:" + ctx.key, root: ctx.root };
-      }
-      if (overviewSubView === "knock") {
-        const slot = document.getElementById("knock-content-slot");
-        return { key: "overview:knock", root: slot || document.getElementById("view-overview") };
-      }
-      if (overviewSubView === "dial") {
-        const slot = document.getElementById("dial-content-slot");
-        return { key: "overview:dial", root: slot || document.getElementById("view-overview") };
-      }
-      return { key: "overview:hub", root: document.getElementById("view-overview") };
-    }
-    const view = document.getElementById("view-" + activeTab);
-    return { key: "tab:" + activeTab, root: view || document.getElementById("main-scroll") };
+  function isSafeImageUrl(url) {
+    const u = String(url || "").trim();
+    if (!u || u.length > 12_000_000) return false;
+    if (/^data:image\/[a-z0-9+.-]+;base64,/i.test(u)) return !/[\s<>"']/.test(u);
+    if (/^https:\/\//i.test(u)) return !/[\s<>"'\\)(]/.test(u);
+    return false;
+  }
+
+  function buildCssBackgroundImageStyleAttr(url) {
+    const u = String(url || "").trim();
+    if (!isSafeImageUrl(u)) return "";
+    return ' style="background-image:url(&quot;' + escapeHtml(u) + '&quot;)"';
   }
 
   function setGenCallContext(ctx) {
@@ -846,55 +782,8 @@
     opts = opts && typeof opts === "object" ? opts : {};
     const pending = pendingGenCallContext || {};
     return {
-      pawContext: opts.pawContext || pending.pawContext || getGlobalGenPawContext(),
       genReady: opts.genReady || pending.genReady || null,
     };
-  }
-
-  function ensureGlobalGenPawContextWatch() {
-    if (globalGenPawWatchHandle) return;
-    function tick() {
-      if (totalGlobalGenPawActive() <= 0) {
-        globalGenPawWatchHandle = 0;
-        return;
-      }
-      syncGlobalGenPawOverlay();
-      globalGenPawWatchHandle = requestAnimationFrame(tick);
-    }
-    globalGenPawWatchHandle = requestAnimationFrame(tick);
-  }
-
-  function syncGlobalGenPawOverlay() {
-    const el = document.getElementById("global-gen-paw-overlay");
-    if (!el) return;
-    const current = getGlobalGenPawContext();
-    const count = globalGenPawCounts[current.key] || 0;
-    const show = count > 0;
-    if (show && current.root) {
-      current.root.classList.add("global-gen-paw-host");
-      if (el.parentNode !== current.root) current.root.appendChild(el);
-    } else {
-      const fallback = document.getElementById("app-shell");
-      if (fallback && el.parentNode !== fallback) fallback.appendChild(el);
-    }
-    el.hidden = !show;
-    el.setAttribute("aria-hidden", show ? "false" : "true");
-  }
-
-  function beginGlobalGenPawOverlay(ctxOpt) {
-    const ctx = ctxOpt || getGlobalGenPawContext();
-    globalGenPawCounts[ctx.key] = (globalGenPawCounts[ctx.key] || 0) + 1;
-    globalGenPawKeyStack.push(ctx.key);
-    syncGlobalGenPawOverlay();
-    ensureGlobalGenPawContextWatch();
-  }
-
-  function endGlobalGenPawOverlay() {
-    const key = globalGenPawKeyStack.pop();
-    if (!key) return;
-    globalGenPawCounts[key] = Math.max(0, (globalGenPawCounts[key] || 0) - 1);
-    if (globalGenPawCounts[key] === 0) delete globalGenPawCounts[key];
-    syncGlobalGenPawOverlay();
   }
 
   function showToast(message, type, duration) {
@@ -1007,6 +896,83 @@
           tx.onerror = () => reject(tx.error);
         })
     );
+  }
+
+  function isIdbReservedBackupKey(key) {
+    return key === IDB_NARRATIVE_KEY || key === IDB_USER_FONT_KEY;
+  }
+
+  function idbListAllKeys() {
+    return idbOpen().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          const tx = db.transaction(IDB_STORE, "readonly");
+          const store = tx.objectStore(IDB_STORE);
+          if (typeof store.getAllKeys === "function") {
+            const r = store.getAllKeys();
+            r.onsuccess = () => resolve(r.result || []);
+            r.onerror = () => reject(r.error);
+            return;
+          }
+          const keys = [];
+          const req = store.openKeyCursor();
+          req.onsuccess = () => {
+            const cursor = req.result;
+            if (cursor) {
+              keys.push(cursor.key);
+              cursor.continue();
+            } else {
+              resolve(keys);
+            }
+          };
+          req.onerror = () => reject(req.error);
+        })
+    );
+  }
+
+  function idbDeleteAsset(key) {
+    return idbOpen().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          const tx = db.transaction(IDB_STORE, "readwrite");
+          tx.objectStore(IDB_STORE).delete(key);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        })
+    );
+  }
+
+  function idbDeleteAllExtraAssets() {
+    return idbListAllKeys().then(function (keys) {
+      const extras = keys.filter(function (k) {
+        return !isIdbReservedBackupKey(k);
+      });
+      return Promise.all(
+        extras.map(function (k) {
+          return idbDeleteAsset(k);
+        })
+      );
+    });
+  }
+
+  async function collectIdbExtraAssetsForBackup() {
+    let keys = [];
+    try {
+      keys = await idbListAllKeys();
+    } catch (_eKeys) {
+      return [];
+    }
+    const out = [];
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      if (isIdbReservedBackupKey(key)) continue;
+      try {
+        const val = await idbGetAsset(key);
+        if (val == null) continue;
+        out.push({ key: key, value: val });
+      } catch (_eGet) {}
+    }
+    return out;
   }
 
   function formatApproxStoredBytes(bytes) {
@@ -1162,6 +1128,9 @@
     try {
       await idbDeleteNarrativeJson();
     } catch (e2) {}
+    try {
+      await idbDeleteAllExtraAssets();
+    } catch (e3) {}
     showToast("数据已清除，正在刷新页面…", "success");
     try {
       location.hash = "#/tab/overview";
@@ -1247,6 +1216,7 @@
             "API 配置与密钥",
             "外观主题、亮度、字体与状态栏等设置",
             "自定义字体文件（如有）",
+            "已合成的 TTS 语音缓存（如有）",
           ],
         },
         null,
@@ -1274,6 +1244,25 @@
       fontBuffer = null;
     }
     if (fontBuffer) zip.file("userFont.bin", fontBuffer);
+    try {
+      const idbExtras = await collectIdbExtraAssetsForBackup();
+      if (idbExtras.length) {
+        const idbManifest = [];
+        for (let i = 0; i < idbExtras.length; i++) {
+          const item = idbExtras[i];
+          const file = "idb-assets/" + i + ".bin";
+          const mime =
+            item.value instanceof Blob && item.value.type ? String(item.value.type) : "";
+          idbManifest.push({ key: item.key, file: file, mime: mime });
+          zip.file(file, item.value);
+        }
+        zip.file(BACKUP_IDB_ASSETS_MANIFEST, JSON.stringify(idbManifest, null, 2));
+      }
+    } catch (eIdbExtra) {
+      try {
+        console.error(eIdbExtra);
+      } catch (_eLogIdb) {}
+    }
     return zip.generateAsync({
       type: "blob",
       compression: "DEFLATE",
@@ -1578,6 +1567,27 @@
       } else {
         await idbDeleteFont();
       }
+      try {
+        await idbDeleteAllExtraAssets();
+        const idbManifestEntry = zipGetFileInsensitive(zip, BACKUP_IDB_ASSETS_MANIFEST);
+        if (idbManifestEntry) {
+          const idbManifest = JSON.parse(stripJsonUtf8Bom(await idbManifestEntry.async("string")));
+          if (Array.isArray(idbManifest)) {
+            for (let i = 0; i < idbManifest.length; i++) {
+              const ent = idbManifest[i];
+              if (!ent || typeof ent.key !== "string" || typeof ent.file !== "string" || !ent.file) {
+                continue;
+              }
+              const fileEntry = zipGetFileInsensitive(zip, ent.file);
+              if (!fileEntry) continue;
+              const buf = await fileEntry.async("arraybuffer");
+              const mime = typeof ent.mime === "string" ? ent.mime.trim() : "";
+              const val = mime ? new Blob([buf], { type: mime }) : new Blob([buf]);
+              await idbPutAsset(ent.key, val);
+            }
+          }
+        }
+      } catch (_eIdbRestore) {}
       showToast("备份导入成功，正在刷新页面…", "success");
       try {
         location.hash = "#/tab/overview";
@@ -1853,23 +1863,26 @@
         renderDynamic();
       }
       if (btn.hasAttribute("data-phone-auto-delete")) {
-        const slot = document.getElementById("phone-content-slot");
-        const fanworkSlot = document.getElementById("fanwork-content-slot");
-        const activeNav = slot ? getPhoneNav(slot) : null;
-        const activeFanNav = fanworkSlot ? getFanworkNav(fanworkSlot) : null;
-        const cur = activeNav && activeNav.screen ? activeNav.screen : activeFanNav && activeFanNav.screen ? activeFanNav.screen : "";
-        if (cur === "forum" || cur === "forum-post") {
-          prunePhoneForumPostsWithoutDetail();
+        const fanworkSlotEl = btn.closest("#fanwork-content-slot, #story-fanwork-slot");
+        const phoneSlotEl = btn.closest("#phone-content-slot, #story-phone-slot");
+        if (fanworkSlotEl) {
+          const fanNav = getFanworkNav(fanworkSlotEl);
+          const fanCur = String(fanNav.screen || "");
+          if (fanCur === "jjwxc" || fanCur === "jjwxc-novel" || fanCur === "jjwxc-chapter") {
+            pruneFanworkJjwxcNovelsWithoutDetail();
+          }
           return;
         }
-        if (cur === "jjwxc" || cur === "jjwxc-novel" || cur === "jjwxc-chapter") {
-          prunePhoneJjwxcNovelsWithoutDetail();
-          return;
+        if (phoneSlotEl) {
+          const phoneNav = getPhoneNav(phoneSlotEl);
+          const phoneCur = String(phoneNav.screen || "");
+          if (phoneCur === "forum" || phoneCur === "forum-post") {
+            prunePhoneForumPostsWithoutDetail();
+          } else if (phoneCur === "jjwxc" || phoneCur === "jjwxc-novel" || phoneCur === "jjwxc-chapter") {
+            prunePhoneJjwxcNovelsWithoutDetail();
+          }
         }
-        if (cur === "fanwork" || cur === "fanwork-jjwxc" || cur === "fanwork-jjwxc-novel" || cur === "fanwork-jjwxc-chapter") {
-          pruneFanworkJjwxcNovelsWithoutDetail();
-          return;
-        }
+        return;
       }
       if (btn.id === "btn-custom-palette-save") {
         const t1Input = root.querySelector("#custom-palette-tone-1");
@@ -2338,24 +2351,8 @@
 
   /** narrative 载入与 migrate 延后到 bootstrap 末尾的 hydrate（IndexedDB / localStorage）；此处占位。 */
 
-  let apiConfigs = [
-    {
-      id: "a1",
-      name: "GPT-4o · OpenAI",
-      endpoint: "https://api.openai.com/v1",
-      key: "sk-proj-xxxxxxxxxxxxxxxx4d8f",
-      model: "gpt-4o",
-    },
-    {
-      id: "a2",
-      name: "Claude 3.5 · Anthropic",
-      endpoint: "https://api.anthropic.com",
-      key: "sk-ant-xxxxxxxxxxxx",
-      model: "claude-3-5-sonnet-20241022",
-    },
-  ];
-
-  let activeApiId = "a1";
+  let apiConfigs = [];
+  let activeApiId = "";
   const MINIMAX_REGIONS = [
     { id: "cn", label: "国内版（api.minimaxi.com）", baseUrl: "https://api.minimaxi.com/v1" },
     { id: "intl", label: "国际版（api.minimax.io）", baseUrl: "https://api.minimax.io/v1" },
@@ -2420,6 +2417,10 @@
   let knockUserCharId = null;
   /** 敲敲：聊天对象 id（非我的形象） */
   let knockPartnerCharId = null;
+  /** 敲敲：已保存的角色组合 */
+  let knockSavedPairs = [];
+  /** 敲敲：当前激活的已保存组合 id */
+  let knockActiveSavedPairId = null;
   /** 敲敲：聊天记录 key = userCharId + \u001e + partnerCharId */
   let knockChatData = {};
   /** 敲敲：是否展开人设选择面板 */
@@ -2449,8 +2450,10 @@
   /** 敲敲：头像更换 pick { slot, role } */
   let knockAvatarPick = null;
   /** 敲敲：角色横向列表滑动时避免误触选中 */
-  let knockPickScrollGuard = null;
-  /** 敲敲：用户自定义表情包分组 [{ id, name, stickers: [{ id, url }], mounted?: boolean }] */
+  let horizontalScrollGuard = null;
+  const HORIZONTAL_SCROLL_SELECTOR =
+    ".h-scroll, .pill-row, .phone-forum__pill-scroll, .phone-jjwxc__pill-scroll, .knock-sticker-panel__tabs";
+  /** 敲敲：用户自定义表情包分组 [{ id, name, stickers: [{ id, url, name? }], mounted?: boolean }]；挂载后仅主要角色 AI 可按名称发送 */
   let knockStickerPacks = [];
   /** 敲敲：是否展开表情包选择面板 */
   let knockStickerPanelOpen = false;
@@ -2460,6 +2463,8 @@
   let knockActiveStickerPackId = null;
   /** 敲敲：是否展开加号功能面板 */
   let knockPlusPanelOpen = false;
+  /** 敲敲：是否展开聊天外观设置（头像/背景/气泡色） */
+  let knockChatAppearanceOpen = false;
   /** 敲敲：输入模式 text | voice */
   let knockComposerMode = "text";
   /** 敲敲：次级操作 sheet transfer | snap | delivery | location | xhslink | event | null */
@@ -2474,13 +2479,16 @@
   let knockExpandedVoiceMsgs = [];
   /** 敲敲：输入框引用草稿 { msgIndex, text, authorName, role } */
   let knockQuoteDraft = null;
+  /** 敲敲：倾听 TTS 当前播放的消息下标与头像元素 */
+  let knockTtsPlayingMsgIndex = null;
+  let knockTtsPlayingAv = null;
   /** 敲敲：主 Tab chat | moments | me */
   let knockMainTab = "chat";
   /** 敲敲：子屏 null | chat-detail */
   let knockSubScreen = null;
-  /** 敲敲朋友圈：key = knockUserCharId */
+  /** 敲敲朋友圈：key = knockUserCharId + \u001e + knockPartnerCharId */
   let knockMomentsData = {};
-  /** 敲敲朋友圈封面：key = knockUserCharId */
+  /** 敲敲朋友圈封面：key = knockUserCharId + \u001e + knockPartnerCharId */
   let knockMomentsCovers = {};
   let knockMomentsGenerating = false;
   let knockMomentsComposerOpen = false;
@@ -2530,7 +2538,6 @@
   /** 拨通：形象面板内正在编辑人设的角色 id */
   let dialIdentityEditCharId = null;
   /** 拨通：形象横向列表滑动时避免误触选中 */
-  let dialIdentityPickScrollGuard = null;
   /** 拨通：各「我的形象」在本功能内的人设覆盖 */
   let dialPersonaOverrides = {};
   /** 拨通：联系人详情页当前角色 id（非我的形象） */
@@ -2632,8 +2639,6 @@
   let phoneAlbumData = {};
   let phoneAlbumGenerating = false;
   /** 查手机相册：正在生成照片的图片 id */
-  let phoneAlbumPhotoGenerating = false;
-  let phoneAlbumPhotoGeneratingId = null;
   /** 查手机论坛：key = plotId + \\u001e + holderCharId */
   let phoneForumData = {};
   let phoneForumGenerating = false;
@@ -2704,56 +2709,6 @@
       fanworkNavBySlotId[slot.id] = { screen: "jjwxc", plotPickOpen: false };
     }
     return fanworkNavBySlotId[slot.id];
-  }
-
-  function resolveGenPawRootFromSlot(slot) {
-    if (!slot) return null;
-    const app = slot.querySelector(".phone-app");
-    if (app) return app;
-    const device = slot.querySelector(".phone-device");
-    if (device) return device;
-    return slot;
-  }
-
-  function phoneNavContextKey(nav) {
-    if (!nav) return "home";
-    const s = String(nav.screen || "home");
-    if (s === "wechat-chat") return "wechat:chat:" + String(nav.chatId || "");
-    if (s === "wechat-list") return "wechat:list";
-    if (s === "jjwxc-chapter") return "jjwxc:ch:" + nav.jjwxcNovelId + ":" + nav.jjwxcChapterId;
-    if (s === "jjwxc-novel") return "jjwxc:novel:" + nav.jjwxcNovelId;
-    if (s === "forum-post") return "forum:post:" + nav.forumPostId;
-    if (s === "weread-book") return "weread:book:" + nav.wereadBookId;
-    if (s === "album" && nav.albumPhotoId) return "album:photo:" + nav.albumPhotoId;
-    return s;
-  }
-
-  function fanworkNavContextKey(nav) {
-    if (!nav) return "jjwxc";
-    const s = String(nav.screen || "jjwxc");
-    if (s === "jjwxc-chapter") return "jjwxc:ch:" + nav.jjwxcNovelId + ":" + nav.jjwxcChapterId;
-    if (s === "jjwxc-novel") return "jjwxc:novel:" + nav.jjwxcNovelId;
-    return s;
-  }
-
-  function buildPhonePawContext(slot) {
-    if (!slot) slot = document.getElementById("phone-content-slot");
-    const nav = getPhoneNav(slot);
-    const slotId = slot && slot.id ? slot.id : "phone-content-slot";
-    return {
-      key: "phone:" + slotId + ":" + phoneNavContextKey(nav),
-      root: resolveGenPawRootFromSlot(slot),
-    };
-  }
-
-  function buildFanworkPawContext(slot) {
-    if (!slot) slot = document.getElementById("fanwork-content-slot");
-    const nav = getFanworkNav(slot);
-    const slotId = slot && slot.id ? slot.id : "fanwork-content-slot";
-    return {
-      key: "fanwork:" + slotId + ":" + fanworkNavContextKey(nav),
-      root: resolveGenPawRootFromSlot(slot),
-    };
   }
 
   let sheetPov = "第三人称";
@@ -8299,6 +8254,11 @@
       plotFavoriteTtsBtn = null;
     }
     plotFavoriteTtsPlayingId = null;
+    if (knockTtsPlayingAv) {
+      setKnockAvatarTtsState(knockTtsPlayingAv, false, false);
+      knockTtsPlayingAv = null;
+    }
+    knockTtsPlayingMsgIndex = null;
   }
 
   async function fetchStoryTtsBlob(speakText, voicePrompt, contextText) {
@@ -8896,6 +8856,8 @@
       knockMomentsCovers: knockMomentsCovers || {},
       knockSessionMeta: knockSessionMeta || {},
       knockInternalCharacters: knockInternalCharacters || {},
+      knockSavedPairs: knockSavedPairs || [],
+      knockActiveSavedPairId: knockActiveSavedPairId || null,
       knockStickerPacks: knockStickerPacks || [],
       dialUserCharId: dialUserCharId || null,
       dialCallRecordingBlobs: dialCallRecordingBlobs || {},
@@ -9316,6 +9278,18 @@
         });
       }
       migrateKnockGeneratedCharsOutOfLibrary();
+      knockSavedPairs = [];
+      if (Array.isArray(o.knockSavedPairs)) {
+        o.knockSavedPairs.forEach(function (item) {
+          const pair = normalizeKnockSavedPair(item);
+          if (pair) knockSavedPairs.push(pair);
+        });
+      }
+      knockActiveSavedPairId =
+        typeof o.knockActiveSavedPairId === "string" && o.knockActiveSavedPairId.trim()
+          ? o.knockActiveSavedPairId.trim()
+          : null;
+      migrateKnockMomentsKeysIfNeeded();
       knockStickerPacks = normalizeKnockStickerPacks(o.knockStickerPacks);
       ensureKnockActiveStickerPack();
       dialUserCharId =
@@ -10077,8 +10051,6 @@
     const isGem = apiModelLooksGemini(cfg.model);
     const alreadyRetried = !!(opts && opts.geminiMergedRetry);
     const genExtras = resolveGenCallExtras(opts);
-    const skipGenPaw = !!(opts && opts.skipGenPaw);
-    if (!skipGenPaw) beginGlobalGenPawOverlay(genExtras.pawContext);
     let ok = false;
     try {
       try {
@@ -10103,7 +10075,6 @@
         }
       }
     } finally {
-      if (!skipGenPaw) endGlobalGenPawOverlay();
       if (ok && genExtras.genReady && !(opts && opts.skipGenReady)) stashGenReadyNotice(genExtras.genReady);
     }
   }
@@ -12110,7 +12081,6 @@
     }
     syncOverviewSubViewUi();
     renderDynamic();
-    syncGlobalGenPawOverlay();
   }
 
   function syncMainScrollMode() {
@@ -12145,7 +12115,6 @@
       shell.classList.toggle("app-shell--feature-fullscreen", isOverviewFeatureFullscreenView(overviewSubView));
     }
     syncMainScrollMode();
-    syncGlobalGenPawOverlay();
   }
 
   function openOverviewSubView(view) {
@@ -12181,7 +12150,6 @@
     else if (v === "fanwork") renderFanworkScreen(els.fanworkContentSlot());
     else if (v === "knock") renderKnockScreen(els.knockContentSlot(), { scrollToEnd: true });
     else if (v === "dial") renderDialScreen(els.dialContentSlot());
-    syncGlobalGenPawOverlay();
   }
 
   function knockChatStorageKey(userCharId, partnerCharId) {
@@ -12203,6 +12171,33 @@
       partner: raw.partner != null ? String(raw.partner).trim() : "",
     };
   }
+
+  function normalizeKnockCssColor(raw) {
+    const s = String(raw || "").trim();
+    if (!s) return "";
+    if (/^#[0-9a-f]{3,8}$/i.test(s)) return s.toLowerCase();
+    if (/^rgba?\(/i.test(s)) return s;
+    return "";
+  }
+
+  function normalizeKnockChatStyle(raw) {
+    if (!raw || typeof raw !== "object") return { bgUrl: "", bubbleIn: "", bubbleOut: "" };
+    const bgUrl = raw.bgUrl != null ? String(raw.bgUrl).trim() : "";
+    return {
+      bgUrl: /^data:image\//i.test(bgUrl) || /^https?:\/\//i.test(bgUrl) ? bgUrl : "",
+      bubbleIn: normalizeKnockCssColor(raw.bubbleIn),
+      bubbleOut: normalizeKnockCssColor(raw.bubbleOut),
+    };
+  }
+
+  const KNOCK_CHAT_BUBBLE_PRESETS = [
+    { id: "default", label: "默认", bubbleIn: "", bubbleOut: "" },
+    { id: "wechat", label: "经典绿", bubbleIn: "#ffffff", bubbleOut: "#95ec69" },
+    { id: "sky", label: "晴空蓝", bubbleIn: "#ffffff", bubbleOut: "#c9e7ff" },
+    { id: "rose", label: "浅粉", bubbleIn: "#ffffff", bubbleOut: "#ffd6e7" },
+    { id: "lavender", label: "薰衣草", bubbleIn: "#ffffff", bubbleOut: "#e8dcff" },
+    { id: "night", label: "深色", bubbleIn: "#3a3f4b", bubbleOut: "#5b6cff" },
+  ];
 
   function normalizeKnockChatRecord(raw) {
     const src = raw && typeof raw === "object" ? raw : {};
@@ -12261,6 +12256,7 @@
         partner: normalizeKnockPersonaOverride(personaOverrides.partner),
       },
       avatarOverrides: normalizeKnockAvatarOverrides(src.avatarOverrides),
+      chatStyle: normalizeKnockChatStyle(src.chatStyle),
       summaries: summaries,
       summaryCursorMsgIndex: summaryCursorMsgIndex,
       summaryInFlight: !!src.summaryInFlight,
@@ -12414,31 +12410,54 @@
     rec.summaryInFlight = false;
   }
 
-  function getKnockAvatarUrlForRole(role) {
-    const key = role === "partner" ? "partner" : "user";
-    if (isKnockChatReady()) {
-      const rec = getKnockChatRecordMutable();
-      if (rec && rec.avatarOverrides && rec.avatarOverrides[key]) {
-        const ov = String(rec.avatarOverrides[key]).trim();
-        if (ov) return ov;
-      }
-    }
-    const charId = key === "partner" ? knockPartnerCharId : knockUserCharId;
-    const char = charId ? (key === "partner" ? getKnockPartnerCharById(charId) : getCharById(charId)) : null;
+  function getKnockLibraryAvatarUrl(char) {
     return char && char.avatarUrl ? String(char.avatarUrl).trim() : "";
+  }
+
+  function getKnockChatRecordForPair(userCharId, partnerCharId) {
+    const key = knockChatStorageKey(userCharId, partnerCharId);
+    return knockChatData[key] || null;
+  }
+
+  function getKnockAvatarUrlForPair(userCharId, partnerCharId, role) {
+    const key = role === "partner" ? "partner" : "user";
+    const rec = getKnockChatRecordForPair(userCharId, partnerCharId);
+    if (rec && rec.avatarOverrides && rec.avatarOverrides[key]) {
+      const ov = String(rec.avatarOverrides[key]).trim();
+      if (ov) return ov;
+    }
+    const charId = key === "partner" ? partnerCharId : userCharId;
+    const char = charId ? (key === "partner" ? getKnockPartnerCharById(charId) : getCharById(charId)) : null;
+    return getKnockLibraryAvatarUrl(char);
+  }
+
+  function getKnockDisplayCharForPair(char, role, userCharId, partnerCharId) {
+    if (!char) return char;
+    const url = getKnockAvatarUrlForPair(userCharId, partnerCharId, role);
+    if (!url || url === getKnockLibraryAvatarUrl(char)) return char;
+    return Object.assign({}, char, { avatarUrl: url });
+  }
+
+  function getKnockAvatarUrlForRole(role) {
+    if (!knockUserCharId || !knockPartnerCharId) return "";
+    return getKnockAvatarUrlForPair(knockUserCharId, knockPartnerCharId, role);
   }
 
   function getKnockDisplayChar(char, role) {
     if (!char) return char;
-    const url = getKnockAvatarUrlForRole(role);
-    if (!url || url === String(char.avatarUrl || "").trim()) return char;
-    return Object.assign({}, char, { avatarUrl: url });
+    if (!knockUserCharId || !knockPartnerCharId) return char;
+    return getKnockDisplayCharForPair(char, role, knockUserCharId, knockPartnerCharId);
   }
 
-  function setKnockAvatarOverride(role, url) {
-    if (!isKnockChatReady()) return false;
-    const rec = getKnockChatRecordMutable();
-    if (!rec) return false;
+  function setKnockAvatarOverride(role, url, partnerCharId) {
+    const uid = knockUserCharId;
+    const pid = partnerCharId != null ? partnerCharId : knockPartnerCharId;
+    if (!uid || !pid) return false;
+    const storageKey = knockChatStorageKey(uid, pid);
+    if (!knockChatData[storageKey]) {
+      knockChatData[storageKey] = normalizeKnockChatRecord({});
+    }
+    const rec = knockChatData[storageKey];
     if (!rec.avatarOverrides) rec.avatarOverrides = normalizeKnockAvatarOverrides(null);
     const key = role === "partner" ? "partner" : "user";
     rec.avatarOverrides[key] = String(url || "").trim();
@@ -12446,14 +12465,100 @@
     return true;
   }
 
-  function openKnockAvatarPicker(slot, role) {
+  function getKnockChatStyle(rec) {
+    const r = rec || getKnockChatRecordMutable();
+    if (!r) return normalizeKnockChatStyle(null);
+    if (!r.chatStyle) r.chatStyle = normalizeKnockChatStyle(null);
+    else r.chatStyle = normalizeKnockChatStyle(r.chatStyle);
+    return r.chatStyle;
+  }
+
+  function setKnockChatStyle(patch) {
+    const rec = getKnockChatRecordMutable();
+    if (!rec) return false;
+    const cur = getKnockChatStyle(rec);
+    const next = normalizeKnockChatStyle(Object.assign({}, cur, patch || {}));
+    rec.chatStyle = next;
+    persistNarrative();
+    return true;
+  }
+
+  function applyKnockChatStyleToRoot(slot) {
+    const root = slot && slot.querySelector(".knock-chat--themed");
+    if (!root) return;
+    const style = getKnockChatStyle();
+    root.style.removeProperty("--knock-chat-thread-bg");
+    root.style.removeProperty("--knock-bubble-in-bg");
+    root.style.removeProperty("--knock-bubble-out-bg");
+    root.style.removeProperty("--knock-bubble-in-fg");
+    root.style.removeProperty("--knock-bubble-out-fg");
+    if (style.bgUrl) {
+      root.style.setProperty("--knock-chat-thread-bg", 'url("' + String(style.bgUrl).replace(/"/g, '\\"') + '")');
+    }
+    if (style.bubbleIn) {
+      root.style.setProperty("--knock-bubble-in-bg", style.bubbleIn);
+      if (style.bubbleIn === "#3a3f4b") root.style.setProperty("--knock-bubble-in-fg", "#f2f3f5");
+    }
+    if (style.bubbleOut) {
+      root.style.setProperty("--knock-bubble-out-bg", style.bubbleOut);
+      if (style.bubbleOut === "#5b6cff") root.style.setProperty("--knock-bubble-out-fg", "#ffffff");
+    }
+  }
+
+  function bindKnockChatBgUpload() {
+    let input = document.getElementById("knock-chat-bg-file");
+    if (!input) {
+      input = document.createElement("input");
+      input.type = "file";
+      input.id = "knock-chat-bg-file";
+      input.className = "sr-only";
+      input.accept = "image/*";
+      document.body.appendChild(input);
+    }
+    if (input.dataset.knockChatBgBound === "1") return;
+    input.dataset.knockChatBgBound = "1";
+    input.addEventListener("change", async function (e) {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      try {
+        const url = await readImageAsCompressedDataURL(f, 1080, 680000);
+        if (!setKnockChatStyle({ bgUrl: url })) {
+          showToast("背景保存失败", "error");
+          return;
+        }
+        showToast("聊天背景已更新", "success");
+        renderKnockScreen(els.knockContentSlot());
+      } catch (_err) {
+        showToast("图片处理失败，请换一张较小的图片重试。", "error");
+      }
+      e.target.value = "";
+    });
+  }
+
+  function openKnockChatBgPicker() {
     if (!isKnockChatReady()) {
-      showToast("请先选择主视角与聊天对象。", "info");
+      showToast("请先完成聊天设定。", "info");
+      return;
+    }
+    bindKnockChatBgUpload();
+    const input = document.getElementById("knock-chat-bg-file");
+    if (input) input.click();
+  }
+
+  function openKnockAvatarPicker(slot, role, partnerCharId) {
+    if (!knockUserCharId) {
+      showToast("请先选择主视角。", "info");
+      return;
+    }
+    const pid = partnerCharId != null ? partnerCharId : knockPartnerCharId;
+    if (!pid && role === "partner") {
+      showToast("请先选择聊天对象。", "info");
       return;
     }
     knockAvatarPick = {
       slot: slot || null,
       role: role === "partner" ? "partner" : "user",
+      partnerCharId: pid || knockPartnerCharId,
     };
     bindKnockAvatarUpload();
     const input = document.getElementById("knock-avatar-file");
@@ -12479,11 +12584,11 @@
       if (!f || !pick) return;
       try {
         const url = await readImageAsCompressedDataURL(f, 256, 380000);
-        if (!setKnockAvatarOverride(pick.role, url)) {
+        if (!setKnockAvatarOverride(pick.role, url, pick.partnerCharId)) {
           showToast("头像保存失败", "error");
           return;
         }
-        showToast("头像已保存（仅本对话）", "success");
+        showToast("头像已保存", "success");
         if (pick.slot) renderKnockScreen(pick.slot);
       } catch (_err) {
         showToast("图片处理失败，请换一张较小的图片重试。", "error");
@@ -12514,6 +12619,18 @@
     const msgs = getKnockChatMessages();
     if (!msgs.length) return false;
     return msgs[msgs.length - 1].role === "user";
+  }
+
+  function knockCanGenerateReply() {
+    const msgs = getKnockChatMessages();
+    if (!msgs.length) return false;
+    const last = msgs[msgs.length - 1];
+    return last.role === "user" || last.role === "assistant";
+  }
+
+  function isKnockPartnerMainCharacter() {
+    const partner = knockPartnerCharId ? getKnockPartnerCharById(knockPartnerCharId) : null;
+    return !!(partner && partner.categoryId === CHAR_CATEGORY_MAIN_ID);
   }
 
   function normalizeKnockStickerName(raw) {
@@ -12758,6 +12875,7 @@
   }
 
   function getKnockMountedStickers() {
+    if (!isKnockPartnerMainCharacter()) return [];
     const list = [];
     knockStickerPacks.forEach(function (pack) {
       if (!pack || !pack.mounted) return;
@@ -12770,6 +12888,24 @@
     return list;
   }
 
+  function getKnockMountedStickerCatalog() {
+    const stickers = getKnockMountedStickers();
+    return stickers.map(function (s, i) {
+      const name = normalizeKnockStickerName(s.name) || "表情" + (i + 1);
+      return { url: s.url, name: name };
+    });
+  }
+
+  function lookupKnockMountedStickerByName(name) {
+    const key = normalizeKnockStickerName(name);
+    if (!key) return null;
+    const catalog = getKnockMountedStickerCatalog();
+    for (let i = 0; i < catalog.length; i++) {
+      if (catalog[i].name === key) return catalog[i];
+    }
+    return null;
+  }
+
   function getKnockMountedStickerUrls() {
     return getKnockMountedStickers().map(function (s) {
       return s.url;
@@ -12777,28 +12913,32 @@
   }
 
   function buildKnockMountedStickerPromptBlock() {
-    const urls = getKnockMountedStickerUrls();
-    if (!urls.length) return "";
+    const catalog = getKnockMountedStickerCatalog();
+    if (!catalog.length) return "";
+    const lines = catalog
+      .map(function (s, i) {
+        return i + 1 + ". 「" + s.name + "」";
+      })
+      .join("\n");
     return (
       "\n\n【挂载表情包】\n" +
-      "你共有 " +
-      urls.length +
-      " 张可用表情包（编号 1～" +
-      urls.length +
-      "）。\n" +
-      "发第 N 号表情包：单独一行且整行仅输出 <<<STICKER>>>N<<<STICKER>>>（N 为整数）。\n" +
-      "文字消息仍用 <<<BUBBLE>>> 分隔；可与表情包混发。不要编造超出编号范围的表情包。"
+      "以下是你可发送的表情包（仅可使用下列名称，不得编造或使用未列出的表情）：\n" +
+      lines +
+      "\n发某张表情包：单独一行且整行仅输出 <<<STICKER>>>名称<<<STICKER>>>，名称须与上列「」内完全一致。\n" +
+      "文字消息仍用 <<<BUBBLE>>> 分隔；可与表情包混发。"
     );
   }
 
   function buildKnockSpecialActionPromptBlock() {
     return (
-      "\n\n【可选特殊消息】仅在剧情需要时使用；仍以短文字气泡为主，可与 <<<BUBBLE>>> 混发：\n" +
-      "- 转账：单独一行 <<<TRANSFER>>>金额|备注<<<TRANSFER>>>（备注可留空，如 <<<TRANSFER>>>52.00|<<<TRANSFER>>>）\n" +
-      "- 语音：<<<VOICE>>>口语化文字<<<VOICE>>>\n" +
-      "- 拍摄/照片：<<<SNAP>>>画面描述<<<SNAP>>>\n" +
-      "- 外卖：<<<DELIVERY>>>waimai|商品名|备注<<<DELIVERY>>>；礼物：<<<DELIVERY>>>gift|商品名|备注<<<DELIVERY>>>\n" +
-      "- 位置：<<<LOCATION>>>地点名|地址<<<LOCATION>>>"
+      "\n\n【可选特殊消息】像真人用微信功能，但勿滥用——仍以 2～5 条短文字气泡为主；仅在剧情自然需要时穿插，可与 <<<BUBBLE>>> 混发：\n" +
+      "- 表情包：仅可使用【挂载表情包】中列出的名称，单独一行 <<<STICKER>>>名称<<<STICKER>>>；适合调侃、化解尴尬、表达情绪，不要每条都发\n" +
+      "- 转账：节日红包、赔礼、示好等，单独一行 <<<TRANSFER>>>金额|备注<<<TRANSFER>>>（备注可留空，如 <<<TRANSFER>>>52.00|<<<TRANSFER>>>）\n" +
+      "- 语音：带语气、不好打字的话，<<<VOICE>>>口语化文字<<<VOICE>>>；内容要口语化，可带语气词\n" +
+      "- 拍摄闪照：分享当下画面，<<<SNAP>>>画面描述<<<SNAP>>>；描述要具体可见\n" +
+      "- 外卖/礼物：关心、撒娇、赔罪时自然使用；外卖 <<<DELIVERY>>>waimai|商品名|备注<<<DELIVERY>>>，礼物 <<<DELIVERY>>>gift|商品名|备注<<<DELIVERY>>>\n" +
+      "- 位置：约见面、报平安、分享所在，<<<LOCATION>>>地点名|地址<<<LOCATION>>>\n" +
+      "原则：先回话再考虑特殊消息；关系尚不熟时少用转账/位置；表情包/语音与文字勿重复表达同一情绪；用户可能发照片、链接、转账等，请自然回应。"
     );
   }
 
@@ -13131,10 +13271,25 @@
     const t = String(seg || "").trim();
     if (!t) return null;
     const ts = Date.now();
-    const stickerMatch = t.match(/^<<<STICKER>>>(\d+)<<<STICKER>>>$/);
+    const stickerMatch = t.match(/^<<<STICKER>>>(.+?)<<<STICKER>>>$/);
     if (stickerMatch) {
-      const idx = parseInt(stickerMatch[1], 10);
-      const sticker = stickerUrls[idx - 1];
+      const token = String(stickerMatch[1] || "").trim();
+      let sticker = lookupKnockMountedStickerByName(token);
+      if (!sticker && /^\d+$/.test(token)) {
+        const idx = parseInt(token, 10);
+        const catalog = getKnockMountedStickerCatalog();
+        if (catalog[idx - 1]) sticker = catalog[idx - 1];
+      }
+      if (!sticker && stickerUrls && stickerUrls.length) {
+        const idx = parseInt(token, 10);
+        if (Number.isFinite(idx) && idx > 0 && stickerUrls[idx - 1]) {
+          const legacy = stickerUrls[idx - 1];
+          sticker = {
+            url: legacy.url,
+            name: normalizeKnockStickerName(legacy.name) || "表情" + idx,
+          };
+        }
+      }
       if (sticker && sticker.url) {
         const msg = {
           role: "assistant",
@@ -13262,7 +13417,9 @@
     if (!rec) return 0;
     const parsed = parseKnockAssistantReplyToMessages(raw);
     if (parsed.length) {
+      const batchId = uid("krb");
       parsed.forEach(function (m) {
+        if (m.role === "assistant") m.replyBatchId = batchId;
         const normalized = normalizeKnockMessage(m);
         if (normalized) rec.messages.push(normalized);
       });
@@ -13273,6 +13430,7 @@
       role: "assistant",
       content: truncateCharsWithEllipsis(fallback, 500),
       ts: Date.now(),
+      replyBatchId: uid("krb"),
     });
     return 1;
   }
@@ -13331,6 +13489,13 @@
     return Math.min(120, Math.max(1, Math.ceil(len / 4)));
   }
 
+  function knockMessageWithBatchId(out, src) {
+    if (out && out.role === "assistant" && src && src.replyBatchId) {
+      out.replyBatchId = String(src.replyBatchId).trim();
+    }
+    return out;
+  }
+
   function normalizeKnockMessage(m) {
     if (!m || typeof m !== "object") return null;
     const role = m.role === "assistant" ? "assistant" : "user";
@@ -13360,7 +13525,7 @@
       };
       const stickerName = normalizeKnockStickerName(m.stickerName);
       if (stickerName) out.stickerName = stickerName;
-      return out;
+      return knockMessageWithBatchId(out, m);
     }
 
     if (kind === "transfer") {
@@ -13375,19 +13540,22 @@
       };
       const note = String(m.transferNote || "").trim();
       if (note) out.transferNote = truncateCharsWithEllipsis(note, 40);
-      return out;
+      return knockMessageWithBatchId(out, m);
     }
 
     if (kind === "voice") {
       const text = String(m.content || m.voiceText || "").trim();
       if (!text) return null;
-      return {
+      const out = {
         role: role,
         kind: "voice",
         content: truncateCharsWithEllipsis(text, 500),
         voiceSec: estimateKnockVoiceSeconds(text, m.voiceSec),
         ts: ts,
       };
+      const ttsKey = String(m.ttsAudioKey || "").trim();
+      if (ttsKey) out.ttsAudioKey = ttsKey;
+      return knockMessageWithBatchId(out, m);
     }
 
     if (kind === "photo") {
@@ -13402,7 +13570,7 @@
       };
       const snapText = String(m.snapText || "").trim();
       if (snapText) out.snapText = truncateCharsWithEllipsis(snapText, 500);
-      return out;
+      return knockMessageWithBatchId(out, m);
     }
 
     if (kind === "snap") {
@@ -13418,7 +13586,7 @@
       if (m.snapGenStatus === "declined" || m.snapGenStatus === "pending") {
         out.snapGenStatus = m.snapGenStatus;
       }
-      return out;
+      return knockMessageWithBatchId(out, m);
     }
 
     if (kind === "delivery") {
@@ -13436,7 +13604,7 @@
       if (note) out.deliveryNote = truncateCharsWithEllipsis(note, 80);
       const bg = String(m.deliveryBgUrl || "").trim();
       if (/^data:image\//i.test(bg) || /^https?:\/\//i.test(bg)) out.deliveryBgUrl = bg;
-      return out;
+      return knockMessageWithBatchId(out, m);
     }
 
     if (kind === "location") {
@@ -13451,7 +13619,7 @@
       };
       const addr = String(m.locationAddress || "").trim();
       if (addr) out.locationAddress = truncateCharsWithEllipsis(addr, 80);
-      return out;
+      return knockMessageWithBatchId(out, m);
     }
 
     if (kind === "xhslink") {
@@ -13468,12 +13636,14 @@
       };
       const img = String(m.linkImageUrl || "").trim();
       if (/^https?:\/\//i.test(img) || /^data:image\//i.test(img)) out.linkImageUrl = img;
-      return out;
+      return knockMessageWithBatchId(out, m);
     }
 
     const content = String(m.content || "").trim();
     if (!content) return null;
     const out = { role: role, kind: "text", content: content, ts: ts };
+    const ttsKey = String(m.ttsAudioKey || "").trim();
+    if (ttsKey) out.ttsAudioKey = ttsKey;
     const quote = m.quote;
     if (quote && typeof quote === "object") {
       const quoteText = String(quote.text || "").trim();
@@ -13485,7 +13655,7 @@
         };
       }
     }
-    return out;
+    return knockMessageWithBatchId(out, m);
   }
 
   function pushKnockUserMessage(msg) {
@@ -13745,6 +13915,154 @@
     return { msg: msg, index: idx, text: text };
   }
 
+  function canKnockMessageListen(msg, msgIndex) {
+    if (!msg || msg.role !== "assistant") return false;
+    if (!isKnockPartnerMainCharacter()) return false;
+    if (!isKnockTextMessageKind(msg)) return false;
+    return !!String(msg.content || "").trim();
+  }
+
+  function getKnockListenHit(msgIndex) {
+    const idx = Number(msgIndex);
+    if (!Number.isFinite(idx) || idx < 0) return null;
+    const msgs = getKnockChatMessages();
+    const msg = msgs[idx];
+    if (!canKnockMessageListen(msg, idx)) return null;
+    return { msg: msg, index: idx, text: String(msg.content || "").trim() };
+  }
+
+  function getLatestKnockListenableMessage() {
+    const msgs = getKnockChatMessages();
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (canKnockMessageListen(msgs[i], i)) {
+        return { msg: msgs[i], index: i, text: String(msgs[i].content || "").trim() };
+      }
+    }
+    return null;
+  }
+
+  function buildKnockTtsSceneContext(msgIndex) {
+    return (
+      "knock:" +
+      knockChatStorageKey(knockUserCharId, knockPartnerCharId) +
+      ":" +
+      String(msgIndex)
+    );
+  }
+
+  function buildKnockTtsCacheKey(speakText, voicePrompt, msgIndex) {
+    return buildStoryTtsCacheKey(
+      speakText,
+      voicePrompt,
+      "",
+      buildKnockTtsSceneContext(msgIndex)
+    );
+  }
+
+  function setKnockAvatarTtsState(avEl, loading, playing) {
+    if (!avEl) return;
+    avEl.classList.toggle("knock-chat__avatar--tts-loading", !!loading);
+    avEl.classList.toggle("knock-chat__avatar--tts-playing", !!playing);
+  }
+
+  function stopKnockTts() {
+    stopStoryTts();
+  }
+
+  async function playKnockMessageTts(msgIndex, avEl) {
+    syncTtsSettingsFromOpenForm();
+    if (!ttsSettings.enabled) {
+      showToast("请先在「设置 → 音色调整」中开启剧情朗读。", "info", 2600);
+      return;
+    }
+    if (!resolveGlobalMinimaxVoiceId()) {
+      showToast("请先在设置中配置 MiniMax 全局音色 ID。", "info", 2800);
+      return;
+    }
+    const hit = getKnockListenHit(msgIndex);
+    if (!hit) {
+      showToast("该条消息无法倾听（仅支持主要角色的文字消息）。", "info");
+      return;
+    }
+    if (knockTtsPlayingMsgIndex === hit.index && storyTtsAudio) {
+      stopKnockTts();
+      return;
+    }
+    stopKnockTts();
+    const partnerChar = getKnockPartnerCharById(knockPartnerCharId);
+    const model = String(ttsSettings.model || "speech-2.8-hd").trim() || "speech-2.8-hd";
+    const speakText = enrichStoryTtsSpeakText(hit.text, "", model);
+    const voicePrompt = buildMinimaxVoicePrompt(partnerChar, "", null, hit.text, {
+      sceneContext: "knock-chat",
+    });
+    const sceneContext = buildKnockTtsSceneContext(hit.index);
+    const cacheKey = buildKnockTtsCacheKey(speakText, voicePrompt, hit.index);
+    const rec = getKnockChatRecordMutable();
+    const hadSavedAudio = hit.msg.ttsAudioKey === cacheKey;
+    const isCached =
+      hadSavedAudio ||
+      (await storyTtsBlobIsCached(speakText, voicePrompt, "", sceneContext));
+    knockTtsPlayingMsgIndex = hit.index;
+    knockTtsPlayingAv = avEl || null;
+    if (avEl) setKnockAvatarTtsState(avEl, !isCached, false);
+    try {
+      const blob = await getOrCreateStoryTtsBlob(speakText, voicePrompt, "", sceneContext);
+      if (rec && rec.messages[hit.index] && rec.messages[hit.index].ttsAudioKey !== cacheKey) {
+        rec.messages[hit.index].ttsAudioKey = cacheKey;
+        persistNarrative();
+        renderKnockScreen(els.knockContentSlot());
+      }
+      const objUrl = URL.createObjectURL(blob);
+      storyTtsObjectUrl = objUrl;
+      storyTtsAudio = new Audio(objUrl);
+      if (avEl) setKnockAvatarTtsState(avEl, false, true);
+      storyTtsAudio.addEventListener(
+        "ended",
+        function () {
+          stopKnockTts();
+        },
+        { once: true }
+      );
+      storyTtsAudio.addEventListener(
+        "error",
+        function () {
+          stopKnockTts();
+          showToast("播放失败，请重试。", "error");
+        },
+        { once: true }
+      );
+      await storyTtsAudio.play();
+    } catch (err) {
+      if (avEl) setKnockAvatarTtsState(avEl, false, false);
+      knockTtsPlayingMsgIndex = null;
+      knockTtsPlayingAv = null;
+      showToast("倾听失败：" + (err && err.message ? err.message : String(err)), "error", 5200);
+    }
+  }
+
+  async function playLatestKnockMessageTts() {
+    const hit = getLatestKnockListenableMessage();
+    if (!hit) {
+      showToast(
+        isKnockPartnerMainCharacter()
+          ? "暂无可倾听的主要角色文字消息。"
+          : "倾听仅支持「主要角色」的文字消息。",
+        "info"
+      );
+      return;
+    }
+    knockPlusPanelOpen = false;
+    knockStickerPanelOpen = false;
+    renderKnockScreen(els.knockContentSlot());
+    const slot = els.knockContentSlot();
+    const avEl =
+      slot &&
+      slot.querySelector(
+        '.phone-wechat-msg--in[data-knock-msg-index="' + hit.index + '"] .knock-chat__avatar'
+      );
+    await playKnockMessageTts(hit.index, avEl);
+  }
+
   function ensureKnockMsgActionBubbleUi() {
     const mount = document.getElementById("app-shell") || document.body;
     let bubble = document.getElementById("knock-msg-action-bubble");
@@ -13765,6 +14083,10 @@
         '<button type="button" data-knock-msg-action="summarize">' +
         '<svg class="icon-linear story-selection-bubble__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>' +
         '<span class="story-selection-bubble__label">总结到此处</span>' +
+        "</button>" +
+        '<button type="button" data-knock-msg-action="listen">' +
+        '<svg class="icon-linear story-selection-bubble__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5a7 7 0 000 14h1a6 6 0 000-12h-1"/><path d="M9 9l-3 3 3 3"/></svg>' +
+        '<span class="story-selection-bubble__label">倾听</span>' +
         "</button>";
       mount.appendChild(bubble);
     } else if (bubble.parentElement !== mount) {
@@ -13801,6 +14123,8 @@
     }
     bubble.style.left = Math.round(left) + "px";
     bubble.style.top = Math.round(top) + "px";
+    const listenBtn = bubble.querySelector('[data-knock-msg-action="listen"]');
+    if (listenBtn) listenBtn.hidden = !canKnockMessageListen(hit.msg, hit.index);
   }
 
   function copyKnockTextMessage(msgIndex) {
@@ -13862,7 +14186,13 @@
         escapeHtml(quoteText) +
         "</span></span>";
     }
-    html += escapeHtml(String(msg.content || ""));
+    html += '<span class="knock-msg-text">' + escapeHtml(String(msg.content || "")) + "</span>";
+    if (msg && msg.ttsAudioKey) {
+      html +=
+        '<button type="button" class="knock-msg-tts-btn" data-knock-tts-play aria-label="重听" title="重听">' +
+        '<svg class="icon-linear" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5a7 7 0 000 14h1a6 6 0 000-12h-1"/><path d="M9 9l-3 3 3 3"/></svg>' +
+        '</button>';
+    }
     return html;
   }
 
@@ -14042,9 +14372,7 @@
     if (bgUrl) headCls += " knock-msg-delivery__head--photo";
     else if (isGift) headCls += " knock-msg-delivery__head--gift";
     else headCls += " knock-msg-delivery__head--food";
-    const headStyle = bgUrl
-      ? ' style="background-image:url(' + escapeHtml(bgUrl) + ')"'
-      : "";
+    const headStyle = buildCssBackgroundImageStyleAttr(bgUrl);
     const footIcon = isGift ? "🎁" : "🛵";
     const footLabel = isGift ? "微信礼物" : "美团外卖";
     return (
@@ -14072,9 +14400,7 @@
     const desc = msg.linkDesc ? escapeHtml(String(msg.linkDesc)) : "";
     const imgUrl = String(msg.linkImageUrl || "").trim();
     const thumbHtml = imgUrl
-      ? '<span class="knock-msg-xhs__thumb" style="background-image:url(' +
-        escapeHtml(imgUrl) +
-        ')"></span>'
+      ? '<span class="knock-msg-xhs__thumb"' + buildCssBackgroundImageStyleAttr(imgUrl) + "></span>"
       : '<span class="knock-msg-xhs__thumb knock-msg-xhs__thumb--placeholder" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="M21 15l-5-5L8 19"/></svg></span>';
     return (
       '<span class="knock-msg-xhs">' +
@@ -14219,6 +14545,12 @@
         icon:
           '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>',
       },
+      {
+        action: "listen",
+        label: "倾听",
+        icon:
+          '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a7 7 0 000 14h1a6 6 0 000-12h-1"/><path d="M9 9l-3 3 3 3"/></svg>',
+      },
     ];
     return (
       '<div class="knock-plus-panel" data-knock-plus-panel>' +
@@ -14288,9 +14620,7 @@
     if (knockActionSheet === "delivery") {
       const isGift = knockDeliveryDraftType === "gift";
       const bgPreview = knockDeliveryDraftBgUrl
-        ? '<span class="knock-action-sheet__preview" style="background-image:url(' +
-          escapeHtml(knockDeliveryDraftBgUrl) +
-          ')"></span>'
+        ? '<span class="knock-action-sheet__preview"' + buildCssBackgroundImageStyleAttr(knockDeliveryDraftBgUrl) + "></span>"
         : "";
       return (
         '<div class="knock-action-sheet" data-knock-action-sheet>' +
@@ -14478,6 +14808,43 @@
     return body;
   }
 
+  function knockMessageHasUserPhoto(msg) {
+    return !!(msg && msg.role === "user" && msg.kind === "photo" && String(msg.photoUrl || "").trim());
+  }
+
+  function collectKnockPhotoVisionMsgIndexes(list, maxPhotos) {
+    maxPhotos = maxPhotos == null ? 2 : maxPhotos;
+    const indexes = new Set();
+    const arr = Array.isArray(list) ? list : [];
+    for (let i = arr.length - 1; i >= 0 && indexes.size < maxPhotos; i--) {
+      if (knockMessageHasUserPhoto(arr[i])) indexes.add(i);
+    }
+    return indexes;
+  }
+
+  function buildKnockMessageContentForApi(msg, opts) {
+    opts = opts && typeof opts === "object" ? opts : {};
+    const text = formatKnockMessageContentForApi(msg);
+    if (!opts.includePhotoVision || !knockMessageHasUserPhoto(msg)) return text;
+    const photoUrl = String(msg.photoUrl || "").trim();
+    if (!photoUrl) return text;
+    return [
+      { type: "text", text: text },
+      { type: "image_url", image_url: { url: photoUrl, detail: "auto" } },
+    ];
+  }
+
+  function isKnockStickerCenterTap(el, e) {
+    if (!el || !e || typeof e.clientX !== "number" || typeof e.clientY !== "number") return false;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || !rect.height) return false;
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const halfW = rect.width * 0.25;
+    const halfH = rect.height * 0.25;
+    return Math.abs(e.clientX - cx) <= halfW && Math.abs(e.clientY - cy) <= halfH;
+  }
+
   function buildKnockStickerIconSvg() {
     return (
       '<svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
@@ -14623,9 +14990,9 @@
             '" data-knock-sticker-pack-mount data-pack-id="' +
             escapeHtml(activePack.id) +
             '" aria-label="' +
-            (activePack.mounted ? "取消挂载" : "挂载给聊天对象") +
+            (activePack.mounted ? "取消挂载" : "挂载给主要角色") +
             '" title="' +
-            (activePack.mounted ? "取消挂载：对方不再发送该分组表情" : "挂载：聊天对象也可发送该分组表情") +
+            (activePack.mounted ? "取消挂载：主要角色不再发送该分组表情" : "挂载：主要角色生成回复时可发送该分组表情") +
             '">' +
             (activePack.mounted ? "已挂载" : "挂载") +
             "</button>" +
@@ -14742,6 +15109,17 @@
     const mainList = getKnockMainCharacters();
     const supList = getSupportingCharacters();
     if (!selfList.length || !supList.length) return false;
+    if (knockActiveSavedPairId) {
+      const saved = knockSavedPairs.find(function (p) {
+        return p.id === knockActiveSavedPairId;
+      });
+      if (saved && getCharById(saved.userCharId) && getKnockPartnerCharById(saved.partnerCharId)) {
+        knockUserCharId = saved.userCharId;
+        knockPartnerCharId = saved.partnerCharId;
+      } else {
+        knockActiveSavedPairId = null;
+      }
+    }
     if (knockUserCharId && !selfList.some(function (c) { return c.id === knockUserCharId; })) {
       knockUserCharId = null;
     }
@@ -14758,9 +15136,7 @@
       if (!meta.pinnedPartnerId && knockPartnerCharId) meta.pinnedPartnerId = knockPartnerCharId;
       if (meta.pinnedPartnerId && !getCharById(meta.pinnedPartnerId)) meta.pinnedPartnerId = knockPartnerCharId || null;
     }
-    const rec = isKnockChatReady() ? getKnockChatRecordMutable() : null;
-    if (rec && rec.contextDraft && !rec.contextConfirmed) knockSetupPhase = "context_review";
-    else if (!rec || !rec.contextConfirmed) knockSetupPhase = "select";
+    syncKnockSetupPhaseFromPair();
     return true;
   }
 
@@ -17509,11 +17885,7 @@
     }
     const identityPick = e.target.closest("[data-dial-identity-pick]");
     if (identityPick) {
-      if (dialIdentityPickScrollGuard && dialIdentityPickScrollGuard.moved) {
-        dialIdentityPickScrollGuard = null;
-        return true;
-      }
-      dialIdentityPickScrollGuard = null;
+      if (shouldIgnoreHorizontalScrollTap()) return true;
       persistDialIdentityDraftFromDom(slot);
       const nextId = identityPick.getAttribute("data-dial-identity-pick") || null;
       if (nextId === dialIdentityEditCharId) return true;
@@ -17728,11 +18100,13 @@
     return { traits: traits, style: style };
   }
 
-  function getKnockTraitChips(char, role) {
+  function getKnockTraitChips(char, role, userCharId, partnerCharId) {
     if (!char) return [];
     let ov = { traits: "", style: "" };
-    if (isKnockChatReady()) {
-      const rec = getKnockChatRecordMutable();
+    const uid = userCharId != null ? userCharId : knockUserCharId;
+    const pid = partnerCharId != null ? partnerCharId : knockPartnerCharId;
+    if (uid && pid) {
+      const rec = getKnockChatRecordForPair(uid, pid);
       if (rec && rec.personaOverrides) {
         ov = rec.personaOverrides[role === "partner" ? "partner" : "user"] || ov;
       }
@@ -17768,6 +18142,27 @@
       removed += 1;
     }
     return removed;
+  }
+
+  function removeKnockLastAssistantBatch() {
+    const rec = getKnockChatRecordMutable();
+    if (!rec || !rec.messages.length) return 0;
+    const last = rec.messages[rec.messages.length - 1];
+    if (!last || last.role !== "assistant") return 0;
+    const batchId = last.replyBatchId ? String(last.replyBatchId).trim() : "";
+    if (batchId) {
+      let removed = 0;
+      while (
+        rec.messages.length &&
+        rec.messages[rec.messages.length - 1].role === "assistant" &&
+        String(rec.messages[rec.messages.length - 1].replyBatchId || "").trim() === batchId
+      ) {
+        rec.messages.pop();
+        removed += 1;
+      }
+      return removed;
+    }
+    return removeKnockTrailingAssistantReplies();
   }
 
   function deleteKnockMessagesAtIndices(indices) {
@@ -17930,9 +18325,11 @@
         String(latestEvent.content).trim();
     }
     prompt +=
-      "\n\n输出要求：像真人发微信，每条极短（最多一句半）；优先 2～5 条，用 <<<BUBBLE>>> 分隔（整行仅含此 11 字符）。不要用 Markdown，不要前缀角色名。对方可能发表情包、语音、转账或照片，请自然回应；总结仅用于回忆更早内容，不得与最近 " +
+      "\n\n输出要求：像真人发微信，每条极短（最多一句半）；优先 2～5 条，用 <<<BUBBLE>>> 分隔（整行仅含此 11 字符）。不要用 Markdown，不要前缀角色名。对方可能发表情包、语音、转账、照片、外卖、位置或链接，请自然回应；你也可以在合适时机主动使用这些功能（见下方说明），但不要喧宾夺主；总结仅用于回忆更早内容，不得与最近 " +
       KNOCK_CHAT_HISTORY_LIMIT +
       " 条消息矛盾。";
+    prompt +=
+      "\n用户可能发送真实照片；若消息附带图片，请根据画面内容细节自然回应，不要假装看不见或仅回复「收到照片」。";
     prompt += buildKnockMountedStickerPromptBlock();
     prompt += buildKnockSpecialActionPromptBlock();
     prompt += buildKnockVisualImagePromptBlock();
@@ -17999,6 +18396,23 @@
     );
   }
 
+  function buildKnockContinueUserPrompt(userChar, partnerChar) {
+    const userName = String(userChar && userChar.name ? userChar.name : "用户").trim() || "用户";
+    const partnerName = String(partnerChar && partnerChar.name ? partnerChar.name : "对方").trim() || "对方";
+    return (
+      "「" +
+      partnerName +
+      "」在「" +
+      userName +
+      "」尚未回复的情况下，请自然地再发一条或几条后续消息（像真人想到补充、反悔、或继续聊下去）。" +
+      "不要重复刚发过的内容；严禁替「" +
+      userName +
+      "」说话或代发任何消息；只输出「" +
+      partnerName +
+      "」一方的内容。"
+    );
+  }
+
   function buildKnockReplyApiMessageList(msgs) {
     const userChar = getCharById(knockUserCharId);
     const partnerChar = getKnockPartnerCharById(knockPartnerCharId);
@@ -18014,18 +18428,41 @@
         content: buildKnockReplySystemPrompt(userChar, partnerChar, { visualTestIntent: testIntent }),
       },
     ];
-    if (!list.length || list[list.length - 1].role !== "user") return apiMsgs;
-    const history = list.slice(0, -1).slice(-KNOCK_CHAT_HISTORY_LIMIT);
-    history.forEach(function (m) {
-      apiMsgs.push({
-        role: m.role === "user" ? "user" : "assistant",
-        content: formatKnockMessageContentForApi(m),
+    if (!list.length) return apiMsgs;
+    if (lastMsg.role === "user") {
+      const photoVisionIndexes = collectKnockPhotoVisionMsgIndexes(list, 2);
+      const history = list.slice(0, -1).slice(-KNOCK_CHAT_HISTORY_LIMIT);
+      const historyStart = list.length - 1 - history.length;
+      history.forEach(function (m, hi) {
+        const msgIdx = historyStart + hi;
+        apiMsgs.push({
+          role: m.role === "user" ? "user" : "assistant",
+          content: buildKnockMessageContentForApi(m, { includePhotoVision: photoVisionIndexes.has(msgIdx) }),
+        });
       });
-    });
-    apiMsgs.push({
-      role: "user",
-      content: formatKnockMessageContentForApi(list[list.length - 1]),
-    });
+      apiMsgs.push({
+        role: "user",
+        content: buildKnockMessageContentForApi(list[list.length - 1], { includePhotoVision: true }),
+      });
+      return apiMsgs;
+    }
+    if (lastMsg.role === "assistant") {
+      const photoVisionIndexes = collectKnockPhotoVisionMsgIndexes(list, 2);
+      const history = list.slice(-KNOCK_CHAT_HISTORY_LIMIT);
+      const historyStart = list.length - history.length;
+      history.forEach(function (m, hi) {
+        const msgIdx = historyStart + hi;
+        apiMsgs.push({
+          role: m.role === "user" ? "user" : "assistant",
+          content: buildKnockMessageContentForApi(m, { includePhotoVision: photoVisionIndexes.has(msgIdx) }),
+        });
+      });
+      apiMsgs.push({
+        role: "user",
+        content: buildKnockContinueUserPrompt(userChar, partnerChar),
+      });
+      return apiMsgs;
+    }
     return apiMsgs;
   }
 
@@ -18227,14 +18664,18 @@
         "</span>"
       : "";
     const avCls =
-      "avatar phone-wechat-msg__avatar knock-chat__av-btn" + (isUser ? " phone-wechat-msg__avatar--out" : "");
-    const avRole = isUser ? "user" : "partner";
-    const avHtml =
-      '<button type="button" class="' +
-      avCls +
-      '" data-knock-av-role="' +
-      avRole +
-      '" aria-label="更换头像" title="更换头像"></button>';
+      "avatar phone-wechat-msg__avatar knock-chat__avatar" +
+      (isUser ? " phone-wechat-msg__avatar--out" : "") +
+      (!isUser && canKnockMessageListen(msg, idx) && msg.ttsAudioKey
+        ? " knock-chat__avatar--replayable"
+        : "");
+    const avAttrs =
+      !isUser && canKnockMessageListen(msg, idx) && msg.ttsAudioKey
+        ? ' data-knock-avatar-listen data-knock-msg-index="' +
+          idx +
+          '" role="button" tabindex="0" aria-label="重听该条语音"'
+        : ' aria-hidden="true"';
+    const avHtml = "<div class=\"" + avCls + "\"" + avAttrs + "></div>";
     if (isUser) {
       return (
         '<div class="' +
@@ -18263,8 +18704,11 @@
 
   function fillKnockAvatarElements(root) {
     if (!root) return;
-    root.querySelectorAll("[data-knock-av-role]").forEach(function (el) {
-      const role = el.getAttribute("data-knock-av-role") === "partner" ? "partner" : "user";
+    root.querySelectorAll(".knock-chat__avatar").forEach(function (el) {
+      const msg = el.closest("[data-knock-msg-index]");
+      if (!msg) return;
+      const isUser = msg.classList.contains("phone-wechat-msg--out");
+      const role = isUser ? "user" : "partner";
       const charId = role === "partner" ? knockPartnerCharId : knockUserCharId;
       const char = charId
         ? role === "partner"
@@ -18272,6 +18716,13 @@
           : getCharById(charId)
         : null;
       fillAvatarElement(el, getKnockDisplayChar(char, role));
+      if (
+        !isUser &&
+        knockTtsPlayingMsgIndex != null &&
+        Number(msg.getAttribute("data-knock-msg-index")) === knockTtsPlayingMsgIndex
+      ) {
+        setKnockAvatarTtsState(el, false, !!(storyTtsAudio && !storyTtsAudio.paused));
+      }
     });
   }
 
@@ -18300,6 +18751,83 @@
     const partnerPick = root.querySelector("[data-knock-partner-pick]");
     if (userPick && positions.user > 0) userPick.scrollLeft = positions.user;
     if (partnerPick && positions.partner > 0) partnerPick.scrollLeft = positions.partner;
+  }
+
+  function saveKnockMomentsScroll(root) {
+    if (!root) return 0;
+    const scrollEl = root.querySelector(".knock-moments .phone-moments__scroll");
+    return scrollEl ? scrollEl.scrollTop : 0;
+  }
+
+  function restoreKnockMomentsScroll(root, scrollTop) {
+    if (!root || typeof scrollTop !== "number") return;
+    const scrollEl = root.querySelector(".knock-moments .phone-moments__scroll");
+    if (scrollEl) scrollEl.scrollTop = scrollTop;
+  }
+
+  function getHorizontalScrollContextFromEvent(e) {
+    if (!e || !e.target || typeof e.target.closest !== "function") return null;
+    const row = e.target.closest(HORIZONTAL_SCROLL_SELECTOR);
+    if (!row) return null;
+    if (row.closest("#knock-content-slot") && getKnockEventRoot(e)) return "knock";
+    if (row.closest("#dial-content-slot") && getDialEventRoot(e)) return "dial";
+    if (row.closest("#phone-content-slot, #story-phone-slot")) return "phone";
+    if (row.closest("#fanwork-content-slot, #story-fanwork-slot")) return "fanwork";
+    return null;
+  }
+
+  function beginHorizontalScrollGuard(e) {
+    if (getHorizontalScrollContextFromEvent(e)) {
+      horizontalScrollGuard = { x: e.clientX, y: e.clientY, moved: false };
+    }
+  }
+
+  function trackHorizontalScrollGuardMove(e) {
+    const guard = horizontalScrollGuard;
+    if (guard && !guard.moved) {
+      if (Math.abs(e.clientX - guard.x) > 8 || Math.abs(e.clientY - guard.y) > 8) guard.moved = true;
+    }
+  }
+
+  function shouldIgnoreHorizontalScrollTap() {
+    if (horizontalScrollGuard && horizontalScrollGuard.moved) {
+      horizontalScrollGuard = null;
+      return true;
+    }
+    horizontalScrollGuard = null;
+    return false;
+  }
+
+  function mountKnockMomentsPanelAfterRender(slot, opts) {
+    opts = opts && typeof opts === "object" ? opts : {};
+    const root = slot || els.knockContentSlot();
+    if (!root) return;
+    if (typeof opts.momentsScrollTop === "number") {
+      restoreKnockMomentsScroll(root, opts.momentsScrollTop);
+    }
+    if (!knockMomentsCommentPostId) return;
+    const postId = String(knockMomentsCommentPostId || "").trim();
+    if (opts.momentsScrollPostIntoView && postId) {
+      let postEl = null;
+      root.querySelectorAll("[data-knock-moments-post-id]").forEach(function (el) {
+        if (!postEl && el.getAttribute("data-knock-moments-post-id") === postId) postEl = el;
+      });
+      if (postEl && typeof postEl.scrollIntoView === "function") {
+        try {
+          postEl.scrollIntoView({ block: "nearest", behavior: "instant" });
+        } catch (_scrollErr) {
+          postEl.scrollIntoView(false);
+        }
+      }
+    }
+    const commentInput = root.querySelector("[data-knock-moments-comment-text]");
+    if (commentInput && opts.momentsCommentFocus) {
+      try {
+        commentInput.focus({ preventScroll: true });
+      } catch (_focusErr) {
+        commentInput.focus();
+      }
+    }
   }
 
   function refreshKnockSetupPickSelectionInDom(root) {
@@ -18342,15 +18870,23 @@
   }
 
   function applyKnockCharPickUpdate(slot) {
+    knockActiveSavedPairId = null;
     let nextPhase = knockSetupPhase;
     if (isKnockChatReady()) {
       const rec = getKnockChatRecordMutable();
-      if (rec && !rec.contextConfirmed) {
-        nextPhase = rec.contextDraft ? "context_review" : "select";
+      if (rec && rec.contextConfirmed) {
+        nextPhase = "select";
+      } else if (rec && rec.contextDraft && !rec.contextConfirmed) {
+        nextPhase = "context_review";
+      } else {
+        nextPhase = "select";
       }
+    } else {
+      nextPhase = "select";
     }
     if (nextPhase !== knockSetupPhase) {
       knockSetupPhase = nextPhase;
+      persistNarrative();
       rerenderKnockSetupUi();
       return;
     }
@@ -18360,6 +18896,10 @@
     const partner = getKnockPartnerCharById(knockPartnerCharId);
     const titleEl = slot && slot.querySelector(".phone-app__title--chat");
     if (titleEl && partner) titleEl.textContent = partner.name || "聊天对象";
+    persistNarrative();
+    if (knockMainTab === "me") {
+      renderKnockScreen(slot || els.knockContentSlot());
+    }
   }
 
   function renderKnockSetupPicks(root) {
@@ -18395,7 +18935,7 @@
         const av = document.createElement("div");
         av.className = "avatar";
         b.appendChild(av);
-        fillAvatarElement(av, getKnockDisplayChar(c, "user"));
+        fillAvatarElement(av, c);
         userPick.appendChild(b);
       });
     }
@@ -18415,7 +18955,7 @@
         const av = document.createElement("div");
         av.className = "avatar";
         b.appendChild(av);
-        fillAvatarElement(av, getKnockDisplayChar(c, "partner"));
+        fillAvatarElement(av, c);
         partnerPick.appendChild(b);
       });
     }
@@ -18450,7 +18990,7 @@
       const personaBtn = col.querySelector("[data-knock-edit-persona]");
       if (personaBtn) personaBtn.disabled = !char;
       let tagsWrap = col.querySelector(".knock-intro__tags");
-      const chips = char ? getKnockTraitChips(char, role) : [];
+      const chips = char ? getKnockTraitChips(char, role, knockUserCharId, knockPartnerCharId) : [];
       if (!chips.length) {
         if (tagsWrap) tagsWrap.remove();
         return;
@@ -18528,6 +19068,7 @@
     knockStickerPanelOpen = false;
     knockStickerManageOpen = false;
     knockPlusPanelOpen = false;
+    knockChatAppearanceOpen = false;
     knockActionSheet = null;
     knockComposerMode = "text";
     knockQuoteDraft = null;
@@ -19028,17 +19569,13 @@
           .map(function (row) {
             const partner = row.partner;
             const name = partner.name || "未命名";
-            const chatKey = knockChatStorageKey(knockUserCharId, partner.id);
-            const chatRec = knockChatData[chatKey];
-            let avatarUrl = partner.avatarUrl ? String(partner.avatarUrl).trim() : "";
-            if (chatRec && chatRec.avatarOverrides && chatRec.avatarOverrides.partner) {
-              avatarUrl = String(chatRec.avatarOverrides.partner).trim() || avatarUrl;
-            }
+            const avatarUrl = getKnockAvatarUrlForPair(knockUserCharId, partner.id, "partner");
             const avInner = avatarUrl
               ? '<img src="' + escapeHtml(avatarUrl) + '" alt="" />'
               : escapeHtml(name.slice(0, 1));
             const avCls =
-              "phone-wechat-row__avatar" + (avatarUrl ? " phone-social-avatar--has-image" : "");
+              "phone-wechat-row__avatar knock-chat-list__row-av" +
+              (avatarUrl ? " phone-social-avatar--has-image" : "");
             const rowCls =
               "phone-wechat-row" + (row.pinned ? " phone-wechat-row--pinned" : "");
             const pinBadge = row.pinned
@@ -19062,7 +19599,7 @@
               '">' +
               '<span class="' +
               avCls +
-              '">' +
+              '" role="presentation">' +
               avInner +
               "</span>" +
               '<span class="phone-wechat-row__body">' +
@@ -19084,34 +19621,258 @@
           })
           .join("")
       : '<div class="knock-chat-list__empty"><p>请先在「我」中选择主要聊天对象</p><p class="field__hint">选定后才会出现在这里</p></div>';
-    return '<div class="knock-chat-list phone-wechat"><div class="phone-wechat__list">' + listHtml + "</div></div>";
+    return (
+      '<div class="knock-chat-list phone-wechat"><div class="phone-wechat__list">' +
+      listHtml +
+      "</div></div>"
+    );
+  }
+
+  function normalizeKnockSavedPair(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const id = String(raw.id || "").trim();
+    const userCharId = String(raw.userCharId || "").trim();
+    const partnerCharId = String(raw.partnerCharId || "").trim();
+    if (!id || !userCharId || !partnerCharId) return null;
+    if (!getCharById(userCharId) || !getKnockPartnerCharById(partnerCharId)) return null;
+    return {
+      id: id,
+      name: String(raw.name || "").trim() || "未命名组合",
+      userCharId: userCharId,
+      partnerCharId: partnerCharId,
+      savedAt: Number(raw.savedAt) || Date.now(),
+    };
+  }
+
+  function getDefaultKnockSavedPairName(userCharId, partnerCharId) {
+    const user = userCharId ? getCharById(userCharId) : null;
+    const partner = partnerCharId ? getKnockPartnerCharById(partnerCharId) : null;
+    const un = user ? user.name || "我" : "我";
+    const pn = partner ? partner.name || "角色" : "角色";
+    return un + " · " + pn;
+  }
+
+  function syncKnockSetupPhaseFromPair() {
+    if (!isKnockChatReady()) {
+      knockSetupPhase = "select";
+      return;
+    }
+    const rec = getKnockChatRecordMutable();
+    if (rec && rec.contextDraft && !rec.contextConfirmed) knockSetupPhase = "context_review";
+    else knockSetupPhase = "select";
+  }
+
+  function activateKnockPair(userCharId, partnerCharId, opts) {
+    opts = opts || {};
+    knockUserCharId = userCharId;
+    knockPartnerCharId = partnerCharId;
+    if (userCharId) {
+      const meta = getKnockSessionMetaMutable();
+      meta.pinnedPartnerId = partnerCharId;
+    }
+    syncKnockSetupPhaseFromPair();
+    if (opts.persist !== false) persistNarrative();
+  }
+
+  function activateKnockSavedPair(pairId, slot) {
+    const pair = knockSavedPairs.find(function (p) {
+      return p.id === pairId;
+    });
+    if (!pair) return;
+    knockActiveSavedPairId = pairId;
+    activateKnockPair(pair.userCharId, pair.partnerCharId, { persist: true });
+    const rec = getKnockChatRecordForPair(pair.userCharId, pair.partnerCharId);
+    if (rec && rec.contextConfirmed) {
+      knockMainTab = "chat";
+      knockSubScreen = null;
+    } else {
+      knockMainTab = "me";
+      knockSubScreen = null;
+    }
+    resetKnockTransientUiState();
+    renderKnockScreen(slot || els.knockContentSlot());
+  }
+
+  function saveCurrentKnockPair(name) {
+    if (!isKnockChatReady()) return false;
+    const rec = getKnockChatRecordMutable();
+    if (!rec || !rec.contextConfirmed) {
+      showToast("请先确认契机后再保存组合。", "info");
+      return false;
+    }
+    const pairName =
+      String(name || "").trim() || getDefaultKnockSavedPairName(knockUserCharId, knockPartnerCharId);
+    const existing = knockSavedPairs.find(function (p) {
+      return p.userCharId === knockUserCharId && p.partnerCharId === knockPartnerCharId;
+    });
+    if (existing) {
+      existing.name = pairName;
+      existing.savedAt = Date.now();
+      knockActiveSavedPairId = existing.id;
+    } else {
+      const id = "ksp-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+      knockSavedPairs.push({
+        id: id,
+        name: pairName,
+        userCharId: knockUserCharId,
+        partnerCharId: knockPartnerCharId,
+        savedAt: Date.now(),
+      });
+      knockActiveSavedPairId = id;
+    }
+    persistNarrative();
+    return true;
+  }
+
+  function buildKnockSavedPairItemHtml(pair) {
+    const user = getCharById(pair.userCharId);
+    const partner = getKnockPartnerCharById(pair.partnerCharId);
+    const rec = getKnockChatRecordForPair(pair.userCharId, pair.partnerCharId);
+    const status = rec && rec.contextConfirmed ? "已设定契机" : "待设定契机";
+    const active = pair.id === knockActiveSavedPairId ? " knock-saved-pair--active" : "";
+    const userAv = user ? getKnockLibraryAvatarUrl(user) : "";
+    const partnerAv = partner ? getKnockLibraryAvatarUrl(partner) : "";
+    const userInner = userAv
+      ? '<img src="' + escapeHtml(userAv) + '" alt="" />'
+      : escapeHtml((user && user.name ? user.name : "我").slice(0, 1));
+    const partnerInner = partnerAv
+      ? '<img src="' + escapeHtml(partnerAv) + '" alt="" />'
+      : escapeHtml((partner && partner.name ? partner.name : "?").slice(0, 1));
+    return (
+      '<button type="button" class="knock-saved-pair' +
+      active +
+      '" data-knock-saved-pair="' +
+      escapeHtml(pair.id) +
+      '">' +
+      '<span class="knock-saved-pair__avatars" aria-hidden="true">' +
+      '<span class="knock-saved-pair__av">' +
+      userInner +
+      "</span>" +
+      '<span class="knock-saved-pair__av knock-saved-pair__av--partner">' +
+      partnerInner +
+      "</span></span>" +
+      '<span class="knock-saved-pair__body">' +
+      '<span class="knock-saved-pair__name">' +
+      escapeHtml(pair.name) +
+      "</span>" +
+      '<span class="knock-saved-pair__status">' +
+      escapeHtml(status) +
+      "</span></span></button>"
+    );
+  }
+
+  function buildKnockSavedPairsSectionHtml() {
+    const rec = isKnockChatReady() ? getKnockChatRecordMutable() : null;
+    const canSave = rec && rec.contextConfirmed;
+    const defaultName = canSave ? getDefaultKnockSavedPairName(knockUserCharId, knockPartnerCharId) : "";
+    const saveBlock = canSave
+      ? '<div class="knock-me-page__save-pair">' +
+        '<label class="field">' +
+        '<span class="field__label">组合名称</span>' +
+        '<input class="field__input" data-knock-pair-name value="' +
+        escapeHtml(defaultName) +
+        '" autocomplete="off" /></label>' +
+        '<button type="button" class="btn btn--secondary btn--pill btn--block" data-knock-pair-save>保存当前组合</button>' +
+        "</div>"
+      : "";
+    const listHtml = knockSavedPairs.length
+      ? knockSavedPairs
+          .slice()
+          .sort(function (a, b) {
+            return (b.savedAt || 0) - (a.savedAt || 0);
+          })
+          .map(buildKnockSavedPairItemHtml)
+          .join("")
+      : '<p class="field__hint knock-me-page__saved-empty">确认契机后可命名保存，便于切换不同角色对。</p>';
+    return (
+      '<section class="knock-me-page__section">' +
+      '<h3 class="knock-me-page__section-title">已保存组合</h3>' +
+      saveBlock +
+      '<div class="knock-saved-pairs">' +
+      listHtml +
+      "</div></section>"
+    );
   }
 
   function buildKnockMePageHtml() {
     const rec = isKnockChatReady() ? getKnockChatRecordMutable() : null;
+    const isReviewing = knockSetupPhase === "context_review";
     const confirmedBg = rec && rec.contextConfirmed && rec.contextBackground ? rec.contextBackground : "";
+    const draftBg = rec && !rec.contextConfirmed && rec.contextDraft ? rec.contextDraft : "";
     const bodyHtml = buildKnockSetupBodyHtml(knockSetupPhase);
-    const confirmedBlock = confirmedBg
-      ? '<section class="knock-me-page__section">' +
-        '<h3 class="knock-me-page__section-title">已确认契机背景</h3>' +
-        '<div class="knock-me-page__confirmed">' +
-        escapeHtml(confirmedBg) +
-        "</div>" +
-        '<button type="button" class="btn btn--ghost btn--pill btn--sm" data-knock-context-reedit>重新编辑契机</button>' +
-        "</section>"
-      : "";
+    const confirmedBlock =
+      confirmedBg && !isReviewing
+        ? '<section class="knock-me-page__section knock-me-page__section--confirmed">' +
+          '<div class="knock-me-page__section-head">' +
+          '<h3 class="knock-me-page__section-title">当前契机背景</h3>' +
+          '<span class="knock-me-page__status-badge knock-me-page__status-badge--ok">已确认</span>' +
+          "</div>" +
+          '<div class="knock-me-page__confirmed">' +
+          escapeHtml(confirmedBg) +
+          "</div>" +
+          '<button type="button" class="btn btn--secondary btn--pill btn--sm knock-me-page__edit-btn" data-knock-context-reedit>修改契机背景</button>' +
+          "</section>"
+        : "";
+    const draftBlock =
+      draftBg && !isReviewing
+        ? '<section class="knock-me-page__section knock-me-page__section--draft">' +
+          '<div class="knock-me-page__section-head">' +
+          '<h3 class="knock-me-page__section-title">契机草稿</h3>' +
+          '<span class="knock-me-page__status-badge">待确认</span>' +
+          "</div>" +
+          '<div class="knock-me-page__confirmed knock-me-page__confirmed--draft">' +
+          escapeHtml(draftBg) +
+          "</div>" +
+          '<button type="button" class="btn btn--primary btn--pill btn--sm knock-me-page__edit-btn" data-knock-context-reedit>继续确认契机</button>' +
+          "</section>"
+        : "";
+    const pageHint = isReviewing
+      ? ""
+      : '<p class="field__hint knock-me-page__hint">在下方选择角色并生成契机；已确认的契机可在底部查看与修改</p>';
+    const savedSection = isReviewing ? "" : buildKnockSavedPairsSectionHtml();
     return (
-      '<div class="knock-me-page form-stack">' +
-      '<p class="field__hint knock-me-page__hint">选择我的形象与主要聊天对象（置顶角色），设定契机后即可开始聊天</p>' +
+      '<div class="knock-me-page form-stack' +
+      (isReviewing ? " knock-me-page--reviewing" : "") +
+      '">' +
+      pageHint +
       bodyHtml +
+      (!isReviewing && (confirmedBlock || draftBlock)
+        ? '<div class="knock-me-page__divider" aria-hidden="true"><span>已保存内容</span></div>'
+        : "") +
+      draftBlock +
       confirmedBlock +
+      savedSection +
       (knockPersonaEditTarget ? buildKnockPersonaEditOverlayHtml() : "") +
       "</div>"
     );
   }
 
-  function knockMomentsStorageKey(userCharId) {
-    return String(userCharId || "").trim();
+  function migrateKnockMomentsKeysIfNeeded() {
+    const oldKeys = Object.keys(knockMomentsData).filter(function (k) {
+      return k.indexOf("\u001e") < 0;
+    });
+    oldKeys.forEach(function (oldKey) {
+      const meta = knockSessionMeta[oldKey];
+      let partnerId =
+        (meta && meta.pinnedPartnerId) ||
+        (oldKey === knockUserCharId ? knockPartnerCharId : null);
+      if (!partnerId) return;
+      const newKey = knockChatStorageKey(oldKey, partnerId);
+      if (!knockMomentsData[newKey]) knockMomentsData[newKey] = knockMomentsData[oldKey];
+      delete knockMomentsData[oldKey];
+      if (knockMomentsCovers[oldKey]) {
+        if (!knockMomentsCovers[newKey]) knockMomentsCovers[newKey] = knockMomentsCovers[oldKey];
+        delete knockMomentsCovers[oldKey];
+      }
+    });
+  }
+
+  function knockMomentsStorageKey(userCharId, partnerCharId) {
+    const uid = String(userCharId != null ? userCharId : knockUserCharId || "").trim();
+    const pid = String(partnerCharId != null ? partnerCharId : knockPartnerCharId || "").trim();
+    if (!uid) return "";
+    if (!pid) return uid;
+    return knockChatStorageKey(uid, pid);
   }
 
   function getKnockMomentsBundleRecord() {
@@ -20312,8 +21073,11 @@
           .join("");
     const coverCls =
       "phone-moments__cover" + (coverUrl ? " phone-moments__cover--has-image" : "");
+    const commentOpenCls = knockMomentsCommentPostId ? " knock-moments--comment-open" : "";
     return (
-      '<div class="phone-app phone-moments knock-moments" aria-label="朋友圈">' +
+      '<div class="phone-app phone-moments knock-moments' +
+      commentOpenCls +
+      '" aria-label="朋友圈">' +
       '<div class="phone-moments__scroll">' +
       '<div class="phone-moments__hero">' +
       '<button type="button" class="' +
@@ -20470,6 +21234,7 @@
     if (!panel) return;
     if (knockMainTab === "moments") {
       panel.innerHTML = buildKnockMomentsPanelHtml();
+      mountKnockMomentsPanelAfterRender(slot, opts);
       if (knockMomentsComposeCaptureOpen) {
         const capInput = panel.querySelector("[data-knock-moments-compose-capture-input]");
         if (capInput) capInput.focus();
@@ -20493,7 +21258,7 @@
     const isUser = role === "user";
     const label = isUser ? "我" : "主要角色";
     const name = char ? char.name || "未命名" : "—";
-    const chips = char ? getKnockTraitChips(char, role) : [];
+    const chips = char ? getKnockTraitChips(char, role, knockUserCharId, knockPartnerCharId) : [];
     const pickAttr = isUser ? "data-knock-user-pick" : "data-knock-partner-pick";
     const tagsHtml = chips.length
       ? chips
@@ -20524,6 +21289,21 @@
     );
   }
 
+  function buildKnockSetupStepsHtml(activeStep) {
+    const step = activeStep === 2 ? 2 : 1;
+    return (
+      '<div class="knock-setup-steps" aria-label="设定步骤">' +
+      '<span class="knock-setup-steps__item' +
+      (step === 1 ? " knock-setup-steps__item--active" : " knock-setup-steps__item--done") +
+      '"><i class="knock-setup-steps__num">1</i><span>选角色与契机</span></span>' +
+      '<span class="knock-setup-steps__line" aria-hidden="true"></span>' +
+      '<span class="knock-setup-steps__item' +
+      (step === 2 ? " knock-setup-steps__item--active" : "") +
+      '"><i class="knock-setup-steps__num">2</i><span>确认背景</span></span>' +
+      "</div>"
+    );
+  }
+
   function buildKnockSetupBodyHtml(phase) {
     const user = knockUserCharId ? getCharById(knockUserCharId) : null;
     const partner = knockPartnerCharId ? getKnockPartnerCharById(knockPartnerCharId) : null;
@@ -20533,17 +21313,45 @@
       const draft = rec && rec.contextDraft ? rec.contextDraft : "";
       const genCls = knockContextGenerating ? " btn--loading" : "";
       const genDisabled = knockContextGenerating ? " disabled" : "";
+      const editingConfirmed = !!(rec && rec.contextConfirmed && rec.contextBackground);
+      const userName = user ? user.name || "我" : "我";
+      const partnerName = partner ? partner.name || "对方" : "对方";
       return (
         '<div class="knock-context-review form-stack">' +
-        '<button type="button" class="btn btn--ghost btn--pill knock-context-review__back" data-knock-context-back>返回</button>' +
-        '<textarea class="field__input field__textarea knock-context-review__draft" data-knock-context-draft rows="12" aria-label="契机背景"></textarea>' +
-        '<label class="field knock-context-review__direction">' +
-        '<input class="field__input" data-knock-context-direction placeholder="修改方向（可选）" autocomplete="off" /></label>' +
+        buildKnockSetupStepsHtml(2) +
+        (editingConfirmed
+          ? '<p class="knock-context-review__notice">正在编辑「' +
+            escapeHtml(userName) +
+            "」与「" +
+            escapeHtml(partnerName) +
+            "」的契机背景；确认后将替换当前版本。</p>"
+          : "") +
+        '<div class="knock-context-review__hero">' +
+        '<h3 class="knock-context-review__title">确认契机背景</h3>' +
+        '<p class="knock-context-review__desc">写清你们如何相识、为何加微信。可直接改正文，或在下方填写修改方向后让 AI 重写。</p>' +
+        "</div>" +
+        '<section class="knock-context-review__card">' +
+        '<div class="knock-context-review__card-head">' +
+        '<span class="knock-context-review__card-title">契机正文</span>' +
+        '<span class="knock-context-review__card-tag">可手动编辑</span>' +
+        "</div>" +
+        '<textarea class="field__input field__textarea knock-context-review__draft" data-knock-context-draft rows="10" aria-label="契机正文">' +
+        escapeHtml(draft) +
+        "</textarea></section>" +
+        '<section class="knock-context-review__card knock-context-review__card--muted">' +
+        '<div class="knock-context-review__card-head">' +
+        '<span class="knock-context-review__card-title">AI 修改方向</span>' +
+        '<span class="knock-context-review__card-tag knock-context-review__card-tag--optional">选填</span>' +
+        "</div>" +
+        '<p class="knock-context-review__card-hint">例如：加强误会感、把场景改到雨天、语气更轻松…</p>' +
+        '<input class="field__input knock-context-review__direction-input" data-knock-context-direction type="text" placeholder="填写后点「重新生成」按此方向改写" autocomplete="off" />' +
+        "</section>" +
         '<div class="knock-context-review__actions">' +
-        '<button type="button" class="btn btn--ghost btn--pill" data-knock-context-regenerate' +
+        '<button type="button" class="btn btn--ghost btn--pill knock-context-review__back" data-knock-context-back>返回上一步</button>' +
+        '<button type="button" class="btn btn--secondary btn--pill knock-context-review__regen" data-knock-context-regenerate' +
         genDisabled +
         ">重新生成</button>" +
-        '<button type="button" class="btn btn--primary btn--pill' +
+        '<button type="button" class="btn btn--primary btn--pill knock-context-review__confirm' +
         genCls +
         '" data-knock-context-confirm' +
         (knockContextGenerating || !draft ? " disabled" : "") +
@@ -20555,23 +21363,29 @@
     const canGenerate = knockUserCharId && knockPartnerCharId && !knockContextGenerating;
     return (
       '<div class="knock-intro form-stack">' +
+      buildKnockSetupStepsHtml(1) +
       '<p class="knock-intro__relation-badge">刚认识 · 刚加微信</p>' +
+      '<section class="knock-intro__section">' +
+      '<h3 class="knock-intro__section-title">选择聊天角色</h3>' +
       '<div class="knock-intro__cast-panel">' +
       buildKnockCastColHtml("user", user) +
       '<div class="knock-intro__cast-divider" aria-hidden="true"></div>' +
       buildKnockCastColHtml("partner", partner) +
-      "</div>" +
+      "</div></section>" +
+      '<section class="knock-intro__section">' +
       '<label class="field knock-intro__seed">' +
-      '<span class="field__label">契机 <span class="knock-intro__optional">选填</span></span>' +
-      '<textarea class="field__input field__textarea" data-knock-context-seed rows="2" placeholder="怎么认识的、为何加上微信…留空则由 AI 自动构思">' +
+      '<span class="field__label">契机要点 <span class="knock-intro__optional">选填</span></span>' +
+      '<span class="field__hint knock-intro__seed-hint">简述怎么认识的、为何加微信；留空则由 AI 自动构思</span>' +
+      '<textarea class="field__input field__textarea" data-knock-context-seed rows="2" placeholder="例如在学院走廊偶遇、朋友介绍…">' +
       escapeHtml(seedVal) +
-      "</textarea></label>" +
+      "</textarea></label></section>" +
       '<div class="knock-setup-page__actions">' +
       '<button type="button" class="btn btn--primary btn--block btn--pill' +
       genCls +
       '" data-knock-context-generate' +
       (canGenerate ? "" : " disabled") +
-      ">生成契机背景</button></div></div>"
+      ">生成契机背景</button>" +
+      '<p class="field__hint knock-intro__next-hint">生成后可在下一步预览、修改并确认</p></div></div>'
     );
   }
 
@@ -20607,6 +21421,115 @@
     );
   }
 
+  function buildKnockChatAppearanceSheetHtml(disabled) {
+    if (!knockChatAppearanceOpen) return "";
+    const user = getCharById(knockUserCharId);
+    const partner = getKnockPartnerCharById(knockPartnerCharId);
+    const userName = user ? user.name || "我" : "我";
+    const partnerName = partner ? partner.name || "对方" : "对方";
+    const userAv = getKnockAvatarUrlForRole("user");
+    const partnerAv = getKnockAvatarUrlForRole("partner");
+    const style = getKnockChatStyle();
+    const activePresetId = (function () {
+      const hit = KNOCK_CHAT_BUBBLE_PRESETS.find(function (p) {
+        return p.bubbleIn === style.bubbleIn && p.bubbleOut === style.bubbleOut;
+      });
+      return hit ? hit.id : "custom";
+    })();
+    const presetHtml = KNOCK_CHAT_BUBBLE_PRESETS.map(function (p) {
+      const on = p.id === activePresetId;
+      return (
+        '<button type="button" class="knock-chat-appearance__preset' +
+        (on ? " knock-chat-appearance__preset--active" : "") +
+        '" data-knock-chat-bubble-preset="' +
+        escapeHtml(p.id) +
+        '"' +
+        (disabled ? " disabled" : "") +
+        '><span class="knock-chat-appearance__preset-swatches" aria-hidden="true">' +
+        '<i class="knock-chat-appearance__swatch knock-chat-appearance__swatch--in" style="background:' +
+        escapeHtml(p.bubbleIn || "var(--surface)") +
+        '"></i>' +
+        '<i class="knock-chat-appearance__swatch knock-chat-appearance__swatch--out" style="background:' +
+        escapeHtml(p.bubbleOut || "color-mix(in srgb, var(--accent) 16%, var(--surface))") +
+        '"></i></span><span class="knock-chat-appearance__preset-label">' +
+        escapeHtml(p.label) +
+        "</span></button>"
+      );
+    }).join("");
+    const bgPreview = style.bgUrl
+      ? '<span class="knock-chat-appearance__bg-preview knock-chat-appearance__bg-preview--has-image"' +
+        buildCssBackgroundImageStyleAttr(style.bgUrl) +
+        "></span>"
+      : '<span class="knock-chat-appearance__bg-preview">默认</span>';
+    return (
+      '<div class="knock-chat-appearance-overlay" data-knock-chat-appearance-overlay>' +
+      '<div class="knock-chat-appearance-overlay__sheet modal-sheet modal-sheet--knock">' +
+      '<div class="sheet-handle" aria-hidden="true"></div>' +
+      '<div class="modal-header knock-setup-modal__header knock-chat-appearance__header">' +
+      '<h2 class="modal-title">聊天外观</h2>' +
+      '<button type="button" class="icon-btn" data-knock-chat-appearance-close aria-label="关闭"><svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M18 6L6 18M6 6l12 12"/></svg></button>' +
+      "</div>" +
+      '<div class="knock-chat-appearance__body">' +
+      '<section class="knock-chat-appearance__section">' +
+      '<h3 class="knock-chat-appearance__section-title">头像</h3>' +
+      '<div class="knock-chat-appearance__avatars">' +
+      '<button type="button" class="knock-chat-appearance__av-item" data-knock-appearance-avatar="user"' +
+      (disabled ? " disabled" : "") +
+      ">" +
+      '<span class="knock-chat-appearance__av">' +
+      (userAv
+        ? '<img src="' + escapeHtml(userAv) + '" alt="" />'
+        : escapeHtml(userName.slice(0, 1))) +
+      "</span>" +
+      '<span class="knock-chat-appearance__av-label">' +
+      escapeHtml(userName) +
+      "</span></button>" +
+      '<button type="button" class="knock-chat-appearance__av-item" data-knock-appearance-avatar="partner"' +
+      (disabled ? " disabled" : "") +
+      ">" +
+      '<span class="knock-chat-appearance__av">' +
+      (partnerAv
+        ? '<img src="' + escapeHtml(partnerAv) + '" alt="" />'
+        : escapeHtml(partnerName.slice(0, 1))) +
+      "</span>" +
+      '<span class="knock-chat-appearance__av-label">' +
+      escapeHtml(partnerName) +
+      "</span></button></div></section>" +
+      '<section class="knock-chat-appearance__section">' +
+      '<h3 class="knock-chat-appearance__section-title">聊天背景</h3>' +
+      '<div class="knock-chat-appearance__bg-row">' +
+      bgPreview +
+      '<div class="knock-chat-appearance__bg-actions">' +
+      '<button type="button" class="btn btn--secondary btn--pill btn--sm" data-knock-chat-bg-pick' +
+      (disabled ? " disabled" : "") +
+      ">更换图片</button>" +
+      (style.bgUrl
+        ? '<button type="button" class="btn btn--ghost btn--pill btn--sm" data-knock-chat-bg-clear' +
+          (disabled ? " disabled" : "") +
+          ">恢复默认</button>"
+        : "") +
+      "</div></div></section>" +
+      '<section class="knock-chat-appearance__section">' +
+      '<h3 class="knock-chat-appearance__section-title">气泡颜色</h3>' +
+      '<div class="knock-chat-appearance__presets">' +
+      presetHtml +
+      "</div>" +
+      '<div class="knock-chat-appearance__color-row">' +
+      '<label class="knock-chat-appearance__color-field"><span>对方</span>' +
+      '<input type="color" class="knock-chat-appearance__color-input" data-knock-chat-bubble-color="in" value="' +
+      escapeHtml(style.bubbleIn || "#ffffff") +
+      '"' +
+      (disabled ? " disabled" : "") +
+      " /></label>" +
+      '<label class="knock-chat-appearance__color-field"><span>我</span>' +
+      '<input type="color" class="knock-chat-appearance__color-input" data-knock-chat-bubble-color="out" value="' +
+      escapeHtml(style.bubbleOut || "#95ec69") +
+      '"' +
+      (disabled ? " disabled" : "") +
+      " /></label></div></section></div></div></div>"
+    );
+  }
+
   function buildKnockChatHtml() {
     const user = getCharById(knockUserCharId);
     const partner = getKnockPartnerCharById(knockPartnerCharId);
@@ -20634,7 +21557,7 @@
     const genLoadingCls =
       knockReplyGenerating || knockVisualImageGenerating ? " phone-wechat-gen-btn--loading" : "";
     const genDisabled =
-      pendingSetup || !knockAwaitingReply() || knockReplyGenerating || knockVisualImageGenerating || knockSelectMode;
+      pendingSetup || !knockCanGenerateReply() || knockReplyGenerating || knockVisualImageGenerating || knockSelectMode;
     const regenDisabled =
       pendingSetup ||
       !knockHasTrailingAssistantReply() ||
@@ -20660,6 +21583,7 @@
     const composerCls =
       "phone-wechat__composer knock-chat__composer" + (voiceMode ? " knock-chat__composer--voice" : "");
     const inputPlaceholder = voiceMode ? "语音内容…" : "发消息…";
+    const appearanceActiveCls = knockChatAppearanceOpen ? " phone-wechat-chat-action--active" : "";
     return (
       '<div class="knock-chat knock-chat--themed phone-app phone-wechat phone-wechat--chat' +
       (knockSelectMode ? " phone-wechat--select-mode" : "") +
@@ -20674,6 +21598,13 @@
       escapeHtml(partnerName) +
       "</h2></div>" +
       '<div class="phone-wechat-chat-bar__actions knock-chat__actions">' +
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn phone-wechat-chat-action' +
+      appearanceActiveCls +
+      '" data-knock-chat-appearance aria-label="聊天外观" title="聊天外观（头像/背景/气泡）"' +
+      (pendingSetup || knockSelectMode ? " disabled" : barActionDisabled) +
+      ">" +
+      '<svg class="icon-linear" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>' +
+      "</button>" +
       '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn phone-wechat-chat-action" data-knock-regenerate aria-label="重回上一轮回复" title="重回上一轮回复"' +
       (regenDisabled ? " disabled" : barActionDisabled) +
       ">" +
@@ -20761,6 +21692,7 @@
       buildKnockActionSheetHtml(composerDisabled) +
       buildKnockStickerManageOverlayHtml() +
       buildKnockPhotoViewerOverlayHtml() +
+      buildKnockChatAppearanceSheetHtml(composerDisabled) +
       "</div>"
     );
   }
@@ -20819,6 +21751,7 @@
     slot.innerHTML =
       buildKnockChatHtml() + (knockPersonaEditTarget ? buildKnockPersonaEditOverlayHtml() : "");
     fillKnockAvatarElements(slot);
+    applyKnockChatStyleToRoot(slot);
     fillKnockSetupFormFields(slot);
     restoreKnockComposerDraft(slot, composerDraft);
     if (opts.scrollToEnd) {
@@ -20844,9 +21777,13 @@
     }
     const pickScrollPos =
       knockMainTab === "me" ? saveKnockPickScrollPositions(slot) : null;
+    const momentsScrollTop =
+      knockMainTab === "moments" ? saveKnockMomentsScroll(slot) : null;
     const pageScrollY = window.scrollY || window.pageYOffset || 0;
     slot.innerHTML = buildKnockShellHtml();
-    fillKnockShellPanels(slot, opts);
+    const panelOpts = Object.assign({}, opts);
+    if (momentsScrollTop != null) panelOpts.momentsScrollTop = momentsScrollTop;
+    fillKnockShellPanels(slot, panelOpts);
     if (knockMainTab === "me") {
       restoreKnockPickScrollPositions(slot, pickScrollPos);
     }
@@ -21113,12 +22050,13 @@
     if (knockReplyGenerating) return;
     if (knockSelectMode) return;
     if (!isKnockChatReady()) return;
-    if (!knockAwaitingReply()) {
-      showToast("请先发送一条消息，再点生成。", "info");
+    if (!knockCanGenerateReply()) {
+      showToast("请先发送一条消息，或等对方回复后再点生成。", "info");
       return;
     }
     const rec = getKnockChatRecordMutable();
     if (!rec) return;
+    const continuing = !knockAwaitingReply();
     knockReplyGenerating = true;
     const slot = els.knockContentSlot();
     renderKnockScreen(slot);
@@ -21127,7 +22065,7 @@
       const raw = await callChatCompletion(apiMsgs, 0.82, 1400, { apiConfigId: getWorkbenchApiId() });
       appendKnockAssistantReplyFromRaw(rec, raw);
       persistNarrative();
-      showToast("对方已回复", "success");
+      showToast(continuing ? "对方又发来新消息" : "对方已回复", "success");
     } catch (err) {
       const msg = (err && err.message) || "";
       showToast(msg || "生成失败，请检查 API 配置后重试。", "error", 4200);
@@ -21145,17 +22083,13 @@
       showToast("尚无对方回复可重回。", "info");
       return;
     }
-    const removed = removeKnockTrailingAssistantReplies();
+    const removed = removeKnockLastAssistantBatch();
     if (!removed) {
       showToast("尚无对方回复可重回。", "info");
       return;
     }
     persistNarrative();
-    if (!knockAwaitingReply()) {
-      showToast("已删除上一轮回复，但缺少可重新生成的用户消息。", "warning");
-      renderKnockScreen(els.knockContentSlot());
-      return;
-    }
+    renderKnockScreen(els.knockContentSlot());
     await generateKnockReply();
   }
 
@@ -21303,19 +22237,11 @@
     }
   }
 
-  function escapeHtml(s) {
-    return String(s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
   function fillAvatarElement(el, c) {
     if (!el) return;
     el.innerHTML = "";
     const url = c && c.avatarUrl ? String(c.avatarUrl).trim() : "";
-    if (url) {
+    if (url && isSafeImageUrl(url)) {
       const im = document.createElement("img");
       im.src = url;
       im.alt = c && c.name ? String(c.name) : "";
@@ -25931,9 +26857,7 @@
   }
 
   function buildPhoneMomentsCoverStyleAttr(url) {
-    const u = String(url || "").trim();
-    if (!u) return "";
-    return ' style="background-image:url(\'' + u.replace(/'/g, "\\'") + '\')"';
+    return buildCssBackgroundImageStyleAttr(url);
   }
 
   function getPhoneMomentsBundleRecord() {
@@ -26237,7 +27161,7 @@
   }
 
   async function generatePhoneMomentsContent(slot) {
-    if (phoneMomentsGenerating || phoneWechatGenerating || phoneAlbumGenerating || phoneAlbumPhotoGenerating || phoneForumGenerating || phoneBrowserGenerating) return;
+    if (phoneMomentsGenerating || phoneWechatGenerating || phoneAlbumGenerating || phoneForumGenerating || phoneBrowserGenerating) return;
     sanitizePhoneHolderState();
     const plot = plots.find(function (p) {
       return p.id === phoneHolderPlotId;
@@ -26501,7 +27425,6 @@
       phoneMomentsGenerating ||
       phoneWechatGenerating ||
       phoneAlbumGenerating ||
-      phoneAlbumPhotoGenerating ||
       phoneForumGenerating ||
       phoneBrowserGenerating;
     const genBtn =
@@ -26518,8 +27441,6 @@
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
       '<h2 class="phone-app__title phone-app__title--left">朋友圈</h2>' +
-      autoDeleteBtn +
-      autoDeleteBtn +
       genBtn +
       "</header>"
     );
@@ -26950,7 +27871,7 @@
   }
 
   async function generatePhoneMusicContent(slot) {
-    if (phoneMusicGenerating || phoneWechatGenerating || phoneMomentsGenerating || phoneAlbumGenerating || phoneAlbumPhotoGenerating || phoneForumGenerating || phoneBrowserGenerating) return;
+    if (phoneMusicGenerating || phoneWechatGenerating || phoneMomentsGenerating || phoneAlbumGenerating || phoneForumGenerating || phoneBrowserGenerating) return;
     sanitizePhoneHolderState();
     const plot = plots.find(function (p) {
       return p.id === phoneHolderPlotId;
@@ -27061,7 +27982,6 @@
       phoneWechatGenerating ||
       phoneMomentsGenerating ||
       phoneAlbumGenerating ||
-      phoneAlbumPhotoGenerating ||
       phoneForumGenerating ||
       phoneBrowserGenerating;
     const selectBtn = buildPhoneBarListSelectBtnHtml(ui, selectDisabled || disabled);
@@ -27562,7 +28482,7 @@
   }
 
   async function generatePhoneAlbumContent(slot) {
-    if (phoneAlbumGenerating || phoneAlbumPhotoGenerating || phoneWechatGenerating || phoneMomentsGenerating || phoneMusicGenerating || phoneForumGenerating || phoneBrowserGenerating) return;
+    if (phoneAlbumGenerating || phoneWechatGenerating || phoneMomentsGenerating || phoneMusicGenerating || phoneForumGenerating || phoneBrowserGenerating) return;
     sanitizePhoneHolderState();
     const plot = plots.find(function (p) {
       return p.id === phoneHolderPlotId;
@@ -27629,382 +28549,9 @@
     return PHONE_ALBUM_CATEGORIES[0].id;
   }
 
-  function namesLooselyMatch(a, b) {
-    const x = String(a || "").trim();
-    const y = String(b || "").trim();
-    if (!x || !y) return false;
-    if (x === y) return true;
-    const xl = x.toLowerCase();
-    const yl = y.toLowerCase();
-    if (xl === yl) return true;
-    if (xl.length >= 2 && yl.length >= 2 && (xl.indexOf(yl) >= 0 || yl.indexOf(xl) >= 0)) return true;
-    return false;
-  }
-
-  function classifyPhoneAlbumPhotoSubject(photo, plot, holder) {
-    const protagonist = plot ? getCharById(plot.protagonistId) : null;
-    const protagName = String((protagonist && protagonist.name) || "").trim();
-    const holderName = String((holder && holder.name) || "").trim();
-    const personName = String((photo && photo.personName) || "").trim();
-    const desc = String((photo && photo.description) || "").trim();
-
-    if (personName) {
-      if (protagName && namesLooselyMatch(personName, protagName)) return "protagonist";
-      if (holderName && namesLooselyMatch(personName, holderName)) return "mainCharacter";
-      return "otherPerson";
-    }
-    if (protagName && desc.indexOf(protagName) >= 0) return "protagonist";
-    if (/我|自己|用户|主角/.test(desc) && /背影|侧影|身影|身形|轮廓|远处/.test(desc)) return "protagonist";
-    if (holderName && desc.indexOf(holderName) >= 0) return "mainCharacter";
-    if (desc && /他|她|TA|对方|那人/.test(desc) && !/我|自己|用户/.test(desc)) return "mainCharacter";
-    return "scene";
-  }
-
-  function findPhoneAlbumCharacterProfileByName(plot, holder, personName) {
-    const name = String(personName || "").trim();
-    if (!name) return "";
-    const protagonist = plot ? getCharById(plot.protagonistId) : null;
-    if (protagonist && namesLooselyMatch(name, protagonist.name)) {
-      const blocks = getEffectiveIdentityBlocks(plot);
-      return blocks.identitySelfBlock || buildPlayRoleAppearancePersonaLine(protagonist);
-    }
-    if (holder && namesLooselyMatch(name, holder.name)) {
-      return buildPhoneHolderProfileBlock(holder, plot);
-    }
-    const ids = [].concat(
-      plot && plot.protagonistId ? [plot.protagonistId] : [],
-      plot && plot.supportingIds ? plot.supportingIds : [],
-      holder && holder.id ? [holder.id] : []
-    );
-    const seen = new Set();
-    for (let i = 0; i < ids.length; i++) {
-      const id = ids[i];
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      const ch = getCharById(id);
-      if (!ch || !ch.name) continue;
-      if (!namesLooselyMatch(name, ch.name)) continue;
-      const ov = plot ? getPlotCharacterOverride(plot, id) : null;
-      if (ov && ov.profile) return String(ov.profile).trim();
-      return buildPlayRoleAppearancePersonaLine(ch);
-    }
-    return "";
-  }
-
-  async function buildPhoneAlbumProtagonistGenerationPrompt(photo, identitySelfBlock, protagonistName, opts) {
-    opts = opts || {};
-    const desc = String((photo && photo.description) || "").trim();
-    const caption = String((photo && photo.caption) || "").trim();
-    const name = String(protagonistName || "the user").trim();
-    let prompt =
-      "Photograph of " +
-      name +
-      " matching this appearance profile exactly: " +
-      truncateCharsWithEllipsis(identitySelfBlock || "unspecified", 640) +
-      ".";
-    prompt +=
-      " STRICT RULES: show ONLY from behind, over-the-shoulder, distant silhouette, or partial body (hands, legs, torso from back/side). NO visible face, NO eye contact, NO frontal portrait, NO recognizable facial features.";
-    prompt +=
-      " Honor every detail in the profile (hair length, hair color, build, height, clothing style) — do not contradict the profile.";
-    if (desc) prompt += " Scene from phone album: " + desc + ".";
-    if (caption) prompt += " Title hint: " + caption + ".";
-    prompt += " Smartphone photo realism, candid framing.";
-    if (!opts.omitStyleSuffix) prompt += visualImageStylePromptSuffix();
-    return prompt;
-  }
-
-  async function buildPhoneAlbumMainCharacterGenerationPrompt(photo, holder, opts) {
-    opts = opts || {};
-    const appearancePrompt = await resolveVisualAppearancePromptBase();
-    const holderStyle = holder && holder.style ? String(holder.style).trim() : "";
-    const name = holder && holder.name ? String(holder.name).trim() : "the character";
-    const desc = String((photo && photo.description) || "").trim();
-    const caption = String((photo && photo.caption) || "").trim();
-    let prompt = appearancePrompt;
-    if (holderStyle) {
-      prompt += " Additional character appearance (from profile): " + holderStyle + ".";
-    }
-    prompt += " Subject: " + name + ". Photo stored in smartphone album.";
-    if (desc) prompt += " Scene description: " + desc + ".";
-    if (caption) prompt += " Caption: " + caption + ".";
-    prompt += " Natural smartphone photography, no text overlay, no watermark.";
-    if (!opts.omitStyleSuffix) prompt += visualImageStylePromptSuffix();
-    return prompt;
-  }
-
-  async function buildPhoneAlbumOtherPersonGenerationPrompt(photo, profileText, opts) {
-    opts = opts || {};
-    const desc = String((photo && photo.description) || "").trim();
-    const personName = String((photo && photo.personName) || "").trim() || "the person";
-    const dailyPrompt = await resolveVisualDailyPromptBase();
-    let prompt =
-      dailyPrompt +
-      " Person in photo: " +
-      personName +
-      ". Appearance profile: " +
-      truncateCharsWithEllipsis(profileText || "unspecified", 520) +
-      ".";
-    if (desc) prompt += " Scene: " + desc + ".";
-    prompt += " Smartphone photo realism, no text overlay, no watermark.";
-    if (!opts.omitStyleSuffix) prompt += visualImageStylePromptSuffix();
-    return prompt;
-  }
-
-  async function buildPhoneAlbumSceneGenerationPrompt(photo, opts) {
-    opts = opts || {};
-    const dailyPrompt = await resolveVisualDailyPromptBase();
-    const desc = String((photo && photo.description) || "").trim();
-    const caption = String((photo && photo.caption) || "").trim();
-    let prompt =
-      dailyPrompt +
-      " Environmental photo from smartphone album: focus on place, objects, or atmosphere.";
-    if (desc) prompt += " Description: " + desc + ".";
-    if (caption) prompt += " Caption: " + caption + ".";
-    prompt += " No prominent face portrait, no text overlay, no watermark.";
-    if (!opts.omitStyleSuffix) prompt += visualImageStylePromptSuffix();
-    return prompt;
-  }
-
-  async function craftPhoneAlbumVisualImagePrompt(photo, plot, holder, opts) {
-    opts = opts || {};
-    const subjectType = classifyPhoneAlbumPhotoSubject(photo, plot, holder);
-    const blocks = getEffectiveIdentityBlocks(plot);
-    const protagonist = plot ? getCharById(plot.protagonistId) : null;
-    const protagName = String((protagonist && protagonist.name) || "用户").trim();
-    const holderName = String((holder && holder.name) || "持有者").trim();
-    const desc = String((photo && photo.description) || "").trim();
-    const caption = String((photo && photo.caption) || "").trim();
-    const personName = String((photo && photo.personName) || "").trim();
-
-    const fallbackOpts = { omitStyleSuffix: false };
-    let fallback;
-    if (subjectType === "protagonist") {
-      fallback = await buildPhoneAlbumProtagonistGenerationPrompt(photo, blocks.identitySelfBlock, protagName, fallbackOpts);
-    } else if (subjectType === "mainCharacter") {
-      fallback = await buildPhoneAlbumMainCharacterGenerationPrompt(photo, holder, fallbackOpts);
-    } else if (subjectType === "otherPerson") {
-      const profile = findPhoneAlbumCharacterProfileByName(plot, holder, personName);
-      fallback = await buildPhoneAlbumOtherPersonGenerationPrompt(photo, profile, fallbackOpts);
-    } else {
-      fallback = await buildPhoneAlbumSceneGenerationPrompt(photo, fallbackOpts);
-    }
-
-    if (opts.fastTest) return fallback;
-
-    const appearanceBase = await resolveVisualAppearancePromptBase();
-    const dailyBase = await resolveVisualDailyPromptBase();
-    const manualAppearancePrompt = String(
-      (visualImageSettings.appearanceRef && visualImageSettings.appearanceRef.prompt) ||
-        DEFAULT_VISUAL_APPEARANCE_PROMPT
-    ).trim();
-    const manualDailyPrompt = String(
-      (visualImageSettings.dailyRef && visualImageSettings.dailyRef.prompt) || DEFAULT_VISUAL_DAILY_PROMPT
-    ).trim();
-    const styleNote = visualImageStylePromptSuffix().trim();
-
-    const subjectLabels = {
-      protagonist: "用户/主角「" + protagName + "」（仅背影或部分身形，禁止露脸）",
-      mainCharacter: "主要角色「" + holderName + "」（可用正脸，须贴合设置参考图、上传外貌与明星脸）",
-      otherPerson: "其他人物「" + (personName || "未知") + "」",
-      scene: "无人出镜的场景/物品",
-    };
-
-    try {
-      let userContent =
-        "照片类型：" +
-        (subjectLabels[subjectType] || subjectLabels.scene) +
-        "\n概括：" +
-        (caption || "无") +
-        "\n描述：" +
-        (desc || "无") +
-        (personName ? "\n标注人物：" + personName : "") +
-        "\n\n生成目标：这不是摆拍海报，而是一张会真实出现在手机相册里的抓拍照片。要让人一眼觉得‘这就是那个人那一刻真的拍下来的’。";
-      if (subjectType === "protagonist") {
-        userContent += "\n用户外貌人设：\n" + truncateCharsWithEllipsis(blocks.identitySelfBlock || "未设定", 720);
-        userContent +=
-          "\n硬性约束：只能背影、侧后方、远景剪影或局部身形；绝对不能出现可辨认的面部、眼睛、正脸特写。发型、发色、体型、穿衣习惯、整体气质必须严格跟人设一致，并保持像真实自拍/抓拍。";
-      } else if (subjectType === "mainCharacter") {
-        userContent += "\n主要角色资料：\n" + truncateCharsWithEllipsis(buildPhoneHolderProfileBlock(holder, plot), 520);
-        userContent +=
-          "\n外貌参考（设置上传图识图 + 提示词 + 明星脸，锁定脸型发型气质）：" +
-          truncateCharsWithEllipsis(appearanceBase, 720);
-        userContent += "\n外貌描述提示词（设置）：" + truncateCharsWithEllipsis(manualAppearancePrompt, 480);
-        userContent +=
-          "\n强化要求：如果设定里已经写明是某种气质/人设，就要优先服从设定，不要因为场景提示而把人画成另一种脸或另一种风格。";
-      } else if (subjectType === "otherPerson") {
-        const profile = findPhoneAlbumCharacterProfileByName(plot, holder, personName);
-        userContent += "\n该人物资料：\n" + truncateCharsWithEllipsis(profile || "未设定", 520);
-        userContent += "\n场景参考：" + truncateCharsWithEllipsis(dailyBase, 480);
-        userContent += "\n场景描述提示词（设置）：" + truncateCharsWithEllipsis(manualDailyPrompt, 480);
-      } else {
-        userContent += "\n场景参考（设置上传图识图 + 提示词）：" + truncateCharsWithEllipsis(dailyBase, 720);
-        userContent += "\n场景描述提示词（设置）：" + truncateCharsWithEllipsis(manualDailyPrompt, 480);
-        userContent += "\n强化要求：场景必须和剧情氛围、人物当前情绪、时间线、拍摄地点紧密结合，避免像随手生成的泛化风景图。";
-      }
-      userContent += "\n\n摄影风格要求：" + styleNote;
-      userContent += "\n\n请写一条完整英文 prompt（仅正文）。";
-
-      const systemRules =
-        subjectType === "protagonist"
-          ? "若画面含用户/主角，必须背影或局部身形，严禁任何可辨认面部。人设写了短发就不能画长发，所有外貌细节须与人设一致，并确保整体像同一角色本人在真实手机相册里拍到的照片。"
-          : subjectType === "mainCharacter"
-            ? "主要角色须融合设置参考图、描述提示词与明星脸参考；脸型、发型、气质与参考一致，装扮与情境随照片描述变化，但不能换成另一个人。"
-            : "贴合照片描述与参考提示词，像真实手机相册照片，且要和剧情、关系、时间、地点强绑定。";
-
-      const refined = await callChatCompletion(
-        [
-          {
-            role: "system",
-            content:
-              "你是图像 prompt 工程师。根据手机相册条目写一条英文生图 prompt，供 images/generations 使用。\n" +
-              "只输出 prompt 正文：英文、无 markdown、无标题、无解释。\n" +
-              "必须融合设置中的参考提示词与照片描述，二者缺一不可。\n" +
-              systemRules,
-          },
-          { role: "user", content: userContent },
-        ],
-        0.58,
-        500,
-        { apiConfigId: getWorkbenchApiId(), skipGenPaw: true }
-      );
-      const p = String(refined || "")
-        .trim()
-        .replace(/^["'`]+|["'`]+$/g, "")
-        .replace(/^\s*prompt\s*[:：]\s*/i, "");
-      if (p.length >= 48) {
-        if (!/photograph|photo|selfie|portrait|shot|camera|lighting|silhouette|back view/i.test(p)) {
-          return p + ". " + styleNote;
-        }
-        return p;
-      }
-    } catch (e) {
-      console.warn("craftPhoneAlbumVisualImagePrompt", e);
-    }
-    return fallback;
-  }
-
-  async function generatePhoneAlbumPhotoAtId(slot, photoId, opts) {
-    opts = opts || {};
-    if (phoneAlbumPhotoGenerating) return false;
-    if (!visualImageSettings.enabled) {
-      showToast("请先在设置中启用聊天发图", "warning", 4200);
-      return false;
-    }
-    if (!resolveVisualImageApiConfig()) {
-      showToast("生图 API 未配置完整，请在设置 → 聊天发图 中填写站点、Key 与模型", "warning", 4200);
-      return false;
-    }
-    sanitizePhoneHolderState();
-    const plot = plots.find(function (p) {
-      return p.id === phoneHolderPlotId;
-    });
-    const holder = getPhoneHolderCharacter();
-    if (!plot || !holder) {
-      showToast("请先在设置中选择剧情与手机持有者。", "warning");
-      return false;
-    }
-    const id = String(photoId || "").trim();
-    const hit = findPhoneAlbumPhoto(id);
-    if (!hit || !hit.photo) {
-      showToast("找不到该照片", "error");
-      return false;
-    }
-    const photo = hit.photo;
-    const desc = String(photo.description || "").trim();
-    if (!desc) {
-      showToast("请先填写照片描述", "warning");
-      return false;
-    }
-
-    phoneAlbumPhotoGenerating = true;
-    phoneAlbumPhotoGeneratingId = id;
-    if (slot && getPhoneNav(slot).screen === "album") renderPhoneScreen(slot);
-    try {
-      if (hasVisualRefImagesForAnalysis("appearance") || hasVisualRefImagesForAnalysis("daily")) {
-        showToast("正在分析参考图并写入生图描述…", "info", 3600);
-      }
-      showToast(opts.regenerate ? "正在重新生成照片，约需 1～3 分钟…" : "正在生成照片，约需 1～3 分钟…", "info", 5200);
-      setGenCallContext(buildGenCallOpts("phone-album", { slot: slot }));
-      const prompt = await craftPhoneAlbumVisualImagePrompt(photo, plot, holder, {
-        fastTest: !!opts.fastTest,
-      });
-      const photoUrl = await callVisualImageGeneration(prompt);
-      hit.photo.photoUrl = photoUrl;
-      hit.photo.photoGeneratedAt = Date.now();
-      persistPhoneAlbumBundle(hit.bundle);
-      showToast("照片已生成并保存到相册", "success");
-      return true;
-    } catch (err) {
-      console.error(err);
-      showToast((err && err.message) || "生图失败，请稍后重试", "error", 5200);
-      return false;
-    } finally {
-      phoneAlbumPhotoGenerating = false;
-      phoneAlbumPhotoGeneratingId = null;
-      if (slot && getPhoneNav(slot).screen === "album") renderPhoneScreen(slot);
-    }
-  }
-
-  async function savePhoneAlbumPhotoToDevice(photoUrl) {
-    const url = String(photoUrl || "").trim();
-    if (!url) {
-      showToast("无法保存：图片地址无效。", "error");
-      return;
-    }
-    try {
-      let blob = null;
-      if (/^data:image\//i.test(url)) {
-        blob = storyShareDataUrlToBlob(url);
-      } else {
-        const dataUrl = await fetchRemoteImageAsCompressedDataUrl(url);
-        blob = storyShareDataUrlToBlob(dataUrl);
-      }
-      if (!blob) {
-        showToast("无法保存图片。", "error");
-        return;
-      }
-      await storyShareDeliverImageBlob(blob, "phone-album-" + Date.now() + ".jpg");
-    } catch (err) {
-      console.error(err);
-      showToast((err && err.message) || "保存失败，请重试。", "error");
-    }
-  }
-
-  function clearPhoneAlbumGeneratedImage(photoId) {
-    const hit = findPhoneAlbumPhoto(photoId);
-    if (!hit || !hit.photo) return false;
-    delete hit.photo.photoUrl;
-    delete hit.photo.photoGeneratedAt;
-    persistPhoneAlbumBundle(hit.bundle);
-    return true;
-  }
-
-  async function handlePhoneAlbumClearGeneratedImage(slot) {
-    const nav = getPhoneNav(slot);
-    if (nav.screen !== "album" || !nav.albumPhotoId || !hasPhoneAlbumGenerated()) return;
-    const hit = findPhoneAlbumPhoto(nav.albumPhotoId);
-    if (!hit || !hit.photo || !hit.photo.photoUrl) return;
-    const ok = await showConfirm("确定删除已生成的图片吗？照片条目将保留。", "删除图片");
-    if (!ok) return;
-    if (!clearPhoneAlbumGeneratedImage(nav.albumPhotoId)) {
-      showToast("删除失败", "error");
-      return;
-    }
-    showToast("已删除生成的图片", "success");
-    if (slot) renderPhoneScreen(slot);
-  }
-
   function buildPhoneAlbumThumbSymbolHtml(photo, placeholder) {
     if (placeholder) {
       return '<span class="phone-album__emoji">…</span>';
-    }
-    const photoUrl = String((photo && photo.photoUrl) || "").trim();
-    if (photoUrl) {
-      return (
-        '<img class="phone-album__img" src="' +
-        escapeHtml(photoUrl) +
-        '" alt="" loading="lazy" decoding="async" />'
-      );
     }
     const personName = String(photo.personName || "").trim();
     if (personName) {
@@ -28018,7 +28565,6 @@
     const loadingCls = phoneAlbumGenerating ? " phone-wechat-gen-btn--loading" : "";
     const genBusy =
       phoneAlbumGenerating ||
-      phoneAlbumPhotoGenerating ||
       phoneWechatGenerating ||
       phoneMomentsGenerating ||
       phoneMusicGenerating ||
@@ -28113,10 +28659,6 @@
     const photo = hit.photo;
     const editing = !!(nav && nav.albumPhotoEdit);
     const desc = String(photo.description || "").trim();
-    const photoUrl = String(photo.photoUrl || "").trim();
-    const hasPhoto = !!photoUrl;
-    const generating = phoneAlbumPhotoGenerating && phoneAlbumPhotoGeneratingId === photoId;
-    const genDisabled = phoneAlbumPhotoGenerating || phoneAlbumGenerating ? " disabled" : "";
     let bodyHtml = "";
     if (editing) {
       bodyHtml =
@@ -28133,27 +28675,8 @@
         '<button type="button" class="btn btn--primary btn--pill phone-album-detail__btn" data-phone-album-edit-save>保存</button>' +
         "</div>";
     } else {
-      let actionBtns =
-        '<button type="button" class="btn btn--secondary btn--pill phone-album-detail__btn" data-phone-album-edit-desc>编辑描述</button>';
-      if (generating) {
-        actionBtns +=
-          '<button type="button" class="btn btn--primary btn--pill phone-album-detail__btn" disabled>生成中…</button>';
-      } else if (hasPhoto) {
-        actionBtns +=
-          '<button type="button" class="btn btn--primary btn--pill phone-album-detail__btn" data-phone-album-regenerate-photo' +
-          genDisabled +
-          ">重新生成</button>" +
-          '<button type="button" class="btn btn--secondary btn--pill phone-album-detail__btn" data-phone-album-save-photo data-photo-url="' +
-          escapeHtml(photoUrl) +
-          '">保存图片</button>' +
-          '<button type="button" class="btn btn--secondary btn--pill phone-album-detail__btn" data-phone-album-clear-photo>删除图片</button>';
-      } else {
-        actionBtns +=
-          '<button type="button" class="btn btn--primary btn--pill phone-album-detail__btn" data-phone-album-generate-photo' +
-          genDisabled +
-          ">生成照片</button>";
-      }
-      actionBtns +=
+      const actionBtns =
+        '<button type="button" class="btn btn--secondary btn--pill phone-album-detail__btn" data-phone-album-edit-desc>编辑描述</button>' +
         '<button type="button" class="btn btn--danger btn--pill phone-album-detail__btn" data-phone-album-delete-photo>删除照片</button>';
       bodyHtml =
         '<blockquote class="phone-album-detail__quote">「' +
@@ -28163,11 +28686,8 @@
         actionBtns +
         "</div>";
     }
-    const thumbCls =
-      "phone-album-detail__thumb" + (hasPhoto ? " phone-album-detail__thumb--has-img" : "");
-    const thumbInner = generating
-      ? '<span class="phone-album-detail__generating" aria-live="polite"><span class="phone-album-detail__generating-label">生成中…</span></span>'
-      : buildPhoneAlbumThumbSymbolHtml(photo, false);
+    const thumbCls = "phone-album-detail__thumb";
+    const thumbInner = buildPhoneAlbumThumbSymbolHtml(photo, false);
     return (
       '<div class="phone-album-detail" role="dialog" aria-modal="true" aria-label="照片详情">' +
       '<button type="button" class="phone-album-detail__backdrop" data-phone-album-detail-close aria-label="关闭"></button>' +
@@ -28475,7 +28995,6 @@
       phoneMomentsGenerating ||
       phoneMusicGenerating ||
       phoneAlbumGenerating ||
-      phoneAlbumPhotoGenerating ||
       phoneForumGenerating ||
       phoneForumSectionGenerating ||
       phoneForumPostGeneratingId ||
@@ -28587,9 +29106,15 @@
     return n;
   }
 
+  function phoneForumPostIsUngeneratedStub(post) {
+    return countPhoneForumThreadMessages(post) === 0;
+  }
+
   function phoneForumPostHasDetail(post) {
     if (!post) return false;
-    return (post.thread || []).length >= PHONE_FORUM_MIN_THREAD_MESSAGES;
+    if (post.detailReady === true) return true;
+    if (post.thread && post.thread.length >= PHONE_FORUM_MIN_THREAD_MESSAGES) return true;
+    return false;
   }
 
   function prunePhoneForumPostsWithoutDetail() {
@@ -28598,7 +29123,7 @@
       const rec = phoneForumData[key];
       if (!rec) return acc;
       const nextPosts = (rec.posts || []).filter(function (post) {
-        const keep = phoneForumPostHasDetail(post);
+        const keep = !phoneForumPostIsUngeneratedStub(post);
         if (!keep) removed += 1;
         return keep;
       });
@@ -28606,7 +29131,7 @@
       return acc;
     }, {});
     if (removed > 0) {
-      persistPhoneForumData();
+      schedulePersistNarrative();
       renderDynamic();
       showToast("已删除 " + removed + " 条未展开帖子", "success");
     } else {
@@ -29279,7 +29804,7 @@
     const autoDeleteBtn =
       '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn phone-wechat-gen-btn--auto-delete" data-phone-auto-delete aria-label="自动删除未展开内容" title="自动删除未展开内容"' +
       (disabled ? " disabled" : "") +
-      '><svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M7 6l1 14h8l1-14"/><path d="M10 11v5M14 11v5"/></svg></button>';
+      '><svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M7 6l1 14h8l1-14"/><path d="M10 11v5M14 11v5"/></svg></button>';
     const genBtn =
       '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
       loadingCls +
@@ -29302,7 +29827,10 @@
       '<h2 class="phone-app__title phone-app__title--left">' +
       escapeHtml(title) +
       "</h2>" +
+      '<div class="phone-app__bar-actions phone-app__bar-actions--auto-pair">' +
+      autoDeleteBtn +
       genBtn +
+      "</div>" +
       "</header>"
     );
   }
@@ -36342,7 +36870,10 @@
   function phoneJjwxcNovelHasDetail(novel) {
     if (!novel) return false;
     if (novel.detailReady === true) return true;
-    return !!(String(novel.synopsis || "").trim() && (novel.chapters || []).length >= PHONE_JJWXC_MIN_CHAPTERS);
+    const syn = String(novel.synopsis || "").trim();
+    const chs = Array.isArray(novel.chapters) ? novel.chapters : [];
+    if (syn && chs.length >= PHONE_JJWXC_MIN_CHAPTERS) return true;
+    return false;
   }
 
   function prunePhoneJjwxcNovelsWithoutDetail() {
@@ -37153,7 +37684,7 @@
     const autoDeleteBtn =
       '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn phone-wechat-gen-btn--auto-delete" data-phone-auto-delete aria-label="自动删除未展开内容" title="自动删除未展开内容"' +
       (disabled ? " disabled" : "") +
-      '><svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M7 6l1 14h8l1-14"/><path d="M10 11v5M14 11v5"/></svg></button>';
+      '><svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M7 6l1 14h8l1-14"/><path d="M10 11v5M14 11v5"/></svg></button>';
     const genBtn = genAttrName
       ? '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
         loadingCls +
@@ -37165,6 +37696,11 @@
         buildPhoneWechatStarIconSvg() +
         "</button>"
       : '<span class="phone-app__bar-side" aria-hidden="true"></span>';
+    const barActions =
+      '<div class="phone-app__bar-actions phone-app__bar-actions--auto-pair">' +
+      autoDeleteBtn +
+      genBtn +
+      "</div>";
     return (
       '<header class="phone-app__bar phone-jjwxc__bar">' +
       '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
@@ -37175,7 +37711,7 @@
       escapeHtml(title) +
       "</h2>" +
       "</div>" +
-      genBtn +
+      barActions +
       "</header>"
     );
   }
@@ -38982,10 +39518,10 @@
   function fanworkJjwxcNovelHasDetail(novel) {
     if (!novel) return false;
     if (novel.detailReady === true) return true;
-    return !!(
-      String(novel.synopsis || "").trim() &&
-      (novel.chapters || []).length >= FANWORK_JJWXC_MIN_CHAPTERS
-    );
+    const syn = String(novel.synopsis || "").trim();
+    const chs = Array.isArray(novel.chapters) ? novel.chapters : [];
+    if (syn && chs.length >= FANWORK_JJWXC_MIN_CHAPTERS) return true;
+    return false;
   }
 
   function pruneFanworkJjwxcNovelsWithoutDetail() {
@@ -39948,7 +40484,7 @@
     const autoDeleteBtn =
       '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn phone-wechat-gen-btn--auto-delete" data-phone-auto-delete aria-label="自动删除未展开内容" title="自动删除未展开内容"' +
       (disabled ? " disabled" : "") +
-      '><svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M7 6l1 14h8l1-14"/><path d="M10 11v5M14 11v5"/></svg></button>';
+      '><svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M7 6l1 14h8l1-14"/><path d="M10 11v5M14 11v5"/></svg></button>';
     const genBtn =
       genAttr
         ? '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
@@ -42478,7 +43014,6 @@
       nav[k] = patch[k];
     });
     renderFanworkScreen(slot);
-    syncGlobalGenPawOverlay();
   }
 
   function navigateToPhoneView(slotId, patch) {
@@ -42498,7 +43033,6 @@
       nav[k] = patch[k];
     });
     renderPhoneScreen(slot);
-    syncGlobalGenPawOverlay();
   }
 
   function buildGenCallOpts(kind, params) {
@@ -42517,7 +43051,6 @@
       const novelTitle = hit ? String(hit.novel.title || "").trim() : "";
       const label = novelTitle ? "《" + novelTitle + "》" + chapterTitle : chapterTitle;
       return {
-        pawContext: buildFanworkPawContext(slot),
         genReady: {
           message: label + " 已生成好",
           navigate: function () {
@@ -42535,7 +43068,6 @@
       const hit = findFanworkJjwxcNovel(params.novelId);
       const title = hit ? String(hit.novel.title || "").trim() || "同人文" : "同人文";
       return {
-        pawContext: buildFanworkPawContext(slot),
         genReady: {
           message: "《" + title + "》已生成好",
           navigate: function () {
@@ -42551,7 +43083,6 @@
 
     if (kind === "fanwork-jjwxc-catalog") {
       return {
-        pawContext: buildFanworkPawContext(slot),
         genReady: {
           message: "小狗饭书单已生成好",
           navigate: function () {
@@ -42566,7 +43097,6 @@
       const title = hit ? String(hit.novel.title || "").trim() || "同人文" : "同人文";
       const chTitle = params.chapterTitle ? String(params.chapterTitle).trim() : "新章节";
       return {
-        pawContext: buildFanworkPawContext(slot),
         genReady: {
           message: "《" + title + "》" + chTitle + " 已生成好",
           navigate: function () {
@@ -42591,7 +43121,6 @@
       const novelTitle = hit ? String(hit.novel.title || "").trim() : "";
       const label = novelTitle ? "《" + novelTitle + "》" + chapterTitle : chapterTitle;
       return {
-        pawContext: buildFanworkPawContext(slot),
         genReady: {
           message: label + " 已重新生成",
           navigate: function () {
@@ -42609,7 +43138,6 @@
       const hit = findPhoneJjwxcNovel(params.novelId);
       const title = hit ? String(hit.novel.title || "").trim() || "作品" : "作品";
       return {
-        pawContext: buildPhonePawContext(slot),
         genReady: {
           message: "《" + title + "》目录已更新",
           navigate: function () {
@@ -42627,7 +43155,6 @@
       const hit = findPhoneJjwxcNovel(params.novelId);
       const title = hit ? String(hit.novel.title || "").trim() || "作品" : "作品";
       return {
-        pawContext: buildPhonePawContext(slot),
         genReady: {
           message: "《" + title + "》已生成好",
           navigate: function () {
@@ -42643,7 +43170,6 @@
 
     if (kind === "phone-jjwxc-catalog") {
       return {
-        pawContext: buildPhonePawContext(slot),
         genReady: {
           message: "晋江书单已生成好",
           navigate: function () {
@@ -42657,7 +43183,6 @@
       const chat = params.chat;
       const chatName = chat ? String(chat.name || "").trim() || "微信会话" : "微信会话";
       return {
-        pawContext: buildPhonePawContext(slot),
         genReady: {
           message: "「" + chatName + "」有新消息",
           navigate: function () {
@@ -42669,7 +43194,6 @@
 
     if (kind === "phone-wechat-list") {
       return {
-        pawContext: buildPhonePawContext(slot),
         genReady: {
           message: "微信内容已生成好",
           navigate: function () {
@@ -42698,7 +43222,6 @@
     if (kind === "phone-forum-post" && params.postId) {
       const postId = params.postId;
       return {
-        pawContext: buildPhonePawContext(slot),
         genReady: {
           message: phoneScreenLabels[kind],
           navigate: function () {
@@ -42711,7 +43234,6 @@
     if (kind === "phone-forum-section" && params.sectionId) {
       const sectionId = params.sectionId;
       return {
-        pawContext: buildPhonePawContext(slot),
         genReady: {
           message: phoneScreenLabels[kind],
           navigate: function () {
@@ -42731,7 +43253,6 @@
         patch.wereadBookId = params.bookId;
       }
       return {
-        pawContext: buildPhonePawContext(slot),
         genReady: {
           message: phoneScreenLabels[kind],
           navigate: function () {
@@ -42745,7 +43266,6 @@
       const plot = params.plot;
       const title = plot ? String(plot.title || "").trim() || "剧情" : "剧情";
       return {
-        pawContext: getGlobalGenPawContext(),
         genReady: {
           message: "《" + title + "》有新剧情",
           navigate: function () {
@@ -42765,7 +43285,6 @@
       const plot = params.plot;
       const title = plot ? String(plot.title || "").trim() || "剧情" : "剧情";
       return {
-        pawContext: getGlobalGenPawContext(),
         genReady: {
           message: "《" + title + "》开场已生成好",
           navigate: function () {
@@ -42775,7 +43294,7 @@
       };
     }
 
-    return { pawContext: buildPhonePawContext(slot) || buildFanworkPawContext(slot) || getGlobalGenPawContext() };
+    return {};
   }
 
   function truncateStorySearchText(text, maxLen) {
@@ -44684,15 +45203,6 @@
     return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   }
 
-  function escapeHtml(raw) {
-    return String(raw || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
-  }
-
   /** 一整行里没有汉字、字母或数字且全是标点（或空白）则为「标点孤立行」（需并进邻行或在段级合并）。 */
   function storyLineLooksLikeOnlyPunctuationMarks(trimmedLine) {
     const t = String(trimmedLine || "").trim();
@@ -45583,7 +46093,7 @@
               btnSave.textContent = "保存";
               const btnCancel = document.createElement("button");
               btnCancel.type = "button";
-              btnCancel.className = "btn btn-secondary btn--pill story-line-edit-btn story-line-edit-btn--small";
+              btnCancel.className = "btn btn--secondary btn--pill story-line-edit-btn story-line-edit-btn--small";
               btnCancel.textContent = "取消";
               bindStoryLineEditSaveCancel(btnSave, btnCancel, editable, p, turnIndex, narrEditFirstIdx, {
                 startIdx: narrEditFirstIdx,
@@ -45667,7 +46177,7 @@
             btnSave.textContent = "保存";
             const btnCancel = document.createElement("button");
             btnCancel.type = "button";
-            btnCancel.className = "btn btn-secondary btn--pill story-line-edit-btn story-line-edit-btn--small";
+            btnCancel.className = "btn btn--secondary btn--pill story-line-edit-btn story-line-edit-btn--small";
             btnCancel.textContent = "取消";
             bindStoryLineEditSaveCancel(
               btnSave,
@@ -46525,7 +47035,6 @@
     let streamTurnIndex = -1;
     const playGenOpts = buildGenCallOpts("story-play", { plot: plot });
     setGenCallContext(playGenOpts);
-    beginGlobalGenPawOverlay(playGenOpts.pawContext);
     let storyTurnGenOk = false;
     try {
       showToast("AI 正在续写剧情…", "info");
@@ -46599,7 +47108,6 @@
       plot.playTurnInFlight = false;
       storyAiWakeLockRelease();
       renderStoryPlay(plot);
-      endGlobalGenPawOverlay();
       if (storyTurnGenOk && playGenOpts.genReady) stashGenReadyNotice(playGenOpts.genReady);
       clearGenCallContext();
       if (storyTurnGenOk) {
@@ -46724,7 +47232,6 @@
         });
       });
     }
-    syncGlobalGenPawOverlay();
   }
 
   function closeStoryLayer(targetTab) {
@@ -46753,7 +47260,6 @@
     }
     applyHash();
     renderDynamic();
-    syncGlobalGenPawOverlay();
   }
 
   function isNewApiFormComplete(form) {
@@ -46937,6 +47443,7 @@
       '<div class="visual-image-ref-fields">' +
       '<label class="field visual-image-ref-fields__prompt">' +
       '<span class="field__label">参考描述提示词</span>' +
+      '<p class="field__hint field__hint--tight">可编辑；点空白处离开输入框即自动保存，或下滑点底部「保存生图设置」。</p>' +
       '<textarea class="field__input field__textarea visual-image-ref-card__prompt" data-visual-ref-prompt="' +
       refKey +
       '" rows="4" placeholder="参考图描述提示词（可编辑）">' +
@@ -47348,7 +47855,7 @@
       "</textarea>" +
       '<div class="tts-settings-compact__actions">' +
       '<button type="button" class="btn btn--primary btn--pill" id="minimax-voice-save-btn">保存</button>' +
-      '<button type="button" class="btn btn-secondary btn--pill" id="minimax-voice-preview-btn">试听</button>' +
+      '<button type="button" class="btn btn--secondary btn--pill" id="minimax-voice-preview-btn">试听</button>' +
       "</div></div></section>"
     );
   }
@@ -47878,9 +48385,9 @@
       '<div class="settings-panel__body">' +
       '' +
       '<div class="btn-row backup-actions">' +
-      '<button type="button" class="btn btn-secondary btn--pill backup-action-btn" id="btn-backup-export">导出备份</button>' +
-      '<button type="button" class="btn btn-secondary btn--pill backup-action-btn" id="btn-backup-import">导入备份并覆盖</button>' +
-      '<button type="button" class="btn btn-secondary btn--pill backup-action-btn" id="btn-clear-user-data">清除数据</button>' +
+      '<button type="button" class="btn btn--secondary btn--pill backup-action-btn" id="btn-backup-export">导出备份</button>' +
+      '<button type="button" class="btn btn--secondary btn--pill backup-action-btn" id="btn-backup-import">导入备份并覆盖</button>' +
+      '<button type="button" class="btn btn--secondary btn--pill backup-action-btn" id="btn-clear-user-data">清除数据</button>' +
       "</div>" +
       "</div></section>";
     html += '<div class="settings-divider" role="presentation"></div>';
@@ -47920,7 +48427,7 @@
       '" /></label>' +
       "</div>" +
       '<div class="btn-row theme-custom-editor__actions">' +
-      '<button type="button" class="btn btn-secondary btn--pill" id="btn-custom-palette-save">应用该色板</button>' +
+      '<button type="button" class="btn btn--secondary btn--pill" id="btn-custom-palette-save">应用该色板</button>' +
       "</div>" +
       '<div class="ui-brightness-control">' +
       '<label class="ui-brightness-control__label" for="ui-brightness-slider">页面整体亮度</label>' +
@@ -47961,7 +48468,7 @@
       '<input class="field__input" type="file" id="font-file-input" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,application/font-woff" /></label>' +
       '' +
       '<div class="btn-row">' +
-      '<button type="button" class="btn btn-secondary btn--pill" id="btn-font-clear">清除自定义字体</button></div>' +
+      '<button type="button" class="btn btn--secondary btn--pill" id="btn-font-clear">清除自定义字体</button></div>' +
       '<div class="font-scale-control">' +
       '<label class="font-scale-control__label" for="font-scale-slider">界面字体大小</label>' +
       '<div class="font-scale-control__row">' +
@@ -47994,7 +48501,16 @@
   function renderApiCard(a, isActive) {
     const models = getModelOptionsForConfig(a);
     const opts = models
-      .map((m) => '<option value="' + m + '"' + (a.model === m ? " selected" : "") + ">" + m + "</option>")
+      .map(
+        (m) =>
+          '<option value="' +
+          escapeHtml(m) +
+          '"' +
+          (a.model === m ? " selected" : "") +
+          ">" +
+          escapeHtml(m) +
+          "</option>"
+      )
       .join("");
     return (
       '<article class="api-card glass-surface' +
@@ -48137,7 +48653,6 @@
           els.navItems().forEach((btn) => btn.classList.toggle("is-active", btn.dataset.tab === "overview"));
           syncMainScrollMode();
           void openOverviewKnockView();
-          syncGlobalGenPawOverlay();
           return;
         }
         if (t === "dial") {
@@ -48147,7 +48662,6 @@
           els.navItems().forEach((btn) => btn.classList.toggle("is-active", btn.dataset.tab === "overview"));
           syncMainScrollMode();
           void openOverviewDialView();
-          syncGlobalGenPawOverlay();
           return;
         }
         overviewSubView = LEGACY_OVERVIEW_SUB_TAB_IDS[t];
@@ -48162,7 +48676,6 @@
         els.navItems().forEach((btn) => btn.classList.toggle("is-active", btn.dataset.tab === t));
         syncMainScrollMode();
         renderDynamic();
-        syncGlobalGenPawOverlay();
       }
     }
   }
@@ -48388,6 +48901,16 @@
       else if (action === "summarize") {
         const rec = getKnockChatRecordMutable();
         if (rec) void summarizeKnockToMessageIndex(rec, ctx.msgIndex);
+      } else if (action === "listen") {
+        const slot = els.knockContentSlot();
+        const avEl =
+          slot &&
+          ctx.anchorEl &&
+          ctx.anchorEl.closest("[data-knock-msg-index]") &&
+          ctx.anchorEl
+            .closest("[data-knock-msg-index]")
+            .querySelector(".knock-chat__avatar");
+        void playKnockMessageTts(ctx.msgIndex, avEl);
       }
     }
     hideKnockMsgActionBubble();
@@ -48410,6 +48933,20 @@
     },
     { passive: false }
   );
+  document.addEventListener("input", function (e) {
+    const colorEl = e.target.closest("[data-knock-chat-bubble-color]");
+    if (!colorEl) return;
+    const slot = els.knockContentSlot();
+    if (!slot || !slot.contains(colorEl)) return;
+    const which = colorEl.getAttribute("data-knock-chat-bubble-color") === "out" ? "bubbleOut" : "bubbleIn";
+    const val = normalizeKnockCssColor(colorEl.value);
+    if (!val) return;
+    const patch = {};
+    patch[which] = val;
+    if (setKnockChatStyle(patch)) {
+      applyKnockChatStyleToRoot(slot);
+    }
+  });
 
   function getDialEventRoot(e) {
     return e.target.closest("#dial-content-slot");
@@ -48434,40 +48971,22 @@
   document.addEventListener(
     "pointerdown",
     function (e) {
-      const row = e.target.closest(".dial-identity-pick");
-      if (row && getDialEventRoot(e)) {
-        dialIdentityPickScrollGuard = { x: e.clientX, y: e.clientY, moved: false };
-        return;
-      }
-      const knockRow = e.target.closest("[data-knock-user-pick], [data-knock-partner-pick]");
-      if (knockRow && getKnockEventRoot(e)) {
-        knockPickScrollGuard = { x: e.clientX, y: e.clientY, moved: false };
-      }
+      beginHorizontalScrollGuard(e);
     },
     { passive: true }
   );
   document.addEventListener(
     "pointermove",
     function (e) {
-      const dialGuard = dialIdentityPickScrollGuard;
-      if (dialGuard && !dialGuard.moved) {
-        if (Math.abs(e.clientX - dialGuard.x) > 8 || Math.abs(e.clientY - dialGuard.y) > 8) dialGuard.moved = true;
-      }
-      const knockGuard = knockPickScrollGuard;
-      if (knockGuard && !knockGuard.moved) {
-        if (Math.abs(e.clientX - knockGuard.x) > 8 || Math.abs(e.clientY - knockGuard.y) > 8) knockGuard.moved = true;
-      }
+      trackHorizontalScrollGuardMove(e);
     },
     { passive: true }
   );
   document.addEventListener(
     "pointerup",
     function () {
-      if (!dialIdentityPickScrollGuard || !dialIdentityPickScrollGuard.moved) {
-        dialIdentityPickScrollGuard = null;
-      }
-      if (!knockPickScrollGuard || !knockPickScrollGuard.moved) {
-        knockPickScrollGuard = null;
+      if (!horizontalScrollGuard || !horizontalScrollGuard.moved) {
+        horizontalScrollGuard = null;
       }
     },
     { passive: true }
@@ -48475,8 +48994,7 @@
   document.addEventListener(
     "pointercancel",
     function () {
-      dialIdentityPickScrollGuard = null;
-      knockPickScrollGuard = null;
+      horizontalScrollGuard = null;
     },
     { passive: true }
   );
@@ -48519,6 +49037,54 @@
       renderKnockScreen(slot);
       return true;
     }
+    if (e.target.closest("[data-knock-chat-appearance]")) {
+      if (!isKnockContextReady() || knockSelectMode || knockReplyGenerating) return true;
+      knockChatAppearanceOpen = !knockChatAppearanceOpen;
+      knockStickerPanelOpen = false;
+      knockPlusPanelOpen = false;
+      knockActionSheet = null;
+      renderKnockScreen(slot);
+      return true;
+    }
+    if (e.target.closest("[data-knock-chat-appearance-close]")) {
+      knockChatAppearanceOpen = false;
+      renderKnockScreen(slot);
+      return true;
+    }
+    if (e.target.matches("[data-knock-chat-appearance-overlay]")) {
+      knockChatAppearanceOpen = false;
+      renderKnockScreen(slot);
+      return true;
+    }
+    const appearanceAvBtn = e.target.closest("[data-knock-appearance-avatar]");
+    if (appearanceAvBtn) {
+      const role = appearanceAvBtn.getAttribute("data-knock-appearance-avatar") === "partner" ? "partner" : "user";
+      openKnockAvatarPicker(slot, role);
+      return true;
+    }
+    if (e.target.closest("[data-knock-chat-bg-pick]")) {
+      openKnockChatBgPicker();
+      return true;
+    }
+    if (e.target.closest("[data-knock-chat-bg-clear]")) {
+      if (setKnockChatStyle({ bgUrl: "" })) {
+        showToast("已恢复默认背景", "success");
+        renderKnockScreen(slot);
+      }
+      return true;
+    }
+    const bubblePresetBtn = e.target.closest("[data-knock-chat-bubble-preset]");
+    if (bubblePresetBtn) {
+      const presetId = bubblePresetBtn.getAttribute("data-knock-chat-bubble-preset");
+      const preset = KNOCK_CHAT_BUBBLE_PRESETS.find(function (p) {
+        return p.id === presetId;
+      });
+      if (preset && setKnockChatStyle({ bubbleIn: preset.bubbleIn, bubbleOut: preset.bubbleOut })) {
+        showToast("气泡颜色已更新", "success");
+        renderKnockScreen(slot);
+      }
+      return true;
+    }
     const tabBtn = e.target.closest("[data-knock-tab]");
     if (tabBtn) {
       switchKnockMainTab(tabBtn.getAttribute("data-knock-tab"));
@@ -48557,7 +49123,10 @@
     if (momentsCommentOpenBtn) {
       if (e.stopPropagation) e.stopPropagation();
       openKnockMomentsCommentComposer(momentsCommentOpenBtn.getAttribute("data-knock-moments-comment-open"), null);
-      renderKnockScreen(slot);
+      renderKnockScreen(slot, {
+        momentsCommentFocus: true,
+        momentsScrollPostIntoView: true,
+      });
       return true;
     }
     const momentsReplyCommentEl = e.target.closest("[data-knock-moments-reply-comment]");
@@ -48567,7 +49136,10 @@
         momentsReplyCommentEl.getAttribute("data-knock-moments-reply-comment"),
         momentsReplyCommentEl.getAttribute("data-knock-moments-reply-to")
       );
-      renderKnockScreen(slot);
+      renderKnockScreen(slot, {
+        momentsCommentFocus: true,
+        momentsScrollPostIntoView: true,
+      });
       return true;
     }
     if (e.target.closest("[data-knock-moments-comment-close]")) {
@@ -48742,10 +49314,17 @@
       toggleKnockSelectMode(slot);
       return true;
     }
-    const knockAvBtn = e.target.closest("[data-knock-av-role]");
-    if (knockAvBtn) {
-      if (knockSelectMode || knockReplyGenerating) return true;
-      openKnockAvatarPicker(slot, knockAvBtn.getAttribute("data-knock-av-role"));
+    if (e.target.closest("[data-knock-pair-save]")) {
+      const nameEl = slot.querySelector("[data-knock-pair-name]");
+      if (saveCurrentKnockPair(nameEl ? nameEl.value : "")) {
+        showToast("组合已保存", "success");
+        renderKnockScreen(slot);
+      }
+      return true;
+    }
+    const savedPairBtn = e.target.closest("[data-knock-saved-pair]");
+    if (savedPairBtn) {
+      activateKnockSavedPair(savedPairBtn.getAttribute("data-knock-saved-pair"), slot);
       return true;
     }
     const msgSelect = e.target.closest("[data-knock-msg-select]");
@@ -48814,7 +49393,15 @@
       return true;
     }
     if (e.target.closest("[data-knock-context-reedit]")) {
-      knockSetupPhase = "select";
+      if (isKnockChatReady()) {
+        const rec = getKnockChatRecordMutable();
+        if (rec && rec.contextBackground && !rec.contextDraft) {
+          rec.contextDraft = rec.contextBackground;
+        }
+        knockSetupPhase = rec && rec.contextDraft ? "context_review" : "select";
+      } else {
+        knockSetupPhase = "select";
+      }
       rerenderKnockSetupUi();
       return true;
     }
@@ -48834,14 +49421,10 @@
     if (knockUserPickBtn) {
       const nextId = knockUserPickBtn.getAttribute("data-knock-user-char") || null;
       if (nextId === knockUserCharId) {
-        knockPickScrollGuard = null;
+        horizontalScrollGuard = null;
         return true;
       }
-      if (knockPickScrollGuard && knockPickScrollGuard.moved) {
-        knockPickScrollGuard = null;
-        return true;
-      }
-      knockPickScrollGuard = null;
+      if (shouldIgnoreHorizontalScrollTap()) return true;
       knockUserCharId = nextId;
       applyKnockCharPickUpdate(slot);
       return true;
@@ -48850,14 +49433,10 @@
     if (knockPartnerPickBtn) {
       const nextId = knockPartnerPickBtn.getAttribute("data-knock-partner-char") || null;
       if (nextId === knockPartnerCharId) {
-        knockPickScrollGuard = null;
+        horizontalScrollGuard = null;
         return true;
       }
-      if (knockPickScrollGuard && knockPickScrollGuard.moved) {
-        knockPickScrollGuard = null;
-        return true;
-      }
-      knockPickScrollGuard = null;
+      if (shouldIgnoreHorizontalScrollTap()) return true;
       knockPartnerCharId = nextId;
       getKnockSessionMetaMutable().pinnedPartnerId = nextId;
       applyKnockCharPickUpdate(slot);
@@ -48875,6 +49454,20 @@
     if (voiceToggle && !knockSelectMode) {
       toggleKnockVoiceExpanded(voiceToggle.getAttribute("data-knock-msg-index"));
       renderKnockScreen(slot);
+      return true;
+    }
+    const avatarListen = e.target.closest("[data-knock-avatar-listen]");
+    if (avatarListen && !knockSelectMode && !knockReplyGenerating) {
+      const msgIdx = avatarListen.getAttribute("data-knock-msg-index");
+      void playKnockMessageTts(msgIdx, avatarListen);
+      return true;
+    }
+    const ttsReplayBtn = e.target.closest("[data-knock-tts-play]");
+    if (ttsReplayBtn && !knockSelectMode && !knockReplyGenerating) {
+      const msgRow = ttsReplayBtn.closest("[data-knock-msg-index]");
+      const msgIdx = msgRow ? msgRow.getAttribute("data-knock-msg-index") : null;
+      const avEl = msgRow ? msgRow.querySelector(".knock-chat__avatar") : null;
+      if (msgIdx) void playKnockMessageTts(msgIdx, avEl);
       return true;
     }
     if (e.target.closest("[data-knock-plus-toggle]")) {
@@ -48938,6 +49531,8 @@
             xhsInput.focus();
           }
         }
+      } else if (action === "listen") {
+        void playLatestKnockMessageTts();
       }
       return true;
     }
@@ -49042,6 +49637,8 @@
     }
     const stickerPick = e.target.closest("[data-knock-sticker-pick]");
     if (stickerPick) {
+      if (shouldIgnoreHorizontalScrollTap()) return true;
+      if (!isKnockStickerCenterTap(stickerPick, e)) return true;
       const url = stickerPick.getAttribute("data-sticker-url");
       const name = stickerPick.getAttribute("data-sticker-name") || "";
       sendKnockSticker(url, name);
@@ -49049,6 +49646,7 @@
     }
     const packTab = e.target.closest("[data-knock-sticker-pack-tab]");
     if (packTab) {
+      if (shouldIgnoreHorizontalScrollTap()) return true;
       const packId = packTab.getAttribute("data-pack-id");
       if (packId) {
         knockActiveStickerPackId = packId;
@@ -49109,7 +49707,7 @@
       if (mounted === null) return true;
       showToast(
         mounted
-          ? "已挂载「" + (pack ? pack.name : "分组") + "」，对方生成回复时可发送该分组表情"
+          ? "已挂载「" + (pack ? pack.name : "分组") + "」，主要角色生成回复时可发送该分组表情"
           : "已取消挂载「" + (pack ? pack.name : "分组") + "」",
         "success"
       );
@@ -49720,33 +50318,6 @@
       return;
     }
 
-    if (e.target.closest("[data-phone-album-generate-photo]")) {
-      const nav = getPhoneNav(slot);
-      if (nav.albumPhotoId && !phoneAlbumPhotoGenerating) {
-        void generatePhoneAlbumPhotoAtId(slot, nav.albumPhotoId, {});
-      }
-      return;
-    }
-
-    if (e.target.closest("[data-phone-album-regenerate-photo]")) {
-      const nav = getPhoneNav(slot);
-      if (nav.albumPhotoId && !phoneAlbumPhotoGenerating) {
-        void generatePhoneAlbumPhotoAtId(slot, nav.albumPhotoId, { regenerate: true });
-      }
-      return;
-    }
-
-    const albumSavePhotoBtn = e.target.closest("[data-phone-album-save-photo]");
-    if (albumSavePhotoBtn) {
-      void savePhoneAlbumPhotoToDevice(albumSavePhotoBtn.getAttribute("data-photo-url"));
-      return;
-    }
-
-    if (e.target.closest("[data-phone-album-clear-photo]")) {
-      void handlePhoneAlbumClearGeneratedImage(slot);
-      return;
-    }
-
     if (e.target.closest("[data-phone-forum-generate]")) {
       void generatePhoneForumListContent(slot);
       return;
@@ -49879,6 +50450,7 @@
 
     const jjwxcCatBtn = e.target.closest("[data-phone-jjwxc-category]");
     if (jjwxcCatBtn) {
+      if (shouldIgnoreHorizontalScrollTap()) return;
       switchPhoneJjwxcCategory(slot, jjwxcCatBtn.getAttribute("data-phone-jjwxc-category"));
       return;
     }
@@ -50140,6 +50712,7 @@
 
     const forumSectionBtn = e.target.closest("[data-phone-forum-section]");
     if (forumSectionBtn) {
+      if (shouldIgnoreHorizontalScrollTap()) return;
       switchPhoneForumSection(slot, forumSectionBtn.getAttribute("data-phone-forum-section"));
       return;
     }
@@ -50297,6 +50870,7 @@
 
     const fwCatBtn = e.target.closest("[data-fanwork-jjwxc-category]");
     if (fwCatBtn) {
+      if (shouldIgnoreHorizontalScrollTap()) return;
       switchFanworkJjwxcCategory(slot, fwCatBtn.getAttribute("data-fanwork-jjwxc-category"));
       return;
     }
@@ -51506,6 +52080,7 @@
   migrateLegacyAssistantDefaultsOnce();
   ensureAssistantPersonaPresetAppliedOnce();
   initStatusBar();
+  bindBackupFileInput();
   bindSettingsDelegation();
   bindNav();
   bindOverviewWorkbenchActions();
