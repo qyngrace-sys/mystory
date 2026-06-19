@@ -7637,6 +7637,23 @@
     return m ? m[1] : "";
   }
 
+  function dataUrlToBlob(dataUrl) {
+    const s = String(dataUrl || "").trim();
+    const m = s.match(/^data:(image\/[^;]+);base64,(.+)$/i);
+    if (!m) throw new Error("invalid data url");
+    const binary = atob(m[2]);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: m[1].toLowerCase() });
+  }
+
+  function blobFileExt(blob) {
+    const type = String((blob && blob.type) || "").toLowerCase();
+    if (type.includes("png")) return "png";
+    if (type.includes("webp")) return "webp";
+    return "jpg";
+  }
+
   function isGptImageModel(model) {
     return /gpt-image/i.test(String(model || "").trim());
   }
@@ -7648,6 +7665,32 @@
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     return new Blob([bytes], { type: "image/jpeg" });
+  }
+
+  function getVisualRefImageBlobList(refKey) {
+    return getVisualRefImages(refKey)
+      .slice(0, VISUAL_REF_IMAGE_MAX)
+      .map(function (url) {
+        try {
+          return dataUrlToBlob(url);
+        } catch (e) {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  }
+
+  async function ensureVisualRefsAnalyzedForGeneration(refKeys) {
+    if (!Array.isArray(refKeys) || !refKeys.length) return;
+    for (let i = 0; i < refKeys.length; i++) {
+      const refKey = refKeys[i];
+      if (!hasVisualRefImagesForAnalysis(refKey)) continue;
+      const ref = getVisualRefObj(refKey);
+      const urls = getVisualRefImages(refKey);
+      const cacheKey = buildVisualRefVisionCacheKey(urls);
+      if (ref.visionCacheKey === cacheKey && ref.visionCacheText) continue;
+      await analyzeVisualRefImagesWithVision(refKey);
+    }
   }
 
   function isDefaultVisualRefPrompt(refKey, prompt) {
@@ -7770,14 +7813,22 @@
       showToast("正在用参考图生成自拍…", "info", 3600);
     }
 
-    if (cfg && appearanceB64.length && isGptImageModel(cfg.model)) {
+    const appearanceBlobs = getVisualRefImageBlobList("appearance");
+    if (cfg && appearanceBlobs.length && isGptImageModel(cfg.model)) {
       try {
         const editsPrompt = await buildGptImageEditsSelfiePrompt(sceneOpts);
         showToast("正在用参考图锁定人脸（gpt-image edits）…", "info", 3600);
-        return await postVisualImageEditsWithRefs(cfg, editsPrompt, appearanceB64);
+        return await postVisualImageEditsWithRefs(cfg, editsPrompt, appearanceBlobs);
       } catch (editsErr) {
         console.warn("callSelfieVisualImageGeneration edits", editsErr);
-        showToast("参考图 edits 不可用，尝试文字+参考图其他方式…", "info", 3200);
+        if (appearanceBlobs.length) {
+          throw new Error(
+            "参考图锁定人脸失败：" +
+              String((editsErr && editsErr.message) || editsErr || "未知错误") +
+              "。请确认生图模型为 gpt-image 系列且 API 支持 /v1/images/edits。"
+          );
+        }
+        showToast("参考图 edits 不可用，尝试其他带参考图的方式…", "info", 3200);
       }
     }
 
@@ -7786,6 +7837,7 @@
     return callVisualImageGeneration(apiPrompt, cfgOverride, {
       useAppearanceRef: true,
       skipGptImageEdits: true,
+      requireRef: appearanceB64.length > 0,
     });
   }
 
@@ -8164,21 +8216,31 @@
   function buildVisualRefImageBodyVariants(baseBody, b64List) {
     const variants = [];
     if (!b64List.length) return variants;
+    const dataUrl = function (b64) {
+      return "data:image/jpeg;base64," + b64;
+    };
     if (b64List.length === 1) {
       variants.push(Object.assign({}, baseBody, { image: b64List[0] }));
+      variants.push(Object.assign({}, baseBody, { image: dataUrl(b64List[0]) }));
       variants.push(Object.assign({}, baseBody, { reference_image: b64List[0] }));
+      variants.push(Object.assign({}, baseBody, { reference_image: dataUrl(b64List[0]) }));
       variants.push(Object.assign({}, baseBody, { init_image: b64List[0], image_strength: 0.55 }));
     } else {
       variants.push(Object.assign({}, baseBody, { images: b64List }));
       variants.push(Object.assign({}, baseBody, { reference_images: b64List }));
       variants.push(Object.assign({}, baseBody, { image: b64List[0] }));
+      variants.push(Object.assign({}, baseBody, { image: dataUrl(b64List[0]) }));
       variants.push(Object.assign({}, baseBody, { init_image: b64List[0], image_strength: 0.52 }));
     }
     return variants;
   }
 
   async function callSceneVisualImageGeneration(prompt, cfgOverride) {
-    return callVisualImageGeneration(prompt, cfgOverride, { useDailyRef: true });
+    const hasDailyRef = getVisualRefImages("daily").length > 0;
+    return callVisualImageGeneration(prompt, cfgOverride, {
+      useDailyRef: true,
+      requireRef: hasDailyRef,
+    });
   }
 
   async function callVisualImageGeneration(prompt, cfgOverride, opts) {
@@ -8196,14 +8258,31 @@
     const appearanceB64 = opts.useAppearanceRef ? getVisualRefImageBase64List("appearance") : [];
     const dailyB64 = opts.useDailyRef ? getVisualRefImageBase64List("daily") : [];
     const refB64 = appearanceB64.length ? appearanceB64 : dailyB64;
+    const requireRef = !!opts.requireRef || refB64.length > 0;
+    const refBlobList = appearanceB64.length
+      ? getVisualRefImageBlobList("appearance")
+      : dailyB64.length
+        ? getVisualRefImageBlobList("daily")
+        : [];
 
-    if (opts.useAppearanceRef && appearanceB64.length && isGptImageModel(cfg.model) && !opts.skipGptImageEdits) {
+    if (requireRef && refBlobList.length && isGptImageModel(cfg.model) && !opts.skipGptImageEdits) {
       try {
-        showToast("正在用参考图锁定人脸（gpt-image edits）…", "info", 3600);
-        return await postVisualImageEditsWithRefs(cfg, baseBody.prompt, appearanceB64);
+        showToast(
+          opts.useAppearanceRef ? "正在用参考图锁定人脸（gpt-image edits）…" : "正在用参考图锁定画面（gpt-image edits）…",
+          "info",
+          3600
+        );
+        return await postVisualImageEditsWithRefs(cfg, baseBody.prompt, refBlobList);
       } catch (editsErr) {
         console.warn("postVisualImageEditsWithRefs", editsErr);
-        showToast("参考图 edits 不可用，尝试其他生图方式…", "info", 2800);
+        if (opts.useAppearanceRef && appearanceB64.length) {
+          throw new Error(
+            "参考图锁定人脸失败：" +
+              String((editsErr && editsErr.message) || editsErr || "未知错误") +
+              "。请确认生图模型为 gpt-image 系列且 API 支持 /v1/images/edits。"
+          );
+        }
+        showToast("参考图 edits 不可用，尝试其他带参考图的方式…", "info", 2800);
       }
     }
 
@@ -8213,17 +8292,20 @@
         bodyVariants.push(variant);
       });
     }
-    bodyVariants.push(Object.assign({}, baseBody));
+    if (!requireRef) {
+      bodyVariants.push(Object.assign({}, baseBody));
+    }
+
+    if (!bodyVariants.length) {
+      throw new Error(
+        "已上传参考图，但当前模型不支持参考图生图。请换用 gpt-image-1 / n-gpt-image-2 等支持 /v1/images/edits 的模型。"
+      );
+    }
 
     let lastErr = null;
     for (let i = 0; i < bodyVariants.length; i++) {
       try {
-        const usedRef = i < bodyVariants.length - 1 && refB64.length > 0;
-        if (usedRef) {
-          showToast("正在用参考图锁定画面…", "info", 2800);
-        } else if (refB64.length > 0) {
-          showToast("参考图参数不可用，使用纯文生图兜底…", "info", 2800);
-        }
+        showToast("正在用参考图锁定画面…", "info", 2800);
         return await postVisualImageGenerationWithFormatFallback(cfg, bodyVariants[i]);
       } catch (err) {
         lastErr = err;
@@ -8237,7 +8319,14 @@
         throw err;
       }
     }
-    throw lastErr || new Error("生图失败");
+    throw (
+      lastErr ||
+      new Error(
+        requireRef
+          ? "参考图生图失败：当前模型未接受参考图参数。请换用 gpt-image 系列模型。"
+          : "生图失败"
+      )
+    );
   }
 
   function detectKnockVisualImageTestIntent(text) {
@@ -8359,8 +8448,12 @@
     persistNarrative();
     renderKnockScreen(slot || els.knockContentSlot());
     try {
-      if (hasVisualRefImagesForAnalysis("appearance") || hasVisualRefImagesForAnalysis("daily")) {
+      const refKeys = [];
+      if (intent === "selfie" && hasVisualRefImagesForAnalysis("appearance")) refKeys.push("appearance");
+      if (intent !== "selfie" && hasVisualRefImagesForAnalysis("daily")) refKeys.push("daily");
+      if (refKeys.length) {
         showToast("正在分析参考图并写入生图描述…", "info", 3600);
+        await ensureVisualRefsAnalyzedForGeneration(refKeys);
       }
       showToast(
         intent === "selfie" ? "正在生成自拍，约需 1～3 分钟…" : "正在生成场景图，约需 1～3 分钟…",
@@ -8459,8 +8552,12 @@
     persistNarrative();
     renderKnockScreen(slot || els.knockContentSlot());
     try {
-      if (hasVisualRefImagesForAnalysis("appearance") || hasVisualRefImagesForAnalysis("daily")) {
+      const refKeys = [];
+      if (intent === "selfie" && hasVisualRefImagesForAnalysis("appearance")) refKeys.push("appearance");
+      if (intent !== "selfie" && hasVisualRefImagesForAnalysis("daily")) refKeys.push("daily");
+      if (refKeys.length) {
         showToast("正在分析参考图并写入生图描述…", "info", 3600);
+        await ensureVisualRefsAnalyzedForGeneration(refKeys);
       }
       showToast(
         intent === "selfie" ? "正在重新生成自拍，约需 1～3 分钟…" : "正在重新生成场景图，约需 1～3 分钟…",
@@ -11711,7 +11808,7 @@
     return root + "/images/edits";
   }
 
-  function buildVisualImageEditsFormData(model, prompt, b64List) {
+  function buildVisualImageEditsFormData(model, prompt, blobList, imageFieldName) {
     const formData = new FormData();
     const modelName = String(model || "").trim();
     formData.append("model", modelName);
@@ -11724,8 +11821,9 @@
     if (/gpt-image/i.test(modelName)) {
       formData.append("quality", "high");
     }
-    b64List.forEach(function (b64, i) {
-      formData.append("image[]", base64ToJpegBlob(b64), "ref-" + i + ".jpg");
+    const field = String(imageFieldName || "image[]").trim() || "image[]";
+    blobList.forEach(function (blob, i) {
+      formData.append(field, blob, "ref-" + i + "." + blobFileExt(blob));
     });
     return formData;
   }
@@ -11765,25 +11863,44 @@
     }
   }
 
-  async function postVisualImageEditsWithRefs(cfg, prompt, b64List) {
-    const blobs = Array.isArray(b64List) ? b64List.filter(Boolean) : [];
+  async function postVisualImageEditsWithRefs(cfg, prompt, blobList) {
+    const blobs = Array.isArray(blobList) ? blobList.filter(Boolean) : [];
     if (!blobs.length) throw new Error("无参考图");
-    const formData = buildVisualImageEditsFormData(cfg.model, prompt, blobs);
-    let result = await postVisualImageEditsRequest(cfg.endpoint, cfg.apiKey, formData);
-    let resp = result.resp;
-    let rawText = await resp.text();
-    if (!resp.ok && /image\[\]|multipart|unknown parameter|unsupported|not support/i.test(rawText)) {
-      const altForm = new FormData();
-      altForm.append("model", String(cfg.model || "").trim());
-      altForm.append("prompt", String(prompt || "").trim());
-      blobs.forEach(function (b64, i) {
-        altForm.append("image", base64ToJpegBlob(b64), "ref-" + i + ".jpg");
-      });
-      result = await postVisualImageEditsRequest(cfg.endpoint, cfg.apiKey, altForm);
-      resp = result.resp;
-      rawText = await resp.text();
+    const fieldVariants = ["image[]", "image"];
+    let lastErr = null;
+    for (let fi = 0; fi < fieldVariants.length; fi++) {
+      const field = fieldVariants[fi];
+      const formData = buildVisualImageEditsFormData(cfg.model, prompt, blobs, field);
+      try {
+        let result = await postVisualImageEditsRequest(cfg.endpoint, cfg.apiKey, formData);
+        let resp = result.resp;
+        let rawText = await resp.text();
+        if (resp.ok) {
+          return parseVisualImageGenerationResponse(resp, rawText);
+        }
+        const retriable = /image\[\]|multipart|unknown parameter|unsupported|not support|invalid.*image|field required|missing.*image/i.test(
+          rawText
+        );
+        if (!retriable) {
+          throw new Error(formatVisualImageApiError(resp.status, rawText));
+        }
+        lastErr = new Error(formatVisualImageApiError(resp.status, rawText));
+      } catch (err) {
+        lastErr = err;
+        const msg = String((err && err.message) || "");
+        if (
+          fi < fieldVariants.length - 1 &&
+          /image\[\]|multipart|unknown parameter|unsupported|not support|invalid.*image|field required|missing.*image/i.test(
+            msg
+          )
+        ) {
+          continue;
+        }
+        if (fi < fieldVariants.length - 1) continue;
+        throw err;
+      }
     }
-    return parseVisualImageGenerationResponse(resp, rawText);
+    throw lastErr || new Error("参考图 edits 生图失败");
   }
 
   function canUseLocalImageProxyFallback() {
@@ -25307,6 +25424,10 @@
     collectImageGenerating.photo = key;
     if (slot) renderCollectScreen(slot);
     try {
+      if (hasVisualRefImagesForAnalysis("appearance")) {
+        showToast("正在分析外貌参考图…", "info", 3200);
+        await ensureVisualRefsAnalyzedForGeneration(["appearance"]);
+      }
       const plot = getCollectPlot();
       const sender = getCollectCharacter();
       const prompt = await buildCollectPhotoGenerationPrompt(plot, sender, photoDraft);
