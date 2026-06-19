@@ -27888,6 +27888,7 @@
       "</span>" +
       '<svg class="task-todo__context-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>' +
       "</button>" +
+      '<div class="task-todo__bar-actions">' +
       '<button type="button" class="task-todo__calendar' +
       (calendarDisabled ? " is-disabled" : "") +
       '" data-todo-calendar' +
@@ -27903,6 +27904,7 @@
       ' aria-label="生成" title="生成">' +
       buildPhoneWechatStarIconSvg() +
       "</button>" +
+      "</div>" +
       "</div>" +
       "</header>" +
       '<div class="task-todo__body">' +
