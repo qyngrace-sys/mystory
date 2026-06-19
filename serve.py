@@ -37,6 +37,8 @@ ALLOWED_ORIGINS = frozenset(
 
 
 def map_api_path(path: str) -> str | None:
+    if path.startswith("/v1/gen-edit"):
+        return "/v1/images/edits" + path[len("/v1/gen-edit") :]
     if path.startswith("/v1/gen"):
         return "/v1/images/generations" + path[len("/v1/gen") :]
     if path.startswith("/v1/"):
@@ -206,6 +208,7 @@ def main() -> None:
     print("嗅嗅剧场本地服务已启动")
     print("  网页：  http://%s:%d" % (addr[0], PORT))
     print("  转发：  http://%s:%d/v1/gen -> %s/v1/images/generations" % (addr[0], PORT, UPSTREAM))
+    print("  转发：  http://%s:%d/v1/gen-edit -> %s/v1/images/edits" % (addr[0], PORT, UPSTREAM))
     print("生图 API 站点仍可填 %s/v1，程序会在直连失败时自动改走本机转发。" % UPSTREAM)
     HTTPServer(addr, Handler).serve_forever()
 

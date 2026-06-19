@@ -83,6 +83,7 @@
   const STORAGE_ACTIVE_API_ID = "hj-active-api-id-v1";
   const STORAGE_TTS_SETTINGS = "hj-tts-settings-v1";
   const STORAGE_VISUAL_IMAGE_SETTINGS = "hj-visual-image-settings-v1";
+  const STORAGE_ENVELOPE_PHOTO = "hj-envelope-photo-v1";
   const STORAGE_ASSISTANT = "hj-assistant-v1";
   const STORAGE_POST_CLEAR_ASSISTANT_V1 = "hj-post-clear-assistant-v1";
   const ASSISTANT_MAX_COUNT = 12;
@@ -2538,13 +2539,24 @@
     { id: "documentary", label: "Documentary (纪实)" },
   ];
   const VISUAL_REF_IMAGE_MAX = 3;
-  const DEFAULT_VISUAL_CELEBRITY_LOOKALIKE = "朴宝剑";
+  const DEFAULT_VISUAL_CELEBRITY_LOOKALIKE = "";
+  const CELEBRITY_FACE_BLUEPRINTS = {
+    朴宝剑: {
+      enAliases: ["park bo-gum", "park bogum", "park bo gum", "박보검", "bogum park"],
+      blueprint:
+        "soft oval East Asian male face, fair warm ivory skin, gentle almond eyes, straight refined nose, natural lips, thick dark hair with side-swept bangs, warm sincere expression, boy-next-door handsomeness",
+    },
+  };
+  const DEFAULT_CELEBRITY_FACE_BLUEPRINT =
+    "handsome East Asian male face, balanced oval proportions, clear fair skin, warm expressive eyes, refined nose, natural lips, thick dark hair with modern styling, photogenic sincere expression";
+  const LEGACY_VISUAL_APPEARANCE_PROMPT_V2 =
+    "Use the uploaded reference photos as the identity anchor. Reconstruct the same face across angles with consistent facial proportions, eye shape, nose bridge, lips, jawline, cheekbones, skin tone, hairstyle, hair volume, parting, and overall temperament. Preserve distinctive features from the reference; the celebrity lookalike is only a loose facial-structure guide, not a different person. Render as an authentic smartphone portrait—front-camera selfie or rear-camera portrait with phone-lens characteristics: slight wide-angle edge distortion, natural skin texture with visible pores and fine facial hair, believable asymmetry, auto-exposure, mild noise or JPEG compression, casual imperfect framing. No studio lighting, no beauty-filter smoothing, no DSLR bokeh, no 85mm portrait look.";
   const LEGACY_VISUAL_APPEARANCE_PROMPT =
     "Use the uploaded reference photos as the identity anchor. Reconstruct the same face across angles with consistent facial proportions, eye shape, nose bridge, lips, jawline, cheekbones, skin tone, hairstyle, hair volume, parting, and overall temperament. Preserve distinctive features from the reference and the celebrity lookalike only as a loose structural guide, not a different person. Ultra-realistic skin texture with natural pores and fine facial hair, believable asymmetry, soft natural light, 85mm lens, shallow depth of field, documentary-grade portrait realism.";
   const LEGACY_VISUAL_DAILY_PROMPT =
     "Create a lived-in smartphone photo that feels like a real moment from a character's day, not a stock image. Keep the environment grounded, specific, and tied to the current剧情/关系/情绪: where the person is, what they are doing, what time of day it feels like, and what detail proves this is that exact moment. Favor candid framing, natural light, practical objects, subtle motion, and imperfect realism over beauty-shot polish. Include location clues, weather, reflections, clutter, and emotional atmosphere when relevant, shot like an authentic phone snapshot with realistic texture and depth.";
   const DEFAULT_VISUAL_APPEARANCE_PROMPT =
-    "Use the uploaded reference photos as the identity anchor. Reconstruct the same face across angles with consistent facial proportions, eye shape, nose bridge, lips, jawline, cheekbones, skin tone, hairstyle, hair volume, parting, and overall temperament. Preserve distinctive features from the reference; the celebrity lookalike is only a loose facial-structure guide, not a different person. Render as an authentic smartphone portrait—front-camera selfie or rear-camera portrait with phone-lens characteristics: slight wide-angle edge distortion, natural skin texture with visible pores and fine facial hair, believable asymmetry, auto-exposure, mild noise or JPEG compression, casual imperfect framing. No studio lighting, no beauty-filter smoothing, no DSLR bokeh, no 85mm portrait look.";
+    "Use uploaded reference photos as the only identity anchor: match facial proportions, eye shape, nose bridge, lips, jawline, cheekbones, skin tone, hairstyle, hair volume, parting, and temperament precisely. The result must be the same person from the photos, not a generic model. Render as a flattering authentic smartphone portrait—front-camera selfie or rear-camera portrait with phone-lens characteristics: slight wide-angle edge distortion, luminous natural skin with fine pores, believable asymmetry, auto-exposure, mild noise or JPEG compression, casual imperfect framing. Handsome photogenic beauty, soft flattering light on face. No studio lighting, no heavy beauty-filter plastic skin, no DSLR bokeh, no 85mm portrait look.";
   const DEFAULT_VISUAL_DAILY_PROMPT =
     "Create a lived-in rear-camera smartphone photo like a viral social-media check-in snapshot—not a stock image or professional photography. Scenes may include café food, street snacks, travel landmarks, café interiors, natural landscapes, city skylines, or everyday street corners, styled like popular influencer check-in photos online. Keep the environment grounded and tied to the current plot, relationship, and mood: where the person is, what they are doing, time of day, and the one detail that proves this exact moment. Favor candid phone framing, natural ambient light, auto white balance, slight lens distortion, mild grain or JPEG compression, imperfect composition, reflections, clutter, and emotional atmosphere. Phone rear-camera realism only—no DSLR, no cinematic grading, no overly polished beauty-shot look.";
   let ttsSettings = {
@@ -2575,10 +2587,10 @@
     "settings",
   ];
   /** 旧版底栏 tab，hash 兼容重定向到点星子视图 */
-  const LEGACY_OVERVIEW_SUB_TAB_IDS = { phone: "phone", fanwork: "fanwork", knock: "knock", collect: "collect" };
+  const LEGACY_OVERVIEW_SUB_TAB_IDS = { phone: "phone", fanwork: "fanwork", knock: "knock", collect: "collect", todo: "todo" };
 
   let activeTab = "overview";
-  /** 点星内嵌子页：null | "phone" | "fanwork" | "knock" | "collect" */
+  /** 点星内嵌子页：null | "phone" | "fanwork" | "knock" | "collect" | "todo" */
   let overviewSubView = null;
   /** 敲敲：主视角角色 id（我的形象） */
   let knockUserCharId = null;
@@ -2726,13 +2738,24 @@
   const KNOCK_CONTEXT_PERSONA_FIELD_MAX_CHARS = 220;
   /** 剧情分享后是否在 API 回复完成后弹出读后感 */
   let assistantPlotShareReplyModalPending = false;
+  /** 点星全局上下文：剧情 id */
+  let overviewPlotId = null;
+  /** 点星全局上下文：主要角色（焦点角色）id */
+  let overviewFocusCharId = null;
+  /** 敲敲：当前剧情 id */
+  let knockPlotId = null;
   /** 查手机：当前查看的角色 id（须为「我的形象」以外的角色） */
   let phoneHolderCharId = null;
   /** 查手机：持有者所在剧情 id */
   let phoneHolderPlotId = null;
+  /** 查手机持有者弹窗：phone | overview */
+  let phoneHolderModalMode = "phone";
   /** 查手机设置弹窗：plot | char */
   let phoneHolderModalStep = "plot";
   let phoneHolderModalPlotId = null;
+  /** 敲敲剧情/角色选择弹窗 */
+  let knockHolderModalStep = "plot";
+  let knockHolderModalPlotId = null;
   /** 查手机：各角色 id -> 壁纸 data URL */
   let phoneWallpapers = {};
   /** 查手机微信：key = plotId + \\u001e + holderCharId */
@@ -2815,6 +2838,10 @@
   let collectGenerating = false;
   /** 收取后台生图：photo=selfie, dream=梦境场景 */
   let collectImageGenerating = { photo: null, dream: null };
+  /** 收取生图失败标记，避免 render 时无限重试 */
+  let collectImageAttemptFailed = { photo: {}, dream: {} };
+  /** 收取照片全屏查看 */
+  let collectPhotoViewerUrl = null;
   let collectTtsAudio = null;
   let collectTtsRevealRaf = null;
   let collectAudioCtx = null;
@@ -2823,6 +2850,19 @@
   let collectTtsPlayingKind = null;
   let collectTtsPaused = false;
   let collectCardTransitionTimer = null;
+
+  /** 任务ToDo：剧情 id */
+  let taskTodoPlotId = null;
+  /** 任务ToDo：主要角色 id */
+  let taskTodoCharId = null;
+  /** 任务ToDo：key = plotId + \\u001e + charId */
+  let taskTodoData = {};
+  let taskTodoGenerating = false;
+  /** 任务ToDo 撰写弹窗：task | diary */
+  let taskTodoComposeMode = null;
+  let taskTodoCalendarYear = null;
+  let taskTodoCalendarMonth = null;
+  let taskTodoCalendarSelectedKey = null;
 
   const COLLECT_TTS_LABELS = {
     whisper: "播放",
@@ -2847,6 +2887,9 @@
       historyDetailEntryId: null,
       historyDetailKind: null,
     },
+  };
+  const todoNavBySlotId = {
+    "todo-content-slot": { activeMsgIndex: 0 },
   };
 
   function getPhoneNav(slot) {
@@ -2880,6 +2923,14 @@
       collectNavBySlotId[slot.id].openCards = [];
     }
     return collectNavBySlotId[slot.id];
+  }
+
+  function getTodoNav(slot) {
+    if (!slot || !slot.id) return todoNavBySlotId["todo-content-slot"];
+    if (!todoNavBySlotId[slot.id]) {
+      todoNavBySlotId[slot.id] = { activeMsgIndex: 0 };
+    }
+    return todoNavBySlotId[slot.id];
   }
 
   let sheetPov = "第三人称";
@@ -2978,12 +3029,32 @@
     navItems: () => document.querySelectorAll(".nav-item[data-tab]"),
     mainScroll: () => document.getElementById("main-scroll"),
     overviewHub: () => document.getElementById("overview-hub"),
+    overviewContextBar: () => document.getElementById("overview-context-bar"),
+    overviewContextPlotLabel: () => document.getElementById("overview-context-plot-label"),
+    overviewContextCharLabel: () => document.getElementById("overview-context-char-label"),
+    modalKnockHolder: () => document.getElementById("modal-knock-holder"),
+    knockHolderClose: () => document.getElementById("knock-holder-close"),
+    knockHolderStepBack: () => document.getElementById("knock-holder-step-back"),
+    knockHolderTitle: () => document.getElementById("knock-holder-title"),
+    knockHolderHint: () => document.getElementById("knock-holder-hint"),
+    knockHolderPlotList: () => document.getElementById("knock-holder-plot-list"),
+    knockHolderPick: () => document.getElementById("knock-holder-pick"),
     overviewSubPhone: () => document.getElementById("overview-sub-phone"),
     overviewSubFanwork: () => document.getElementById("overview-sub-fanwork"),
     overviewSubKnock: () => document.getElementById("overview-sub-knock"),
     overviewSubCollect: () => document.getElementById("overview-sub-collect"),
+    overviewSubTodo: () => document.getElementById("overview-sub-todo"),
     knockContentSlot: () => document.getElementById("knock-content-slot"),
     collectContentSlot: () => document.getElementById("collect-content-slot"),
+    todoContentSlot: () => document.getElementById("todo-content-slot"),
+    modalTodoCompose: () => document.getElementById("modal-todo-compose"),
+    todoComposeTitle: () => document.getElementById("todo-compose-title"),
+    todoComposeInput: () => document.getElementById("todo-compose-input"),
+    todoComposeClose: () => document.getElementById("todo-compose-close"),
+    todoComposeConfirm: () => document.getElementById("todo-compose-confirm"),
+    modalTodoCalendar: () => document.getElementById("modal-todo-calendar"),
+    todoCalendarSlot: () => document.getElementById("todo-calendar-slot"),
+    todoCalendarClose: () => document.getElementById("todo-calendar-close"),
     modalCollectHolder: () => document.getElementById("modal-collect-holder"),
     collectHolderClose: () => document.getElementById("collect-holder-close"),
     collectHolderStepBack: () => document.getElementById("collect-holder-step-back"),
@@ -7003,10 +7074,7 @@
           visualImageSettings.appearanceRef.prompt = parsed.appearanceRef.prompt;
         }
         if (typeof parsed.appearanceRef.celebrityLookalike === "string") {
-          visualImageSettings.appearanceRef.celebrityLookalike =
-            parsed.appearanceRef.celebrityLookalike.trim() || DEFAULT_VISUAL_CELEBRITY_LOOKALIKE;
-        } else if (!String(visualImageSettings.appearanceRef.celebrityLookalike || "").trim()) {
-          visualImageSettings.appearanceRef.celebrityLookalike = DEFAULT_VISUAL_CELEBRITY_LOOKALIKE;
+          visualImageSettings.appearanceRef.celebrityLookalike = parsed.appearanceRef.celebrityLookalike.trim();
         }
         if (typeof parsed.appearanceRef.visionCacheKey === "string") {
           visualImageSettings.appearanceRef.visionCacheKey = parsed.appearanceRef.visionCacheKey;
@@ -7055,6 +7123,12 @@
         visualImageSettings.appearanceRef.visionCacheText = "";
         migrated = true;
       }
+      if (appearancePrompt === LEGACY_VISUAL_APPEARANCE_PROMPT_V2.trim()) {
+        visualImageSettings.appearanceRef.prompt = DEFAULT_VISUAL_APPEARANCE_PROMPT;
+        visualImageSettings.appearanceRef.visionCacheKey = "";
+        visualImageSettings.appearanceRef.visionCacheText = "";
+        migrated = true;
+      }
       const dailyPrompt = String(visualImageSettings.dailyRef.prompt || "").trim();
       if (dailyPrompt === LEGACY_VISUAL_DAILY_PROMPT.trim()) {
         visualImageSettings.dailyRef.prompt = DEFAULT_VISUAL_DAILY_PROMPT;
@@ -7076,9 +7150,7 @@
           appearanceRef: {
             imageDataUrls: getVisualRefImages("appearance").slice(0, VISUAL_REF_IMAGE_MAX),
             prompt: visualImageSettings.appearanceRef.prompt || DEFAULT_VISUAL_APPEARANCE_PROMPT,
-            celebrityLookalike:
-              String(visualImageSettings.appearanceRef.celebrityLookalike || "").trim() ||
-              DEFAULT_VISUAL_CELEBRITY_LOOKALIKE,
+            celebrityLookalike: String(visualImageSettings.appearanceRef.celebrityLookalike || "").trim(),
             visionCacheKey: String(visualImageSettings.appearanceRef.visionCacheKey || ""),
             visionCacheText: String(visualImageSettings.appearanceRef.visionCacheText || ""),
           },
@@ -7203,8 +7275,19 @@
   function getVisualRefCelebrityLookalike(refKey) {
     if (refKey !== "appearance") return "";
     const ref = getVisualRefObj(refKey);
-    const name = String((ref && ref.celebrityLookalike) || "").trim();
-    return name || DEFAULT_VISUAL_CELEBRITY_LOOKALIKE;
+    return String((ref && ref.celebrityLookalike) || "").trim();
+  }
+
+  function getOptionalLooseAestheticHint(refKey) {
+    const name = getVisualRefCelebrityLookalike(refKey);
+    if (!name) return "";
+    const bp = getCelebrityFaceBlueprint(name);
+    const blueprint = String((bp && bp.blueprint) || DEFAULT_CELEBRITY_FACE_BLUEPRINT).trim();
+    return (
+      " Optional loose aesthetic mood only (secondary to reference photos, not a real-person likeness): " +
+      truncateCharsWithEllipsis(blueprint, 280) +
+      "."
+    );
   }
 
   function buildVisualRefVisionCacheKey(urls) {
@@ -7223,15 +7306,396 @@
     ref.visionCacheText = "";
   }
 
+  function getCelebrityFaceBlueprint(celebrityName) {
+    const raw = String(celebrityName || "").trim();
+    const lower = raw.toLowerCase();
+    const keys = Object.keys(CELEBRITY_FACE_BLUEPRINTS);
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      const entry = CELEBRITY_FACE_BLUEPRINTS[key];
+      if (key === raw || key.toLowerCase() === lower) return entry;
+      const aliases = entry && Array.isArray(entry.enAliases) ? entry.enAliases : [];
+      for (let j = 0; j < aliases.length; j++) {
+        if (String(aliases[j] || "").trim().toLowerCase() === lower) return entry;
+      }
+    }
+    return { enAliases: [], blueprint: DEFAULT_CELEBRITY_FACE_BLUEPRINT };
+  }
+
+  function getCelebrityNameTokens(celebrityName) {
+    const bp = getCelebrityFaceBlueprint(celebrityName);
+    const tokens = [String(celebrityName || "").trim()];
+    (bp.enAliases || []).forEach(function (a) {
+      const t = String(a || "").trim();
+      if (t) tokens.push(t);
+    });
+    Object.keys(CELEBRITY_FACE_BLUEPRINTS).forEach(function (k) {
+      tokens.push(k);
+    });
+    return Array.from(
+      new Set(
+        tokens
+          .map(function (t) {
+            return String(t || "").trim();
+          })
+          .filter(Boolean)
+      )
+    );
+  }
+
+  function stripCelebrityNamesFromPrompt(text, celebrityName) {
+    let out = String(text || "");
+    getCelebrityNameTokens(celebrityName).forEach(function (token) {
+      if (!token) return;
+      out = out.split(token).join(" ");
+      if (/^[a-z0-9\s-]+$/i.test(token)) {
+        const re = new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+        out = out.replace(re, " ");
+      }
+    });
+    return out.replace(/\s{2,}/g, " ").trim();
+  }
+
+  function sandwichIdentityPrompt(identityBlock, scenePrompt) {
+    const id = String(identityBlock || "").trim();
+    const scene = String(scenePrompt || "").trim();
+    if (!id) return scene;
+    if (!scene) return id;
+    return id + " " + scene + " " + id;
+  }
+
+  function buildApiSafeSelfiePromptFromInternal(internalPrompt, celebrityName) {
+    const refCount = getVisualRefImages("appearance").length;
+    const visionDesc = String(
+      (visualImageSettings.appearanceRef && visualImageSettings.appearanceRef.visionCacheText) || ""
+    ).trim();
+    let identity =
+      refCount > 0
+        ? "CRITICAL IDENTITY LOCK — Recreate the exact same person from " +
+          refCount +
+          " uploaded reference photo(s). Match face shape, eyes, nose, lips, jaw, hair, skin tone precisely."
+        : "CRITICAL IDENTITY LOCK — " + DEFAULT_CELEBRITY_FACE_BLUEPRINT + ".";
+    if (visionDesc) identity += " Reference face analysis: " + visionDesc + ".";
+    identity +=
+      " Flattering photogenic smartphone beauty portrait, luminous clear skin, soft natural light on face.";
+    const looseHint = getOptionalLooseAestheticHint("appearance");
+    if (looseHint) identity += looseHint;
+    const scene = stripCelebrityNamesFromPrompt(internalPrompt, celebrityName);
+    return sandwichIdentityPrompt(identity, scene);
+  }
+
+  function buildVisualRefImagePartsForVision(refKey) {
+    return getVisualRefImages(refKey)
+      .slice(0, VISUAL_REF_IMAGE_MAX)
+      .map(function (url) {
+        return { type: "image_url", image_url: { url: url, detail: "high" } };
+      });
+  }
+
+  function getVisualRefImageBase64List(refKey) {
+    return getVisualRefImages(refKey)
+      .slice(0, VISUAL_REF_IMAGE_MAX)
+      .map(function (url) {
+        return extractBase64FromDataUrl(url);
+      })
+      .filter(Boolean);
+  }
+
+  async function craftSelfieImageApiPrompt(internalPrompt, celebrityName) {
+    const internal = String(internalPrompt || "").trim();
+    if (!internal) return internal;
+    const refImageParts = buildVisualRefImagePartsForVision("appearance");
+    const refCount = refImageParts.length;
+    const visionDesc = await analyzeVisualRefImagesWithVision("appearance");
+    const scenePart = stripCelebrityNamesFromPrompt(internal, celebrityName);
+
+    if (refCount >= 1 && visionDesc.length >= 40) {
+      let identity =
+        "CRITICAL — Same person as the " +
+        refCount +
+        " attached reference photo(s). Face identity: " +
+        visionDesc +
+        ". Reproduce this exact individual; do not drift to a generic face.";
+      const looseHint = getOptionalLooseAestheticHint("appearance");
+      if (looseHint) identity += looseHint;
+      return sandwichIdentityPrompt(identity, truncateCharsWithEllipsis(scenePart, 520));
+    }
+
+    try {
+      const userText =
+        (refCount
+          ? "附件 " +
+            refCount +
+            " 张为同一人参考照。请直接观察照片中的脸型、五官、发型、肤色，与下方拍摄情景合并，输出最终英文生图 prompt。禁止出现任何真实明星/艺人姓名。\n\n"
+          : "无参考照片。请根据下方拍摄情景输出英文生图 prompt，用通用五官描述锁定同一张脸。禁止出现任何真实明星/艺人姓名。\n\n") +
+        (visionDesc ? "参考图人脸分析：\n" + visionDesc + "\n\n" : "") +
+        "拍摄情景与画面说明：\n" +
+        truncateCharsWithEllipsis(scenePart, 2200) +
+        "\n\n请输出最终英文生图 prompt。";
+      const userContent = refCount
+        ? [{ type: "text", text: userText }].concat(refImageParts)
+        : userText;
+      const text = await callChatCompletion(
+        [
+          {
+            role: "system",
+            content:
+              "你是文生图 prompt 工程师。把用户提供的人像拍摄情景改写成一条英文生图提示词。\n" +
+              (refCount
+                ? "用户附带了真人参考照片：必须以照片里的五官骨相为第一优先，文字描述为第二优先。\n"
+                : "") +
+              "硬性规则：\n" +
+              "1. 绝对禁止出现真实明星/演员/艺人姓名、韩文/英文艺名、剧名、可识别 IP。\n" +
+              "2. 只用可执行的五官解剖、骨相、肤质、发型、神态描述锁定同一张脸。\n" +
+              "3. 情景部分只写衣着、地点、姿态、光线、情绪，不要重复冗长剧情。\n" +
+              "4. 身份描述放在最前，并在末尾用不同措辞再复述一次（sandwich）。\n" +
+              "5. 单条输出、纯英文、无 markdown、无标题、不超过 950 字符。",
+          },
+          {
+            role: "user",
+            content: userContent,
+          },
+        ],
+        0.32,
+        900,
+        { apiConfigId: getWorkbenchApiId(), skipGenPaw: true }
+      );
+      const out = String(text || "").trim();
+      if (out.length >= 80) return out;
+    } catch (e) {
+      console.warn("craftSelfieImageApiPrompt", e);
+    }
+    return buildApiSafeSelfiePromptFromInternal(internal, celebrityName);
+  }
+
+  function extractBase64FromDataUrl(dataUrl) {
+    const s = String(dataUrl || "").trim();
+    const m = s.match(/^data:image\/[^;]+;base64,(.+)$/i);
+    return m ? m[1] : "";
+  }
+
+  function isGptImageModel(model) {
+    return /gpt-image/i.test(String(model || "").trim());
+  }
+
+  function base64ToJpegBlob(b64) {
+    const raw = String(b64 || "").trim();
+    if (!raw) throw new Error("empty image");
+    const binary = atob(raw);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: "image/jpeg" });
+  }
+
+  function isDefaultVisualRefPrompt(refKey, prompt) {
+    const p = String(prompt || "").trim();
+    if (!p) return true;
+    const defaults =
+      refKey === "daily"
+        ? [DEFAULT_VISUAL_DAILY_PROMPT, LEGACY_VISUAL_DAILY_PROMPT]
+        : [
+            DEFAULT_VISUAL_APPEARANCE_PROMPT,
+            LEGACY_VISUAL_APPEARANCE_PROMPT,
+            LEGACY_VISUAL_APPEARANCE_PROMPT_V2,
+          ];
+    return defaults.some(function (d) {
+      return p === String(d || "").trim();
+    });
+  }
+
+  function syncVisualRefPromptFromVision(refKey, visionDesc, forceOverwrite) {
+    const ref = getVisualRefObj(refKey);
+    const desc = String(visionDesc || "").trim();
+    if (!desc || !ref) return false;
+    if (forceOverwrite || isDefaultVisualRefPrompt(refKey, ref.prompt)) {
+      ref.prompt = desc;
+      return true;
+    }
+    return false;
+  }
+
+  async function runVisualRefVisionAnalysis(refKey, rootEl, opts) {
+    opts = opts || {};
+    if (!getVisualRefImages(refKey).length) {
+      showToast("请先上传参考图", "warning");
+      return "";
+    }
+    if (rootEl) collectVisualImageSettingsFromForm(rootEl);
+    invalidateVisualRefVisionCache(refKey);
+    showToast("正在分析参考图…", "info", 3600);
+    const desc = await analyzeVisualRefImagesWithVision(refKey);
+    if (desc) {
+      syncVisualRefPromptFromVision(refKey, desc, !!opts.forceOverwrite);
+      persistVisualImageSettings();
+      if (rootEl) renderDynamic();
+      showToast("参考图分析完成，已写入描述", "success");
+    } else {
+      showToast("参考图分析失败，请确认「设置→API」当前模型支持视觉读图", "warning", 4200);
+    }
+    return desc;
+  }
+
+  async function postVisualImageGenerationWithFormatFallback(cfg, baseBody) {
+    let result = await postVisualImageGenerationRequest(
+      cfg.endpoint,
+      cfg.apiKey,
+      Object.assign({}, baseBody, { response_format: "b64_json" })
+    );
+    let resp = result.resp;
+    let rawText = await resp.text();
+    if (
+      !resp.ok &&
+      /response_format|b64_json|unknown parameter|unsupported|not support/i.test(rawText)
+    ) {
+      result = await postVisualImageGenerationRequest(cfg.endpoint, cfg.apiKey, baseBody);
+      resp = result.resp;
+      rawText = await resp.text();
+    }
+    return parseVisualImageGenerationResponse(resp, rawText);
+  }
+
+  async function buildGptImageEditsSelfiePrompt(sceneOpts) {
+    sceneOpts = sceneOpts || {};
+    const refCount = getVisualRefImages("appearance").length;
+    const visionDesc = await analyzeVisualRefImagesWithVision("appearance");
+    const parts = [
+      "Generate a photorealistic front-camera smartphone selfie portrait of the EXACT SAME PERSON shown in the " +
+        refCount +
+        " attached reference photo(s). Face identity is the absolute highest priority: match face shape, eye spacing, nose bridge, lip shape, jawline, hairline, hairstyle, hair color, and skin tone precisely from the reference photos. Do not invent a different or generic face.",
+    ];
+    if (visionDesc) {
+      parts.push("Facial identity from references: " + truncateCharsWithEllipsis(visionDesc, 400) + ".");
+    }
+    const charName = String(sceneOpts.charName || "").trim();
+    const userName = String(sceneOpts.userName || "").trim();
+    if (charName) {
+      parts.push('Subject: "' + charName + '" only — never the user persona.');
+      if (userName && userName !== charName) {
+        parts.push('Do not depict "' + userName + '" facing camera.');
+      }
+    }
+    const snapLine = String(sceneOpts.snapLine || "").trim();
+    const chatContext = String(sceneOpts.chatContext || "").trim();
+    const sceneBits = [snapLine, chatContext].filter(Boolean).join("; ");
+    if (sceneBits) {
+      parts.push(
+        "Scene and styling (secondary to face identity): " + truncateCharsWithEllipsis(sceneBits, 450) + "."
+      );
+    }
+    const regenerateDirection = String(sceneOpts.regenerateDirection || "").trim();
+    if (regenerateDirection) {
+      parts.push(
+        "Adjust only pose/expression/lighting/outfit: " +
+          truncateCharsWithEllipsis(regenerateDirection, 200) +
+          ". Keep the same face from reference photos."
+      );
+    }
+    const looseHint = getOptionalLooseAestheticHint("appearance");
+    if (looseHint) parts.push(looseHint);
+    parts.push(
+      "Eye-level phone selfie, natural ambient light, authentic smartphone photo realism. Outfit and background follow the scene, not the reference photo setting."
+    );
+    return parts.join(" ");
+  }
+
+  async function callSelfieVisualImageGeneration(internalPrompt, cfgOverride, sceneOpts) {
+    sceneOpts = sceneOpts || {};
+    const cfg = cfgOverride || resolveVisualImageApiConfig();
+    const celebrity = getVisualRefCelebrityLookalike("appearance");
+    const appearanceB64 = getVisualRefImageBase64List("appearance");
+    if (hasVisualRefImagesForAnalysis("appearance")) {
+      showToast("正在分析参考图并锁定人脸…", "info", 3600);
+    }
+
+    if (cfg && appearanceB64.length && isGptImageModel(cfg.model)) {
+      try {
+        const editsPrompt = await buildGptImageEditsSelfiePrompt(sceneOpts);
+        showToast("正在用参考图锁定人脸（gpt-image edits）…", "info", 3600);
+        return await postVisualImageEditsWithRefs(cfg, editsPrompt, appearanceB64);
+      } catch (editsErr) {
+        console.warn("callSelfieVisualImageGeneration edits", editsErr);
+        showToast("参考图 edits 不可用，尝试文字+参考图其他方式…", "info", 3200);
+      }
+    }
+
+    showToast("正在优化人脸提示词…", "info", 2800);
+    const apiPrompt = await craftSelfieImageApiPrompt(internalPrompt, celebrity);
+    return callVisualImageGeneration(apiPrompt, cfgOverride, {
+      useAppearanceRef: true,
+      skipGptImageEdits: true,
+    });
+  }
+
   function appendVisualCelebrityLookalikeToPrompt(prompt, refKey) {
     if (refKey !== "appearance") return String(prompt || "").trim();
-    const name = getVisualRefCelebrityLookalike("appearance");
     const out = String(prompt || "").trim();
+    const looseHint = getOptionalLooseAestheticHint("appearance");
+    if (!looseHint) {
+      return (
+        out +
+        " Use uploaded reference photos as the sole identity anchor; preserve the same person across every generation. Outfit, mood, and atmosphere follow the scene, not the reference photo styling."
+      );
+    }
+    return out + looseHint + " Reference photos remain the primary identity anchor; outfit and scene follow the chat moment.";
+  }
+
+  function buildMainCharacterPhysiquePrompt() {
     return (
-      out +
-      " The identity should still read as " +
+      " Body: athletic male with broad shoulders, narrow waist, defined V-taper torso (宽肩窄腰);" +
+      " lean toned musculature naturally visible under clothing, fit and proportionate, not exaggerated bodybuilder bulk."
+    );
+  }
+
+  function buildMainCharacterPhotoSubjectPrompt(charName, excludePersonaName) {
+    const name = String(charName || "the main character").trim();
+    const persona = String(excludePersonaName || "").trim();
+    let out =
+      ' Subject must be main character "' +
       name +
-      ": preserve the same facial structure and hair silhouette as the reference photos, but do not copy styling from any unrelated image. Use the celebrity only as a loose face-structure reference, not a costume or pose reference. Outfit, mood, and atmosphere should follow the chat scene and world setting, not the reference photos. The result must look like a real phone-captured portrait, not a magazine or studio shoot."
+      '" only — never the user persona/protagonist/「我的形象」.';
+    if (persona && persona !== name) {
+      out += ' Do not depict "' + persona + '" as the photo subject or facing camera.';
+    }
+    return out;
+  }
+
+  function buildUploadedFaceIdentityPrompt(visionDesc) {
+    const refCount = getVisualRefImages("appearance").length;
+    const vision = String(visionDesc || "").trim();
+    let out = "";
+    if (refCount > 0) {
+      out =
+        "HIGHEST PRIORITY — Generate the exact same person shown in the " +
+        refCount +
+        " uploaded reference photo(s). Lock identity: same face shape, eye spacing, nose bridge, lip shape, jawline, hairline, hairstyle, hair color, skin tone. Reference photos are the sole identity source; do not drift to a generic or different face.";
+      if (vision) out += " Facial features from reference photos: " + vision + ".";
+    } else {
+      out =
+        "HIGHEST PRIORITY — Consistent handsome photogenic face identity across generations. " +
+        DEFAULT_CELEBRITY_FACE_BLUEPRINT +
+        ".";
+    }
+    const looseHint = getOptionalLooseAestheticHint("appearance");
+    if (looseHint) out += looseHint;
+    out +=
+      buildMainCharacterPhysiquePrompt() +
+      " Flattering photogenic beauty: luminous skin, soft natural light, handsome and camera-ready.";
+    return out;
+  }
+
+  function buildCelebrityFaceIdentityPrompt() {
+    const visionDesc = String(
+      (visualImageSettings.appearanceRef && visualImageSettings.appearanceRef.visionCacheText) || ""
+    ).trim();
+    return buildUploadedFaceIdentityPrompt(visionDesc);
+  }
+
+  function buildFlexiblePhonePhotoFramingSuffix() {
+    return (
+      " Eye-level smartphone portrait only: camera at subject eye height or up to 10° above, never bird's-eye overhead, never low-angle worm's-eye or dramatic chin-up shot." +
+      " Natural front-camera selfie or friend-taken portrait at standing/sitting height; subject faces camera or slight 3/4 turn." +
+      " Natural ambient light, auto exposure, mild noise or JPEG compression, casual imperfect framing." +
+      visualImageStylePromptSuffix()
     );
   }
 
@@ -7244,12 +7708,10 @@
       return ref.visionCacheText;
     }
     const isAppearance = refKey === "appearance";
-    const imageParts = urls.slice(0, VISUAL_REF_IMAGE_MAX).map(function (url) {
-      return { type: "image_url", image_url: { url: url, detail: "high" } };
-    });
+    const imageParts = buildVisualRefImagePartsForVision(refKey);
     const systemContent = isAppearance
-      ? "你是专业人像分析师。用户上传多张同一人物的参考照片。请综合所有角度，用英文写一段精确、可执行的文生图描述，仅限：脸型、颧骨、下颌、眼型、鼻型、唇形、发型、发色、肤色。不要描述衣着、场景、氛围、姿态或表情。描述应适用于手机自拍/手机人像，不要写专业相机镜头参数。只输出描述正文，不要标题、不要 markdown、不要中文。"
-      : "你是场景与影像分析师。用户上传多张日常/环境参考照片。请综合这些图，用英文写一段精确的场景与影像风格描述：网红打卡照式 rear-camera 手机快照特征，包括地点类型、光线、色调、构图、氛围、常见打卡元素（美食、街景、自然风光、城市景色等）与材质。只输出描述正文，不要标题、不要 markdown、不要中文。";
+      ? "你是专业人像分析师。用户上传多张同一人物的参考照片。请综合所有角度，用英文写一段精确、可执行的文生图描述，仅限：脸型、颧骨、下颌、眼型、鼻型、唇形、发型、发色、肤色、肩宽腰细体型（宽肩窄腰 V 型躯干）。以照片所见为准，只描述照片中实际可见的特征。不要描述衣着、场景、氛围、姿态或表情。不要提及任何明星、艺人或公众人物姓名。描述应适用于手机自拍/手机人像，不要写专业相机镜头参数。只输出描述正文，不要标题、不要 markdown、不要中文。"
+      : "你是场景与影像分析师。用户上传多张日常/环境参考照片。请综合这些图，用英文写一段精确的场景与影像风格描述：rear-camera 手机快照特征，包括地点类型、光线、色调、构图、氛围、常见打卡元素（美食、街景、自然风光、城市景色等）与材质。只描述照片里的场景与影像风格，不要描述人物五官或身份。只输出描述正文，不要标题、不要 markdown、不要中文。";
     const userContent = [
       {
         type: "text",
@@ -7294,6 +7756,11 @@
     return appendVisualCelebrityLookalikeToPrompt(merged, "appearance");
   }
 
+  async function buildPhotoAnchoredSelfieIdentityBlock() {
+    const visionDesc = await analyzeVisualRefImagesWithVision("appearance");
+    return buildUploadedFaceIdentityPrompt(visionDesc);
+  }
+
   async function resolveVisualDailyPromptBase() {
     const manual = String(
       (visualImageSettings.dailyRef && visualImageSettings.dailyRef.prompt) || DEFAULT_VISUAL_DAILY_PROMPT
@@ -7309,56 +7776,54 @@
 
   async function buildKnockSelfieGenerationPrompt(partnerChar, opts) {
     opts = opts || {};
-    const appearancePrompt = await resolveVisualAppearancePromptBase();
-    const persona = partnerChar && partnerChar.persona ? partnerChar.persona : {};
-    const styleField = String(persona.style || "").trim();
     const name = String((partnerChar && partnerChar.name) || "the character").trim();
-    let prompt = appearancePrompt;
-    if (styleField) {
-      prompt += " Additional character appearance (from persona): " + styleField + ".";
-    }
-    prompt +=
-      " Subject: " +
-      name +
-      ". Make it feel like an authentic front-camera phone selfie shared in a private chat: arm-length framing, slight wide-angle selfie distortion, casual imperfect composition, hand-held realism, natural expression, auto front-camera exposure, mild noise or JPEG compression—not a studio portrait or DSLR shot.";
+    let prompt = await buildPhotoAnchoredSelfieIdentityBlock();
+    const userChar = getCharById(knockUserCharId);
+    const userName = String((userChar && userChar.name) || "用户").trim() || "用户";
+    prompt += buildMainCharacterPhotoSubjectPrompt(name, userName);
+    prompt += " Subject: " + name + ".";
     const chatContext = String(opts.chatContext || "").trim();
     if (chatContext) {
       prompt +=
-        " Use the chat context to infer the exact moment, place, emotional state, and what kind of selfie this is. The selfie must reflect this person's own location, outfit, mood and expression—not the chat partner's side. Context: " +
-        chatContext +
+        " Current moment outfit, location, mood (from chat only): " +
+        truncateCharsWithEllipsis(chatContext, 480) +
         ".";
     }
     const snapLine = String(opts.snapLine || "").trim();
     if (snapLine) {
-      prompt += " What this person intends to send (their shot): " + snapLine + ".";
+      prompt +=
+        " Intended shot (face identity always from reference photos; scene details): " +
+        truncateCharsWithEllipsis(snapLine, 360) +
+        ".";
     }
     const regenerateDirection = String(opts.regenerateDirection || "").trim();
     if (regenerateDirection) {
       prompt +=
-        " User requested adjustments to the previous attempt: " +
-        regenerateDirection +
-        ". Keep face shape, hairstyle, and the identity locked to the appearance reference and celebrity lookalike; only adjust pose, expression, lighting, outfit, or mood as directed.";
+        " User adjustment: " +
+        truncateCharsWithEllipsis(regenerateDirection, 220) +
+        ". Keep the same face from reference photos; adjust pose, expression, lighting, outfit, or mood only.";
     }
-    if (!opts.omitStyleSuffix) prompt += visualImageStylePromptSuffix();
+    if (!opts.omitStyleSuffix) prompt += buildFlexiblePhonePhotoFramingSuffix();
     return prompt;
   }
 
   async function buildKnockSceneGenerationPrompt(opts) {
     opts = opts || {};
     const dailyPrompt = await resolveVisualDailyPromptBase();
-    let prompt =
+    const snapLine = String(opts.snapLine || "").trim();
+    let prompt = "";
+    if (snapLine) {
+      prompt += " PRIMARY SCENE (must match): " + truncateCharsWithEllipsis(snapLine, 420) + ".";
+    }
+    prompt +=
       dailyPrompt +
-      " Rear-camera phone snapshot shared in chat, like an influencer check-in post: food close-ups, scenic views, city streets, or cozy indoor corners—all with phone auto-exposure, casual tilted framing, and mild compression artifacts. Environmental or scenic photo: focus on place, objects, or atmosphere; make it unmistakably real, with lived-in details and a moment-in-time feeling rather than a generic landscape.";
+      " Rear-camera phone snapshot shared in chat, like a casual check-in post: food close-ups, scenic views, city streets, or cozy indoor corners—all with phone auto-exposure, casual tilted framing, and mild compression artifacts. Environmental or scenic photo: focus on place, objects, or atmosphere; make it unmistakably real, with lived-in details and a moment-in-time feeling rather than a generic landscape.";
     const chatContext = String(opts.chatContext || "").trim();
     if (chatContext) {
       prompt +=
-        " Use the conversation to infer the exact scene, time, location, emotional tone, and why this photo would be sent right now. Photo taken from this chat partner's phone camera—what they see and share from where they are, not the user's location. Context: " +
-        chatContext +
+        " Supporting context for location and mood only: " +
+        truncateCharsWithEllipsis(chatContext, 360) +
         ".";
-    }
-    const snapLine = String(opts.snapLine || "").trim();
-    if (snapLine) {
-      prompt += " What this person sees and intends to send: " + snapLine + ".";
     }
     const regenerateDirection = String(opts.regenerateDirection || "").trim();
     if (regenerateDirection) {
@@ -7388,15 +7853,12 @@
     const userName = String((userChar && userChar.name) || "用户").trim() || "用户";
     const partnerName = String((partnerChar && partnerChar.name) || "对方").trim() || "对方";
     const msgs = rec && Array.isArray(rec.messages) ? rec.messages : [];
-    const max = Number.isFinite(limit) && limit > 0 ? limit : 10;
+    const max = Number.isFinite(limit) && limit > 0 ? limit : 6;
     const partnerLines = [];
-    const userLines = [];
     msgs.slice(-max).forEach(function (m) {
-      if (!m) return;
+      if (!m || m.role !== "assistant") return;
       const body = formatKnockMessageContentForApi(m);
-      if (!body) return;
-      if (m.role === "assistant") partnerLines.push(body);
-      else userLines.push(body);
+      if (body) partnerLines.push(body);
     });
     let out =
       "【发图者】" +
@@ -7407,27 +7869,14 @@
       "」那边的场景。";
     if (partnerLines.length) {
       out +=
-        "\n【对方近期消息（优先据此推断其地点、衣着、情绪、正在做什么）】\n" +
+        "\n【对方近期消息（据此推断其地点、衣着、情绪、正在做什么）】\n" +
         partnerLines
           .map(function (line, idx) {
             return idx + 1 + ". " + line;
           })
           .join("\n");
     }
-    if (userLines.length) {
-      out +=
-        "\n【用户近期消息（仅话题参考；若提及用户自己的地点/画面，不要画成照片内容）】\n" +
-        userLines
-          .map(function (line, idx) {
-            return idx + 1 + ". " + line;
-          })
-          .join("\n");
-    }
-    const contextBg = rec && rec.contextBackground ? String(rec.contextBackground).trim() : "";
-    if (contextBg) {
-      out = "【加微信契机】" + truncateCharsWithEllipsis(contextBg, 300) + "\n" + out;
-    }
-    return truncateCharsWithEllipsis(out, 1500);
+    return truncateCharsWithEllipsis(out, 900);
   }
 
   async function craftKnockVisualImagePrompt(intent, partnerChar, userChar, rec, snapHints, opts) {
@@ -7440,102 +7889,13 @@
           })
           .filter(Boolean)
       : [];
-    const chatContext = buildKnockRecentChatVisualContext(rec, userChar, partnerChar, 10);
+    const chatContext = buildKnockRecentChatVisualContext(rec, userChar, partnerChar, 6);
     const snapLine = snapHintsArr.length ? snapHintsArr.join("；") : "";
     const regenerateDirection = String(opts.regenerateDirection || "").trim();
     const fallbackOpts = { chatContext: chatContext, snapLine: snapLine, regenerateDirection: regenerateDirection };
-    const fallback =
-      kind === "selfie"
-        ? await buildKnockSelfieGenerationPrompt(partnerChar, fallbackOpts)
-        : await buildKnockSceneGenerationPrompt(fallbackOpts);
-
-    if (opts.fastTest) return fallback;
-    const persona = partnerChar && partnerChar.persona ? partnerChar.persona : {};
-    const styleField = String(persona.style || "").trim();
-    const name = String((partnerChar && partnerChar.name) || "对方").trim();
-    const appearanceBase = await resolveVisualAppearancePromptBase();
-    const dailyBase = await resolveVisualDailyPromptBase();
-    const styleNote = visualImageStylePromptSuffix().trim();
-
-    try {
-      const kindLabel =
-        kind === "selfie"
-          ? "自拍（对方本人用手机自拍后发来；必须是发图者自己的脸/半身）"
-          : "场景（对方用手机拍下自己眼前的景象发来；对方所在环境，不是用户那边）";
-      let userContent =
-        "视角：照片由聊天对象「" +
-        name +
-        "」拍出并发送给用户，画面必须是对方那边。\n类型：" +
-        kindLabel;
-      if (styleField) userContent += "\n发图者外貌（中文人设）：" + styleField;
-      userContent +=
-        "\n外貌参考（仅锁定脸型与发型；装扮/氛围随聊天情境变化）：" +
-        truncateCharsWithEllipsis(appearanceBase, 720);
-      if (kind === "scene") {
-        userContent += "\n场景参考（含上传参考图识图结果）：" + truncateCharsWithEllipsis(dailyBase, 720);
-      }
-      if (chatContext) userContent += "\n\n" + chatContext;
-      if (snapLine) userContent += "\n\n对方本轮拟发来的画面：" + snapLine;
-      if (regenerateDirection) {
-        userContent += "\n\n用户对上一张生成结果不满意，修改方向：" + regenerateDirection;
-        if (kind === "selfie") {
-          userContent +=
-            "\n须保持脸型、发型与外貌参考图及明星脸一致，仅按修改方向调整姿态、表情、光线、着装或氛围。";
-        } else {
-          userContent += "\n须保持场景风格与参考一致，按修改方向调整构图、光线或细节。";
-        }
-      }
-      const manualAppearancePrompt = String(
-        (visualImageSettings.appearanceRef && visualImageSettings.appearanceRef.prompt) ||
-          DEFAULT_VISUAL_APPEARANCE_PROMPT
-      ).trim();
-      const manualDailyPrompt = String(
-        (visualImageSettings.dailyRef && visualImageSettings.dailyRef.prompt) || DEFAULT_VISUAL_DAILY_PROMPT
-      ).trim();
-      if (manualAppearancePrompt) {
-        userContent += "\n外貌描述提示词（设置）：" + truncateCharsWithEllipsis(manualAppearancePrompt, 480);
-      }
-      if (kind === "scene" && manualDailyPrompt) {
-        userContent += "\n场景描述提示词（设置）：" + truncateCharsWithEllipsis(manualDailyPrompt, 480);
-      }
-      userContent += "\n\n摄影风格要求：" + styleNote;
-      userContent += "\n\n请写一条完整英文 prompt（仅正文）。";
-
-      const refined = await callChatCompletion(
-        [
-          {
-            role: "system",
-            content:
-              "你是图像 prompt 工程师。根据微信私聊情境写一条英文生图 prompt，供 images/generations 使用。\n" +
-              "只输出 prompt 正文：英文、无 markdown、无标题、无解释。\n" +
-              "必须融合设置中的外貌/场景参考提示词与对方本轮画面描述，二者缺一不可。\n" +
-              "核心：照片是「聊天对象/对方」用手机拍下并发来的——自拍是对方本人前置手机自拍，场景是对方用手机 rear camera 拍下的打卡/环境照。\n" +
-              "若对话里用户说自己在家、对方在别处，只画对方那边；用户侧地点、用户自拍、用户窗外景象一律不要画进去。\n" +
-              "优先根据对方自己说过的话推断其地点与状态；用户消息仅作话题参考。\n" +
-              "包含可见细节（光线、环境、姿态、物品、情绪）。自拍：自然前置手机自拍；场景：后置手机打卡照，可含美食、宠物、自然风光、城市景色，环境为主、不要人脸特写。\n" +
-              "若 SNAP 描述的是动物/餐点/风景等眼前事物，按场景照处理，不要生成人脸自拍。\n" +
-              "禁止 DSLR、85mm 镜头、棚拍、电影调色、美颜滤镜；必须是真实手机直出照片质感。",
-          },
-          { role: "user", content: userContent },
-        ],
-        0.58,
-        500,
-        { apiConfigId: getWorkbenchApiId(), skipGenPaw: true }
-      );
-      const p = String(refined || "")
-        .trim()
-        .replace(/^["'`]+|["'`]+$/g, "")
-        .replace(/^\s*prompt\s*[:：]\s*/i, "");
-      if (p.length >= 48) {
-        if (!/photograph|photo|selfie|portrait|shot|camera|lighting/i.test(p)) {
-          return p + ". " + styleNote;
-        }
-        return p;
-      }
-    } catch (e) {
-      console.warn("craftKnockVisualImagePrompt", e);
-    }
-    return fallback;
+    return kind === "selfie"
+      ? await buildKnockSelfieGenerationPrompt(partnerChar, fallbackOpts)
+      : await buildKnockSceneGenerationPrompt(fallbackOpts);
   }
 
   function compressDataUrlAsJpeg(dataUrl, maxSide, maxDataUrlChars) {
@@ -7652,7 +8012,28 @@
     throw new Error("生图 API 返回格式不支持（需要 url 或 b64_json）");
   }
 
-  async function callVisualImageGeneration(prompt, cfgOverride) {
+  function buildVisualRefImageBodyVariants(baseBody, b64List) {
+    const variants = [];
+    if (!b64List.length) return variants;
+    if (b64List.length === 1) {
+      variants.push(Object.assign({}, baseBody, { image: b64List[0] }));
+      variants.push(Object.assign({}, baseBody, { reference_image: b64List[0] }));
+      variants.push(Object.assign({}, baseBody, { init_image: b64List[0], image_strength: 0.55 }));
+    } else {
+      variants.push(Object.assign({}, baseBody, { images: b64List }));
+      variants.push(Object.assign({}, baseBody, { reference_images: b64List }));
+      variants.push(Object.assign({}, baseBody, { image: b64List[0] }));
+      variants.push(Object.assign({}, baseBody, { init_image: b64List[0], image_strength: 0.52 }));
+    }
+    return variants;
+  }
+
+  async function callSceneVisualImageGeneration(prompt, cfgOverride) {
+    return callVisualImageGeneration(prompt, cfgOverride, { useDailyRef: true });
+  }
+
+  async function callVisualImageGeneration(prompt, cfgOverride, opts) {
+    opts = opts || {};
     const cfg = cfgOverride || resolveVisualImageApiConfig();
     if (!cfg) {
       throw new Error("请先在设置中启用聊天发图并填写生图 API");
@@ -7663,22 +8044,51 @@
       n: 1,
       size: "1024x1024",
     };
-    let result = await postVisualImageGenerationRequest(
-      cfg.endpoint,
-      cfg.apiKey,
-      Object.assign({}, baseBody, { response_format: "b64_json" })
-    );
-    let resp = result.resp;
-    let rawText = await resp.text();
-    if (
-      !resp.ok &&
-      /response_format|b64_json|unknown parameter|unsupported|not support/i.test(rawText)
-    ) {
-      result = await postVisualImageGenerationRequest(cfg.endpoint, cfg.apiKey, baseBody);
-      resp = result.resp;
-      rawText = await resp.text();
+    const appearanceB64 = opts.useAppearanceRef ? getVisualRefImageBase64List("appearance") : [];
+    const dailyB64 = opts.useDailyRef ? getVisualRefImageBase64List("daily") : [];
+    const refB64 = appearanceB64.length ? appearanceB64 : dailyB64;
+
+    if (opts.useAppearanceRef && appearanceB64.length && isGptImageModel(cfg.model) && !opts.skipGptImageEdits) {
+      try {
+        showToast("正在用参考图锁定人脸（gpt-image edits）…", "info", 3600);
+        return await postVisualImageEditsWithRefs(cfg, baseBody.prompt, appearanceB64);
+      } catch (editsErr) {
+        console.warn("postVisualImageEditsWithRefs", editsErr);
+        showToast("参考图 edits 不可用，尝试其他生图方式…", "info", 2800);
+      }
     }
-    return parseVisualImageGenerationResponse(resp, rawText);
+
+    const bodyVariants = [];
+    if (refB64.length) {
+      buildVisualRefImageBodyVariants(baseBody, refB64).forEach(function (variant) {
+        bodyVariants.push(variant);
+      });
+    }
+    bodyVariants.push(Object.assign({}, baseBody));
+
+    let lastErr = null;
+    for (let i = 0; i < bodyVariants.length; i++) {
+      try {
+        const usedRef = i < bodyVariants.length - 1 && refB64.length > 0;
+        if (usedRef) {
+          showToast("正在用参考图锁定画面…", "info", 2800);
+        } else if (refB64.length > 0) {
+          showToast("参考图参数不可用，使用纯文生图兜底…", "info", 2800);
+        }
+        return await postVisualImageGenerationWithFormatFallback(cfg, bodyVariants[i]);
+      } catch (err) {
+        lastErr = err;
+        const msg = String((err && err.message) || "");
+        const retriable =
+          i < bodyVariants.length - 1 &&
+          /unknown parameter|unsupported|not support|invalid.*image|image_strength|reference_image|init_image|images\b/i.test(
+            msg
+          );
+        if (retriable) continue;
+        throw err;
+      }
+    }
+    throw lastErr || new Error("生图失败");
   }
 
   function detectKnockVisualImageTestIntent(text) {
@@ -7713,7 +8123,7 @@
     return (
       "\n\n【发图·仅主要角色】你可在合适时机发照片（手机自拍、手机随手拍的眼前景象），像真人微信一样克制，不要频繁发图；整段对话里通常 0～1 条 <<<SNAP>>> 即可，不要连续多轮都发。" +
       "格式：单独一行 <<<SNAP>>>简短画面描述（中文或英文均可）<<<SNAP>>>，可与 <<<BUBBLE>>> 文字气泡混发。" +
-      "自拍是你本人前置手机自拍出镜；景象是你此刻用手机后置镜头拍下、眼前看到的（不是用户那边）。" +
+      "自拍是你本人（主要角色）前置手机自拍出镜，宽肩窄腰健美体型，镜头与眼睛平齐，禁止俯拍仰拍等死亡角度；景象是你此刻用手机后置镜头拍下、眼前看到的（不是用户那边）。" +
       "<<<SNAP>>>须写你自己这边的画面：你的地点、你的衣着、你的环境、你的情绪。" +
       "所有 <<<SNAP>>> 会先以文字占位展示，由用户自行选择是否生成真实图片；不要假设图片一定会出现。" +
       "\n【建议配图的典型场景——本轮对话若出现下列情况，优先用 1 条 <<<SNAP>>> 配合文字，描述要具体可见】：" +
@@ -7763,6 +8173,17 @@
     return "pending";
   }
 
+  function buildKnockSelfieSceneOpts(partnerChar, userChar, rec, snapText, extraOpts) {
+    extraOpts = extraOpts || {};
+    return {
+      snapLine: String(snapText || "").trim(),
+      chatContext: buildKnockRecentChatVisualContext(rec, userChar, partnerChar, 6),
+      charName: partnerChar && partnerChar.name ? String(partnerChar.name).trim() : "",
+      userName: userChar && userChar.name ? String(userChar.name).trim() : "",
+      regenerateDirection: String(extraOpts.regenerateDirection || "").trim(),
+    };
+  }
+
   async function generateKnockSnapImageAtIndex(rec, msgIndex, slot, opts) {
     opts = opts || {};
     if (!rec || !visualImageSettings.enabled) return false;
@@ -7800,7 +8221,14 @@
       const prompt = await craftKnockVisualImagePrompt(intent, partnerChar, userChar, rec, [snapText], {
         fastTest: !!opts.fastTest,
       });
-      const photoUrl = await callVisualImageGeneration(prompt);
+      const selfieSceneOpts =
+        intent === "selfie"
+          ? buildKnockSelfieSceneOpts(partnerChar, userChar, rec, snapText, opts)
+          : null;
+      const photoUrl =
+        intent === "selfie"
+          ? await callSelfieVisualImageGeneration(prompt, null, selfieSceneOpts)
+          : await callSceneVisualImageGeneration(prompt);
       rec.messages[idx] = {
         role: msg.role,
         kind: "photo",
@@ -7893,7 +8321,16 @@
       const prompt = await craftKnockVisualImagePrompt(intent, partnerChar, userChar, rec, [snapText], {
         regenerateDirection: regenerateDirection,
       });
-      const photoUrl = await callVisualImageGeneration(prompt);
+      const selfieSceneOpts =
+        intent === "selfie"
+          ? buildKnockSelfieSceneOpts(partnerChar, userChar, rec, snapText, {
+              regenerateDirection: regenerateDirection,
+            })
+          : null;
+      const photoUrl =
+        intent === "selfie"
+          ? await callSelfieVisualImageGeneration(prompt, null, selfieSceneOpts)
+          : await callSceneVisualImageGeneration(prompt);
       rec.messages[idx] = {
         role: msg.role,
         kind: "photo",
@@ -7940,6 +8377,44 @@
       console.error(err);
       showToast((err && err.message) || "保存失败，请重试。", "error");
     }
+  }
+
+  function openCollectPhotoViewer(photoUrl) {
+    const url = String(photoUrl || "").trim();
+    if (!url || !isSafeImageUrl(url)) return;
+    collectPhotoViewerUrl = url;
+    const slot = els.collectContentSlot && els.collectContentSlot();
+    if (slot) renderCollectScreen(slot);
+  }
+
+  function closeCollectPhotoViewer() {
+    if (!collectPhotoViewerUrl) return;
+    collectPhotoViewerUrl = null;
+    const slot = els.collectContentSlot && els.collectContentSlot();
+    if (slot) renderCollectScreen(slot);
+  }
+
+  function buildCollectPhotoViewerOverlayHtml() {
+    if (!collectPhotoViewerUrl) return "";
+    const url = escapeHtml(collectPhotoViewerUrl);
+    return (
+      '<div class="knock-photo-viewer collect-photo-viewer" data-collect-photo-viewer aria-modal="true" role="dialog">' +
+      '<button type="button" class="knock-photo-viewer__backdrop" data-collect-photo-viewer-close aria-label="关闭"></button>' +
+      '<div class="knock-photo-viewer__panel">' +
+      '<button type="button" class="knock-photo-viewer__close" data-collect-photo-viewer-close aria-label="关闭">' +
+      '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      "</button>" +
+      '<div class="knock-photo-viewer__img-wrap">' +
+      '<img class="knock-photo-viewer__img" src="' +
+      url +
+      '" alt="收取照片"/>' +
+      "</div>" +
+      '<div class="knock-photo-viewer__actions">' +
+      '<button type="button" class="btn btn--primary btn--pill knock-photo-viewer__save" data-collect-photo-viewer-save data-photo-url="' +
+      url +
+      '">保存图片</button>' +
+      "</div></div></div>"
+    );
   }
 
   async function saveCollectPhotoToDevice(imageDataUrl) {
@@ -8275,6 +8750,28 @@
     return t;
   }
 
+  function mapParentheticalToMinimaxSound(inner) {
+    const s = String(inner || "").trim();
+    if (!s) return "";
+    if (/轻笑|低笑|噗嗤|嗤笑|哼笑|笑出声|咯咯|偷笑|莞尔|抿嘴笑/.test(s)) return "(laughs)";
+    if (/苦笑/.test(s)) return "(laughs)";
+    if (/哈哈|呵呵|嘿嘿|嘻嘻/.test(s)) return "(laughs)";
+    if (/叹气|叹息|长叹|^唉$/.test(s)) return "(sighs)";
+    if (/呼吸|喘息|吸气|呼气|深吸|倒抽/.test(s)) return "(breath)";
+    if (/哽咽|抽泣|呜咽/.test(s)) return "(sighs)";
+    if (/咳嗽|清嗓|嗽/.test(s)) return "<#0.2#>";
+    if (/停顿|沉默|安静/.test(s)) return "<#0.35#>";
+    if (/笑/.test(s)) return "(laughs)";
+    if (/叹|唉/.test(s)) return "(sighs)";
+    return "<#0.25#>";
+  }
+
+  function replaceStoryTtsParentheticalSounds(text) {
+    return String(text || "").replace(/[（(]([^）)]+)[）)]/g, function (_, inner) {
+      return mapParentheticalToMinimaxSound(inner);
+    });
+  }
+
   function replaceStoryTtsLaughter(text) {
     let t = String(text || "").trim();
     if (!t) return t;
@@ -8294,10 +8791,12 @@
   }
 
   function enrichStoryTtsSpeakText(rawText, contextText, model) {
-    if (!isMinimaxAutoEmotionModel(model)) return String(rawText || "").trim();
     let t = String(rawText || "").trim();
     if (!t) return t;
+    t = replaceStoryTtsParentheticalSounds(t);
+    if (!isMinimaxAutoEmotionModel(model)) return t;
     t = softenStoryTtsOralFillers(t);
+    t = replaceStoryTtsParentheticalSounds(t);
     t = replaceStoryTtsLaughter(t);
     // 仅保留少量、不易「念标签」的处理（只看台词，不揣摩旁白剧情）
     if (/^(?:唉|算了|罢了)/.test(t) && !/^\(/.test(t)) {
@@ -9019,6 +9518,9 @@
       characters,
       worldBooks,
       plots,
+      overviewPlotId: overviewPlotId || null,
+      overviewFocusCharId: overviewFocusCharId || null,
+      knockPlotId: knockPlotId || null,
       phoneHolderCharId: phoneHolderCharId || null,
       phoneHolderPlotId: phoneHolderPlotId || null,
       phoneWallpapers: phoneWallpapers || {},
@@ -9042,6 +9544,7 @@
       fanworkCpPartnerId: fanworkCpPartnerId || null,
       fanworkJjwxcCategoryStore: fanworkJjwxcCategoryStore || { categories: [], userEdited: false },
       fanworkJjwxcData: fanworkJjwxcData || {},
+      knockPlotId: knockPlotId || null,
       knockUserCharId: knockUserCharId || null,
       knockPartnerCharId: knockPartnerCharId || null,
       knockChatData: knockChatData || {},
@@ -9056,6 +9559,9 @@
       collectCharId: collectCharId || null,
       collectPackData: collectPackData || {},
       collectHistoryData: collectHistoryData || {},
+      taskTodoPlotId: taskTodoPlotId || null,
+      taskTodoCharId: taskTodoCharId || null,
+      taskTodoData: taskTodoData || {},
     });
   }
 
@@ -9204,6 +9710,14 @@
         phoneHolderPlotId = o.phoneHolderPlotId.trim();
       } else {
         phoneHolderPlotId = null;
+      }
+      overviewPlotId = null;
+      overviewFocusCharId = null;
+      if (typeof o.overviewPlotId === "string" && o.overviewPlotId.trim()) {
+        overviewPlotId = o.overviewPlotId.trim();
+      }
+      if (typeof o.overviewFocusCharId === "string" && o.overviewFocusCharId.trim()) {
+        overviewFocusCharId = o.overviewFocusCharId.trim();
       }
       phoneWallpapers = {};
       if (o.phoneWallpapers && typeof o.phoneWallpapers === "object" && !Array.isArray(o.phoneWallpapers)) {
@@ -9415,6 +9929,24 @@
         });
       }
       sanitizeCollectState();
+      taskTodoPlotId = null;
+      taskTodoCharId = null;
+      if (typeof o.taskTodoPlotId === "string" && o.taskTodoPlotId.trim()) {
+        taskTodoPlotId = o.taskTodoPlotId.trim();
+      }
+      if (typeof o.taskTodoCharId === "string" && o.taskTodoCharId.trim()) {
+        taskTodoCharId = o.taskTodoCharId.trim();
+      }
+      taskTodoData = {};
+      if (o.taskTodoData && typeof o.taskTodoData === "object" && !Array.isArray(o.taskTodoData)) {
+        Object.keys(o.taskTodoData).forEach(function (k) {
+          const v = normalizeTaskTodoBundle(o.taskTodoData[k]);
+          if (v) taskTodoData[k] = v;
+        });
+      }
+      sanitizeTaskTodoState();
+      knockPlotId =
+        typeof o.knockPlotId === "string" && o.knockPlotId.trim() ? o.knockPlotId.trim() : null;
       knockUserCharId =
         typeof o.knockUserCharId === "string" && o.knockUserCharId.trim() ? o.knockUserCharId.trim() : null;
       knockPartnerCharId =
@@ -9508,6 +10040,9 @@
           ? o.knockActiveSavedPairId.trim()
           : null;
       migrateKnockMomentsKeysIfNeeded();
+      migrateKnockChatStorageKeysIfNeeded();
+      migrateOverviewContextFromLegacy();
+      sanitizeOverviewContext();
       knockStickerPacks = normalizeKnockStickerPacks(o.knockStickerPacks);
       ensureKnockActiveStickerPack();
       phoneForumSectionsByPlot = {};
@@ -10910,6 +11445,102 @@
     return root + "/images/generations";
   }
 
+  /** gpt-image 参考图生图：images/edits（multipart）。 */
+  function buildImageEditsUrl(endpoint, opts) {
+    opts = opts || {};
+    const base = normalizeApiBase(endpoint);
+    if (!base) return "";
+    if (opts.viaLocalProxy && typeof location !== "undefined" && location.origin && location.protocol !== "file:") {
+      const origin = String(location.origin).replace(/\/+$/, "");
+      if (/^https?:\/\//i.test(origin)) return origin + "/v1/gen-edit";
+    }
+    if (/\/images\/edits$/i.test(base)) return base;
+    let root = base;
+    if (/\/chat\/completions$/i.test(root)) {
+      root = root.replace(/\/chat\/completions$/i, "");
+    }
+    root = root.replace(/\/+$/, "");
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(?:\/|$)/i.test(root + "/")) {
+      return root + "/gen-edit";
+    }
+    return root + "/images/edits";
+  }
+
+  function buildVisualImageEditsFormData(model, prompt, b64List) {
+    const formData = new FormData();
+    const modelName = String(model || "").trim();
+    formData.append("model", modelName);
+    formData.append("prompt", String(prompt || "").trim());
+    formData.append("n", "1");
+    formData.append("size", "1024x1024");
+    if (/gpt-image-1/i.test(modelName) && !/gpt-image-2/i.test(modelName)) {
+      formData.append("input_fidelity", "high");
+    }
+    if (/gpt-image/i.test(modelName)) {
+      formData.append("quality", "high");
+    }
+    b64List.forEach(function (b64, i) {
+      formData.append("image[]", base64ToJpegBlob(b64), "ref-" + i + ".jpg");
+    });
+    return formData;
+  }
+
+  async function postVisualImageEditsRequest(ep, k, formData) {
+    const headers = { Authorization: "Bearer " + k };
+
+    async function doPost(url) {
+      return fetch(url, { method: "POST", headers: headers, body: formData });
+    }
+
+    if (canUseLocalImageProxyFallback()) {
+      const proxyUrl = buildImageEditsUrl(ep, { viaLocalProxy: true });
+      try {
+        const resp = await doPost(proxyUrl);
+        return { resp: resp, url: proxyUrl, usedLocalProxy: true };
+      } catch (proxyErr) {
+        rethrowVisualImageFetchError(proxyErr, proxyUrl + "（请确认已运行 python serve.py）");
+      }
+    }
+
+    const directUrl = buildImageEditsUrl(ep);
+    try {
+      const resp = await doPost(directUrl);
+      if (
+        !resp.ok &&
+        (resp.status === 502 || resp.status === 503 || resp.status === 504) &&
+        canUseLocalImageProxyFallback()
+      ) {
+        const proxyUrl = buildImageEditsUrl(ep, { viaLocalProxy: true });
+        const retry = await doPost(proxyUrl);
+        return { resp: retry, url: proxyUrl, usedLocalProxy: true };
+      }
+      return { resp: resp, url: directUrl };
+    } catch (directErr) {
+      rethrowVisualImageFetchError(directErr, directUrl);
+    }
+  }
+
+  async function postVisualImageEditsWithRefs(cfg, prompt, b64List) {
+    const blobs = Array.isArray(b64List) ? b64List.filter(Boolean) : [];
+    if (!blobs.length) throw new Error("无参考图");
+    const formData = buildVisualImageEditsFormData(cfg.model, prompt, blobs);
+    let result = await postVisualImageEditsRequest(cfg.endpoint, cfg.apiKey, formData);
+    let resp = result.resp;
+    let rawText = await resp.text();
+    if (!resp.ok && /image\[\]|multipart|unknown parameter|unsupported|not support/i.test(rawText)) {
+      const altForm = new FormData();
+      altForm.append("model", String(cfg.model || "").trim());
+      altForm.append("prompt", String(prompt || "").trim());
+      blobs.forEach(function (b64, i) {
+        altForm.append("image", base64ToJpegBlob(b64), "ref-" + i + ".jpg");
+      });
+      result = await postVisualImageEditsRequest(cfg.endpoint, cfg.apiKey, altForm);
+      resp = result.resp;
+      rawText = await resp.text();
+    }
+    return parseVisualImageGenerationResponse(resp, rawText);
+  }
+
   function canUseLocalImageProxyFallback() {
     if (typeof location === "undefined" || !location.origin || location.protocol === "file:") return false;
     return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(location.origin);
@@ -12226,7 +12857,7 @@
   }
 
   function isOverviewFeatureFullscreenView(view) {
-    return view === "phone" || view === "knock" || view === "collect";
+    return view === "phone" || view === "knock" || view === "collect" || view === "todo";
   }
 
   function syncOverviewSubViewUi() {
@@ -12235,20 +12866,24 @@
     const fanSub = els.overviewSubFanwork();
     const knockSub = els.overviewSubKnock();
     const collectSub = els.overviewSubCollect();
+    const todoSub = els.overviewSubTodo();
     const showPhone = overviewSubView === "phone";
     const showFan = overviewSubView === "fanwork";
     const showKnock = overviewSubView === "knock";
     const showCollect = overviewSubView === "collect";
-    if (hub) hub.hidden = showPhone || showFan || showKnock || showCollect;
+    const showTodo = overviewSubView === "todo";
+    if (hub) hub.hidden = showPhone || showFan || showKnock || showCollect || showTodo;
     if (phoneSub) phoneSub.hidden = !showPhone;
     if (fanSub) fanSub.hidden = !showFan;
     if (knockSub) knockSub.hidden = !showKnock;
     if (collectSub) collectSub.hidden = !showCollect;
+    if (todoSub) todoSub.hidden = !showTodo;
     const shell = document.getElementById("app-shell");
     if (shell) {
       shell.classList.toggle("app-shell--feature-fullscreen", isOverviewFeatureFullscreenView(overviewSubView));
     }
     syncMainScrollMode();
+    if (!overviewSubView) renderOverviewContextBar();
   }
 
   function openOverviewSubView(view) {
@@ -12261,7 +12896,9 @@
             ? "knock"
             : view === "collect"
               ? "collect"
-              : null;
+              : view === "todo"
+                ? "todo"
+                : null;
     if (!v) return;
     if (v === "knock") prepareKnockSession();
     overviewSubView = v;
@@ -12286,11 +12923,34 @@
       renderCollectScreen(els.collectContentSlot());
       sanitizeCollectState();
       if (!collectPlotId || !collectCharId) openCollectHolderModal({ mode: "first" });
+    } else if (v === "todo") {
+      sanitizeTaskTodoState();
+      if (!taskTodoPlotId || !taskTodoCharId) {
+        if (overviewPlotId && overviewFocusCharId) {
+          taskTodoPlotId = overviewPlotId;
+          taskTodoCharId = overviewFocusCharId;
+        } else {
+          showToast("请先在顶栏选择剧情与角色。", "warning");
+        }
+      }
+      renderTaskTodoScreen(els.todoContentSlot());
     }
   }
 
-  function knockChatStorageKey(userCharId, partnerCharId) {
-    return String(userCharId || "") + "\u001e" + String(partnerCharId || "");
+  function knockChatStorageKey(userCharId, partnerCharId, plotId) {
+    const pl = plotId != null ? plotId : knockPlotId;
+    return String(pl || "") + "\u001e" + String(userCharId || "") + "\u001e" + String(partnerCharId || "");
+  }
+
+  function parseKnockChatStorageKey(key) {
+    const parts = String(key || "").split("\u001e");
+    if (parts.length >= 3) {
+      return { plotId: parts[0], userCharId: parts[1], partnerCharId: parts[2] };
+    }
+    if (parts.length === 2) {
+      return { plotId: knockPlotId || "", userCharId: parts[0], partnerCharId: parts[1] };
+    }
+    return { plotId: "", userCharId: "", partnerCharId: "" };
   }
 
   function normalizeKnockPersonaOverride(raw) {
@@ -15447,6 +16107,9 @@
     const mainList = getKnockMainCharacters();
     const supList = getSupportingCharacters();
     if (!selfList.length || !supList.length) return false;
+    migrateOverviewContextFromLegacy();
+    if (!knockPlotId && overviewPlotId) knockPlotId = overviewPlotId;
+    if (!knockPartnerCharId && overviewFocusCharId) knockPartnerCharId = overviewFocusCharId;
     if (knockActiveSavedPairId) {
       const saved = knockSavedPairs.find(function (p) {
         return p.id === knockActiveSavedPairId;
@@ -15474,6 +16137,7 @@
       if (!meta.pinnedPartnerId && knockPartnerCharId) meta.pinnedPartnerId = knockPartnerCharId;
       if (meta.pinnedPartnerId && !getCharById(meta.pinnedPartnerId)) meta.pinnedPartnerId = knockPartnerCharId || null;
     }
+    sanitizeKnockPlotState();
     syncKnockSetupPhaseFromPair();
     return true;
   }
@@ -15519,10 +16183,15 @@
   }
 
   function isKnockContextReady() {
-    const rec = getKnockChatRecordMutable();
-    if (!rec || !rec.contextConfirmed) return false;
-    if (rec.contextBackground) return true;
-    return rec.messages.length > 0;
+    if (!knockPlotId || !knockUserCharId || !knockPartnerCharId) return false;
+    if (!getPlotById(knockPlotId)) return false;
+    if (!isKnockChatReady()) return false;
+    return (
+      isCharInPlot(knockPlotId, knockUserCharId) &&
+      getKnockPartnerCandidatesForPlot(knockPlotId).some(function (c) {
+        return c.id === knockPartnerCharId;
+      })
+    );
   }
 
   function knockTraitParts(raw) {
@@ -15750,12 +16419,18 @@
     return lines.join("\n");
   }
 
+  function buildKnockPlotContextPromptBlock(partnerChar) {
+    const plot = getKnockPlot();
+    if (!plot || !partnerChar) return "";
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, partnerChar);
+    return ctx.lines.join("\n");
+  }
+
   function buildKnockReplySystemPrompt(userChar, partnerChar, opts) {
     opts = opts || {};
     const userName = String(userChar && userChar.name ? userChar.name : "用户").trim() || "用户";
     const partnerName = String(partnerChar && partnerChar.name ? partnerChar.name : "对方").trim() || "对方";
     const rec = getKnockChatRecordMutable();
-    const contextBg = rec && rec.contextBackground ? String(rec.contextBackground).trim() : "";
     let prompt =
       "你是互动叙事产品里的私聊模拟器。你只扮演「" +
       partnerName +
@@ -15763,19 +16438,17 @@
       "对话另一方是「" +
       userName +
       "」（用户主视角，由用户本人操作）；回复时要同时考虑双方人设。\n" +
-      "双方关系默认为：刚认识不久，刚刚加上微信，彼此还不算熟。\n" +
-      "严禁引用或假设任何剧情正文、世界书、章节内容；仅依据下面角色设定、契机背景与已有聊天记录。\n" +
+      "须与下方剧情设定、人设、记忆、总结及已有聊天记录一致。\n" +
       "严禁替「" +
       userName +
       "」发送任何消息；你只输出「" +
       partnerName +
       "」一方的内容。\n\n" +
+      buildKnockPlotContextPromptBlock(partnerChar) +
+      "\n\n" +
       buildKnockPersonaBlock(partnerChar, "你扮演的角色", "partner") +
       "\n\n" +
       buildKnockPersonaBlock(userChar, "对话对象（用户）", "user");
-    if (contextBg) {
-      prompt += "\n\n【二人加微信的契机与背景】\n" + contextBg;
-    }
     const summaryBlock = buildKnockSummariesPromptBlock(rec);
     if (summaryBlock) {
       prompt +=
@@ -15848,12 +16521,12 @@
     const userName = String(userChar && userChar.name ? userChar.name : "用户").trim() || "用户";
     const partnerName = String(partnerChar && partnerChar.name ? partnerChar.name : "对方").trim() || "对方";
     return (
-      "根据上述契机背景，模拟「" +
+      "根据上述剧情与人设，模拟「" +
       partnerName +
-      "」刚加「" +
+      "」向「" +
       userName +
-      "」微信后的第一条（或连续几条）开场消息。" +
-      "要自然承接背景，像真人犹豫后点开对话框发的。" +
+      "」发来微信开场消息（刚打开对话框的第一条或连续几条）。" +
+      "要自然承接剧情进展与人设，像真人犹豫后点开对话框发的。" +
       "严禁替「" +
       userName +
       "」说话或代发任何消息；只输出「" +
@@ -16431,32 +17104,11 @@
     });
     syncKnockCastDisplay(root);
     const confirmBtn = root.querySelector("[data-knock-setup-confirm]");
-    if (confirmBtn) confirmBtn.disabled = !knockUserCharId || !knockPartnerCharId;
-    const genBtn = root.querySelector("[data-knock-context-generate]");
-    if (genBtn) genBtn.disabled = !knockUserCharId || !knockPartnerCharId || knockContextGenerating;
+    if (confirmBtn) confirmBtn.disabled = !isKnockContextReady();
   }
 
   function applyKnockCharPickUpdate(slot) {
     knockActiveSavedPairId = null;
-    let nextPhase = knockSetupPhase;
-    if (isKnockChatReady()) {
-      const rec = getKnockChatRecordMutable();
-      if (rec && rec.contextConfirmed) {
-        nextPhase = "select";
-      } else if (rec && rec.contextDraft && !rec.contextConfirmed) {
-        nextPhase = "context_review";
-      } else {
-        nextPhase = "select";
-      }
-    } else {
-      nextPhase = "select";
-    }
-    if (nextPhase !== knockSetupPhase) {
-      knockSetupPhase = nextPhase;
-      persistNarrative();
-      rerenderKnockSetupUi();
-      return;
-    }
     const root = getKnockSetupPickRoot(slot) || slot;
     refreshKnockSetupPickSelectionInDom(root);
     fillKnockSetupFormFields(root);
@@ -16474,7 +17126,11 @@
     const userPick = root.querySelector("[data-knock-user-pick]");
     const partnerPick = root.querySelector("[data-knock-partner-pick]");
     const selfList = getSelfCharacters();
-    const partnerList = getKnockMainCharacters();
+    let partnerList = getKnockMainCharacters();
+    if (knockPlotId) {
+      const plotPartners = getKnockPartnerCandidatesForPlot(knockPlotId);
+      if (plotPartners.length) partnerList = plotPartners;
+    }
     if (knockUserCharId && !selfList.some(function (c) { return c.id === knockUserCharId; })) {
       knockUserCharId = null;
     }
@@ -16545,11 +17201,7 @@
     }
     const confirmBtn = root.querySelector("[data-knock-setup-confirm]");
     if (confirmBtn) {
-      confirmBtn.disabled = !knockUserCharId || !knockPartnerCharId;
-    }
-    const genBtn = root.querySelector("[data-knock-context-generate]");
-    if (genBtn) {
-      genBtn.disabled = !knockUserCharId || !knockPartnerCharId || knockContextGenerating;
+      confirmBtn.disabled = !isKnockContextReady();
     }
     fillKnockAvatarElements(root);
     syncKnockCastDisplay(root);
@@ -16573,24 +17225,8 @@
       if (!col) return;
       const personaBtn = col.querySelector("[data-knock-edit-persona]");
       if (personaBtn) personaBtn.disabled = !char;
-      let tagsWrap = col.querySelector(".knock-intro__tags");
-      const chips = char ? getKnockTraitChips(char, role, knockUserCharId, knockPartnerCharId) : [];
-      if (!chips.length) {
-        if (tagsWrap) tagsWrap.remove();
-        return;
-      }
-      const tagsHtml = chips
-        .map(function (t) {
-          return '<span class="knock-intro__tag">' + escapeHtml(t) + "</span>";
-        })
-        .join("");
-      if (!tagsWrap) {
-        tagsWrap = document.createElement("div");
-        tagsWrap.className = "knock-intro__tags";
-        const pick = col.querySelector("[data-knock-user-pick], [data-knock-partner-pick]");
-        if (pick) col.insertBefore(tagsWrap, pick);
-      }
-      tagsWrap.innerHTML = tagsHtml;
+      const tagsWrap = col.querySelector(".knock-intro__tags");
+      if (tagsWrap) tagsWrap.remove();
     });
   }
 
@@ -16659,12 +17295,12 @@
     hideKnockMsgActionBubble();
   }
 
-  function isKnockContextReadyForPair(userCharId, partnerCharId) {
-    const key = knockChatStorageKey(userCharId, partnerCharId);
-    const rec = knockChatData[key];
-    if (!rec || !rec.contextConfirmed) return false;
-    if (rec.contextBackground) return true;
-    return Array.isArray(rec.messages) && rec.messages.length > 0;
+  function isKnockContextReadyForPair(userCharId, partnerCharId, plotId) {
+    const pl = plotId != null ? plotId : knockPlotId;
+    if (!pl || !userCharId || !partnerCharId) return false;
+    if (!getPlotById(pl)) return false;
+    if (!isCharInPlot(pl, userCharId) || !isCharInPlot(pl, partnerCharId)) return false;
+    return true;
   }
 
   function getKnockChatRecordForPair(userCharId, partnerCharId) {
@@ -16763,7 +17399,7 @@
       if (!rec) return;
       lines.push("【与「" + (p.name || "未命名") + "」】");
       if (rec.contextBackground) {
-        lines.push("契机：" + truncateCharsWithEllipsis(rec.contextBackground, 200));
+        lines.push("背景：" + truncateCharsWithEllipsis(rec.contextBackground, 200));
       }
       const msgs = Array.isArray(rec.messages) ? rec.messages : [];
       msgs.slice(-6).forEach(function (m) {
@@ -16818,7 +17454,7 @@
       );
       const rec = knockChatData[knockChatStorageKey(knockUserCharId, p.id)];
       if (rec && rec.contextBackground) {
-        lines.push("  契机背景：" + truncateCharsWithEllipsis(rec.contextBackground, 160));
+        lines.push("  背景：" + truncateCharsWithEllipsis(rec.contextBackground, 160));
       }
     });
     return lines.join("\n");
@@ -16845,11 +17481,6 @@
     if (!knockChatData[key]) knockChatData[key] = normalizeKnockChatRecord({});
     const rec = knockChatData[key];
     if (!rec) return;
-    const ctx = String((raw && raw.contextBackground) || (raw && raw.context) || "").trim();
-    rec.contextBackground = ctx || "通过共同圈子刚加上的微信。";
-    rec.contextConfirmed = true;
-    rec.contextSeed = "";
-    rec.contextDraft = "";
     const msgs = Array.isArray(raw.messages) ? raw.messages : [];
     const now = Date.now();
     const assistantMsgs = msgs.filter(function (m) {
@@ -16875,8 +17506,8 @@
       return;
     }
     const pinnedRec = knockChatData[knockChatStorageKey(knockUserCharId, pinnedId)];
-    if (!pinnedRec || !pinnedRec.contextConfirmed || !pinnedRec.contextBackground) {
-      showToast("请先为置顶的主要角色设定并确认契机背景。", "info");
+    if (!isKnockContextReady()) {
+      showToast("请先为置顶的主要角色选择剧情上下文。", "info");
       switchKnockMainTab("me");
       return;
     }
@@ -16887,11 +17518,11 @@
       showToast("正在生成相关人物与会话…", "info");
       setGenCallContext(buildGenCallOpts("knock-contacts", { slot: slot }));
       const systemPrompt =
-        "你是中文互动叙事助手。根据已有主要角色、契机背景与聊天记录，为「敲敲」微信拓展 2～3 个相关新人物，并为每人生成简短聊天记录。\n" +
+        "你是中文互动叙事助手。根据已有主要角色、剧情上下文与聊天记录，为「敲敲」微信拓展 2～3 个相关新人物，并为每人生成简短聊天记录。\n" +
         "只输出全新人物，不得改写或覆盖已有角色与聊天。\n" +
         "严禁替用户主视角/my形象生成任何聊天消息；messages 仅含对方（assistant）发来的内容。\n" +
         "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
-        '格式：{"contacts":[{"name":"姓名","gender":"男/女","traits":["标签"],"bg":"背景","style":"外貌","relationships":"与主要角色的关系","contextBackground":"40～120字契机","messages":[{"role":"assistant","content":"对方消息"}]}]}\n' +
+        '格式：{"contacts":[{"name":"姓名","gender":"男/女","traits":["标签"],"bg":"背景","style":"外貌","relationships":"与主要角色的关系","messages":[{"role":"assistant","content":"对方消息"}]}]}\n' +
         "要求：messages 每人 2～4 条，全部为 assistant（对方发来）；人物须与现有角色关系合理，不要重名。";
       const userPrompt =
         buildKnockCastBlockForPrompt() +
@@ -16973,7 +17604,7 @@
         const msgs = rec && Array.isArray(rec.messages) ? rec.messages : [];
         const lastMsg = msgs.length ? msgs[msgs.length - 1] : null;
         const ready = isKnockContextReadyForPair(userId, partner.id);
-        let preview = "待设定契机";
+        let preview = "待设定";
         if (ready) preview = lastMsg ? formatKnockChatListPreview(lastMsg) : "暂无消息";
         return {
           partner: partner,
@@ -17236,49 +17867,126 @@
     return un + " · " + pn;
   }
 
-  function knockPairSelectToken(userCharId, partnerCharId) {
+  function knockPairSelectToken(userCharId, partnerCharId, plotId) {
+    if (plotId) {
+      return String(plotId || "") + "\u001f" + String(userCharId || "") + "\u001f" + String(partnerCharId || "");
+    }
     return String(userCharId || "") + "\u001f" + String(partnerCharId || "");
   }
 
   function parseKnockPairSelectToken(token) {
     const parts = String(token || "").split("\u001f");
-    if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
-    return { userCharId: parts[0], partnerCharId: parts[1] };
+    if (parts.length === 3 && parts[0] && parts[1] && parts[2]) {
+      return { plotId: parts[0], userCharId: parts[1], partnerCharId: parts[2] };
+    }
+    if (parts.length === 2 && parts[0] && parts[1]) {
+      return { plotId: null, userCharId: parts[0], partnerCharId: parts[1] };
+    }
+    return null;
   }
 
-  function isKnockPairContextConfirmed(userCharId, partnerCharId) {
-    const rec = knockChatData[knockChatStorageKey(userCharId, partnerCharId)];
-    return !!(rec && rec.contextConfirmed);
+  function getKnockUserCharIdForPlot(plotId) {
+    const plot = getPlotById(plotId);
+    if (!plot) return null;
+    if (plot.protagonistId) {
+      const protag = getCharById(plot.protagonistId);
+      if (protag && protag.categoryId === CHAR_CATEGORY_SELF_ID) return plot.protagonistId;
+    }
+    const selfHit = getPlotParticipantCharIds(plot)
+      .map(function (id) {
+        return getCharById(id);
+      })
+      .find(function (c) {
+        return c && c.categoryId === CHAR_CATEGORY_SELF_ID;
+      });
+    return selfHit ? selfHit.id : null;
   }
 
-  function knockPairHasGeneratedContext(userCharId, partnerCharId) {
-    const rec = knockChatData[knockChatStorageKey(userCharId, partnerCharId)];
-    if (!rec) return false;
-    return !!(rec.contextConfirmed || rec.contextBackground || rec.contextDraft);
+  function collectKnockPairsGroupedByPlot() {
+    const groups = [];
+    plots.forEach(function (plot) {
+      if (!plot || !plot.id) return;
+      const userCharId = getKnockUserCharIdForPlot(plot.id);
+      if (!userCharId) return;
+      const partners = getKnockPartnerCandidatesForPlot(plot.id);
+      if (!partners.length) return;
+      const pairs = partners.map(function (partner) {
+        const partnerCharId = partner.id;
+        const saved = knockSavedPairs.find(function (p) {
+          return p.userCharId === userCharId && p.partnerCharId === partnerCharId;
+        });
+        const key = knockChatStorageKey(userCharId, partnerCharId, plot.id);
+        const rec = knockChatData[key];
+        const hasHistory = !!(
+          rec &&
+          ((rec.messages && rec.messages.length) ||
+            rec.contextBackground ||
+            rec.contextDraft ||
+            rec.contextConfirmed)
+        );
+        return {
+          plotId: plot.id,
+          userCharId: userCharId,
+          partnerCharId: partnerCharId,
+          name: saved ? saved.name : getDefaultKnockSavedPairName(userCharId, partnerCharId),
+          status: hasHistory ? "已就绪" : "待设定",
+          isActive:
+            plot.id === knockPlotId &&
+            userCharId === knockUserCharId &&
+            partnerCharId === knockPartnerCharId,
+        };
+      });
+      groups.push({
+        plot: plot,
+        pairs: pairs,
+      });
+    });
+    return groups;
+  }
+
+  function isKnockPairContextConfirmed(userCharId, partnerCharId, plotId) {
+    return isKnockContextReadyForPair(userCharId, partnerCharId, plotId);
+  }
+
+  function knockPairHasGeneratedContext(userCharId, partnerCharId, plotId) {
+    const key = knockChatStorageKey(userCharId, partnerCharId, plotId);
+    const rec = knockChatData[key];
+    if (!rec) return isKnockContextReadyForPair(userCharId, partnerCharId, plotId);
+    return !!(
+      (rec.messages && rec.messages.length) ||
+      rec.contextBackground ||
+      rec.contextDraft ||
+      rec.contextConfirmed
+    );
   }
 
   function collectKnockConfirmedPairs() {
     const items = [];
     Object.keys(knockChatData).forEach(function (key) {
-      const parts = key.split("\u001e");
-      if (parts.length !== 2) return;
-      const userCharId = parts[0];
-      const partnerCharId = parts[1];
-      if (!knockPairHasGeneratedContext(userCharId, partnerCharId)) return;
+      const parsed = parseKnockChatStorageKey(key);
+      const userCharId = parsed.userCharId;
+      const partnerCharId = parsed.partnerCharId;
+      const plotId = parsed.plotId;
+      if (!userCharId || !partnerCharId) return;
+      if (!knockPairHasGeneratedContext(userCharId, partnerCharId, plotId)) return;
       const user = getCharById(userCharId);
       const partner = getKnockPartnerCharById(partnerCharId);
       if (!user || !partner || !isKnockPartnerMainCharacterById(partnerCharId)) return;
       const saved = knockSavedPairs.find(function (p) {
         return p.userCharId === userCharId && p.partnerCharId === partnerCharId;
       });
-      const confirmed = isKnockPairContextConfirmed(userCharId, partnerCharId);
+      const confirmed = isKnockPairContextConfirmed(userCharId, partnerCharId, plotId);
       items.push({
         userCharId: userCharId,
         partnerCharId: partnerCharId,
+        plotId: plotId,
         name: saved ? saved.name : getDefaultKnockSavedPairName(userCharId, partnerCharId),
         savedAt: saved ? saved.savedAt || 0 : confirmed ? 1 : 0,
         savedPairId: saved ? saved.id : null,
-        isActive: userCharId === knockUserCharId && partnerCharId === knockPartnerCharId,
+        isActive:
+          userCharId === knockUserCharId &&
+          partnerCharId === knockPartnerCharId &&
+          plotId === knockPlotId,
         contextConfirmed: confirmed,
       });
     });
@@ -17293,11 +18001,15 @@
     if (!pid) return null;
     let found = null;
     Object.keys(knockChatData).some(function (key) {
-      const parts = key.split("\u001e");
-      if (parts.length !== 2 || parts[1] !== pid) return false;
-      if (allowUid && parts[0] === allowUid) return false;
-      if (!isKnockPairContextConfirmed(parts[0], parts[1])) return false;
-      found = { userCharId: parts[0], partnerCharId: parts[1] };
+      const parsed = parseKnockChatStorageKey(key);
+      if (parsed.partnerCharId !== pid) return false;
+      if (allowUid && parsed.userCharId === allowUid) return false;
+      if (!isKnockPairContextConfirmed(parsed.userCharId, parsed.partnerCharId, parsed.plotId)) return false;
+      found = {
+        userCharId: parsed.userCharId,
+        partnerCharId: parsed.partnerCharId,
+        plotId: parsed.plotId,
+      };
       return true;
     });
     return found;
@@ -17327,13 +18039,7 @@
   }
 
   function syncKnockSetupPhaseFromPair() {
-    if (!isKnockChatReady()) {
-      knockSetupPhase = "select";
-      return;
-    }
-    const rec = getKnockChatRecordMutable();
-    if (rec && rec.contextDraft && !rec.contextConfirmed) knockSetupPhase = "context_review";
-    else knockSetupPhase = "select";
+    knockSetupPhase = "select";
   }
 
   function activateKnockPair(userCharId, partnerCharId, opts) {
@@ -17366,15 +18072,20 @@
     }
   }
 
-  function activateKnockPairSelection(userCharId, partnerCharId, slot) {
+  function activateKnockPairSelection(userCharId, partnerCharId, slot, plotId) {
     if (!userCharId || !partnerCharId) return;
-    ensureKnockMomentsKeyForPair(userCharId, partnerCharId);
+    const resolvedPlotId =
+      plotId || knockPlotId || inferPlotIdForKnockPair(userCharId, partnerCharId);
+    if (resolvedPlotId) {
+      if (!applyKnockPlotContext(resolvedPlotId, partnerCharId, { persist: false })) return;
+    }
+    ensureKnockMomentsKeyForPair(knockUserCharId || userCharId, partnerCharId);
     const saved = knockSavedPairs.find(function (p) {
-      return p.userCharId === userCharId && p.partnerCharId === partnerCharId;
+      return p.userCharId === (knockUserCharId || userCharId) && p.partnerCharId === partnerCharId;
     });
     knockActiveSavedPairId = saved ? saved.id : null;
-    activateKnockPair(userCharId, partnerCharId, { persist: true });
-    if (isKnockPairContextConfirmed(userCharId, partnerCharId)) {
+    activateKnockPair(knockUserCharId || userCharId, partnerCharId, { persist: true });
+    if (isKnockContextReadyForPair(knockUserCharId, partnerCharId, knockPlotId)) {
       knockMainTab = "chat";
       knockSubScreen = null;
     } else {
@@ -17435,10 +18146,8 @@
   }
 
   function saveCurrentKnockPair(name) {
-    if (!isKnockChatReady()) return false;
-    const rec = getKnockChatRecordMutable();
-    if (!rec || !rec.contextConfirmed) {
-      showToast("请先确认契机后再保存组合。", "info");
+    if (!isKnockChatReady() || !isKnockContextReady()) {
+      showToast("请先选择剧情与聊天角色。", "info");
       return false;
     }
     const pairName =
@@ -17465,10 +18174,59 @@
     return true;
   }
 
+  function getKnockAvatarUrlForPlotPair(plotId, userCharId, partnerCharId, role) {
+    const storageKey = knockChatStorageKey(userCharId, partnerCharId, plotId);
+    const rec = knockChatData[storageKey];
+    const avKey = role === "partner" ? "partner" : "user";
+    if (rec && rec.avatarOverrides && rec.avatarOverrides[avKey]) {
+      const ov = String(rec.avatarOverrides[avKey]).trim();
+      if (ov) return ov;
+    }
+    const charId = avKey === "partner" ? partnerCharId : userCharId;
+    const char = charId ? (avKey === "partner" ? getKnockPartnerCharById(charId) : getCharById(charId)) : null;
+    return getKnockLibraryAvatarUrl(char);
+  }
+
+  function buildKnockPlotPairItemHtml(item) {
+    const user = getCharById(item.userCharId);
+    const partner = getKnockPartnerCharById(item.partnerCharId);
+    const active = item.isActive ? " knock-saved-pair--active" : "";
+    const userAv = getKnockAvatarUrlForPlotPair(item.plotId, item.userCharId, item.partnerCharId, "user");
+    const partnerAv = getKnockAvatarUrlForPlotPair(item.plotId, item.userCharId, item.partnerCharId, "partner");
+    const selectToken = knockPairSelectToken(item.userCharId, item.partnerCharId, item.plotId);
+    const userInner = userAv
+      ? '<img src="' + escapeHtml(userAv) + '" alt="" />'
+      : escapeHtml((user && user.name ? user.name : "我").slice(0, 1));
+    const partnerInner = partnerAv
+      ? '<img src="' + escapeHtml(partnerAv) + '" alt="" />'
+      : escapeHtml((partner && partner.name ? partner.name : "?").slice(0, 1));
+    return (
+      '<button type="button" class="knock-saved-pair' +
+      active +
+      '" data-knock-pair-select="' +
+      escapeHtml(selectToken) +
+      '">' +
+      '<span class="knock-saved-pair__avatars" aria-hidden="true">' +
+      '<span class="knock-saved-pair__av">' +
+      userInner +
+      "</span>" +
+      '<span class="knock-saved-pair__av knock-saved-pair__av--partner">' +
+      partnerInner +
+      "</span></span>" +
+      '<span class="knock-saved-pair__body">' +
+      '<span class="knock-saved-pair__name">' +
+      escapeHtml(item.name) +
+      "</span>" +
+      '<span class="knock-saved-pair__status">' +
+      escapeHtml(item.status) +
+      "</span></span></button>"
+    );
+  }
+
   function buildKnockSavedPairItemHtml(item) {
     const user = getCharById(item.userCharId);
     const partner = getKnockPartnerCharById(item.partnerCharId);
-    const status = item.contextConfirmed ? "已确认契机" : "待确认契机";
+    const status = item.contextConfirmed ? "已就绪" : "待设定";
     const active = item.isActive ? " knock-saved-pair--active" : "";
     const userAv = getKnockAvatarUrlForPair(item.userCharId, item.partnerCharId, "user");
     const partnerAv = getKnockAvatarUrlForPair(item.userCharId, item.partnerCharId, "partner");
@@ -17509,8 +18267,7 @@
   }
 
   function buildKnockSavedPairsSectionHtml() {
-    const rec = isKnockChatReady() ? getKnockChatRecordMutable() : null;
-    const canSave = rec && rec.contextConfirmed && isKnockPartnerMainCharacter();
+    const canSave = isKnockContextReady() && isKnockPartnerMainCharacter();
     const defaultName = canSave ? getDefaultKnockSavedPairName(knockUserCharId, knockPartnerCharId) : "";
     const saveBlock = canSave
       ? '<div class="knock-me-page__save-pair">' +
@@ -17525,7 +18282,7 @@
     const confirmedPairs = collectKnockConfirmedPairs();
     const listHtml = confirmedPairs.length
       ? confirmedPairs.map(buildKnockSavedPairItemHtml).join("")
-      : '<p class="field__hint knock-me-page__saved-empty">生成契机后会出现在此，可直接切换或删除；确认契机后可命名保存。</p>';
+      : '<p class="field__hint knock-me-page__saved-empty">保存的组合会出现在此，可直接切换或删除。</p>';
     return (
       '<section class="knock-me-page__section">' +
       '<h3 class="knock-me-page__section-title">已保存组合</h3>' +
@@ -17537,56 +18294,60 @@
   }
 
   function buildKnockMePageHtml() {
-    const rec = isKnockChatReady() ? getKnockChatRecordMutable() : null;
-    const isReviewing = knockSetupPhase === "context_review";
-    const confirmedBg = rec && rec.contextConfirmed && rec.contextBackground ? rec.contextBackground : "";
-    const draftBg = rec && !rec.contextConfirmed && rec.contextDraft ? rec.contextDraft : "";
-    const bodyHtml = buildKnockSetupBodyHtml(knockSetupPhase);
-    const confirmedBlock =
-      confirmedBg && !isReviewing
-        ? '<section class="knock-me-page__section knock-me-page__section--confirmed">' +
-          '<div class="knock-me-page__section-head">' +
-          '<h3 class="knock-me-page__section-title">当前契机背景</h3>' +
-          '<span class="knock-me-page__status-badge knock-me-page__status-badge--ok">已确认</span>' +
-          "</div>" +
-          '<div class="knock-me-page__confirmed">' +
-          escapeHtml(confirmedBg) +
-          "</div>" +
-          '<button type="button" class="btn btn--secondary btn--pill btn--sm knock-me-page__edit-btn" data-knock-context-reedit>修改契机背景</button>' +
-          "</section>"
-        : "";
-    const draftBlock =
-      draftBg && !isReviewing
-        ? '<section class="knock-me-page__section knock-me-page__section--draft">' +
-          '<div class="knock-me-page__section-head">' +
-          '<h3 class="knock-me-page__section-title">契机草稿</h3>' +
-          '<span class="knock-me-page__status-badge">待确认</span>' +
-          "</div>" +
-          '<div class="knock-me-page__confirmed knock-me-page__confirmed--draft">' +
-          escapeHtml(draftBg) +
-          "</div>" +
-          '<button type="button" class="btn btn--primary btn--pill btn--sm knock-me-page__edit-btn" data-knock-context-reedit>继续确认契机</button>' +
-          "</section>"
-        : "";
-    const pageHint = isReviewing
-      ? ""
-      : '<p class="field__hint knock-me-page__hint">在下方选择角色并生成契机；已确认的契机可在底部查看与修改</p>';
-    const savedSection = isReviewing ? "" : buildKnockSavedPairsSectionHtml();
+    const groups = collectKnockPairsGroupedByPlot();
+    const sectionsHtml = groups.length
+      ? groups
+          .map(function (group) {
+            const pairsHtml = group.pairs.map(buildKnockPlotPairItemHtml).join("");
+            return (
+              '<section class="knock-me-plot">' +
+              '<h3 class="knock-me-plot__title">' +
+              escapeHtml(group.plot.title || "未命名剧情") +
+              "</h3>" +
+              '<div class="knock-me-plot__pairs">' +
+              pairsHtml +
+              "</div></section>"
+            );
+          })
+          .join("")
+      : '<p class="field__hint knock-me-page__empty">暂无剧情配对。请先在「剧情」中创建剧情并添加主要角色。</p>';
     return (
-      '<div class="knock-me-page form-stack' +
-      (isReviewing ? " knock-me-page--reviewing" : "") +
-      '">' +
-      pageHint +
-      bodyHtml +
-      (!isReviewing && (confirmedBlock || draftBlock)
-        ? '<div class="knock-me-page__divider" aria-hidden="true"><span>已保存内容</span></div>'
-        : "") +
-      draftBlock +
-      confirmedBlock +
-      savedSection +
+      '<div class="knock-me-page form-stack">' +
+      sectionsHtml +
       (knockPersonaEditTarget ? buildKnockPersonaEditOverlayHtml() : "") +
       "</div>"
     );
+  }
+
+  function migrateKnockChatStorageKeysIfNeeded() {
+    const oldKeys = Object.keys(knockChatData).filter(function (k) {
+      return String(k || "").split("\u001e").length === 2;
+    });
+    oldKeys.forEach(function (oldKey) {
+      const parts = oldKey.split("\u001e");
+      const userId = parts[0];
+      const partnerId = parts[1];
+      let plotId = knockPlotId || overviewPlotId || phoneHolderPlotId || collectPlotId;
+      if (!plotId) plotId = inferPlotIdForKnockPair(userId, partnerId);
+      if (!plotId) return;
+      const newKey = knockChatStorageKey(userId, partnerId, plotId);
+      if (!knockChatData[newKey]) knockChatData[newKey] = knockChatData[oldKey];
+      delete knockChatData[oldKey];
+      if (!knockPlotId) knockPlotId = plotId;
+    });
+    Object.keys(knockMomentsData).forEach(function (k) {
+      const parts = String(k || "").split("\u001e");
+      if (parts.length !== 2) return;
+      const plotId = knockPlotId || inferPlotIdForKnockPair(parts[0], parts[1]);
+      if (!plotId) return;
+      const newKey = knockChatStorageKey(parts[0], parts[1], plotId);
+      if (!knockMomentsData[newKey]) knockMomentsData[newKey] = knockMomentsData[k];
+      delete knockMomentsData[k];
+      if (knockMomentsCovers[k]) {
+        if (!knockMomentsCovers[newKey]) knockMomentsCovers[newKey] = knockMomentsCovers[k];
+        delete knockMomentsCovers[k];
+      }
+    });
   }
 
   function migrateKnockMomentsKeysIfNeeded() {
@@ -17994,8 +18755,7 @@
       const c = item.partner;
       if (!c) return;
       const key = knockChatStorageKey(knockUserCharId, c.id);
-      const rec = knockChatData[key];
-      const bg = rec && rec.contextBackground ? String(rec.contextBackground).trim() : "";
+      const ready = isKnockContextReadyForPair(knockUserCharId, c.id, knockPlotId);
       const tag = item.pinned ? "置顶主要角色" : item.generated ? "拓展人物" : "主要角色";
       lines.push(
         "- " +
@@ -18003,7 +18763,7 @@
           "（" +
           tag +
           "）" +
-          (bg ? "：契机 " + truncateCharsWithEllipsis(bg, 80) : "：尚未设定契机")
+          (ready ? "" : "：待设定")
       );
     });
     if (!lines.length) return "（暂无相关角色）";
@@ -19014,9 +19774,6 @@
     }
     if (knockMainTab === "me") {
       panel.innerHTML = buildKnockMePageHtml();
-      renderKnockSetupPicks(panel);
-      fillKnockSetupFormFields(panel);
-      fillKnockAvatarElements(panel);
       return;
     }
     panel.innerHTML = buildKnockChatListPanelHtml();
@@ -19024,22 +19781,13 @@
 
   function buildKnockCastColHtml(role, char) {
     const isUser = role === "user";
-    const label = isUser ? "我" : "主要角色";
     const name = char ? char.name || "未命名" : "—";
-    const chips = char ? getKnockTraitChips(char, role, knockUserCharId, knockPartnerCharId) : [];
     const pickAttr = isUser ? "data-knock-user-pick" : "data-knock-partner-pick";
-    const tagsHtml = chips.length
-      ? chips
-          .map(function (t) {
-            return '<span class="knock-intro__tag">' + escapeHtml(t) + "</span>";
-          })
-          .join("")
-      : "";
     return (
       '<div class="knock-intro__cast-col">' +
-      '<span class="knock-intro__pick-label">' +
-      escapeHtml(label) +
-      "</span>" +
+      '<div class="sheet-char-pick-row knock-setup-char-picks knock-intro__pick-row h-scroll" ' +
+      pickAttr +
+      "></div>" +
       '<button type="button" class="knock-intro__cast-name" data-knock-display-name="' +
       role +
       '" data-knock-edit-persona="' +
@@ -19049,111 +19797,40 @@
       ">" +
       escapeHtml(name) +
       "</button>" +
-      (tagsHtml ? '<div class="knock-intro__tags">' + tagsHtml + "</div>" : "") +
-      '<div class="sheet-char-pick-row knock-setup-char-picks knock-intro__pick-row h-scroll" ' +
-      pickAttr +
-      "></div>" +
-      "</div>"
-    );
-  }
-
-  function buildKnockSetupStepsHtml(activeStep) {
-    const step = activeStep === 2 ? 2 : 1;
-    return (
-      '<div class="knock-setup-steps" aria-label="设定步骤">' +
-      '<span class="knock-setup-steps__item' +
-      (step === 1 ? " knock-setup-steps__item--active" : " knock-setup-steps__item--done") +
-      '"><i class="knock-setup-steps__num">1</i><span>选角色与契机</span></span>' +
-      '<span class="knock-setup-steps__line" aria-hidden="true"></span>' +
-      '<span class="knock-setup-steps__item' +
-      (step === 2 ? " knock-setup-steps__item--active" : "") +
-      '"><i class="knock-setup-steps__num">2</i><span>确认背景</span></span>' +
       "</div>"
     );
   }
 
   function buildKnockSetupBodyHtml(phase) {
+    void phase;
     const user = knockUserCharId ? getCharById(knockUserCharId) : null;
     const partner = knockPartnerCharId ? getKnockPartnerCharById(knockPartnerCharId) : null;
-    const rec = isKnockChatReady() ? getKnockChatRecordMutable() : null;
-    const seedVal = rec ? rec.contextSeed || "" : "";
-    if (phase === "context_review") {
-      const draft = rec && rec.contextDraft ? rec.contextDraft : "";
-      const genCls = knockContextGenerating ? " btn--loading" : "";
-      const genDisabled = knockContextGenerating ? " disabled" : "";
-      const editingConfirmed = !!(rec && rec.contextConfirmed && rec.contextBackground);
-      const userName = user ? user.name || "我" : "我";
-      const partnerName = partner ? partner.name || "对方" : "对方";
-      return (
-        '<div class="knock-context-review form-stack">' +
-        buildKnockSetupStepsHtml(2) +
-        (editingConfirmed
-          ? '<p class="knock-context-review__notice">正在编辑「' +
-            escapeHtml(userName) +
-            "」与「" +
-            escapeHtml(partnerName) +
-            "」的契机背景；确认后将替换当前版本。</p>"
-          : "") +
-        '<div class="knock-context-review__hero">' +
-        '<h3 class="knock-context-review__title">确认契机背景</h3>' +
-        '<p class="knock-context-review__desc">写清你们如何相识、为何加微信。可直接改正文，或在下方填写修改方向后让 AI 重写。</p>' +
-        "</div>" +
-        '<section class="knock-context-review__card">' +
-        '<div class="knock-context-review__card-head">' +
-        '<span class="knock-context-review__card-title">契机正文</span>' +
-        '<span class="knock-context-review__card-tag">可手动编辑</span>' +
-        "</div>" +
-        '<textarea class="field__input field__textarea knock-context-review__draft" data-knock-context-draft rows="10" aria-label="契机正文">' +
-        escapeHtml(draft) +
-        "</textarea></section>" +
-        '<section class="knock-context-review__card knock-context-review__card--muted">' +
-        '<div class="knock-context-review__card-head">' +
-        '<span class="knock-context-review__card-title">AI 修改方向</span>' +
-        '<span class="knock-context-review__card-tag knock-context-review__card-tag--optional">选填</span>' +
-        "</div>" +
-        '<p class="knock-context-review__card-hint">例如：加强误会感、把场景改到雨天、语气更轻松…</p>' +
-        '<input class="field__input knock-context-review__direction-input" data-knock-context-direction type="text" placeholder="填写后点「重新生成」按此方向改写" autocomplete="off" />' +
-        "</section>" +
-        '<div class="knock-context-review__actions">' +
-        '<button type="button" class="btn btn--ghost btn--pill knock-context-review__back" data-knock-context-back>返回上一步</button>' +
-        '<button type="button" class="btn btn--secondary btn--pill knock-context-review__regen" data-knock-context-regenerate' +
-        genDisabled +
-        ">重新生成</button>" +
-        '<button type="button" class="btn btn--primary btn--pill knock-context-review__confirm' +
-        genCls +
-        '" data-knock-context-confirm' +
-        (knockContextGenerating || !draft ? " disabled" : "") +
-        ">确认并开始聊天</button>" +
-        "</div></div>"
-      );
-    }
-    const genCls = knockContextGenerating ? " btn--loading" : "";
-    const canGenerate = knockUserCharId && knockPartnerCharId && !knockContextGenerating;
+    const plot = getKnockPlot();
+    const plotTitle = plot ? plot.title || "未命名剧情" : "未选择剧情";
+    const ready = isKnockContextReady();
     return (
       '<div class="knock-intro form-stack">' +
-      buildKnockSetupStepsHtml(1) +
-      '<p class="knock-intro__relation-badge">刚认识 · 刚加微信</p>' +
-      '<section class="knock-intro__section">' +
-      '<h3 class="knock-intro__section-title">选择聊天角色</h3>' +
+      '<div class="knock-intro__context-card">' +
+      '<div class="knock-intro__plot-row">' +
+      '<span class="knock-intro__plot-label">' +
+      escapeHtml(plotTitle) +
+      "</span>" +
+      '<button type="button" class="knock-intro__plot-change" data-knock-open-plot-picker>更换剧情<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>' +
+      "</div>" +
       '<div class="knock-intro__cast-panel">' +
       buildKnockCastColHtml("user", user) +
       '<div class="knock-intro__cast-divider" aria-hidden="true"></div>' +
       buildKnockCastColHtml("partner", partner) +
-      "</div></section>" +
-      '<section class="knock-intro__section">' +
-      '<label class="field knock-intro__seed">' +
-      '<span class="field__label">契机要点 <span class="knock-intro__optional">选填</span></span>' +
-      '<span class="field__hint knock-intro__seed-hint">简述怎么认识的、为何加微信；留空则由 AI 自动构思</span>' +
-      '<textarea class="field__input field__textarea" data-knock-context-seed rows="2" placeholder="例如在学院走廊偶遇、朋友介绍…">' +
-      escapeHtml(seedVal) +
-      "</textarea></label></section>" +
+      "</div></div>" +
       '<div class="knock-setup-page__actions">' +
-      '<button type="button" class="btn btn--primary btn--block btn--pill' +
-      genCls +
-      '" data-knock-context-generate' +
-      (canGenerate ? "" : " disabled") +
-      ">生成契机背景</button>" +
-      '<p class="field__hint knock-intro__next-hint">生成后可在下一步预览、修改并确认</p></div></div>'
+      '<button type="button" class="btn btn--primary btn--block btn--pill" data-knock-setup-confirm' +
+      (ready ? "" : " disabled") +
+      ">开始聊天</button>" +
+      '<p class="field__hint knock-intro__next-hint">' +
+      (ready
+        ? "空对话时点右上角，可让对方先开口"
+        : "请先选择剧情与聊天角色") +
+      "</p></div></div>"
     );
   }
 
@@ -19163,7 +19840,7 @@
     const isInChatOverlay = !!opts.overlay;
     const pendingSetup = !isKnockContextReady();
     const hiddenAttr = !pendingSetup && isInChatOverlay && !knockSetupOpen ? " hidden" : "";
-    const title = phase === "context_review" ? "确认背景" : "敲敲";
+    const title = "敲敲";
     const bodyHtml = buildKnockSetupBodyHtml(phase);
     const closeAttr = "data-knock-setup-close";
     const liteCls = opts.noScrim !== false ? " knock-setup-overlay--lite" : "";
@@ -19318,8 +19995,8 @@
         escapeHtml(partnerName) +
         "」的对话框</p>" +
         (pendingSetup
-          ? '<p class="field__hint">请前往 <button type="button" class="knock-chat__goto-me" data-knock-goto-me>「我」</button> 设定契机后开始聊</p>'
-          : '<p class="field__hint">契机背景已就绪，可点右上角生成让对方先开口，或直接发消息</p>') +
+          ? '<p class="field__hint">请前往 <button type="button" class="knock-chat__goto-me" data-knock-goto-me>「我」</button> 选择剧情与角色后开始聊</p>'
+          : '<p class="field__hint">剧情上下文已就绪，可点右上角生成让对方先开口，或直接发消息</p>') +
         "</div>";
     }
     const genLoadingCls =
@@ -19720,18 +20397,8 @@
   }
 
   function confirmKnockSetup(slot) {
-    if (!knockUserCharId || !knockPartnerCharId) {
-      showToast("请先选择主视角与聊天对象。", "info");
-      return;
-    }
-    const user = getCharById(knockUserCharId);
-    const partner = getKnockPartnerCharById(knockPartnerCharId);
-    if (!user || user.categoryId !== CHAR_CATEGORY_SELF_ID) {
-      showToast("主视角须为「我的形象」分类中的角色。", "warning");
-      return;
-    }
-    if (!partner || partner.categoryId === CHAR_CATEGORY_SELF_ID) {
-      showToast("聊天对象须为除「我的形象」外的角色。", "warning");
+    if (!isKnockContextReady()) {
+      showToast("请先选择剧情与聊天角色。", "info");
       return;
     }
     knockSetupOpen = false;
@@ -19739,10 +20406,11 @@
     knockSelectedMsgs = [];
     knockSelectedEvents = [];
     persistNarrative();
+    knockMainTab = "chat";
+    knockSubScreen = "chat-detail";
     renderKnockScreen(slot || els.knockContentSlot());
-    if (isKnockContextReady()) {
-      showToast("已切换为「" + (partner.name || "对方") + "」", "success");
-    }
+    const partner = getKnockPartnerCharById(knockPartnerCharId);
+    showToast("已切换为「" + (partner && partner.name ? partner.name : "对方") + "」", "success");
   }
 
   function confirmKnockEventFromDom(slot) {
@@ -19837,7 +20505,7 @@
     const msgs = Array.isArray(rec.messages) ? rec.messages : [];
     if (!msgs.length) {
       if (!isKnockContextReady()) {
-        showToast("请先在「我」中设定契机背景。", "info");
+        showToast("请先在「我」中选择剧情与聊天角色。", "info");
         return;
       }
       await generateKnockOpeningReply(els.knockContentSlot());
@@ -20889,6 +21557,7 @@
     else if (overviewSubView === "fanwork") renderFanworkScreen(els.fanworkContentSlot());
     else if (overviewSubView === "knock") renderKnockScreen(els.knockContentSlot(), { scrollToEnd: true });
     else if (overviewSubView === "collect") renderCollectScreen(els.collectContentSlot());
+    else if (overviewSubView === "todo") renderTaskTodoScreen(els.todoContentSlot());
     if (els.modalAssistantProfile() && !els.modalAssistantProfile().hidden) {
       renderAssistantProfileModal();
     }
@@ -21974,6 +22643,10 @@
       openOverviewSubView("collect");
       return;
     }
+    if (id === "todo") {
+      openOverviewSubView("todo");
+      return;
+    }
     const labelMap = {
       theme: "题材方向",
       "rewrite-persona": "改写人设",
@@ -21982,6 +22655,7 @@
       phone: "查手机",
       fanwork: "小狗饭",
       collect: "收取",
+      todo: "任务ToDo",
     };
     const label = labelMap[id] || "该功能";
     showToast(
@@ -22644,6 +23318,9 @@
             purgePhoneBillDataForChar(rid);
             purgePhoneWereadDataForChar(rid);
             purgePhoneJjwxcDataForChar(rid);
+            purgeTaskTodoDataForChar(rid);
+            if (taskTodoCharId === rid) taskTodoCharId = null;
+            if (overviewFocusCharId === rid) overviewFocusCharId = null;
             sanitizePhoneHolderState();
             worldBooks.forEach((w) => {
               if (rname && w.scopeName === rname) {
@@ -22682,11 +23359,23 @@
               phoneHolderPlotId = null;
               phoneHolderCharId = null;
             }
+            if (overviewPlotId === id) {
+              overviewPlotId = null;
+              overviewFocusCharId = null;
+            }
+            if (knockPlotId === id) {
+              knockPlotId = null;
+            }
             if (collectPlotId === id) {
               collectPlotId = null;
               collectCharId = null;
             }
+            if (taskTodoPlotId === id) {
+              taskTodoPlotId = null;
+              taskTodoCharId = null;
+            }
             purgeCollectDataForPlot(id);
+            purgeTaskTodoDataForPlot(id);
             purgePhoneWechatDataForPlot(id);
             purgePhoneMomentsDataForPlot(id);
             purgePhoneMusicDataForPlot(id);
@@ -23297,6 +23986,216 @@
     return ids;
   }
 
+  function getPlotById(plotId) {
+    const id = String(plotId || "").trim();
+    if (!id) return null;
+    return (
+      plots.find(function (p) {
+        return p && p.id === id;
+      }) || null
+    );
+  }
+
+  function inferPlotIdForKnockPair(userCharId, partnerCharId) {
+    const uid = String(userCharId || "").trim();
+    const pid = String(partnerCharId || "").trim();
+    if (!uid || !pid) return null;
+    const hit = plots.find(function (p) {
+      if (!p) return false;
+      const cast = getPlotParticipantCharIds(p);
+      return cast.indexOf(uid) >= 0 && cast.indexOf(pid) >= 0;
+    });
+    return hit ? hit.id : null;
+  }
+
+  function getKnockPlot() {
+    if (!knockPlotId) return null;
+    return getPlotById(knockPlotId);
+  }
+
+  function getOverviewPlot() {
+    if (!overviewPlotId) return null;
+    return getPlotById(overviewPlotId);
+  }
+
+  function getOverviewFocusChar() {
+    if (!overviewFocusCharId) return null;
+    const c = getCharById(overviewFocusCharId);
+    if (!c || c.categoryId === CHAR_CATEGORY_SELF_ID) return null;
+    return c;
+  }
+
+  function getKnockPartnerCandidatesForPlot(plotId) {
+    return getCollectCharacterCandidatesForPlot(plotId);
+  }
+
+  function isCharInPlot(plotId, charId) {
+    const plot = getPlotById(plotId);
+    if (!plot || !charId) return false;
+    return getPlotParticipantCharIds(plot).indexOf(String(charId)) >= 0;
+  }
+
+  function sanitizeKnockPlotState() {
+    if (!knockPlotId || !getPlotById(knockPlotId)) {
+      knockPlotId = null;
+      return;
+    }
+    const plot = getPlotById(knockPlotId);
+    if (plot && plot.protagonistId) {
+      const protag = getCharById(plot.protagonistId);
+      if (protag && protag.categoryId === CHAR_CATEGORY_SELF_ID) {
+        if (!knockUserCharId || !isCharInPlot(knockPlotId, knockUserCharId)) {
+          knockUserCharId = plot.protagonistId;
+        }
+      }
+    }
+    if (
+      knockPartnerCharId &&
+      !getKnockPartnerCandidatesForPlot(knockPlotId).some(function (c) {
+        return c.id === knockPartnerCharId;
+      })
+    ) {
+      const candidates = getKnockPartnerCandidatesForPlot(knockPlotId);
+      knockPartnerCharId = candidates.length ? candidates[0].id : null;
+    }
+  }
+
+  function migrateOverviewContextFromLegacy() {
+    if (overviewPlotId && overviewFocusCharId) return;
+    const plotId =
+      overviewPlotId ||
+      knockPlotId ||
+      phoneHolderPlotId ||
+      collectPlotId ||
+      fanworkPlotId ||
+      null;
+    const charId =
+      overviewFocusCharId ||
+      knockPartnerCharId ||
+      phoneHolderCharId ||
+      collectCharId ||
+      fanworkCpPartnerId ||
+      null;
+    if (plotId && charId && isCharInPlot(plotId, charId)) {
+      overviewPlotId = plotId;
+      overviewFocusCharId = charId;
+    }
+    if (!knockPlotId && plotId) knockPlotId = plotId;
+  }
+
+  function sanitizeOverviewContext() {
+    migrateOverviewContextFromLegacy();
+    if (overviewPlotId && !getPlotById(overviewPlotId)) {
+      overviewPlotId = null;
+      overviewFocusCharId = null;
+    }
+    if (overviewFocusCharId) {
+      const c = getCharById(overviewFocusCharId);
+      if (!c || c.categoryId === CHAR_CATEGORY_SELF_ID || !isCharInPlot(overviewPlotId, overviewFocusCharId)) {
+        overviewFocusCharId = null;
+      }
+    }
+    sanitizeKnockPlotState();
+  }
+
+  function setOverviewContext(plotId, charId, opts) {
+    opts = opts || {};
+    const plot = getPlotById(plotId);
+    const focusChar = getCharById(charId);
+    if (!plot) {
+      showToast("请选择有效剧情。", "warning");
+      return false;
+    }
+    if (!focusChar || focusChar.categoryId === CHAR_CATEGORY_SELF_ID) {
+      showToast("请选择剧情中的主要角色。", "warning");
+      return false;
+    }
+    if (!isCharInPlot(plot.id, focusChar.id)) {
+      showToast("该角色不在所选剧情中。", "warning");
+      return false;
+    }
+    overviewPlotId = plot.id;
+    overviewFocusCharId = focusChar.id;
+    phoneHolderPlotId = plot.id;
+    phoneHolderCharId = focusChar.id;
+    collectPlotId = plot.id;
+    collectCharId = focusChar.id;
+    taskTodoPlotId = plot.id;
+    taskTodoCharId = focusChar.id;
+    fanworkPlotId = plot.id;
+    if (fanworkPlotHasCp(plot)) {
+      fanworkCpPartnerId = focusChar.id;
+    }
+    knockPlotId = plot.id;
+    knockPartnerCharId = focusChar.id;
+    if (plot.protagonistId) {
+      const protag = getCharById(plot.protagonistId);
+      if (protag && protag.categoryId === CHAR_CATEGORY_SELF_ID) {
+        knockUserCharId = plot.protagonistId;
+      }
+    }
+    sanitizePhoneHolderState();
+    sanitizeCollectState();
+    sanitizeKnockPlotState();
+    sanitizeTaskTodoState();
+    if (opts.persist !== false) schedulePersistNarrative();
+    renderOverviewContextBar();
+    if (overviewSubView === "todo") renderTaskTodoScreen(els.todoContentSlot());
+    if (opts.toast !== false) {
+      showToast(
+        "已切换为《" + (plot.title || "未命名") + "》· " + (focusChar.name || "角色"),
+        "success"
+      );
+    }
+    return true;
+  }
+
+  function renderOverviewContextBar() {
+    sanitizeOverviewContext();
+    const bar = els.overviewContextBar();
+    if (!bar) return;
+    const plot = getOverviewPlot();
+    const focus = getOverviewFocusChar();
+    const plotLabel = els.overviewContextPlotLabel();
+    const charLabel = els.overviewContextCharLabel();
+    if (plotLabel) {
+      plotLabel.textContent = plot ? plot.title || "未命名剧情" : "未选择剧情";
+    }
+    if (charLabel) {
+      charLabel.textContent = focus ? focus.name || "未命名" : "未选择角色";
+    }
+    bar.classList.toggle("overview-context-bar--empty", !plot || !focus);
+  }
+
+  function openOverviewContextModal() {
+    phoneHolderModalMode = "overview";
+    openPhoneHolderModal();
+  }
+
+  function applyKnockPlotContext(plotId, partnerCharId, opts) {
+    opts = opts || {};
+    const plot = getPlotById(plotId);
+    if (!plot) return false;
+    const partner = getCharById(partnerCharId);
+    if (!partner || partner.categoryId === CHAR_CATEGORY_SELF_ID) return false;
+    if (!getKnockPartnerCandidatesForPlot(plotId).some(function (c) {
+      return c.id === partner.id;
+    })) {
+      return false;
+    }
+    knockPlotId = plot.id;
+    knockPartnerCharId = partner.id;
+    if (plot.protagonistId) {
+      const protag = getCharById(plot.protagonistId);
+      if (protag && protag.categoryId === CHAR_CATEGORY_SELF_ID) {
+        knockUserCharId = plot.protagonistId;
+      }
+    }
+    sanitizeKnockPlotState();
+    if (opts.persist !== false) persistNarrative();
+    return true;
+  }
+
   function getPhoneHolderCandidatesForPlot(plotId) {
     const plot = plots.find(function (p) {
       return p.id === plotId;
@@ -23406,6 +24305,7 @@
 
   function syncPhoneHolderModalChrome() {
     const onCharStep = phoneHolderModalStep === "char";
+    const isOverview = phoneHolderModalMode === "overview";
     const titleEl = els.phoneHolderTitle();
     const hintEl = els.phoneHolderHint();
     const backBtn = els.phoneHolderStepBack();
@@ -23414,22 +24314,59 @@
     const plot = plots.find(function (p) {
       return p.id === phoneHolderModalPlotId;
     });
-    if (titleEl) titleEl.textContent = onCharStep ? "选择持有者" : "选择剧情";
+    if (titleEl) {
+      titleEl.textContent = onCharStep
+        ? isOverview
+          ? "选择主要角色"
+          : "选择持有者"
+        : isOverview
+          ? "全局剧情上下文"
+          : "选择剧情";
+    }
     if (hintEl) {
-      hintEl.textContent = onCharStep
-        ? plot
-          ? "《" + (plot.title || "未命名剧情") + "》· 点选一名参与角色（不含「我的形象」）"
-          : "点选参与角色（不含「我的形象」）"
-        : "点选要查看手机的剧情";
+      if (onCharStep) {
+        hintEl.hidden = false;
+        hintEl.textContent = plot
+          ? "《" +
+            (plot.title || "未命名剧情") +
+            "》· " +
+            (isOverview
+              ? "点选一名主要角色（将同步到敲敲、查手机、收取、小狗饭）"
+              : "点选一名参与角色（不含「我的形象」）")
+          : isOverview
+            ? "点选主要角色"
+            : "点选参与角色（不含「我的形象」）";
+      } else {
+        hintEl.hidden = true;
+      }
     }
     if (backBtn) backBtn.hidden = !onCharStep;
     if (plotList) plotList.hidden = onCharStep;
     if (pick) pick.hidden = !onCharStep;
   }
 
+  function buildPhoneHolderPlotRowBtn(plot, isCurrent) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "phone-holder-plot-row" + (isCurrent ? " is-current" : "");
+    btn.dataset.plotId = plot.id;
+    const title = document.createElement("span");
+    title.className = "phone-holder-plot-row__title";
+    title.textContent = plot.title || "未命名剧情";
+    const check = document.createElement("span");
+    check.className = "phone-holder-plot-row__check";
+    check.setAttribute("aria-hidden", "true");
+    check.innerHTML =
+      '<svg class="icon-linear" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12l5 5L20 7"/></svg>';
+    btn.appendChild(title);
+    btn.appendChild(check);
+    return btn;
+  }
+
   function renderPhoneHolderPlotList() {
     const listEl = els.phoneHolderPlotList();
     if (!listEl) return;
+    const isOverview = phoneHolderModalMode === "overview";
     listEl.innerHTML = "";
     if (!plots.length) {
       const ph = document.createElement("p");
@@ -23439,26 +24376,19 @@
       return;
     }
     plots.forEach(function (p) {
-      const candidates = getPhoneHolderCandidatesForPlot(p.id);
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className =
-        "phone-holder-plot-row" + (phoneHolderPlotId === p.id ? " is-current" : "");
-      btn.dataset.plotId = p.id;
-      const title = document.createElement("span");
-      title.className = "phone-holder-plot-row__title";
-      title.textContent = p.title || "未命名剧情";
-      const meta = document.createElement("span");
-      meta.className = "phone-holder-plot-row__meta";
-      meta.textContent =
-        candidates.length > 0
-          ? candidates.length + " 名可查看角色"
-          : "暂无可查看角色";
-      btn.appendChild(title);
-      btn.appendChild(meta);
+      const candidates = isOverview
+        ? getKnockPartnerCandidatesForPlot(p.id)
+        : getPhoneHolderCandidatesForPlot(p.id);
+      const isCurrent = (isOverview ? overviewPlotId : phoneHolderPlotId) === p.id;
+      const btn = buildPhoneHolderPlotRowBtn(p, isCurrent);
       btn.addEventListener("click", function () {
         if (!candidates.length) {
-          showToast("该剧情下没有除「我的形象」以外的参与角色。", "warning");
+          showToast(
+            isOverview
+              ? "该剧情下没有「主要角色」。"
+              : "该剧情下没有除「我的形象」以外的参与角色。",
+            "warning"
+          );
           return;
         }
         phoneHolderModalPlotId = p.id;
@@ -23473,12 +24403,17 @@
     const pick = els.phoneHolderPick();
     if (!pick) return;
     pick.innerHTML = "";
-    const list = getPhoneHolderCandidatesForPlot(phoneHolderModalPlotId);
-    const current = getPhoneHolderCharacter();
+    const isOverview = phoneHolderModalMode === "overview";
+    const list = isOverview
+      ? getKnockPartnerCandidatesForPlot(phoneHolderModalPlotId)
+      : getPhoneHolderCandidatesForPlot(phoneHolderModalPlotId);
+    const current = isOverview ? getOverviewFocusChar() : getPhoneHolderCharacter();
     if (!list.length) {
       const ph = document.createElement("p");
       ph.className = "field__hint phone-holder-empty";
-      ph.textContent = "该剧情下没有除「我的形象」以外的参与角色。";
+      ph.textContent = isOverview
+        ? "该剧情下没有「主要角色」可选取（配角/NPC 不可选）。"
+        : "该剧情下没有除「我的形象」以外的参与角色。";
       pick.appendChild(ph);
       return;
     }
@@ -23489,7 +24424,7 @@
         "char-pick-avatar" +
         (current &&
         c.id === current.id &&
-        phoneHolderPlotId === phoneHolderModalPlotId
+        (isOverview ? overviewPlotId : phoneHolderPlotId) === phoneHolderModalPlotId
           ? " is-selected"
           : "");
       b.dataset.id = c.id;
@@ -23500,6 +24435,12 @@
       b.appendChild(av);
       fillAvatarElement(av, c);
       b.addEventListener("click", function () {
+        if (isOverview) {
+          setOverviewContext(phoneHolderModalPlotId, c.id);
+          closePhoneHolderModal();
+          renderOverviewContextBar();
+          return;
+        }
         phoneHolderPlotId = phoneHolderModalPlotId;
         phoneHolderCharId = c.id;
         sanitizePhoneHolderState();
@@ -23529,8 +24470,9 @@
   function openPhoneHolderModal() {
     const modal = els.modalPhoneHolder();
     if (!modal) return;
+    if (phoneHolderModalMode !== "overview") phoneHolderModalMode = "phone";
     phoneHolderModalStep = "plot";
-    phoneHolderModalPlotId = phoneHolderPlotId;
+    phoneHolderModalPlotId = phoneHolderModalMode === "overview" ? overviewPlotId : phoneHolderPlotId;
     renderPhoneHolderModal();
     modal.hidden = false;
   }
@@ -23546,6 +24488,128 @@
     modal.hidden = true;
     phoneHolderModalStep = "plot";
     phoneHolderModalPlotId = null;
+    phoneHolderModalMode = "phone";
+  }
+
+  function syncKnockHolderModalChrome() {
+    const onCharStep = knockHolderModalStep === "char";
+    const titleEl = els.knockHolderTitle();
+    const hintEl = els.knockHolderHint();
+    const backBtn = els.knockHolderStepBack();
+    const plotList = els.knockHolderPlotList();
+    const pick = els.knockHolderPick();
+    const plot = getPlotById(knockHolderModalPlotId);
+    if (titleEl) titleEl.textContent = onCharStep ? "选择主要角色" : "选择剧情";
+    if (hintEl) {
+      if (onCharStep) {
+        hintEl.hidden = false;
+        hintEl.textContent = plot
+          ? "《" + (plot.title || "未命名剧情") + "》· 点选聊天对象（主要角色）"
+          : "点选主要角色";
+      } else {
+        hintEl.hidden = true;
+      }
+    }
+    if (backBtn) backBtn.hidden = !onCharStep;
+    if (plotList) plotList.hidden = onCharStep;
+    if (pick) pick.hidden = !onCharStep;
+  }
+
+  function renderKnockHolderPlotList() {
+    const listEl = els.knockHolderPlotList();
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    if (!plots.length) {
+      const ph = document.createElement("p");
+      ph.className = "field__hint phone-holder-empty";
+      ph.textContent = "暂无剧情，请先在「剧情」中创建。";
+      listEl.appendChild(ph);
+      return;
+    }
+    plots.forEach(function (p) {
+      const candidates = getKnockPartnerCandidatesForPlot(p.id);
+      const btn = buildPhoneHolderPlotRowBtn(p, knockPlotId === p.id);
+      btn.addEventListener("click", function () {
+        if (!candidates.length) {
+          showToast("该剧情下没有「主要角色」。", "warning");
+          return;
+        }
+        knockHolderModalPlotId = p.id;
+        knockHolderModalStep = "char";
+        renderKnockHolderModal();
+      });
+      listEl.appendChild(btn);
+    });
+  }
+
+  function finishKnockHolderSelection(charId) {
+    if (!applyKnockPlotContext(knockHolderModalPlotId, charId)) return;
+    closeKnockHolderModal();
+    showToast("已切换敲敲剧情上下文", "success");
+    rerenderKnockSetupUi();
+  }
+
+  function renderKnockHolderCharPick() {
+    const pick = els.knockHolderPick();
+    if (!pick) return;
+    pick.innerHTML = "";
+    const list = getKnockPartnerCandidatesForPlot(knockHolderModalPlotId);
+    if (!list.length) {
+      const ph = document.createElement("p");
+      ph.className = "field__hint phone-holder-empty";
+      ph.textContent = "该剧情下没有「主要角色」。";
+      pick.appendChild(ph);
+      return;
+    }
+    list.forEach(function (c) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className =
+        "char-pick-avatar" +
+        (c.id === knockPartnerCharId && knockPlotId === knockHolderModalPlotId ? " is-selected" : "");
+      b.dataset.id = c.id;
+      b.title = c.name || "未命名";
+      b.setAttribute("aria-label", c.name || "未命名");
+      const av = document.createElement("div");
+      av.className = "avatar";
+      b.appendChild(av);
+      fillAvatarElement(av, c);
+      b.addEventListener("click", function () {
+        finishKnockHolderSelection(c.id);
+      });
+      pick.appendChild(b);
+    });
+  }
+
+  function renderKnockHolderModal() {
+    syncKnockHolderModalChrome();
+    if (knockHolderModalStep === "char") {
+      renderKnockHolderCharPick();
+      return;
+    }
+    renderKnockHolderPlotList();
+  }
+
+  function openKnockHolderModal() {
+    const modal = els.modalKnockHolder();
+    if (!modal) return;
+    knockHolderModalStep = "plot";
+    knockHolderModalPlotId = knockPlotId;
+    renderKnockHolderModal();
+    modal.hidden = false;
+  }
+
+  function knockHolderModalBackToPlot() {
+    knockHolderModalStep = "plot";
+    renderKnockHolderModal();
+  }
+
+  function closeKnockHolderModal() {
+    const modal = els.modalKnockHolder();
+    if (!modal) return;
+    modal.hidden = true;
+    knockHolderModalStep = "plot";
+    knockHolderModalPlotId = null;
   }
 
   function collectStorageKey(plotId, charId) {
@@ -23861,61 +24925,46 @@
         " 有意义；内容精炼但情感到位。\n" +
         "8. photo.imagePrompt 须为英文前置手机自拍指令：人物必须是发送者「" +
         senderName +
-        "」本人正面或半身出镜；脸型、五官、发型、气质第一优先对齐设置中的明星外貌参考图，再写衣着、地点、表情与手机自拍光线。"
+        "」本人正面或半身出镜，镜头与眼睛平齐（禁止俯拍、仰拍等死亡角度）；宽肩窄腰、肩宽腰细的健美体型；脸型、五官、发型、气质第一优先对齐设置中外貌参考图（上传的 1～3 张人脸照片），再写衣着、地点、表情与手机自拍光线。禁止出现「我的形象」/用户主角出镜，禁止出现任何真实明星姓名。"
     );
     return lines.join("\n");
   }
 
-  async function buildCollectPhotoGenerationPrompt(plot, sender, imagePrompt, sceneText) {
-    const appearanceBase = await resolveVisualAppearancePromptBase();
-    const celebrity = getVisualRefCelebrityLookalike("appearance");
-    const persona = sender && sender.persona ? sender.persona : {};
-    const styleField = String(persona.style || (sender && sender.style) || "").trim();
+  async function buildCollectPhotoGenerationPrompt(plot, sender, photoDraft) {
     const name = String((sender && sender.name) || "the character").trim();
-    const snapParts = [String(sceneText || "").trim(), String(imagePrompt || "").trim()].filter(Boolean);
-    const snapLine = snapParts.join(" — ");
-    let chatContext = "";
-    if (plot && sender) {
-      chatContext = buildPhoneWechatPlotContextBlocks(plot, sender)
-        .lines.join("\n")
-        .slice(0, 2600);
+    const imagePrompt = String((photoDraft && photoDraft.imagePrompt) || "").trim();
+    const sceneText = String((photoDraft && photoDraft.sceneText) || "").trim();
+    const backText = String((photoDraft && photoDraft.backText) || "").trim();
+    let prompt = await buildPhotoAnchoredSelfieIdentityBlock();
+    const appearanceRef = await resolveVisualAppearancePromptBase();
+    if (appearanceRef) prompt += " " + appearanceRef;
+    const protagName =
+      plot && plot.protagonistId
+        ? String((getCharById(plot.protagonistId) && getCharById(plot.protagonistId).name) || "").trim()
+        : "";
+    prompt += buildMainCharacterPhotoSubjectPrompt(name, protagName);
+    prompt += " Polaroid-style keepsake photo of " + name + ".";
+    if (imagePrompt) {
+      prompt += " Shot direction (highest priority): " + truncateCharsWithEllipsis(imagePrompt, 420) + ".";
     }
-    let prompt =
-      "HIGHEST PRIORITY — Face identity lock: This polaroid selfie MUST depict " +
-      name +
-      " with unmistakable facial structure, bone structure, eye shape, nose, lips, jawline, and hair silhouette matching the uploaded appearance reference photos and celebrity lookalike " +
-      celebrity +
-      ". If any scene detail conflicts, preserve face identity first. " +
-      appearanceBase;
-    if (styleField) {
-      prompt += " Persona appearance notes: " + truncateCharsWithEllipsis(styleField, 420) + ".";
+    if (sceneText) {
+      prompt += " Scene description: " + truncateCharsWithEllipsis(sceneText, 320) + ".";
     }
-    prompt +=
-      " Format: authentic front-camera phone selfie for a private polaroid keepsake—arm-length framing, slight wide-angle selfie distortion, casual imperfect composition, hand-held realism, natural expression, auto front-camera exposure, mild noise or JPEG compression, not a studio portrait or DSLR shot.";
-    if (chatContext) {
+    if (backText) {
       prompt +=
-        " Secondary — plot context for outfit, location, mood and moment (must not change face identity): " +
-        truncateCharsWithEllipsis(chatContext, 2000) +
+        " Emotional tone from handwritten note on photo back: " +
+        truncateCharsWithEllipsis(backText, 140) +
         ".";
     }
-    if (snapLine) {
-      prompt += " This specific shot: " + snapLine + ".";
-    }
-    prompt += visualImageStylePromptSuffix();
+    prompt += buildFlexiblePhonePhotoFramingSuffix();
     return prompt;
   }
 
   async function buildCollectDreamPhotoGenerationPrompt(plot, sender, imagePrompt, sceneText) {
     const snapParts = [String(sceneText || "").trim(), String(imagePrompt || "").trim()].filter(Boolean);
     const snapLine = snapParts.join(" — ");
-    let chatContext = "";
-    if (plot && sender) {
-      chatContext = buildPhoneWechatPlotContextBlocks(plot, sender)
-        .lines.join("\n")
-        .slice(0, 2600);
-    }
     const base = await buildKnockSceneGenerationPrompt({
-      chatContext: chatContext,
+      chatContext: "",
       snapLine: snapLine,
     });
     return (
@@ -23927,8 +24976,9 @@
   async function generateCollectPhotoInBackground(key, imagePrompt, slot) {
     const packDraft = collectPackData[key];
     const photoDraft = packDraft && packDraft.photo ? packDraft.photo : {};
-    const sceneText = String(photoDraft.sceneText || "").trim();
-    const promptSeed = String(imagePrompt || photoDraft.imagePrompt || sceneText || "").trim();
+    const promptSeed = String(
+      photoDraft.imagePrompt || photoDraft.sceneText || photoDraft.backText || imagePrompt || ""
+    ).trim();
     if (!key || !promptSeed) return;
     const imgCfg = resolveCollectImageApiConfig();
     if (!imgCfg) {
@@ -23943,16 +24993,23 @@
     try {
       const plot = getCollectPlot();
       const sender = getCollectCharacter();
-      const prompt = await buildCollectPhotoGenerationPrompt(
-        plot,
-        sender,
-        String(imagePrompt || photoDraft.imagePrompt || "").trim(),
-        sceneText
-      );
-      const imageDataUrl = await callVisualImageGeneration(prompt, imgCfg);
+      const prompt = await buildCollectPhotoGenerationPrompt(plot, sender, photoDraft);
+      const senderName = sender && sender.name ? String(sender.name).trim() : "";
+      const sceneOpts = {
+        snapLine: String(photoDraft.imagePrompt || "").trim(),
+        chatContext: [photoDraft.sceneText, photoDraft.backText]
+          .map(function (s) {
+            return String(s || "").trim();
+          })
+          .filter(Boolean)
+          .join("; "),
+        charName: senderName,
+      };
+      const imageDataUrl = await callSelfieVisualImageGeneration(prompt, imgCfg, sceneOpts);
       const pack = collectPackData[key];
       if (pack && pack.photo) {
         pack.photo.imageDataUrl = imageDataUrl;
+        delete collectImageAttemptFailed.photo[key];
         schedulePersistNarrative();
         const cur = getCollectPackForCurrent();
         if (cur === pack && slot) renderCollectScreen(slot);
@@ -23961,6 +25018,7 @@
       try {
         console.warn(imgErr);
       } catch (_e) {}
+      collectImageAttemptFailed.photo[key] = true;
       const curPack = collectPackData[key];
       const cur = getCollectPackForCurrent();
       if (curPack && cur === curPack) {
@@ -23994,10 +25052,11 @@
         imagePrompt,
         sceneText
       );
-      const imageDataUrl = await callVisualImageGeneration(prompt, imgCfg);
+      const imageDataUrl = await callSceneVisualImageGeneration(prompt, imgCfg);
       const pack = collectPackData[key];
       if (pack && pack.dream) {
         pack.dream.imageDataUrl = imageDataUrl;
+        delete collectImageAttemptFailed.dream[key];
         schedulePersistNarrative();
         const cur = getCollectPackForCurrent();
         if (cur === pack && slot) renderCollectScreen(slot);
@@ -24006,9 +25065,45 @@
       try {
         console.warn(imgErr);
       } catch (_e2) {}
+      collectImageAttemptFailed.dream[key] = true;
     } finally {
       if (collectImageGenerating.dream === key) collectImageGenerating.dream = null;
       if (slot) renderCollectScreen(slot);
+    }
+  }
+
+  function ensureCollectPendingImages(slot) {
+    const plot = getCollectPlot();
+    const sender = getCollectCharacter();
+    if (!plot || !sender || collectGenerating) return;
+    const key = collectStorageKey(plot.id, sender.id);
+    const pack = collectPackData[key];
+    if (!pack) return;
+    const imgCfg = resolveCollectImageApiConfig();
+    if (!imgCfg) return;
+    const photo = pack.photo;
+    if (
+      photo &&
+      !isSafeImageUrl(photo.imageDataUrl) &&
+      (photo.imagePrompt || photo.sceneText || photo.backText) &&
+      collectImageGenerating.photo !== key &&
+      !collectImageAttemptFailed.photo[key]
+    ) {
+      void generateCollectPhotoInBackground(
+        key,
+        photo.imagePrompt || photo.sceneText || photo.backText,
+        slot
+      );
+    }
+    const dream = pack.dream;
+    if (
+      dream &&
+      dream.imagePrompt &&
+      !isSafeImageUrl(dream.imageDataUrl) &&
+      collectImageGenerating.dream !== key &&
+      !collectImageAttemptFailed.dream[key]
+    ) {
+      void generateCollectDreamPhotoInBackground(key, dream.imagePrompt, slot);
     }
   }
 
@@ -24024,6 +25119,7 @@
     const key = collectStorageKey(plot.id, sender.id);
     collectGenerating = true;
     collectImageGenerating = { photo: null, dream: null };
+    collectImageAttemptFailed = { photo: {}, dream: {} };
     if (slot) renderCollectScreen(slot);
     try {
       preparePhoneStoryDateForGeneration(plot);
@@ -24103,13 +25199,14 @@
     });
     if (titleEl) titleEl.textContent = onCharStep ? "选择角色" : "选择剧情";
     if (hintEl) {
-      hintEl.textContent = onCharStep
-        ? plot
+      if (onCharStep) {
+        hintEl.hidden = false;
+        hintEl.textContent = plot
           ? "《" + (plot.title || "未命名剧情") + "》· 点选一名主要角色（不含「我的形象」）"
-          : "点选主要角色（不含「我的形象」）"
-        : collectHolderModalMode === "settings"
-          ? "点选要更换的收取剧情"
-          : "先选择要收取内容的所在剧情";
+          : "点选主要角色（不含「我的形象」）";
+      } else {
+        hintEl.hidden = true;
+      }
     }
     if (backBtn) backBtn.hidden = !onCharStep;
     if (plotList) plotList.hidden = onCharStep;
@@ -24129,19 +25226,7 @@
     }
     plots.forEach(function (p) {
       const candidates = getCollectCharacterCandidatesForPlot(p.id);
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "phone-holder-plot-row" + (collectPlotId === p.id ? " is-current" : "");
-      btn.dataset.plotId = p.id;
-      const title = document.createElement("span");
-      title.className = "phone-holder-plot-row__title";
-      title.textContent = p.title || "未命名剧情";
-      const meta = document.createElement("span");
-      meta.className = "phone-holder-plot-row__meta";
-      meta.textContent =
-        candidates.length > 0 ? candidates.length + " 名主要角色可收取" : "暂无主要角色可收取";
-      btn.appendChild(title);
-      btn.appendChild(meta);
+      const btn = buildPhoneHolderPlotRowBtn(p, collectPlotId === p.id);
       btn.addEventListener("click", function () {
         if (!candidates.length) {
           showToast("该剧情下没有「主要角色」可收取。", "warning");
@@ -24534,9 +25619,12 @@
     const storageKey = collectStorageKey(plot.id, sender.id);
     const ttsCacheKey = resolveCollectTtsCacheSuffix(slot, storageKey);
     try {
+      syncTtsSettingsFromOpenForm();
+      const model = String(ttsSettings.model || "speech-2.8-hd").trim() || "speech-2.8-hd";
+      const enrichedSpeakText = enrichStoryTtsSpeakText(speakText, "", model);
       const voicePrompt = buildCollectVoicePrompt(sender, speakText, plot, kind);
       const blob = await getOrCreateStoryTtsBlob(
-        speakText,
+        enrichedSpeakText,
         voicePrompt,
         speakText,
         "collect:" + kind + ":" + ttsCacheKey
@@ -24678,7 +25766,28 @@
     );
   }
 
-  function buildCollectSlipBodyHtml(kind, pack, plot) {
+  function buildCollectPhotoZoomBtnHtml(imageDataUrl, imgClass, caption) {
+    if (!isSafeImageUrl(imageDataUrl)) return "";
+    return (
+      '<button type="button" class="collect-slip__photo-zoom" data-collect-photo-view data-collect-photo-url="' +
+      escapeHtml(imageDataUrl) +
+      '" aria-label="放大查看：' +
+      escapeHtml(caption || "照片") +
+      '">' +
+      '<img class="' +
+      imgClass +
+      '" src="' +
+      escapeHtml(imageDataUrl) +
+      '" alt="' +
+      escapeHtml(caption || "照片") +
+      '"/>' +
+      '<span class="collect-slip__photo-zoom-hint" aria-hidden="true">点击查看</span>' +
+      "</button>"
+    );
+  }
+
+  function buildCollectSlipBodyHtml(kind, pack, plot, opts) {
+    opts = opts || {};
     const ttsReady = !!resolveGlobalMinimaxVoiceId();
     const ttsOff = !ttsReady ? "请先在设置配置 MiniMax" : "";
     if (kind === "whisper") {
@@ -24713,14 +25822,11 @@
       const photo = pack && pack.photo ? pack.photo : {};
       const hasImg = isSafeImageUrl(photo.imageDataUrl);
       const hasBack = !!String(photo.backText || "").trim();
+      const photoDeveloping = !!opts.photoGenerating;
       const frontInner = hasImg
-        ? '<img class="collect-slip__photo-img" src="' +
-          escapeHtml(photo.imageDataUrl) +
-          '" alt="' +
-          escapeHtml(photo.caption || "照片") +
-          '"/>'
+        ? buildCollectPhotoZoomBtnHtml(photo.imageDataUrl, "collect-slip__photo-img", photo.caption)
         : '<p class="collect-slip__photo-scene">' +
-          escapeHtml(photo.sceneText || "显影中…") +
+          escapeHtml(photoDeveloping ? "显影中…" : photo.sceneText || "暂无图像") +
           "</p>";
       const flipBtn = hasBack
         ? '<button type="button" class="collect-slip__action" data-collect-flip-photo>翻面</button>'
@@ -24849,7 +25955,7 @@
     const animation = opts.animation === "fade" ? "fade" : "print";
     const animClass = animation === "fade" ? " is-fade-in" : " is-printing";
     const meta = getCollectKindMeta(kind);
-    const body = buildCollectSlipBodyHtml(kind, pack, plot);
+    const body = buildCollectSlipBodyHtml(kind, pack, plot, opts);
     return (
       '<article class="collect-slip collect-slip--' +
       kind +
@@ -24872,10 +25978,10 @@
     );
   }
 
-  function buildCollectActiveSlipHtml(pack, plot, openCards) {
+  function buildCollectActiveSlipHtml(pack, plot, openCards, opts) {
     if (!openCards || !openCards.length) return "";
     const kind = openCards[openCards.length - 1];
-    return buildCollectSlipHtml(kind, pack, plot);
+    return buildCollectSlipHtml(kind, pack, plot, opts || {});
   }
 
   function findCollectPhotoFlipEl(fromEl) {
@@ -24989,7 +26095,10 @@
       '<div class="collect-screen collect-screen--printer">' +
       '<div class="collect-slip-area">' +
       '<div class="collect-slip-stage" aria-live="polite">' +
-      buildCollectActiveSlipHtml(pack, plot, openCards) +
+      buildCollectActiveSlipHtml(pack, plot, openCards, {
+        photoGenerating: photoGenerating,
+        dreamGenerating: dreamGenerating,
+      }) +
       "</div></div>" +
       '<div class="collect-printer-wrap">' +
       '<div class="collect-printer">' +
@@ -25432,11 +26541,7 @@
     const hasImg = isSafeImageUrl(photo.imageDataUrl);
     const hasBack = !!String(photo.backText || "").trim();
     const frontInner = hasImg
-      ? '<img class="collect-photo__img" src="' +
-        escapeHtml(photo.imageDataUrl) +
-        '" alt="' +
-        escapeHtml(photo.caption || "照片") +
-        '"/>'
+      ? buildCollectPhotoZoomBtnHtml(photo.imageDataUrl, "collect-photo__img", photo.caption)
       : '<p class="collect-photo__scene">' + escapeHtml(photo.sceneText || "暂无场景描述") + "</p>";
     const frontHtml =
       '<div class="collect-photo-flip__face collect-photo-flip__face--front">' +
@@ -25661,7 +26766,7 @@
       html = buildCollectPrinterHtml(slot, pack, collectGenerating, nav.openCards);
     }
     saveHorizontalScrollPositions(slot);
-    slot.innerHTML = html;
+    slot.innerHTML = html + buildCollectPhotoViewerOverlayHtml();
     slot.querySelectorAll("[data-collect-settings-avatar]").forEach(function (av) {
       if (sender) fillAvatarElement(av, sender);
     });
@@ -25680,6 +26785,7 @@
       }
     }
     restoreHorizontalScrollPositions(slot);
+    ensureCollectPendingImages(slot);
   }
 
   function toggleCollectCard(slot, kind) {
@@ -25748,6 +26854,1229 @@
       location.hash = "#/tab/overview";
     }
     syncOverviewSubViewUi();
+  }
+
+  function taskTodoStorageKey(plotId, charId) {
+    return String(plotId || "") + "\u001e" + String(charId || "");
+  }
+
+  function getRealWorldDateKey(d) {
+    const dt = d instanceof Date ? d : new Date();
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, "0");
+    const day = String(dt.getDate()).padStart(2, "0");
+    return y + "-" + m + "-" + day;
+  }
+
+  function formatTaskTodoDateLabel(dateKey) {
+    const parts = String(dateKey || "").split("-");
+    if (parts.length !== 3) return String(dateKey || "");
+    const dt = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+    return Number(parts[1]) + "月" + Number(parts[2]) + "日 · " + weekdays[dt.getDay()];
+  }
+
+  function getTaskTodoTimePhase() {
+    const h = new Date().getHours();
+    if (h >= 5 && h < 11) return "morning";
+    if (h >= 11 && h < 17) return "afternoon";
+    if (h >= 17 && h < 20) return "dusk";
+    return "night";
+  }
+
+  function normalizeTaskTodoTaskItem(raw, prefix) {
+    if (!raw || typeof raw !== "object") return null;
+    const text = String(raw.text || "").trim();
+    if (!text) return null;
+    const id =
+      typeof raw.id === "string" && raw.id.trim()
+        ? raw.id.trim()
+        : uid(prefix || "tt") + "_" + Math.random().toString(36).slice(2, 6);
+    return {
+      id: id,
+      text: text.slice(0, 200),
+      done: !!raw.done,
+      note: raw.note ? String(raw.note).trim().slice(0, 120) : "",
+      createdAt: typeof raw.createdAt === "number" ? raw.createdAt : Date.now(),
+    };
+  }
+
+  function normalizeTaskTodoDiaryItem(raw, prefix) {
+    if (!raw || typeof raw !== "object") return null;
+    const text = String(raw.text || "").trim();
+    if (!text) return null;
+    const id =
+      typeof raw.id === "string" && raw.id.trim()
+        ? raw.id.trim()
+        : uid(prefix || "td") + "_" + Math.random().toString(36).slice(2, 6);
+    return {
+      id: id,
+      text: text.slice(0, 800),
+      mood: raw.mood ? String(raw.mood).trim().slice(0, 12) : "",
+      createdAt: typeof raw.createdAt === "number" ? raw.createdAt : Date.now(),
+    };
+  }
+
+  function normalizeTaskTodoMessageItem(raw, prefix) {
+    if (!raw || typeof raw !== "object") return null;
+    const text = String(raw.text || "").trim();
+    if (!text) return null;
+    const id =
+      typeof raw.id === "string" && raw.id.trim()
+        ? raw.id.trim()
+        : uid(prefix || "tm") + "_" + Math.random().toString(36).slice(2, 6);
+    return {
+      id: id,
+      text: text.slice(0, 280),
+      liked: !!raw.liked,
+    };
+  }
+
+  function createEmptyTaskTodoDay() {
+    return {
+      user: { tasks: [], diary: [] },
+      character: {
+        generated: false,
+        generationRound: 0,
+        tasks: [],
+        diary: [],
+        messages: [],
+      },
+      settled: false,
+      settledAt: null,
+    };
+  }
+
+  function normalizeTaskTodoDay(raw) {
+    if (!raw || typeof raw !== "object") return createEmptyTaskTodoDay();
+    const userTasks = Array.isArray(raw.user && raw.user.tasks)
+      ? raw.user.tasks.map(function (t) {
+          return normalizeTaskTodoTaskItem(t, "ut");
+        }).filter(Boolean)
+      : [];
+    const userDiary = Array.isArray(raw.user && raw.user.diary)
+      ? raw.user.diary.map(function (d) {
+          return normalizeTaskTodoDiaryItem(d, "ud");
+        }).filter(Boolean)
+      : [];
+    const charRaw = raw.character && typeof raw.character === "object" ? raw.character : {};
+    const charTasks = Array.isArray(charRaw.tasks)
+      ? charRaw.tasks.map(function (t) {
+          return normalizeTaskTodoTaskItem(t, "ct");
+        }).filter(Boolean)
+      : [];
+    const charDiary = Array.isArray(charRaw.diary)
+      ? charRaw.diary.map(function (d) {
+          return normalizeTaskTodoDiaryItem(d, "cd");
+        }).filter(Boolean)
+      : [];
+    const charMessages = Array.isArray(charRaw.messages)
+      ? charRaw.messages.map(function (m) {
+          return normalizeTaskTodoMessageItem(m, "cm");
+        }).filter(Boolean).slice(0, 5)
+      : [];
+    return {
+      user: { tasks: userTasks, diary: userDiary },
+      character: {
+        generated: !!charRaw.generated || charTasks.length > 0 || charDiary.length > 0 || charMessages.length > 0,
+        generationRound:
+          typeof charRaw.generationRound === "number" && charRaw.generationRound >= 0
+            ? charRaw.generationRound
+            : 0,
+        tasks: charTasks,
+        diary: charDiary,
+        messages: charMessages,
+      },
+      settled: !!raw.settled,
+      settledAt: typeof raw.settledAt === "number" ? raw.settledAt : null,
+    };
+  }
+
+  function normalizeTaskTodoBundle(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const days = {};
+    if (raw.days && typeof raw.days === "object" && !Array.isArray(raw.days)) {
+      Object.keys(raw.days).forEach(function (k) {
+        days[k] = normalizeTaskTodoDay(raw.days[k]);
+      });
+    }
+    const history = Array.isArray(raw.history)
+      ? raw.history
+          .map(function (entry) {
+            if (!entry || typeof entry !== "object") return null;
+            const dateKey = String(entry.dateKey || "").trim();
+            if (!dateKey) return null;
+            return {
+              dateKey: dateKey,
+              settledAt: typeof entry.settledAt === "number" ? entry.settledAt : Date.now(),
+              day: normalizeTaskTodoDay(entry.day),
+            };
+          })
+          .filter(Boolean)
+      : [];
+    return {
+      days: days,
+      history: history.slice(0, 120),
+      currentDayKey:
+        typeof raw.currentDayKey === "string" && raw.currentDayKey.trim()
+          ? raw.currentDayKey.trim()
+          : getRealWorldDateKey(),
+    };
+  }
+
+  function purgeTaskTodoDataForPlot(plotId) {
+    const pid = String(plotId || "").trim();
+    if (!pid) return;
+    Object.keys(taskTodoData).forEach(function (k) {
+      if (k.indexOf(pid + "\u001e") === 0) delete taskTodoData[k];
+    });
+  }
+
+  function purgeTaskTodoDataForChar(charId) {
+    const cid = String(charId || "").trim();
+    if (!cid) return;
+    const suffix = "\u001e" + cid;
+    Object.keys(taskTodoData).forEach(function (k) {
+      if (k.slice(-suffix.length) === suffix) delete taskTodoData[k];
+    });
+  }
+
+  function sanitizeTaskTodoState() {
+    if (
+      !taskTodoPlotId ||
+      !plots.some(function (p) {
+        return p.id === taskTodoPlotId;
+      })
+    ) {
+      taskTodoPlotId = null;
+      taskTodoCharId = null;
+      return;
+    }
+    const plot = plots.find(function (p) {
+      return p.id === taskTodoPlotId;
+    });
+    if (
+      !taskTodoCharId ||
+      !plot ||
+      !isCharInPlot(plot.id, taskTodoCharId) ||
+      (getCharById(taskTodoCharId) && getCharById(taskTodoCharId).categoryId === CHAR_CATEGORY_SELF_ID)
+    ) {
+      taskTodoCharId = null;
+    }
+  }
+
+  function getTaskTodoPlot() {
+    sanitizeTaskTodoState();
+    if (!taskTodoPlotId) return null;
+    return (
+      plots.find(function (p) {
+        return p.id === taskTodoPlotId;
+      }) || null
+    );
+  }
+
+  function getTaskTodoCharacter() {
+    sanitizeTaskTodoState();
+    if (!taskTodoCharId) return null;
+    return getCharById(taskTodoCharId) || null;
+  }
+
+  function getTaskTodoBundle() {
+    const plot = getTaskTodoPlot();
+    const ch = getTaskTodoCharacter();
+    if (!plot || !ch) return null;
+    const key = taskTodoStorageKey(plot.id, ch.id);
+    if (!taskTodoData[key]) {
+      taskTodoData[key] = normalizeTaskTodoBundle({ days: {}, history: [] });
+    }
+    return taskTodoData[key];
+  }
+
+  function ensureTaskTodoDay(bundle, dateKey) {
+    const dk = dateKey || getRealWorldDateKey();
+    if (!bundle.days[dk]) {
+      bundle.days[dk] = createEmptyTaskTodoDay();
+    }
+    bundle.currentDayKey = dk;
+    return bundle.days[dk];
+  }
+
+  function getTaskTodoCurrentDay(bundle) {
+    const dk = getRealWorldDateKey();
+    if (bundle.currentDayKey !== dk) {
+      bundle.currentDayKey = dk;
+    }
+    return ensureTaskTodoDay(bundle, dk);
+  }
+
+  function buildTaskTodoUserStatsBlock(day) {
+    const tasks = (day.user && day.user.tasks) || [];
+    const total = tasks.length;
+    const done = tasks.filter(function (t) {
+      return t.done;
+    }).length;
+    const diaryCount = ((day.user && day.user.diary) || []).length;
+    return (
+      "【用户侧统计（仅供完成度氛围参考，严禁据此猜测或复述具体任务/日记内容）】\n" +
+      "今日任务总数：" +
+      total +
+      "\n已完成：" +
+      done +
+      "\n未完成：" +
+      Math.max(0, total - done) +
+      "\n心情日记条数：" +
+      diaryCount
+    );
+  }
+
+  function buildTaskTodoGenerationPrompt(plot, sender, day, bundle) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, sender);
+    const senderName = sender && sender.name ? String(sender.name).trim() : "TA";
+    const dateLabel = formatTaskTodoDateLabel(getRealWorldDateKey());
+    const round = day.character.generationRound || 0;
+    const lines = [
+      "请为「任务ToDo」功能生成 JSON。角色是「" + senderName + "」，与剧情主角「" + ctx.protagName + "」处于同一故事世界。",
+      "现实日期：" + dateLabel + "（须与此一致，勿用剧情内虚构日历）。",
+      "为角色撰写「平行一日」：TA 自己的待办、完成状态与心情日记，以及给用户的 5 条短寄语（每条 1～2 句，可安慰、鼓励或生活碎念）。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push(buildTaskTodoUserStatsBlock(day));
+    lines.push("");
+    lines.push(
+      "隐私规则：你不得读取、引用或模仿用户任务与日记的具体文字；用户侧仅提供上列统计数字。角色侧内容须独立创作，只可让完成度氛围（忙/闲）与数字大致协调。"
+    );
+    if (round > 0) {
+      lines.push("");
+      lines.push("【增量生成】第 " + (round + 1) + " 轮：在已有角色侧内容基础上追加，勿删除或覆盖已有条目。");
+      lines.push(
+        JSON.stringify({
+          tasks: day.character.tasks,
+          diary: day.character.diary,
+          messages: day.character.messages,
+        })
+      );
+      lines.push("请追加：新任务或补全已有任务 done 状态；追加日记段落；messages 共须 5 条——已点赞的寄语须原文保留，未点赞的可替换或改写。");
+    }
+    lines.push("");
+    lines.push(
+      "输出要求：\n" +
+        "1. 只输出一个 JSON 对象，无 markdown 围栏。\n" +
+        "2. 格式：\n" +
+        '{"tasks":[{"text":"任务描述","done":true,"note":"可选状态备注"}],"diary":[{"text":"日记段落","mood":"2~4字心情"}],"messages":[{"text":"1~2句寄语"}]}\n' +
+        "3. tasks 3~8 条为宜；diary 1~3 段；messages 必须恰好 5 条。\n" +
+        "4. 第一人称或贴近 " +
+        senderName +
+        " 口吻；语气私密自然。\n" +
+        (round > 0
+          ? "5. 本轮只输出【新增】的 tasks 与 diary 条目；messages 输出完整 5 条数组（含须保留的已点赞条）。"
+          : "5. 首轮全量输出。")
+    );
+    return lines.join("\n");
+  }
+
+  function mergeTaskTodoGenerationResult(day, parsed) {
+    if (!parsed || typeof parsed !== "object") return false;
+    const existing = day.character;
+    const oldMessages = Array.isArray(existing.messages) ? existing.messages.slice() : [];
+    const likedById = {};
+    oldMessages.forEach(function (m) {
+      if (m.liked) likedById[m.id] = m;
+    });
+    const newTasks = Array.isArray(parsed.tasks)
+      ? parsed.tasks.map(function (t) {
+          return normalizeTaskTodoTaskItem(t, "ct");
+        }).filter(Boolean)
+      : [];
+    const newDiary = Array.isArray(parsed.diary)
+      ? parsed.diary.map(function (d) {
+          return normalizeTaskTodoDiaryItem(d, "cd");
+        }).filter(Boolean)
+      : [];
+    const newMessagesRaw = Array.isArray(parsed.messages) ? parsed.messages : [];
+    const newMessages = [];
+    newMessagesRaw.forEach(function (m, idx) {
+      const norm = normalizeTaskTodoMessageItem(m, "cm");
+      if (!norm) return;
+      const oldLiked = oldMessages[idx] && oldMessages[idx].liked ? oldMessages[idx] : null;
+      if (oldLiked && oldLiked.liked) {
+        newMessages.push(oldLiked);
+      } else {
+        newMessages.push(norm);
+      }
+    });
+    while (newMessages.length < 5 && oldMessages[newMessages.length]) {
+      const om = oldMessages[newMessages.length];
+      if (om && om.liked) newMessages.push(om);
+      else break;
+    }
+    while (newMessages.length < 5 && newMessagesRaw[newMessages.length]) {
+      const norm = normalizeTaskTodoMessageItem(newMessagesRaw[newMessages.length], "cm");
+      if (norm) newMessages.push(norm);
+      else break;
+    }
+    if (existing.generationRound > 0) {
+      existing.tasks = existing.tasks.concat(newTasks);
+      existing.diary = existing.diary.concat(newDiary);
+    } else {
+      existing.tasks = newTasks.length ? newTasks : existing.tasks;
+      existing.diary = newDiary.length ? newDiary : existing.diary;
+    }
+    if (newMessages.length >= 5) {
+      existing.messages = newMessages.slice(0, 5);
+    } else if (newMessages.length > 0) {
+      const merged = newMessages.slice();
+      for (let i = merged.length; i < 5 && oldMessages[i]; i++) {
+        if (!merged.some(function (x) {
+          return x.id === oldMessages[i].id;
+        })) {
+          merged.push(oldMessages[i]);
+        }
+      }
+      while (merged.length < 5 && newMessagesRaw[merged.length]) {
+        const norm = normalizeTaskTodoMessageItem(newMessagesRaw[merged.length], "cm");
+        if (norm) merged.push(norm);
+        else break;
+      }
+      existing.messages = merged.slice(0, 5);
+    }
+    existing.generated = true;
+    existing.generationRound = (existing.generationRound || 0) + 1;
+    return true;
+  }
+
+  async function generateTaskTodoCharacterContent(slot) {
+    const plot = getTaskTodoPlot();
+    const ch = getTaskTodoCharacter();
+    if (!plot || !ch) {
+      showToast("请先选择剧情与角色。", "warning");
+      return;
+    }
+    const bundle = getTaskTodoBundle();
+    const day = getTaskTodoCurrentDay(bundle);
+    if (day.settled) {
+      showToast("今日已打卡结算，无法继续生成。", "info");
+      return;
+    }
+    if (taskTodoGenerating) return;
+    taskTodoGenerating = true;
+    renderTaskTodoScreen(slot);
+    try {
+      const userPrompt = buildTaskTodoGenerationPrompt(plot, ch, day, bundle);
+      const system =
+        "你是中文互动叙事助手。根据剧情与人设，为角色撰写平行一日的待办、日记与给用户的短寄语 JSON。\n" +
+        "严禁读取或复述用户任务/日记具体文字；仅可参考任务总数与完成数。\n" +
+        "现实日期须与提示一致。";
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: system },
+          { role: "user", content: userPrompt },
+        ],
+        0.82,
+        2800,
+        { apiConfigId: getWorkbenchApiId() }
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      if (!mergeTaskTodoGenerationResult(day, parsed)) {
+        throw new Error("未能解析有效内容");
+      }
+      schedulePersistNarrative();
+      showToast(day.character.generationRound > 1 ? "已追加角色侧记录" : "角色侧记录已生成", "success");
+    } catch (err) {
+      showToast((err && err.message) || "生成失败", "error");
+    } finally {
+      taskTodoGenerating = false;
+      renderTaskTodoScreen(slot);
+    }
+  }
+
+  async function settleTaskTodoDay(slot) {
+    const bundle = getTaskTodoBundle();
+    if (!bundle) {
+      showToast("请先选择剧情与角色。", "warning");
+      return;
+    }
+    const day = getTaskTodoCurrentDay(bundle);
+    if (day.settled) {
+      showToast("今日已打卡。", "info");
+      return;
+    }
+    if (!day.character.generated) {
+      const ok = await showConfirm("尚未生成角色侧记录，仍要打卡结算今天吗？", "打卡结算");
+      if (!ok) return;
+    } else {
+      const ok = await showConfirm("打卡后将归档今日记录，用户侧变为只读。确定结算？", "打卡结算");
+      if (!ok) return;
+    }
+    const dk = getRealWorldDateKey();
+    day.settled = true;
+    day.settledAt = Date.now();
+    bundle.history.unshift({
+      dateKey: dk,
+      settledAt: day.settledAt,
+      day: normalizeTaskTodoDay(day),
+    });
+    if (bundle.history.length > 120) bundle.history = bundle.history.slice(0, 120);
+    schedulePersistNarrative();
+    showToast("今日已打卡结算", "success");
+    renderTaskTodoScreen(slot);
+    renderTaskTodoCalendarModal();
+  }
+
+  function buildTaskTodoDateKeyFromParts(y, m, d) {
+    return (
+      String(y) +
+      "-" +
+      String(m).padStart(2, "0") +
+      "-" +
+      String(d).padStart(2, "0")
+    );
+  }
+
+  function getTaskTodoDayRecord(bundle, dateKey) {
+    if (!bundle || !dateKey) return null;
+    if (bundle.days && bundle.days[dateKey]) {
+      return normalizeTaskTodoDay(bundle.days[dateKey]);
+    }
+    const hist = (bundle.history || []).find(function (h) {
+      return h && h.dateKey === dateKey;
+    });
+    if (hist && hist.day) return normalizeTaskTodoDay(hist.day);
+    return null;
+  }
+
+  function taskTodoDateHasRecord(bundle, dateKey) {
+    const day = getTaskTodoDayRecord(bundle, dateKey);
+    if (!day) return false;
+    const u = day.user || {};
+    const c = day.character || {};
+    return (
+      (u.tasks && u.tasks.length) ||
+      (u.diary && u.diary.length) ||
+      (c.tasks && c.tasks.length) ||
+      (c.diary && c.diary.length) ||
+      c.generated ||
+      day.settled
+    );
+  }
+
+  function openTaskTodoCalendarModal() {
+    const bundle = getTaskTodoBundle();
+    if (!bundle) {
+      showToast("请先选择剧情与角色。", "warning");
+      return;
+    }
+    const now = new Date();
+    taskTodoCalendarYear = now.getFullYear();
+    taskTodoCalendarMonth = now.getMonth();
+    taskTodoCalendarSelectedKey = getRealWorldDateKey();
+    const modal = els.modalTodoCalendar();
+    if (modal) modal.hidden = false;
+    renderTaskTodoCalendarModal();
+  }
+
+  function closeTaskTodoCalendarModal() {
+    const modal = els.modalTodoCalendar();
+    if (modal) modal.hidden = true;
+  }
+
+  function shiftTaskTodoCalendarMonth(delta) {
+    if (taskTodoCalendarYear == null || taskTodoCalendarMonth == null) return;
+    let y = taskTodoCalendarYear;
+    let m = taskTodoCalendarMonth + delta;
+    if (m < 0) {
+      m = 11;
+      y -= 1;
+    } else if (m > 11) {
+      m = 0;
+      y += 1;
+    }
+    taskTodoCalendarYear = y;
+    taskTodoCalendarMonth = m;
+    renderTaskTodoCalendarModal();
+  }
+
+  function buildTaskTodoCalendarDayDetailHtml(day, charName, userName, dateKey) {
+    if (!day) {
+      return '<p class="todo-calendar-detail__empty">该日暂无记录</p>';
+    }
+    const charTasks = (day.character && day.character.tasks) || [];
+    const userTasks = (day.user && day.user.tasks) || [];
+    const charDone = charTasks.filter(function (t) {
+      return t.done;
+    }).length;
+    const userDone = userTasks.filter(function (t) {
+      return t.done;
+    }).length;
+    const charDiary = (day.character && day.character.diary) || [];
+    const userDiary = (day.user && day.user.diary) || [];
+  const todayKey = getRealWorldDateKey();
+    const canSettle = dateKey === todayKey && !day.settled;
+
+    function taskLines(tasks) {
+      if (!tasks.length) return '<p class="todo-calendar-detail__none">无任务</p>';
+      return (
+        '<ul class="todo-calendar-detail__tasks">' +
+        tasks
+          .map(function (t) {
+            return (
+              '<li class="todo-calendar-detail__task' +
+              (t.done ? " is-done" : "") +
+              '">' +
+              '<span class="todo-calendar-detail__mark">' +
+              (t.done ? "✓" : "○") +
+              "</span>" +
+              '<span class="todo-calendar-detail__task-text">' +
+              escapeHtml(t.text) +
+              "</span></li>"
+            );
+          })
+          .join("") +
+        "</ul>"
+      );
+    }
+
+    function diaryLines(entries) {
+      if (!entries.length) return '<p class="todo-calendar-detail__none">无日记</p>';
+      return (
+        '<div class="todo-calendar-detail__diary">' +
+        entries
+          .map(function (e) {
+            return (
+              '<p class="todo-calendar-detail__diary-item">' +
+              escapeHtml(e.text) +
+              "</p>"
+            );
+          })
+          .join("") +
+        "</div>"
+      );
+    }
+
+    return (
+      '<div class="todo-calendar-detail">' +
+      '<div class="todo-calendar-detail__cols">' +
+      '<div class="todo-calendar-detail__col">' +
+      '<h4 class="todo-calendar-detail__who">' +
+      escapeHtml(charName || "角色") +
+      "</h4>" +
+      '<p class="todo-calendar-detail__stat">任务 ' +
+      charDone +
+      "/" +
+      charTasks.length +
+      "</p>" +
+      taskLines(charTasks) +
+      '<p class="todo-calendar-detail__sub">心情日记</p>' +
+      diaryLines(charDiary) +
+      "</div>" +
+      '<div class="todo-calendar-detail__col">' +
+      '<h4 class="todo-calendar-detail__who">' +
+      escapeHtml(userName || "我") +
+      "</h4>" +
+      '<p class="todo-calendar-detail__stat">任务 ' +
+      userDone +
+      "/" +
+      userTasks.length +
+      "</p>" +
+      taskLines(userTasks) +
+      '<p class="todo-calendar-detail__sub">心情日记</p>' +
+      diaryLines(userDiary) +
+      "</div>" +
+      "</div>" +
+      (day.settled ? '<p class="todo-calendar-detail__settled">已结算</p>' : "") +
+      (canSettle
+        ? '<button type="button" class="btn btn--secondary btn--pill todo-calendar-detail__settle" data-todo-calendar-settle>结算今日</button>'
+        : "") +
+      "</div>"
+    );
+  }
+
+  function buildTaskTodoCalendarModalHtml() {
+    const bundle = getTaskTodoBundle();
+    const plot = getTaskTodoPlot();
+    const ch = getTaskTodoCharacter();
+    const charName = ch ? ch.name || "角色" : "角色";
+    const userChar = plot ? getTaskTodoProtagonist(plot) : null;
+    const userName = userChar ? userChar.name || "我" : "我";
+    const y = taskTodoCalendarYear;
+    const m = taskTodoCalendarMonth;
+    if (y == null || m == null) return "";
+    const first = new Date(y, m, 1);
+    const lastDate = new Date(y, m + 1, 0).getDate();
+    const startPad = first.getDay();
+    const monthLabel = y + "年" + (m + 1) + "月";
+    const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
+    const todayKey = getRealWorldDateKey();
+    let cells = "";
+    let i;
+    for (i = 0; i < startPad; i++) {
+      cells += '<span class="todo-calendar__pad" aria-hidden="true"></span>';
+    }
+    for (let d = 1; d <= lastDate; d++) {
+      const dk = buildTaskTodoDateKeyFromParts(y, m + 1, d);
+      const has = taskTodoDateHasRecord(bundle, dk);
+      const isToday = dk === todayKey;
+      const isSel = dk === taskTodoCalendarSelectedKey;
+      cells +=
+        '<button type="button" class="todo-calendar__day' +
+        (has ? " has-record" : "") +
+        (isToday ? " is-today" : "") +
+        (isSel ? " is-selected" : "") +
+        '" data-todo-calendar-day="' +
+        escapeHtml(dk) +
+        '">' +
+        '<span class="todo-calendar__day-num">' +
+        d +
+        "</span>" +
+        (has ? '<span class="todo-calendar__dot" aria-hidden="true"></span>' : "") +
+        "</button>";
+    }
+    const selectedDay = taskTodoCalendarSelectedKey
+      ? getTaskTodoDayRecord(bundle, taskTodoCalendarSelectedKey)
+      : null;
+    const selectedLabel = taskTodoCalendarSelectedKey
+      ? formatTaskTodoDateLabel(taskTodoCalendarSelectedKey)
+      : "";
+
+    return (
+      '<div class="todo-calendar">' +
+      '<div class="todo-calendar__nav">' +
+      '<button type="button" class="todo-calendar__nav-btn" data-todo-calendar-prev aria-label="上个月">‹</button>' +
+      '<span class="todo-calendar__month">' +
+      escapeHtml(monthLabel) +
+      "</span>" +
+      '<button type="button" class="todo-calendar__nav-btn" data-todo-calendar-next aria-label="下个月">›</button>' +
+      "</div>" +
+      '<div class="todo-calendar__weekdays">' +
+      weekdays
+        .map(function (w) {
+          return '<span class="todo-calendar__weekday">' + w + "</span>";
+        })
+        .join("") +
+      "</div>" +
+      '<div class="todo-calendar__grid">' +
+      cells +
+      "</div>" +
+      '<div class="todo-calendar__detail">' +
+      '<h3 class="todo-calendar__detail-title">' +
+      escapeHtml(selectedLabel) +
+      "</h3>" +
+      buildTaskTodoCalendarDayDetailHtml(
+        selectedDay,
+        charName,
+        userName,
+        taskTodoCalendarSelectedKey
+      ) +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function renderTaskTodoCalendarModal() {
+    const slot = els.todoCalendarSlot();
+    if (!slot) return;
+    slot.innerHTML = buildTaskTodoCalendarModalHtml();
+  }
+
+  function cycleTaskTodoSayMessage(slot) {
+    const bundle = getTaskTodoBundle();
+    if (!bundle) return;
+    const day = getTaskTodoCurrentDay(bundle);
+    const messages = (day.character && day.character.messages) || [];
+    if (!messages.length) return;
+    const nav = getTodoNav(slot);
+    nav.activeMsgIndex = ((nav.activeMsgIndex || 0) + 1) % messages.length;
+    renderTaskTodoScreen(slot);
+  }
+
+  function buildTaskTodoProgressHtml(done, total) {
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    return (
+      '<div class="task-todo-progress" aria-hidden="true">' +
+      '<div class="task-todo-progress__track"><div class="task-todo-progress__fill" style="width:' +
+      pct +
+      '%"></div></div>' +
+      '<span class="task-todo-progress__label">' +
+      done +
+      "/" +
+      total +
+      "</span></div>"
+    );
+  }
+
+  function buildTaskTodoPanelHtml(opts) {
+    opts = opts || {};
+    const title = String(opts.title || "");
+    const meta = opts.meta;
+    const actionKind = opts.actionKind;
+    const readonly = !!opts.readonly;
+    const bodyHtml = opts.bodyHtml || "";
+    const panelMod = opts.panelMod ? " task-todo-panel--" + opts.panelMod : "";
+    const headBelow = opts.headBelow || "";
+    const action =
+      readonly || !actionKind
+        ? ""
+        : '<button type="button" class="task-todo-icon-btn" data-todo-open-compose="' +
+          escapeHtml(actionKind) +
+          '" aria-label="添加">' +
+          '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>' +
+          "</button>";
+    return (
+      '<div class="task-todo-panel' +
+      panelMod +
+      '">' +
+      '<div class="task-todo-panel__head">' +
+      '<div class="task-todo-panel__head-row">' +
+      '<h3 class="task-todo-panel__title">' +
+      escapeHtml(title) +
+      "</h3>" +
+      (meta != null && meta !== ""
+        ? '<span class="task-todo-panel__meta">' + escapeHtml(String(meta)) + "</span>"
+        : "") +
+      action +
+      "</div>" +
+      headBelow +
+      "</div>" +
+      '<div class="task-todo-panel__scroll">' +
+      bodyHtml +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function openTaskTodoComposeModal(mode) {
+    const m = mode === "diary" ? "diary" : "task";
+    const bundle = getTaskTodoBundle();
+    if (!bundle) {
+      showToast("请先选择剧情与角色。", "warning");
+      return;
+    }
+    const day = getTaskTodoCurrentDay(bundle);
+    if (day.settled) return;
+    taskTodoComposeMode = m;
+    const modal = els.modalTodoCompose();
+    const title = els.todoComposeTitle();
+    const input = els.todoComposeInput();
+    if (!modal || !title || !input) return;
+    title.textContent = m === "diary" ? "写心情日记" : "添加任务";
+    input.value = "";
+    input.placeholder = m === "diary" ? "记录此刻的心情、想法或碎碎念…" : "今天要完成的一件事…";
+    input.maxLength = m === "diary" ? 800 : 200;
+    modal.hidden = false;
+    requestAnimationFrame(function () {
+      input.focus();
+    });
+  }
+
+  function closeTaskTodoComposeModal() {
+    const modal = els.modalTodoCompose();
+    if (modal) modal.hidden = true;
+    taskTodoComposeMode = null;
+  }
+
+  function confirmTaskTodoCompose() {
+    const mode = taskTodoComposeMode;
+    const input = els.todoComposeInput();
+    const slot = els.todoContentSlot();
+    if (!mode || !input || !slot) return;
+    const text = String(input.value || "").trim();
+    if (!text) {
+      showToast(mode === "diary" ? "写点什么再保存吧" : "请输入任务内容", "info");
+      return;
+    }
+    if (mode === "diary") taskTodoAddUserDiary(slot, text);
+    else taskTodoAddUserTask(slot, text);
+    closeTaskTodoComposeModal();
+  }
+
+  function getTaskTodoProtagonist(plot) {
+    if (!plot || !plot.protagonistId) return null;
+    const protag = getCharById(plot.protagonistId);
+    if (!protag) return null;
+    return protag;
+  }
+
+  function buildTaskTodoPaneIntroHtml(avatarDataAttr, name, hint) {
+    return (
+      '<div class="task-todo-pane-intro">' +
+      '<div class="task-todo-pane-intro__avatar" ' +
+      avatarDataAttr +
+      "></div>" +
+      '<div class="task-todo-pane-intro__text">' +
+      '<p class="task-todo-pane-intro__name">' +
+      escapeHtml(name || "未命名") +
+      "</p>" +
+      '<p class="task-todo-pane-intro__hint">' +
+      escapeHtml(hint) +
+      "</p>" +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function buildTaskTodoHeartSvg(filled) {
+    return (
+      '<svg class="task-todo-whisper__heart-icon' +
+      (filled ? " task-todo-whisper__heart-icon--on" : "") +
+      '" width="16" height="16" viewBox="0 0 24 24" fill="' +
+      (filled ? "currentColor" : "none") +
+      '" stroke="currentColor" stroke-width="1.75" aria-hidden="true">' +
+      '<path d="M12 21s-7-4.5-9.5-9C1 9 3 5 7 5c2 0 3.5 1.5 5 3 1.5-1.5 3-3 5-3 4 0 6 4 4.5 7C19 16.5 12 21 12 21z"/>' +
+      "</svg>"
+    );
+  }
+
+  function formatTaskTodoTime(ts) {
+    if (!ts) return "";
+    const d = new Date(ts);
+    return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  }
+
+  function buildTaskTodoTaskRowHtml(task, side, readonly) {
+    const ro = readonly ? " task-todo-task--readonly" : "";
+    const delBtn =
+      readonly || side === "char"
+        ? ""
+        : '<button type="button" class="task-todo-task__del" data-todo-task-delete="' +
+          escapeHtml(task.id) +
+          '" aria-label="删除任务" title="删除">×</button>';
+    const noteHtml =
+      task.note && side === "char"
+        ? '<span class="task-todo-task__note">' + escapeHtml(task.note) + "</span>"
+        : "";
+    return (
+      '<li class="task-todo-task' +
+      (task.done ? " task-todo-task--done" : "") +
+      ro +
+      '" data-todo-task-id="' +
+      escapeHtml(task.id) +
+      '">' +
+      '<label class="task-todo-task__check-wrap">' +
+      '<input type="checkbox" class="task-todo-task__check" data-todo-task-toggle="' +
+      escapeHtml(task.id) +
+      '"' +
+      (task.done ? " checked" : "") +
+      (readonly || side === "char" ? " disabled" : "") +
+      " />" +
+      '<span class="task-todo-task__box" aria-hidden="true"></span>' +
+      "</label>" +
+      '<div class="task-todo-task__body">' +
+      '<span class="task-todo-task__text">' +
+      escapeHtml(task.text) +
+      "</span>" +
+      noteHtml +
+      "</div>" +
+      delBtn +
+      "</li>"
+    );
+  }
+
+  function buildTaskTodoDiaryHtml(entries, side) {
+    if (!entries.length) {
+      return (
+        '<div class="task-todo-empty-state">' +
+        '<p class="task-todo-empty-state__text">' +
+        (side === "char" ? "生成后显示 TA 的日记" : "暂无记录") +
+        "</p></div>"
+      );
+    }
+    return entries
+      .map(function (entry) {
+        return (
+          '<article class="task-todo-diary-entry">' +
+          '<div class="task-todo-diary-entry__meta">' +
+          '<time>' +
+          escapeHtml(formatTaskTodoTime(entry.createdAt)) +
+          "</time>" +
+          (entry.mood && side === "char"
+            ? '<span class="task-todo-diary-entry__mood">' + escapeHtml(entry.mood) + "</span>"
+            : "") +
+          "</div>" +
+          '<p class="task-todo-diary-entry__text">' +
+          escapeHtml(entry.text) +
+          "</p>" +
+          "</article>"
+        );
+      })
+      .join("");
+  }
+
+  function buildTaskTodoSayPanelHtml(day, nav, charName) {
+    const messages = (day.character && day.character.messages) || [];
+    const idx = Math.max(0, Math.min(messages.length - 1, nav.activeMsgIndex || 0));
+    const who = charName ? String(charName).trim() : "TA";
+    let bodyHtml = "";
+    if (!messages.length) {
+      bodyHtml =
+        '<div class="task-todo-say-empty"><p class="task-todo-say-empty__text">生成后，' +
+        escapeHtml(who) +
+        " 会在这里对你说几句话</p></div>";
+    } else {
+      const cur = messages[idx] || messages[0];
+      bodyHtml =
+        '<button type="button" class="task-todo-say-carousel" data-todo-say-cycle aria-label="点击切换下一条">' +
+        '<p class="task-todo-say-carousel__text">' +
+        escapeHtml(cur.text) +
+        "</p>" +
+        '<span class="task-todo-say-carousel__hint">点击切换 · ' +
+        (idx + 1) +
+        "/" +
+        messages.length +
+        "</span>" +
+        "</button>" +
+        '<button type="button" class="task-todo-say-carousel__heart' +
+        (cur.liked ? " is-liked" : "") +
+        '" data-todo-msg-like="' +
+        escapeHtml(cur.id) +
+        '" aria-label="点赞">' +
+        buildTaskTodoHeartSvg(cur.liked) +
+        "</button>";
+    }
+    return (
+      '<section class="task-todo__say" aria-label="对你说的话">' +
+      '<div class="task-todo-panel task-todo-panel--say">' +
+      '<div class="task-todo-panel__head">' +
+      '<div class="task-todo-panel__head-row">' +
+      '<h3 class="task-todo-panel__title">说的话</h3>' +
+      '<span class="task-todo-panel__meta">' +
+      (messages.length ? idx + 1 + "/" + messages.length : "—") +
+      "</span>" +
+      "</div>" +
+      "</div>" +
+      '<div class="task-todo-panel__scroll task-todo-panel__scroll--say">' +
+      bodyHtml +
+      "</div>" +
+      "</div>" +
+      "</section>"
+    );
+  }
+
+  function buildTaskTodoScreenHtml(slot, bundle, day, plot, ch, generating) {
+    const nav = getTodoNav(slot);
+    const readonly = !!day.settled;
+    const dateLabel = formatTaskTodoDateLabel(getRealWorldDateKey());
+    const plotTitle = plot ? plot.title || "未命名剧情" : "未选择剧情";
+    const charName = ch ? ch.name || "角色" : "未选择角色";
+    const genDisabled = generating || readonly || !plot || !ch;
+    const calendarDisabled = generating || !plot || !ch;
+    const userTasks = (day.user && day.user.tasks) || [];
+    const charTasks = (day.character && day.character.tasks) || [];
+    const doneCount = userTasks.filter(function (t) {
+      return t.done;
+    }).length;
+    const contextLabel = plot && ch ? plotTitle + " · " + charName : "选择剧情与角色";
+    const userChar = plot ? getTaskTodoProtagonist(plot) : null;
+    const userName = userChar ? userChar.name || "我的形象" : "我的形象";
+
+    return (
+      '<div class="task-todo' +
+      (generating ? " task-todo--generating" : "") +
+      (readonly ? " task-todo--settled" : "") +
+      '" data-task-todo-root>' +
+      '<header class="task-todo__bar">' +
+      '<div class="task-todo__bar-row">' +
+      '<button type="button" class="task-todo__back" data-todo-back aria-label="返回">' +
+      '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>' +
+      "</button>" +
+      '<button type="button" class="task-todo__context" data-todo-context aria-label="切换剧情与角色">' +
+      '<span class="task-todo__context-label">' +
+      escapeHtml(contextLabel) +
+      "</span>" +
+      '<span class="task-todo__context-date">' +
+      escapeHtml(dateLabel) +
+      "</span>" +
+      '<svg class="task-todo__context-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>' +
+      "</button>" +
+      '<button type="button" class="task-todo__calendar' +
+      (calendarDisabled ? " is-disabled" : "") +
+      '" data-todo-calendar' +
+      (calendarDisabled ? " disabled" : "") +
+      ' aria-label="日历回顾" title="日历">' +
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>' +
+      "</button>" +
+      '<button type="button" class="task-todo__gen phone-wechat-gen-btn' +
+      (generating ? " phone-wechat-gen-btn--loading" : "") +
+      (genDisabled ? " is-disabled" : "") +
+      '" data-todo-generate' +
+      (genDisabled ? " disabled" : "") +
+      ' aria-label="生成" title="生成">' +
+      buildPhoneWechatStarIconSvg() +
+      "</button>" +
+      "</div>" +
+      "</header>" +
+      '<div class="task-todo__body">' +
+      '<div class="task-todo__split">' +
+      '<section class="task-todo-pane task-todo-pane--char" aria-label="角色侧">' +
+      '<div class="task-todo-pane__inner">' +
+      buildTaskTodoPaneIntroHtml('data-todo-char-avatar', charName, "平行一日") +
+      (generating
+        ? '<div class="task-todo-char__skeleton" aria-hidden="true"><span></span><span></span><span></span></div>'
+        : "") +
+      buildTaskTodoPanelHtml({
+        title: "今日任务",
+        meta: String(charTasks.length),
+        panelMod: "tasks",
+        readonly: true,
+        bodyHtml:
+          '<ul class="task-todo-task-list">' +
+          (charTasks.length
+            ? charTasks
+                .map(function (t) {
+                  return buildTaskTodoTaskRowHtml(t, "char", true);
+                })
+                .join("")
+            : '<li class="task-todo-empty-li">—</li>') +
+          "</ul>",
+      }) +
+      buildTaskTodoPanelHtml({
+        title: "心情日记",
+        meta: String(((day.character && day.character.diary) || []).length),
+        panelMod: "diary",
+        readonly: true,
+        bodyHtml:
+          '<div class="task-todo-diary task-todo-diary--char">' +
+          buildTaskTodoDiaryHtml((day.character && day.character.diary) || [], "char") +
+          "</div>",
+      }) +
+      "</div>" +
+      "</section>" +
+      '<section class="task-todo-pane task-todo-pane--user" aria-label="我的今日">' +
+      '<div class="task-todo-pane__inner">' +
+      buildTaskTodoPaneIntroHtml('data-todo-user-avatar', userName, "我的今日") +
+      buildTaskTodoPanelHtml({
+        title: "我的任务",
+        meta: doneCount + "/" + userTasks.length,
+        actionKind: "task",
+        readonly: readonly,
+        panelMod: "tasks",
+        bodyHtml:
+          '<ul class="task-todo-task-list task-todo-task-list--user">' +
+          (userTasks.length
+            ? userTasks
+                .map(function (t) {
+                  return buildTaskTodoTaskRowHtml(t, "user", readonly);
+                })
+                .join("")
+            : '<li class="task-todo-empty-li">点击 + 添加任务</li>') +
+          "</ul>",
+      }) +
+      buildTaskTodoPanelHtml({
+        title: "心情日记",
+        meta: String(((day.user && day.user.diary) || []).length),
+        actionKind: "diary",
+        readonly: readonly,
+        panelMod: "diary",
+        bodyHtml:
+          '<div class="task-todo-diary task-todo-diary--user">' +
+          buildTaskTodoDiaryHtml((day.user && day.user.diary) || [], "user") +
+          "</div>",
+      }) +
+      (readonly ? '<p class="task-todo-settled-hint">今日已打卡 · 只读回顾</p>' : "") +
+      "</div>" +
+      "</section>" +
+      "</div>" +
+      buildTaskTodoSayPanelHtml(day, nav, charName) +
+      "</div>" +
+      "</div>"
+    );
+  }
+
+  function renderTaskTodoScreen(slot) {
+    if (!slot) return;
+    slot.classList.remove("story-placeholder");
+    const plot = getTaskTodoPlot();
+    const ch = getTaskTodoCharacter();
+    const bundle = plot && ch ? getTaskTodoBundle() : null;
+    const day = bundle ? getTaskTodoCurrentDay(bundle) : createEmptyTaskTodoDay();
+    slot.innerHTML = buildTaskTodoScreenHtml(slot, bundle, day, plot, ch, taskTodoGenerating);
+    const charAv = slot.querySelector("[data-todo-char-avatar]");
+    if (charAv && ch) fillAvatarElement(charAv, ch);
+    const userChar = plot ? getTaskTodoProtagonist(plot) : null;
+    const userAv = slot.querySelector("[data-todo-user-avatar]");
+    if (userAv && userChar) fillAvatarElement(userAv, userChar);
+  }
+
+  function closeOverviewTodoView() {
+    overviewSubView = null;
+    if (!location.hash.startsWith("#/story") && location.hash !== "#/tab/overview") {
+      location.hash = "#/tab/overview";
+    }
+    syncOverviewSubViewUi();
+  }
+
+  function taskTodoAddUserTask(slot, text) {
+    const bundle = getTaskTodoBundle();
+    if (!bundle) return;
+    const day = getTaskTodoCurrentDay(bundle);
+    if (day.settled) return;
+    const t = String(text || "").trim();
+    if (!t) return;
+    day.user.tasks.push({
+      id: uid("ut"),
+      text: t.slice(0, 200),
+      done: false,
+      note: "",
+      createdAt: Date.now(),
+    });
+    schedulePersistNarrative();
+    renderTaskTodoScreen(slot);
+  }
+
+  function taskTodoToggleUserTask(slot, taskId) {
+    const bundle = getTaskTodoBundle();
+    if (!bundle) return;
+    const day = getTaskTodoCurrentDay(bundle);
+    if (day.settled) return;
+    const task = day.user.tasks.find(function (t) {
+      return t.id === taskId;
+    });
+    if (!task) return;
+    task.done = !task.done;
+    schedulePersistNarrative();
+    renderTaskTodoScreen(slot);
+  }
+
+  function taskTodoDeleteUserTask(slot, taskId) {
+    const bundle = getTaskTodoBundle();
+    if (!bundle) return;
+    const day = getTaskTodoCurrentDay(bundle);
+    if (day.settled) return;
+    day.user.tasks = day.user.tasks.filter(function (t) {
+      return t.id !== taskId;
+    });
+    schedulePersistNarrative();
+    renderTaskTodoScreen(slot);
+  }
+
+  function taskTodoAddUserDiary(slot, text) {
+    const bundle = getTaskTodoBundle();
+    if (!bundle) return;
+    const day = getTaskTodoCurrentDay(bundle);
+    if (day.settled) return;
+    const t = String(text || "").trim();
+    if (!t) return;
+    day.user.diary.push({
+      id: uid("ud"),
+      text: t.slice(0, 800),
+      mood: "",
+      createdAt: Date.now(),
+    });
+    schedulePersistNarrative();
+    renderTaskTodoScreen(slot);
+  }
+
+  function taskTodoToggleMessageLike(slot, msgId) {
+    const bundle = getTaskTodoBundle();
+    if (!bundle) return;
+    const day = getTaskTodoCurrentDay(bundle);
+    const msg = (day.character.messages || []).find(function (m) {
+      return m.id === msgId;
+    });
+    if (!msg) return;
+    msg.liked = !msg.liked;
+    schedulePersistNarrative();
+    renderTaskTodoScreen(slot);
   }
 
   function getPhoneWallpaperUrlForChar(charId) {
@@ -47452,7 +49781,7 @@
     const prompt = (refObj && refObj.prompt) || "";
     const celebrity =
       refKey === "appearance"
-        ? String((refObj && refObj.celebrityLookalike) || "").trim() || DEFAULT_VISUAL_CELEBRITY_LOOKALIKE
+        ? String((refObj && refObj.celebrityLookalike) || "").trim()
         : "";
     const plusSvg =
       '<svg class="icon-linear visual-image-pick-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
@@ -47519,6 +49848,13 @@
       '<input type="file" accept="image/*" id="' +
       inputId +
       '" hidden multiple /></div>' +
+      (count > 0
+        ? '<div class="visual-image-ref-analyze-row">' +
+          '<button type="button" class="btn-refresh visual-image-ref-analyze" data-visual-ref-analyze="' +
+          refKey +
+          '"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>重新分析参考图</button>' +
+          '<p class="field__hint field__hint--tight">上传后会自动分析并写入下方英文描述；换图后可点此重新分析。</p></div>'
+        : "") +
       '<div class="visual-image-ref-fields">' +
       '<label class="field visual-image-ref-fields__prompt">' +
       '<span class="field__label">参考描述提示词</span>' +
@@ -47530,10 +49866,11 @@
       "</textarea></label>" +
       (refKey === "appearance"
         ? '<label class="field visual-image-ref-fields__celebrity">' +
-          '<span class="field__label">参考明星</span>' +
-          '<input class="field__input" type="text" data-visual-ref-celebrity="appearance" placeholder="朴宝剑" value="' +
+          '<span class="field__label">额外气质参考（可选）</span>' +
+          '<input class="field__input" type="text" data-visual-ref-celebrity="appearance" placeholder="留空则仅以上传照片为准" value="' +
           escapeHtml(celebrity) +
           '" autocomplete="off" />' +
+          '<p class="field__hint field__hint--tight">可选填，仅作松散的气质/风格提示，不会向生图 API 发送明星姓名。人脸身份<strong>只</strong>以上方 1～3 张上传照片为准。读图走「设置→API 当前模型」（需支持视觉）；自拍生图优先用 <strong>gpt-image-2</strong>，参考图会通过 <code>images/edits</code> 一并传给模型。推荐上传顺序：正脸 → 3/4 侧脸 → 半身。</p>' +
           "</label>"
         : "") +
       "</div>"
@@ -47544,7 +49881,8 @@
     return buildVisualMultiRefSectionHtml({
       refKey: "appearance",
       sectionTitle: "外貌参考（自拍/人像）",
-      uploadHint: "点击空位上传，建议补充手机自拍或日常人像参考（正脸、侧脸等不同角度）",
+      uploadHint:
+        "点击空位上传 1～3 张：建议正脸、3/4 侧脸、半身（不同角度）。上传后自动分析五官并写入描述；自拍用 gpt-image-2 时会将参考图传给模型锁定同一张脸",
       slotLabel: "角度",
     });
   }
@@ -47668,8 +50006,7 @@
     if (appearancePrompt) visualImageSettings.appearanceRef.prompt = String(appearancePrompt.value || "").trim();
     if (dailyPrompt) visualImageSettings.dailyRef.prompt = String(dailyPrompt.value || "").trim();
     if (appearanceCelebrity) {
-      visualImageSettings.appearanceRef.celebrityLookalike =
-        String(appearanceCelebrity.value || "").trim() || DEFAULT_VISUAL_CELEBRITY_LOOKALIKE;
+      visualImageSettings.appearanceRef.celebrityLookalike = String(appearanceCelebrity.value || "").trim();
     }
     if (endpoint) visualImageSettings.api.endpoint = String(endpoint.value || "").trim();
     if (apiKey) visualImageSettings.api.apiKey = String(apiKey.value || "").trim();
@@ -47712,7 +50049,8 @@
           invalidateVisualRefVisionCache(refKey);
           persistVisualImageSettings();
           renderDynamic();
-          showToast("已添加 " + dataUrls.length + " 张参考图", "success");
+          showToast("已添加 " + dataUrls.length + " 张参考图，正在分析…", "info", 3600);
+          return runVisualRefVisionAnalysis(refKey, rootEl);
         })
         .catch(function () {
           showToast("图片过大或格式不支持", "warning");
@@ -47779,6 +50117,13 @@
     });
     bindVisualMultiRefFileInput(rootEl, "appearance");
     bindVisualMultiRefFileInput(rootEl, "daily");
+    rootEl.querySelectorAll("[data-visual-ref-analyze]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const key = btn.getAttribute("data-visual-ref-analyze");
+        if (key !== "appearance" && key !== "daily") return;
+        void runVisualRefVisionAnalysis(key, rootEl, { forceOverwrite: true });
+      });
+    });
     const visualModelSel = rootEl.querySelector("#visual-api-model");
     if (visualModelSel) {
       visualModelSel.addEventListener("change", function () {
@@ -48396,6 +50741,7 @@
       else if (overviewSubView === "fanwork") renderFanworkScreen(els.fanworkContentSlot());
       else if (overviewSubView === "knock") renderKnockScreen(els.knockContentSlot(), { scrollToEnd: true });
       else if (overviewSubView === "collect") renderCollectScreen(els.collectContentSlot());
+      else if (overviewSubView === "todo") renderTaskTodoScreen(els.todoContentSlot());
     }
     if (els.modalAssistantProfile() && !els.modalAssistantProfile().hidden) {
       renderAssistantProfileModal();
@@ -48505,6 +50851,41 @@
     });
   }
 
+  function persistEnvelopePhoto(dataUrl) {
+    if (suppressUserDataPersistence) return;
+    try {
+      if (dataUrl) localStorage.setItem(STORAGE_ENVELOPE_PHOTO, dataUrl);
+      else localStorage.removeItem(STORAGE_ENVELOPE_PHOTO);
+    } catch (e) {
+      if (e && (e.name === "QuotaExceededError" || e.code === 22)) {
+        showToast("信封照片保存失败：本地存储空间不足。", "error");
+      }
+    }
+  }
+
+  function loadEnvelopePhoto() {
+    try {
+      return localStorage.getItem(STORAGE_ENVELOPE_PHOTO) || "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function applyEnvelopePhotoToDom() {
+    const root = document.getElementById("view-overview");
+    if (!root) return;
+    const envelope = root.querySelector(".workbench-envelope");
+    if (!envelope) return;
+    const photoImg = envelope.querySelector(".envelope-photo");
+    const hint = envelope.querySelector(".envelope-upload-hint");
+    const dataUrl = loadEnvelopePhoto();
+    if (photoImg && dataUrl) {
+      photoImg.src = dataUrl;
+      photoImg.hidden = false;
+      if (hint) hint.style.display = "none";
+    }
+  }
+
   function bindOverviewWorkbenchActions() {
     const root = document.getElementById("view-overview");
     if (!root) return;
@@ -48535,13 +50916,16 @@
           if (!file) return;
           const reader = new FileReader();
           reader.onload = (ev) => {
-            photoImg.src = ev.target.result;
+            const dataUrl = ev.target.result;
+            photoImg.src = dataUrl;
             photoImg.hidden = false;
             if (hint) hint.style.display = "none";
+            persistEnvelopePhoto(dataUrl);
           };
           reader.readAsDataURL(file);
         });
       }
+      applyEnvelopePhotoToDom();
     }
   }
 
@@ -49104,7 +51488,7 @@
     const pairSelectBtn = e.target.closest("[data-knock-pair-select]");
     if (pairSelectBtn) {
       const parsed = parseKnockPairSelectToken(pairSelectBtn.getAttribute("data-knock-pair-select"));
-      if (parsed) activateKnockPairSelection(parsed.userCharId, parsed.partnerCharId, slot);
+      if (parsed) activateKnockPairSelection(parsed.userCharId, parsed.partnerCharId, slot, parsed.plotId);
       return true;
     }
     const savedPairBtn = e.target.closest("[data-knock-saved-pair]");
@@ -49240,6 +51624,10 @@
       knockPartnerCharId = nextId;
       getKnockSessionMetaMutable().pinnedPartnerId = nextId;
       applyKnockCharPickUpdate(slot);
+      return true;
+    }
+    if (e.target.closest("[data-knock-open-plot-picker]")) {
+      openKnockHolderModal();
       return true;
     }
     if (e.target.closest("[data-knock-setup-confirm]")) {
@@ -49444,10 +51832,6 @@
     const stickerPick = e.target.closest("[data-knock-sticker-pick]");
     if (stickerPick) {
       if (shouldIgnoreHorizontalScrollTap()) return true;
-      if (!isKnockStickerCenterTap(stickerPick, e)) {
-        showToast("请点击表情中央发送", "info");
-        return true;
-      }
       const url = stickerPick.getAttribute("data-sticker-url");
       const name = stickerPick.getAttribute("data-sticker-name") || "";
       sendKnockSticker(url, name);
@@ -50033,6 +52417,23 @@
       if (e.target.id === "modal-story-fanwork") closeStoryFanworkModal();
     });
   }
+  if (els.knockHolderClose()) {
+    els.knockHolderClose().addEventListener("click", closeKnockHolderModal);
+  }
+  if (els.knockHolderStepBack()) {
+    els.knockHolderStepBack().addEventListener("click", knockHolderModalBackToPlot);
+  }
+  if (els.modalKnockHolder()) {
+    els.modalKnockHolder().addEventListener("click", function (e) {
+      if (e.target.id === "modal-knock-holder") closeKnockHolderModal();
+    });
+  }
+  const overviewContextBar = els.overviewContextBar();
+  if (overviewContextBar) {
+    overviewContextBar.addEventListener("click", function () {
+      openOverviewContextModal();
+    });
+  }
   if (els.phoneHolderClose()) {
     els.phoneHolderClose().addEventListener("click", closePhoneHolderModal);
   }
@@ -50148,11 +52549,132 @@
       return;
     }
 
+    const viewPhotoBtn = e.target.closest("[data-collect-photo-view]");
+    if (viewPhotoBtn) {
+      openCollectPhotoViewer(viewPhotoBtn.getAttribute("data-collect-photo-url"));
+      return;
+    }
+
+    if (e.target.closest("[data-collect-photo-viewer-close]")) {
+      closeCollectPhotoViewer();
+      return;
+    }
+
+    const collectViewerSaveBtn = e.target.closest("[data-collect-photo-viewer-save]");
+    if (collectViewerSaveBtn) {
+      void saveCollectPhotoToDevice(collectViewerSaveBtn.getAttribute("data-photo-url"));
+      return;
+    }
+
     const savePhotoBtn = e.target.closest("[data-collect-save-photo]");
     if (savePhotoBtn) {
       void saveCollectPhotoToDevice(savePhotoBtn.getAttribute("data-collect-photo-url"));
       return;
     }
+  });
+  document.addEventListener("click", function (e) {
+    const slot = e.target.closest("#todo-content-slot");
+    if (!slot || !slot.contains(e.target)) return;
+
+    if (e.target.closest("[data-todo-back]")) {
+      closeOverviewTodoView();
+      return;
+    }
+
+    if (e.target.closest("[data-todo-generate]")) {
+      void generateTaskTodoCharacterContent(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-todo-calendar]")) {
+      openTaskTodoCalendarModal();
+      return;
+    }
+
+    if (e.target.closest("[data-todo-context]")) {
+      openOverviewContextModal();
+      return;
+    }
+
+    const composeBtn = e.target.closest("[data-todo-open-compose]");
+    if (composeBtn) {
+      openTaskTodoComposeModal(composeBtn.getAttribute("data-todo-open-compose"));
+      return;
+    }
+
+    const toggleBtn = e.target.closest("[data-todo-task-toggle]");
+    if (toggleBtn && !toggleBtn.disabled) {
+      taskTodoToggleUserTask(slot, toggleBtn.getAttribute("data-todo-task-toggle"));
+      return;
+    }
+
+    const delBtn = e.target.closest("[data-todo-task-delete]");
+    if (delBtn) {
+      taskTodoDeleteUserTask(slot, delBtn.getAttribute("data-todo-task-delete"));
+      return;
+    }
+
+    const likeBtn = e.target.closest("[data-todo-msg-like]");
+    if (likeBtn) {
+      taskTodoToggleMessageLike(slot, likeBtn.getAttribute("data-todo-msg-like"));
+      return;
+    }
+
+    if (e.target.closest("[data-todo-say-cycle]")) {
+      cycleTaskTodoSayMessage(slot);
+      return;
+    }
+  });
+  if (els.todoComposeClose()) {
+    els.todoComposeClose().addEventListener("click", closeTaskTodoComposeModal);
+  }
+  if (els.todoComposeConfirm()) {
+    els.todoComposeConfirm().addEventListener("click", confirmTaskTodoCompose);
+  }
+  if (els.modalTodoCompose()) {
+    els.modalTodoCompose().addEventListener("click", function (e) {
+      if (e.target.id === "modal-todo-compose") closeTaskTodoComposeModal();
+    });
+  }
+  if (els.todoCalendarClose()) {
+    els.todoCalendarClose().addEventListener("click", closeTaskTodoCalendarModal);
+  }
+  if (els.modalTodoCalendar()) {
+    els.modalTodoCalendar().addEventListener("click", function (e) {
+      if (e.target.id === "modal-todo-calendar") {
+        closeTaskTodoCalendarModal();
+        return;
+      }
+      const calSlot = els.todoCalendarSlot();
+      if (!calSlot || !calSlot.contains(e.target)) return;
+      if (e.target.closest("[data-todo-calendar-prev]")) {
+        shiftTaskTodoCalendarMonth(-1);
+        return;
+      }
+      if (e.target.closest("[data-todo-calendar-next]")) {
+        shiftTaskTodoCalendarMonth(1);
+        return;
+      }
+      const dayBtn = e.target.closest("[data-todo-calendar-day]");
+      if (dayBtn) {
+        taskTodoCalendarSelectedKey = dayBtn.getAttribute("data-todo-calendar-day");
+        renderTaskTodoCalendarModal();
+        return;
+      }
+      if (e.target.closest("[data-todo-calendar-settle]")) {
+        void settleTaskTodoDay(els.todoContentSlot());
+      }
+    });
+  }
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" || e.isComposing) return;
+    const modal = els.modalTodoCompose();
+    if (!modal || modal.hidden) return;
+    const input = els.todoComposeInput();
+    if (!input || e.target !== input) return;
+    if (e.shiftKey) return;
+    e.preventDefault();
+    confirmTaskTodoCompose();
   });
   document.addEventListener("click", function (e) {
     const slot = e.target.closest("#phone-content-slot, #story-phone-slot");
@@ -52043,6 +54565,7 @@
       resetToOverviewHomeOnPageLoad();
       applyHash();
       renderDynamic();
+      renderOverviewContextBar();
     } catch (bootErr) {
       try {
         console.error(bootErr);

@@ -46,6 +46,15 @@
       <!-- 点星（原助手页：AI 工具与查手机、同人粮入口） -->
       <section id="view-overview" class="view" data-view="overview">
         <div id="overview-hub" class="overview-hub">
+          <button type="button" id="overview-context-bar" class="overview-context-bar overview-context-bar--empty" data-overview-context-change aria-label="切换剧情与角色">
+            <span class="overview-context-bar__info">
+              <span id="overview-context-plot-label" class="overview-context-bar__plot">未选择剧情</span>
+              <span id="overview-context-char-label" class="overview-context-bar__char">未选择角色</span>
+            </span>
+            <span class="overview-context-bar__change" aria-hidden="true">
+              <svg class="icon-linear" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
+            </span>
+          </button>
           <div class="workbench-mosaic">
             <button type="button" class="workbench-card workbench-card--mini workbench-card--theme" data-assistant-action="theme" role="listitem">
               <span class="workbench-card__visual" aria-hidden="true">
@@ -142,6 +151,21 @@
               </span>
               <span class="workbench-card__title">收取</span>
             </button>
+            <button type="button" class="workbench-card workbench-card--feature workbench-card--todo" data-assistant-action="todo" role="listitem">
+              <span class="workbench-card__visual" aria-hidden="true">
+                <svg class="workbench-glyph" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect class="wb-g__soft" x="12" y="10" width="40" height="46" rx="5"/>
+                  <rect class="wb-g__paper" x="16" y="16" width="32" height="36" rx="3"/>
+                  <rect class="wb-g__mid" x="20" y="22" width="6" height="6" rx="1.5"/>
+                  <path class="wb-g__deep" d="M30 25 L33 28 L40 21"/>
+                  <path class="wb-g__stroke-soft" d="M30 34 H42 M30 40 H38"/>
+                  <rect class="wb-g__mid" x="20" y="32" width="6" height="6" rx="1.5"/>
+                  <path class="wb-g__stroke-soft" d="M30 46 H36"/>
+                  <path class="wb-g__solid" d="M44 48 C46 44 50 42 54 44 C52 50 48 54 42 56 C40 52 42 50 44 48 Z"/>
+                </svg>
+              </span>
+              <span class="workbench-card__title">任务ToDo</span>
+            </button>
             <button type="button" class="workbench-card workbench-card--feature workbench-card--fanwork" data-assistant-action="fanwork" role="listitem">
               <span class="workbench-card__visual" aria-hidden="true">
                 <svg class="workbench-glyph" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -190,6 +214,9 @@
         </div>
         <div id="overview-sub-collect" class="overview-subview" hidden>
           <div id="collect-content-slot" class="feature-view-body" aria-label="收取内容区"></div>
+        </div>
+        <div id="overview-sub-todo" class="overview-subview" hidden>
+          <div id="todo-content-slot" class="feature-view-body" aria-label="任务ToDo内容区"></div>
         </div>
       </section>
 
@@ -929,6 +956,35 @@
       </div>
     </div>
 
+    <div id="modal-todo-compose" class="overlay overlay--dim" hidden>
+      <div class="modal-sheet modal-sheet--todo-compose">
+        <div class="sheet-handle"></div>
+        <div class="modal-header">
+          <h2 class="modal-title" id="todo-compose-title">添加任务</h2>
+          <button type="button" class="icon-btn" id="todo-compose-close" aria-label="关闭">
+            <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="todo-compose-body">
+          <textarea id="todo-compose-input" class="todo-compose-input" rows="4" maxlength="800" placeholder=""></textarea>
+          <button type="button" class="btn btn--primary btn--pill todo-compose-confirm" id="todo-compose-confirm">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="modal-todo-calendar" class="overlay overlay--dim" hidden>
+      <div class="modal-sheet modal-sheet--todo-calendar">
+        <div class="sheet-handle"></div>
+        <div class="modal-header">
+          <h2 class="modal-title">日历回顾</h2>
+          <button type="button" class="icon-btn" id="todo-calendar-close" aria-label="关闭">
+            <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div id="todo-calendar-slot" class="todo-calendar-slot"></div>
+      </div>
+    </div>
+
     <div id="modal-collect-holder" class="overlay overlay--dim" hidden>
       <div class="modal-sheet modal-sheet--phone-holder modal-sheet--collect-holder">
         <div class="sheet-handle"></div>
@@ -965,6 +1021,26 @@
           <p class="phone-holder-hint" id="phone-holder-hint">先选择要查看手机的所在剧情</p>
           <div id="phone-holder-plot-list" class="phone-holder-plot-list"></div>
           <div id="phone-holder-pick" class="phone-holder-pick" hidden></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="modal-knock-holder" class="overlay overlay--dim" hidden>
+      <div class="modal-sheet modal-sheet--phone-holder modal-sheet--knock-holder">
+        <div class="sheet-handle"></div>
+        <div class="modal-header phone-holder-header">
+          <button type="button" class="icon-btn phone-holder-header__back" id="knock-holder-step-back" hidden aria-label="返回选择剧情">
+            <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M15 6l-6 6 6 6"/></svg>
+          </button>
+          <h2 class="modal-title" id="knock-holder-title">选择剧情</h2>
+          <button type="button" class="icon-btn" id="knock-holder-close" aria-label="关闭">
+            <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="phone-holder-body">
+          <p class="phone-holder-hint" id="knock-holder-hint">选择敲敲引用的剧情上下文</p>
+          <div id="knock-holder-plot-list" class="phone-holder-plot-list"></div>
+          <div id="knock-holder-pick" class="phone-holder-pick" hidden></div>
         </div>
       </div>
     </div>
@@ -1299,6 +1375,6 @@
   </div>
 
   <script src="jszip.min.js?v=1"></script>
-  <script src="app.js?v=150"></script>
+    <script src="app.js?v=154"></script>
 </body>
 </html>
