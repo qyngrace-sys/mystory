@@ -1080,7 +1080,7 @@ html[data-theme="dark"] .overview-hub--gallery {
   margin: 0;
   padding: 4px 12px 5px;
   border-radius: 8px;
-  background: var(--gallery-sign-bg);
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg));
   border: 1px solid var(--gallery-context-border);
   box-shadow: 0 2px 8px color-mix(in srgb, var(--text) 10%, transparent);
   backdrop-filter: none;
@@ -21830,6 +21830,19 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
 
 /* ── 收取功能 ── */
 #overview-sub-collect {
+  --collect-serif-font:
+    "Source Han Serif CN",
+    "Noto Serif TC",
+    "Noto Serif SC",
+    "思源宋体",
+    "Source Han Serif SC",
+    "Songti SC",
+    "Songti TC",
+    "STSong",
+    "SimSun",
+    Georgia,
+    serif;
+  font-family: var(--collect-serif-font);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -21945,7 +21958,7 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
     0 -1px 0 color-mix(in srgb, var(--slip-ink) 6%, transparent) inset,
     0 2px 8px -2px color-mix(in srgb, black 7%, transparent),
     0 5px 14px -4px color-mix(in srgb, black 6%, transparent);
-  font-family: "ZCOOL XiaoWei", "Noto Serif TC", Georgia, serif;
+  font-family: var(--collect-serif-font);
   font-size: 0.82rem;
   line-height: 1.62;
   pointer-events: auto;
@@ -22130,7 +22143,7 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
   margin-bottom: 12px;
   padding-bottom: 8px;
   border-bottom: 1px dashed color-mix(in srgb, var(--slip-ink) 22%, transparent);
-  font-family: "Courier New", "SF Mono", "Consolas", monospace;
+  font-family: var(--collect-serif-font);
   font-size: 0.64rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -22183,7 +22196,7 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
 }
 
 .collect-slip--whisper .collect-slip__text {
-  font-family: "ZCOOL XiaoWei", "Noto Serif TC", serif;
+  font-family: var(--collect-serif-font);
   font-size: 0.9rem;
   line-height: 1.75;
   letter-spacing: 0.02em;
@@ -22200,7 +22213,7 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
 }
 
 .collect-slip--letter .collect-slip__letter {
-  font-family: Georgia, "Noto Serif SC", "Songti SC", serif;
+  font-family: var(--collect-serif-font);
   font-size: 0.86rem;
   line-height: 1.72;
   padding-left: 12px;
@@ -22214,7 +22227,7 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
 }
 
 .collect-slip--draft .collect-slip__text--draft {
-  font-family: "Courier New", "SF Mono", monospace;
+  font-family: var(--collect-serif-font);
   font-size: 0.8rem;
   background: color-mix(in srgb, var(--slip-ink) 3%, transparent);
   padding: 8px 10px;
@@ -22224,14 +22237,14 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
 }
 
 .collect-slip--greeting .collect-slip__headline {
-  font-family: "ZCOOL XiaoWei", serif;
+  font-family: var(--collect-serif-font);
   font-size: 1.05rem;
   text-align: center;
   letter-spacing: 0.08em;
 }
 
 .collect-slip--greeting .collect-slip__list {
-  font-family: "ZCOOL XiaoWei", "Noto Serif TC", serif;
+  font-family: var(--collect-serif-font);
   line-height: 1.85;
   text-align: left;
 }
@@ -22246,7 +22259,7 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
 }
 
 .collect-slip--memo .collect-slip__text {
-  font-family: "Courier New", "SF Mono", monospace;
+  font-family: var(--collect-serif-font);
   font-size: 0.78rem;
   opacity: 0.92;
   text-align: left;
@@ -22268,7 +22281,7 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
 }
 
 .collect-slip--dream .collect-slip__dream-lines {
-  font-family: "Ma Shan Zheng", "Liu Jian Mao Cao", cursive;
+  font-family: var(--collect-serif-font);
   font-size: 0.95rem;
   text-align: left;
 }
@@ -22317,14 +22330,14 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
 }
 
 .collect-slip--specialDay .collect-slip__headline {
-  font-family: "ZCOOL XiaoWei", serif;
+  font-family: var(--collect-serif-font);
   font-size: 1rem;
   text-align: center;
 }
 
 .collect-slip--specialDay .collect-slip__meta-line {
   text-align: center;
-  font-family: "Courier New", monospace;
+  font-family: var(--collect-serif-font);
   letter-spacing: 0.12em;
   text-indent: 0;
 }
@@ -22420,7 +22433,7 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
   background: none;
   cursor: pointer;
   font: inherit;
-  font-family: "Courier New", "SF Mono", monospace;
+  font-family: var(--collect-serif-font);
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -22590,7 +22603,7 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
   padding: 0;
   text-align: left;
   text-indent: 2em;
-  font-family: "Ma Shan Zheng", cursive;
+  font-family: var(--collect-serif-font);
   font-size: 1rem;
   line-height: 1.65;
   color: #3d3428;
@@ -22733,7 +22746,7 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
 .collect-printer__display {
   margin: 0;
   width: 100%;
-  font-family: "Courier New", "SF Mono", monospace;
+  font-family: var(--collect-serif-font);
   font-size: 0.72rem;
   line-height: 1.45;
   color: color-mix(in srgb, var(--accent) 72%, #ffb380);
@@ -22954,7 +22967,7 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
   margin: 6px 0 0;
   font-size: 0.76rem;
   line-height: 1.4;
-  opacity: 0.78;
+  opacity: 1;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -23168,9 +23181,9 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
   border-radius: 999px;
   font-size: 0.74rem;
   line-height: 1.35;
-  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
-  color: color-mix(in srgb, var(--text) 88%, var(--accent));
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  color: var(--text);
 }
 
 .collect-settings-panel {
@@ -23575,7 +23588,7 @@ html[data-theme="dark"] .collect-history-empty {
   position: relative;
   z-index: 1;
   width: 100%;
-  max-width: min(100%, 360px);
+  max-width: min(100%, 340px);
   height: 100%;
   max-height: 100%;
   display: flex;
@@ -23610,12 +23623,19 @@ html[data-theme="dark"] .collect-history-empty {
   flex: 1;
   min-height: 0;
   width: 100%;
+  padding: 8px 10px 4px;
+  margin-bottom: 0;
   display: flex;
-  align-items: stretch;
-  justify-content: center;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
+}
+
+.collect-history-detail__slip-wrap .collect-slip-stage {
+  pointer-events: auto;
 }
 
 .collect-history-detail__slip-wrap .collect-slip {
@@ -23883,6 +23903,7 @@ html[data-theme="dark"] .collect-history-empty {
   box-sizing: border-box;
   margin: 0;
   padding: 2px 0 6px;
+  font-family: var(--collect-serif-font);
   line-height: 1.78;
   font-size: 0.9rem;
   white-space: pre-wrap;
@@ -23899,6 +23920,7 @@ html[data-theme="dark"] .collect-history-empty {
   box-sizing: border-box;
   margin: 0;
   padding: 22px 18px 26px;
+  font-family: var(--collect-serif-font);
   border-radius: 3px;
   background:
     linear-gradient(
@@ -23940,7 +23962,7 @@ html[data-theme="dark"] .collect-history-empty {
 }
 
 .collect-letter-hand {
-  font-family: "Ma Shan Zheng", "Liu Jian Mao Cao", "KaiTi", cursive;
+  font-family: var(--collect-serif-font);
 }
 
 .collect-letter-listen {
@@ -24049,7 +24071,7 @@ html[data-theme="dark"] .collect-history-empty {
   margin: 0;
   max-width: 100%;
   font-size: 0.8rem;
-  font-family: "Ma Shan Zheng", cursive;
+  font-family: var(--collect-serif-font);
   color: color-mix(in srgb, white 90%, transparent);
   text-align: center;
   line-height: 1.45;
@@ -24343,7 +24365,7 @@ html[data-theme="dark"] .collect-history-empty {
 
 .collect-special-day__title {
   margin: 0 0 14px;
-  font-family: "ZCOOL XiaoWei", "Noto Serif TC", serif;
+  font-family: var(--collect-serif-font);
   font-size: 1.25rem;
   font-weight: 700;
   line-height: 1.35;
@@ -24361,7 +24383,7 @@ html[data-theme="dark"] .collect-history-empty {
   padding-top: 14px;
   border-top: 1px dashed color-mix(in srgb, #c9b896 50%, transparent);
   font-size: 0.86rem;
-  font-family: "Ma Shan Zheng", cursive;
+  font-family: var(--collect-serif-font);
   color: color-mix(in srgb, #5a4a38 90%, transparent);
 }
 
@@ -24395,7 +24417,6 @@ html[data-theme="dark"] .collect-history-empty {
   width: 100%;
   max-height: 200px;
   object-fit: cover;
-  filter: saturate(0.75) contrast(0.95);
 }
 
 .collect-dream__scene {
@@ -24504,7 +24525,7 @@ html[data-theme="dark"] .collect-history-empty {
 
 .collect-postcard__head {
   margin: 0 0 12px;
-  font-family: "ZCOOL XiaoWei", "Noto Serif TC", serif;
+  font-family: var(--collect-serif-font);
   font-size: 1.15rem;
   font-weight: 600;
 }
@@ -24512,7 +24533,7 @@ html[data-theme="dark"] .collect-history-empty {
 .collect-postcard__lines {
   margin: 0;
   padding-left: 1.1em;
-  font-family: "ZCOOL XiaoWei", "Noto Serif TC", serif;
+  font-family: var(--collect-serif-font);
   line-height: 1.8;
   font-size: 0.95rem;
 }

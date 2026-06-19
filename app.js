@@ -25348,11 +25348,11 @@
         ctx.protagName +
         '说","mood":"2~4字情绪"},"letter":{"salutation":"称呼","body":"100~220字手写信正文","signOff":"署名"},"greeting":{"headline":"短标题","lines":["2~3条生活化问候句"]},"photo":{"caption":"拍立得底部12字内","sceneText":"60~100字场景描述","backText":"背面手写12~40字，仅两人懂的梗/昵称/承诺","imagePrompt":"English selfie prompt for ' +
         senderName +
-        ': outfit, location, mood, pose and front-camera phone selfie lighting must match the current plot moment"},"memo":{"ambient":"≤40字环境描写（雨声/厨房/站台等）","ambientType":"rain|night|indoor|street|wind|default","mumble":"60~120字对着录音机的碎语","durationHint":"如0:23"},"draft":{"context":"≤8字场景标签","text":"80~150字未发送草稿正文","strikes":["0~2条被删掉的短语"]},"specialDay":{"timing":"past|future","daysOffset":整数,"title":"≤12字","note":"40~80字","whisper":"≤30字"},"dream":{"lines":["3~5条跳跃的梦话残片"],"sceneText":"60~100字梦境场景","imagePrompt":"English dream scene, rear-camera or ambient phone snapshot style, no face, no portrait, soft focus"}}\n' +
+        ': outfit, location, mood, pose and front-camera phone selfie lighting must match the current plot moment"},"memo":{"ambient":"≤40字环境描写（雨声/厨房/站台等）","ambientType":"rain|night|indoor|street|wind|default","mumble":"60~120字对着录音机的碎语","durationHint":"如0:23"},"draft":{"context":"≤8字场景标签","text":"80~150字未发送草稿正文","strikes":["0~2条被删掉的短语"]},"specialDay":{"timing":"past|future","daysOffset":整数,"title":"≤12字","note":"40~80字","whisper":"≤30字"},"dream":{"lines":["3~5条半梦半醒脱口而出的短句"],"sceneText":"60~100字可随手拍到的日常场景","imagePrompt":"English realistic everyday phone snapshot, candid daily life moment, natural lighting, mundane scene"}}\n' +
         "3. whisper/letter/greeting/memo/draft/specialDay/dream 用中文；photo.imagePrompt 与 dream.imagePrompt 用英文。\n" +
         "4. memo.ambient/mumble 须引用最近剧情场景与感官细节；draft 须体现欲言又止，strikes 为删改痕迹。\n" +
         "5. specialDay.daysOffset 相对剧情「今天」：负数为过去，正数为未来；timing 须与符号一致，须能从剧情时间线或记忆合理化。\n" +
-        "6. dream.lines/sceneText 重组最近剧情符号，语句不完整；dream.imagePrompt 无人物正脸，偏朦胧梦境场景（非 selfie），rear-camera 或环境手机快照风格。\n" +
+        "6. dream.lines 须是日常生活中真实会出现的朴实大白话（厨房、通勤、天气、吃食、家常对话等），可半句、可断续，但禁止虚无缥缈、诗意抽象或不知所云的意象；dream.sceneText 须描述一个现实中能亲眼见到的具体场景（地点、光线、物件须具体可感），禁止超现实、漂浮、魔幻元素；dream.imagePrompt 须为英文真实日常手机快照：像随手拍的生活瞬间，自然光、真实环境，禁止 surreal、dreamlike、hazy、floating objects 等超现实描述，无人物正脸特写（非 selfie）。\n" +
         "7. photo.backText 须紧扣上文，仅对" +
         ctx.protagName +
         " 有意义；内容精炼但情感到位。\n" +
@@ -25402,7 +25402,7 @@
     });
     return (
       base +
-      " Soft focus, dreamlike, muted colors, hazy atmosphere, surreal but grounded in the plot moment. Phone snapshot with soft dream haze. No portrait, no face, no person as subject."
+      " Realistic everyday phone snapshot, candid moment captured in daily life, natural lighting, authentic mundane scene. Documentary indoor or street photography style. No surreal elements, no floating objects, no dreamlike haze, no abstract symbolism, no soft-focus dream filter. No portrait, no face as main subject unless naturally incidental."
     );
   }
 
@@ -26825,9 +26825,10 @@
       '<div class="collect-history-detail">' +
       '<div class="collect-detail__backdrop collect-history-detail__backdrop" data-collect-history-close></div>' +
       '<div class="collect-history-detail__stage">' +
-      '<div class="collect-history-detail__slip-wrap">' +
+      '<div class="collect-history-detail__slip-wrap collect-slip-area">' +
+      '<div class="collect-slip-stage">' +
       slipHtml +
-      "</div>" +
+      "</div></div>" +
       '<button type="button" class="collect-detail__dismiss" data-collect-history-close>收起</button>' +
       "</div></div>"
     );
