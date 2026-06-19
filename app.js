@@ -81,6 +81,8 @@
 
   const STORAGE_API_CONFIGS = "hj-api-configs-v1";
   const STORAGE_ACTIVE_API_ID = "hj-active-api-id-v1";
+  const STORAGE_SECONDARY_API_ID = "hj-secondary-api-id-v1";
+  const STORAGE_DUAL_API_PARALLEL = "hj-dual-api-parallel-v1";
   const STORAGE_TTS_SETTINGS = "hj-tts-settings-v1";
   const STORAGE_VISUAL_IMAGE_SETTINGS = "hj-visual-image-settings-v1";
   const STORAGE_ENVELOPE_PHOTO = "hj-envelope-photo-v1";
@@ -265,7 +267,12 @@
   /** 单个自定义字体上限（节选/完整中文族、可变字体可达数十 MB） */
   const FONT_UPLOAD_MAX_BYTES = 96 * 1024 * 1024;
   const FONT_UPLOAD_MAX_LABEL = Math.round(FONT_UPLOAD_MAX_BYTES / (1024 * 1024)) + "MB";
-  const CLEAR_DATA_KEEP_KEYS = [STORAGE_API_CONFIGS, STORAGE_ACTIVE_API_ID];
+  const CLEAR_DATA_KEEP_KEYS = [
+    STORAGE_API_CONFIGS,
+    STORAGE_ACTIVE_API_ID,
+    STORAGE_SECONDARY_API_ID,
+    STORAGE_DUAL_API_PARALLEL,
+  ];
   /**
    * 清除本地数据后、页面刷新前必须置为 true：否则 beforeunload/pagehide 等仍会
    * 调用 flushPersistNarrative，把内存里的角色/剧情再写回设备存储。
@@ -440,6 +447,13 @@
     return "#" + n.toString(16).padStart(6, "0");
   }
 
+  /** 主题色板第一色（过渡色）向白色提亮，减轻板块底色浓度 */
+  const PALETTE_MID_LIGHTEN = 0.4;
+
+  function lightenPaletteMid(hex) {
+    return mixHex(normalizeHex(hex) || "#f0f0f2", "#ffffff", 1 - PALETTE_MID_LIGHTEN);
+  }
+
   function toRgba(hex, alpha) {
     const c = hexToRgb(hex);
     if (!c) return "rgba(0, 0, 0, " + clampUnit(alpha).toFixed(3) + ")";
@@ -457,7 +471,7 @@
     if (id === APPEARANCE_PALETTE_DEFAULT_ID) return null;
     const p = getThemePaletteMap()[id];
     if (!p || !Array.isArray(p.tones) || p.tones.length < 3) return null;
-    const mid = p.tones[0];
+    const mid = lightenPaletteMid(p.tones[0]);
     const base = p.tones[1];
     const deep = p.tones[2];
     if (mode === "dark") {
@@ -671,6 +685,21 @@
 
   function setGenCallContext(ctx) {
     pendingGenCallContext = ctx || null;
+  }
+
+  /** 开始一次生成任务：设置横幅上下文并返回可传给 callChatCompletion 的路由快照（避免并发覆盖 pendingGenCallContext）。 */
+  function beginGenCall(kind, params) {
+    const ctx = buildGenCallOpts(kind, params);
+    setGenCallContext(ctx);
+    return ctx;
+  }
+
+  function chatApiOptsFromGen(genCtx, extra) {
+    const o = Object.assign({}, extra || {});
+    if (genCtx && genCtx.apiRoute && !o.apiRoute && !o.apiConfigId) {
+      o.apiRoute = genCtx.apiRoute;
+    }
+    return o;
   }
 
   function clearGenCallContext() {
@@ -1199,37 +1228,14 @@
     const JSZip = getBackupLib();
     if (!JSZip) throw new Error("JSZIP_MISSING");
     const zip = new JSZip();
-    zip.file(
-      "manifest.json",
-      JSON.stringify(
-        {
-          format: BACKUP_FORMAT,
-          version: BACKUP_VERSION,
-          appTitle: "嗅嗅剧场",
-          exportedAt: new Date().toISOString(),
-          contents: [
-            "角色、剧情、世界书及分类",
-            "剧情正文/总结/记忆/收藏/划线/想法/背景图",
-            "查手机各 App 生成内容与壁纸",
-            "小狗饭剧情、分区与作品数据",
-            "点星助手、人设与聊天记录",
-            "API 配置与密钥",
-            "外观主题、亮度、字体与状态栏等设置",
-            "自定义字体文件（如有）",
-            "已合成的 TTS 语音缓存（如有）",
-          ],
-        },
-        null,
-        2
-      )
-    );
     const storageSnap = collectLocalStorageSnapshot();
     delete storageSnap[STORAGE_NARRATIVE];
     delete storageSnap[STORAGE_NARRATIVE_SYNC_AT];
+    var backupNar = null;
     try {
-      const nar = await collectBackupNarrativeJson();
-      if (typeof nar === "string" && nar.length) {
-        zip.file(BACKUP_NARRATIVE_FILE, nar);
+      backupNar = await collectBackupNarrativeJson();
+      if (typeof backupNar === "string" && backupNar.length) {
+        zip.file(BACKUP_NARRATIVE_FILE, backupNar);
       }
     } catch (eNar) {
       try {
@@ -1244,8 +1250,9 @@
       fontBuffer = null;
     }
     if (fontBuffer) zip.file("userFont.bin", fontBuffer);
+    var idbExtras = [];
     try {
-      const idbExtras = await collectIdbExtraAssetsForBackup();
+      idbExtras = await collectIdbExtraAssetsForBackup();
       if (idbExtras.length) {
         const idbManifest = [];
         for (let i = 0; i < idbExtras.length; i++) {
@@ -1263,6 +1270,36 @@
         console.error(eIdbExtra);
       } catch (_eLogIdb) {}
     }
+    try {
+      zip.file(
+        "manifest.json",
+        JSON.stringify(
+          {
+            format: BACKUP_FORMAT,
+            version: BACKUP_VERSION,
+            appTitle: "嗅嗅剧场",
+            exportedAt: new Date().toISOString(),
+            storageKeyCount: Object.keys(storageSnap).length,
+            hasNarrative: !!(backupNar && backupNar.length),
+            hasFont: !!fontBuffer,
+            idbAssetCount: idbExtras.length,
+            contents: [
+              "角色、剧情、世界书及分类",
+              "剧情正文/总结/记忆/收藏/划线/想法/背景图",
+              "查手机各 App 生成内容与壁纸",
+              "小狗饭剧情、分区与作品数据",
+              "点星助手、人设与聊天记录",
+              "API 配置与密钥",
+              "外观主题、亮度、字体与状态栏等设置",
+              "自定义字体文件（如有）",
+              "已合成的 TTS 语音缓存（如有）",
+            ],
+          },
+          null,
+          2
+        )
+      );
+    } catch (_eManifest) {}
     return zip.generateAsync({
       type: "blob",
       compression: "DEFLATE",
@@ -1286,7 +1323,8 @@
     try {
       const blob = await buildBackupZipBlob();
       triggerDownloadBlob(blob, formatBackupFilename(Date.now()));
-      showToast("备份已导出到下载目录。", "success");
+      var sizeLabel = formatApproxStoredBytes(blob.size);
+      showToast("备份已导出（" + sizeLabel + "）。", "success");
     } catch (e) {
       showToast("导出备份失败，请稍后重试。", "error");
     }
@@ -2518,6 +2556,9 @@
 
   let apiConfigs = [];
   let activeApiId = "";
+  /** 副 API：敲敲、查手机、收取、ToDo、小狗饭等点星/后台生成 */
+  let secondaryApiId = "";
+  let dualApiParallelEnabled = false;
   const MINIMAX_REGIONS = [
     { id: "cn", label: "国内版（api.minimaxi.com）", baseUrl: "https://api.minimaxi.com/v1" },
     { id: "intl", label: "国际版（api.minimax.io）", baseUrl: "https://api.minimax.io/v1" },
@@ -2587,10 +2628,10 @@
     "settings",
   ];
   /** 旧版底栏 tab，hash 兼容重定向到点星子视图 */
-  const LEGACY_OVERVIEW_SUB_TAB_IDS = { phone: "phone", fanwork: "fanwork", knock: "knock", collect: "collect", todo: "todo" };
+  const LEGACY_OVERVIEW_SUB_TAB_IDS = { phone: "phone", fanwork: "fanwork", knock: "knock", collect: "collect", todo: "todo", radio: "radio" };
 
   let activeTab = "overview";
-  /** 点星内嵌子页：null | "phone" | "fanwork" | "knock" | "collect" | "todo" */
+  /** 点星内嵌子页：null | "phone" | "fanwork" | "knock" | "collect" | "todo" | "radio" */
   let overviewSubView = null;
   /** 敲敲：主视角角色 id（我的形象） */
   let knockUserCharId = null;
@@ -2864,6 +2905,28 @@
   let taskTodoCalendarMonth = null;
   let taskTodoCalendarSelectedKey = null;
 
+  /** 电台：剧情 id */
+  let radioPlotId = null;
+  /** 电台：主播角色 id（主要角色） */
+  let radioHostCharId = null;
+  /** 电台：当前进行中的直播 session */
+  let radioActiveSession = null;
+  /** 电台：历史 key = plotId + \u001e + hostCharId */
+  let radioHistoryData = {};
+  const RADIO_HISTORY_MAX_PER_KEY = 50;
+  let radioGenerating = false;
+  let radioPlaying = false;
+  let radioPlayingMsgId = null;
+  let radioTtsPaused = false;
+  let radioPlayAbortToken = 0;
+  let radioTtsAudio = null;
+  let radioTtsObjectUrl = null;
+  let radioInputDraft = "";
+  let radioHolderModalStep = "plot";
+  let radioHolderModalPlotId = null;
+  let radioHolderModalMode = "first";
+  const radioNavBySlotId = Object.create(null);
+
   const COLLECT_TTS_LABELS = {
     whisper: "播放",
     letter: "倾听",
@@ -3044,9 +3107,27 @@
     overviewSubKnock: () => document.getElementById("overview-sub-knock"),
     overviewSubCollect: () => document.getElementById("overview-sub-collect"),
     overviewSubTodo: () => document.getElementById("overview-sub-todo"),
+    overviewSubRadio: () => document.getElementById("overview-sub-radio"),
     knockContentSlot: () => document.getElementById("knock-content-slot"),
     collectContentSlot: () => document.getElementById("collect-content-slot"),
     todoContentSlot: () => document.getElementById("todo-content-slot"),
+    radioContentSlot: () => document.getElementById("radio-content-slot"),
+    modalRadioHolder: () => document.getElementById("modal-radio-holder"),
+    radioHolderClose: () => document.getElementById("radio-holder-close"),
+    radioHolderStepBack: () => document.getElementById("radio-holder-step-back"),
+    radioHolderTitle: () => document.getElementById("radio-holder-title"),
+    radioHolderHint: () => document.getElementById("radio-holder-hint"),
+    radioHolderPlotList: () => document.getElementById("radio-holder-plot-list"),
+    radioHolderPick: () => document.getElementById("radio-holder-pick"),
+    modalRadioLetter: () => document.getElementById("modal-radio-letter"),
+    radioLetterInput: () => document.getElementById("radio-letter-input"),
+    radioLetterClose: () => document.getElementById("radio-letter-close"),
+    radioLetterCancel: () => document.getElementById("radio-letter-cancel"),
+    radioLetterConfirm: () => document.getElementById("radio-letter-confirm"),
+    modalRadioEndCall: () => document.getElementById("modal-radio-end-call"),
+    radioEndCallClose: () => document.getElementById("radio-end-call-close"),
+    radioEndCallSkip: () => document.getElementById("radio-end-call-skip"),
+    radioEndCallNext: () => document.getElementById("radio-end-call-next"),
     modalTodoCompose: () => document.getElementById("modal-todo-compose"),
     todoComposeTitle: () => document.getElementById("todo-compose-title"),
     todoComposeInput: () => document.getElementById("todo-compose-input"),
@@ -6971,10 +7052,114 @@
     return prefix + "-" + Math.random().toString(36).slice(2, 9);
   }
 
+  function sanitizeDualApiState() {
+    if (
+      !activeApiId ||
+      !apiConfigs.some(function (a) {
+        return a.id === activeApiId;
+      })
+    ) {
+      activeApiId = apiConfigs[0] ? apiConfigs[0].id : "";
+    }
+    if (
+      secondaryApiId &&
+      (!apiConfigs.some(function (a) {
+        return a.id === secondaryApiId;
+      }) ||
+        secondaryApiId === activeApiId)
+    ) {
+      secondaryApiId = "";
+    }
+    dualApiParallelEnabled = !!(secondaryApiId && secondaryApiId !== activeApiId);
+  }
+
+  function isApiConfigEnabled(id) {
+    const sid = String(id || "").trim();
+    if (!sid) return false;
+    return sid === activeApiId || sid === secondaryApiId;
+  }
+
+  function getCheckedApiIdsInConfigOrder(rootEl) {
+    const checkedSet = {};
+    if (rootEl) {
+      rootEl.querySelectorAll(".api-enable-check:checked").forEach(function (el) {
+        const id = String(el.dataset.id || "").trim();
+        if (id) checkedSet[id] = true;
+      });
+    } else {
+      if (activeApiId) checkedSet[activeApiId] = true;
+      if (secondaryApiId) checkedSet[secondaryApiId] = true;
+    }
+    return apiConfigs
+      .map(function (a) {
+        return a.id;
+      })
+      .filter(function (id) {
+        return !!checkedSet[id];
+      });
+  }
+
+  function getApiConfigRoute(id) {
+    const sid = String(id || "").trim();
+    if (!sid) return "primary";
+    if (sid === String(secondaryApiId || "").trim() && sid !== String(activeApiId || "").trim()) {
+      return "background";
+    }
+    if (sid === String(activeApiId || "").trim()) return "primary";
+    if (isDualApiParallelActive() && sid === String(getBackgroundApiId() || "").trim()) {
+      return "background";
+    }
+    return "primary";
+  }
+
+  function applyApiRouteFromModal(id, route) {
+    const sid = String(id || "").trim();
+    if (!sid) return;
+    const useBackground = route === "background";
+    if (useBackground) {
+      if (activeApiId === sid && apiConfigs.length > 1) {
+        const other = apiConfigs.find(function (a) {
+          return a.id !== sid;
+        });
+        if (other) activeApiId = other.id;
+      }
+      secondaryApiId = sid;
+    } else {
+      if (secondaryApiId === sid) secondaryApiId = "";
+      activeApiId = sid;
+    }
+    sanitizeDualApiState();
+  }
+
+  function syncApiSelectionFromChecks(rootEl) {
+    const checked = getCheckedApiIdsInConfigOrder(rootEl);
+    if (!checked.length) {
+      if (!activeApiId && apiConfigs[0]) activeApiId = apiConfigs[0].id;
+      secondaryApiId = "";
+    } else if (checked.length === 1) {
+      activeApiId = checked[0];
+      secondaryApiId = "";
+    } else {
+      if (checked.indexOf(activeApiId) >= 0) {
+        secondaryApiId =
+          checked.find(function (id) {
+            return id !== activeApiId;
+          }) || checked[1];
+      } else {
+        activeApiId = checked[0];
+        secondaryApiId = checked[1];
+      }
+    }
+    sanitizeDualApiState();
+  }
+
   function persistApiConfigs() {
+    sanitizeDualApiState();
     try {
       localStorage.setItem(STORAGE_API_CONFIGS, JSON.stringify(apiConfigs));
       localStorage.setItem(STORAGE_ACTIVE_API_ID, activeApiId || "");
+      localStorage.setItem(STORAGE_SECONDARY_API_ID, secondaryApiId || "");
+      localStorage.setItem(STORAGE_DUAL_API_PARALLEL, dualApiParallelEnabled ? "1" : "0");
     } catch (e) {}
   }
 
@@ -6982,6 +7167,8 @@
     try {
       const raw = localStorage.getItem(STORAGE_API_CONFIGS);
       const activeId = localStorage.getItem(STORAGE_ACTIVE_API_ID);
+      const secondaryId = localStorage.getItem(STORAGE_SECONDARY_API_ID);
+      const dualRaw = localStorage.getItem(STORAGE_DUAL_API_PARALLEL);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -7020,6 +7207,17 @@
       ) {
         activeApiId = apiConfigs[0].id;
       }
+      secondaryApiId = "";
+      if (
+        secondaryId &&
+        apiConfigs.some(function (a) {
+          return a.id === secondaryId;
+        })
+      ) {
+        secondaryApiId = secondaryId;
+      }
+      dualApiParallelEnabled = dualRaw === "1";
+      sanitizeDualApiState();
     } catch (e) {}
   }
 
@@ -7046,6 +7244,7 @@
       }
       if (!ttsSettings.apiKey && typeof parsed.key === "string") ttsSettings.apiKey = parsed.key;
     } catch (e) {}
+    ttsSettings.enabled = true;
   }
 
 
@@ -7401,70 +7600,34 @@
       .filter(Boolean);
   }
 
+  function getVisualRefManualPrompt(refKey) {
+    const ref = getVisualRefObj(refKey);
+    const fallback =
+      refKey === "daily" ? DEFAULT_VISUAL_DAILY_PROMPT : DEFAULT_VISUAL_APPEARANCE_PROMPT;
+    return String((ref && ref.prompt) || fallback || "").trim();
+  }
+
   async function craftSelfieImageApiPrompt(internalPrompt, celebrityName) {
     const internal = String(internalPrompt || "").trim();
     if (!internal) return internal;
-    const refImageParts = buildVisualRefImagePartsForVision("appearance");
-    const refCount = refImageParts.length;
-    const visionDesc = await analyzeVisualRefImagesWithVision("appearance");
+    const refCount = getVisualRefImages("appearance").length;
+    const visionDesc = getVisualRefManualPrompt("appearance");
     const scenePart = stripCelebrityNamesFromPrompt(internal, celebrityName);
 
-    if (refCount >= 1 && visionDesc.length >= 40) {
+    if (visionDesc.length >= 40) {
       let identity =
-        "CRITICAL — Same person as the " +
-        refCount +
-        " attached reference photo(s). Face identity: " +
-        visionDesc +
-        ". Reproduce this exact individual; do not drift to a generic face.";
+        refCount >= 1
+          ? "CRITICAL — Same person as the " +
+            refCount +
+            " attached reference photo(s). Face identity: " +
+            visionDesc +
+            ". Reproduce this exact individual; do not drift to a generic face."
+          : "Face identity: " + visionDesc + ". Reproduce this exact individual; do not drift to a generic face.";
       const looseHint = getOptionalLooseAestheticHint("appearance");
       if (looseHint) identity += looseHint;
       return sandwichIdentityPrompt(identity, truncateCharsWithEllipsis(scenePart, 520));
     }
 
-    try {
-      const userText =
-        (refCount
-          ? "附件 " +
-            refCount +
-            " 张为同一人参考照。请直接观察照片中的脸型、五官、发型、肤色，与下方拍摄情景合并，输出最终英文生图 prompt。禁止出现任何真实明星/艺人姓名。\n\n"
-          : "无参考照片。请根据下方拍摄情景输出英文生图 prompt，用通用五官描述锁定同一张脸。禁止出现任何真实明星/艺人姓名。\n\n") +
-        (visionDesc ? "参考图人脸分析：\n" + visionDesc + "\n\n" : "") +
-        "拍摄情景与画面说明：\n" +
-        truncateCharsWithEllipsis(scenePart, 2200) +
-        "\n\n请输出最终英文生图 prompt。";
-      const userContent = refCount
-        ? [{ type: "text", text: userText }].concat(refImageParts)
-        : userText;
-      const text = await callChatCompletion(
-        [
-          {
-            role: "system",
-            content:
-              "你是文生图 prompt 工程师。把用户提供的人像拍摄情景改写成一条英文生图提示词。\n" +
-              (refCount
-                ? "用户附带了真人参考照片：必须以照片里的五官骨相为第一优先，文字描述为第二优先。\n"
-                : "") +
-              "硬性规则：\n" +
-              "1. 绝对禁止出现真实明星/演员/艺人姓名、韩文/英文艺名、剧名、可识别 IP。\n" +
-              "2. 只用可执行的五官解剖、骨相、肤质、发型、神态描述锁定同一张脸。\n" +
-              "3. 情景部分只写衣着、地点、姿态、光线、情绪，不要重复冗长剧情。\n" +
-              "4. 身份描述放在最前，并在末尾用不同措辞再复述一次（sandwich）。\n" +
-              "5. 单条输出、纯英文、无 markdown、无标题、不超过 950 字符。",
-          },
-          {
-            role: "user",
-            content: userContent,
-          },
-        ],
-        0.32,
-        900,
-        { apiConfigId: getWorkbenchApiId(), skipGenPaw: true }
-      );
-      const out = String(text || "").trim();
-      if (out.length >= 80) return out;
-    } catch (e) {
-      console.warn("craftSelfieImageApiPrompt", e);
-    }
     return buildApiSafeSelfiePromptFromInternal(internal, celebrityName);
   }
 
@@ -7557,7 +7720,7 @@
   async function buildGptImageEditsSelfiePrompt(sceneOpts) {
     sceneOpts = sceneOpts || {};
     const refCount = getVisualRefImages("appearance").length;
-    const visionDesc = await analyzeVisualRefImagesWithVision("appearance");
+    const visionDesc = getVisualRefManualPrompt("appearance");
     const parts = [
       "Generate a photorealistic front-camera smartphone selfie portrait of the EXACT SAME PERSON shown in the " +
         refCount +
@@ -7604,7 +7767,7 @@
     const celebrity = getVisualRefCelebrityLookalike("appearance");
     const appearanceB64 = getVisualRefImageBase64List("appearance");
     if (hasVisualRefImagesForAnalysis("appearance")) {
-      showToast("正在分析参考图并锁定人脸…", "info", 3600);
+      showToast("正在用参考图生成自拍…", "info", 3600);
     }
 
     if (cfg && appearanceB64.length && isGptImageModel(cfg.model)) {
@@ -7684,10 +7847,7 @@
   }
 
   function buildCelebrityFaceIdentityPrompt() {
-    const visionDesc = String(
-      (visualImageSettings.appearanceRef && visualImageSettings.appearanceRef.visionCacheText) || ""
-    ).trim();
-    return buildUploadedFaceIdentityPrompt(visionDesc);
+    return buildUploadedFaceIdentityPrompt(getVisualRefManualPrompt("appearance"));
   }
 
   function buildFlexiblePhonePhotoFramingSuffix() {
@@ -7747,27 +7907,16 @@
   }
 
   async function resolveVisualAppearancePromptBase() {
-    const manual = String(
-      (visualImageSettings.appearanceRef && visualImageSettings.appearanceRef.prompt) ||
-        DEFAULT_VISUAL_APPEARANCE_PROMPT
-    ).trim();
-    const visionDesc = await analyzeVisualRefImagesWithVision("appearance");
-    const merged = visionDesc ? visionDesc + ". " + manual : manual;
-    return appendVisualCelebrityLookalikeToPrompt(merged, "appearance");
+    const manual = getVisualRefManualPrompt("appearance");
+    return appendVisualCelebrityLookalikeToPrompt(manual, "appearance");
   }
 
   async function buildPhotoAnchoredSelfieIdentityBlock() {
-    const visionDesc = await analyzeVisualRefImagesWithVision("appearance");
-    return buildUploadedFaceIdentityPrompt(visionDesc);
+    return buildUploadedFaceIdentityPrompt(getVisualRefManualPrompt("appearance"));
   }
 
   async function resolveVisualDailyPromptBase() {
-    const manual = String(
-      (visualImageSettings.dailyRef && visualImageSettings.dailyRef.prompt) || DEFAULT_VISUAL_DAILY_PROMPT
-    ).trim();
-    const visionDesc = await analyzeVisualRefImagesWithVision("daily");
-    const merged = visionDesc ? visionDesc + ". " + manual : manual;
-    return merged;
+    return getVisualRefManualPrompt("daily");
   }
 
   function hasVisualRefImagesForAnalysis(refKey) {
@@ -9544,7 +9693,6 @@
       fanworkCpPartnerId: fanworkCpPartnerId || null,
       fanworkJjwxcCategoryStore: fanworkJjwxcCategoryStore || { categories: [], userEdited: false },
       fanworkJjwxcData: fanworkJjwxcData || {},
-      knockPlotId: knockPlotId || null,
       knockUserCharId: knockUserCharId || null,
       knockPartnerCharId: knockPartnerCharId || null,
       knockChatData: knockChatData || {},
@@ -9562,6 +9710,10 @@
       taskTodoPlotId: taskTodoPlotId || null,
       taskTodoCharId: taskTodoCharId || null,
       taskTodoData: taskTodoData || {},
+      radioPlotId: radioPlotId || null,
+      radioHostCharId: radioHostCharId || null,
+      radioActiveSession: radioActiveSession || null,
+      radioHistoryData: radioHistoryData || {},
     });
   }
 
@@ -9945,6 +10097,25 @@
         });
       }
       sanitizeTaskTodoState();
+      radioPlotId = null;
+      radioHostCharId = null;
+      if (typeof o.radioPlotId === "string" && o.radioPlotId.trim()) {
+        radioPlotId = o.radioPlotId.trim();
+      }
+      if (typeof o.radioHostCharId === "string" && o.radioHostCharId.trim()) {
+        radioHostCharId = o.radioHostCharId.trim();
+      }
+      radioActiveSession = normalizeRadioSession(o.radioActiveSession);
+      radioHistoryData = {};
+      if (o.radioHistoryData && typeof o.radioHistoryData === "object" && !Array.isArray(o.radioHistoryData)) {
+        Object.keys(o.radioHistoryData).forEach(function (k) {
+          const arr = o.radioHistoryData[k];
+          if (!Array.isArray(arr)) return;
+          const normalized = arr.map(normalizeRadioSession).filter(Boolean);
+          if (normalized.length) radioHistoryData[k] = normalized;
+        });
+      }
+      sanitizeRadioState();
       knockPlotId =
         typeof o.knockPlotId === "string" && o.knockPlotId.trim() ? o.knockPlotId.trim() : null;
       knockUserCharId =
@@ -9957,20 +10128,7 @@
           const v = o.knockChatData[k];
           if (!v || typeof v !== "object") return;
           const rec = normalizeKnockChatRecord(v);
-          if (
-            rec.messages.length ||
-            rec.contextConfirmed ||
-            rec.contextBackground ||
-            rec.contextDraft ||
-            rec.contextSeed ||
-            (rec.events && rec.events.length) ||
-            (rec.personaOverrides.user.traits ||
-              rec.personaOverrides.user.style ||
-              rec.personaOverrides.partner.traits ||
-              rec.personaOverrides.partner.style ||
-              rec.avatarOverrides.user ||
-              rec.avatarOverrides.partner)
-          ) {
+          if (knockChatRecordWorthKeeping(rec)) {
             knockChatData[k] = rec;
           }
         });
@@ -10046,25 +10204,11 @@
       knockStickerPacks = normalizeKnockStickerPacks(o.knockStickerPacks);
       ensureKnockActiveStickerPack();
       phoneForumSectionsByPlot = {};
-      if (o.phoneForumSectionsByPlot && typeof o.phoneForumSectionsByPlot === "object" && !Array.isArray(o.phoneForumSectionsByPlot)) {
-        Object.keys(o.phoneForumSectionsByPlot).forEach(function (plotId) {
-          const raw = o.phoneForumSectionsByPlot[plotId];
-          const arr = phoneSharedSectionEntrySections(raw);
-          if (!Array.isArray(arr) || !arr.length) return;
-          const sections = arr.map(function (s) {
-            return {
-              id: String((s && s.id) || ""),
-              name: String((s && s.name) || ""),
-              description: String((s && s.description) || ""),
-            };
-          });
-          phoneSharedSectionStoreSetSections(
-            plotId,
-            sections,
-            phoneSharedSectionEntryUpdatedAt(raw) || Date.now()
-          );
-        });
-      }
+      applyPhoneSharedSectionsByPlotFromBackup(phoneForumSectionsByPlot, o.phoneForumSectionsByPlot);
+      phoneBrowserSectionsByPlot = {};
+      applyPhoneSharedSectionsByPlotFromBackup(phoneBrowserSectionsByPlot, o.phoneBrowserSectionsByPlot);
+      phoneMemoSectionsByPlot = {};
+      applyPhoneSharedSectionsByPlotFromBackup(phoneMemoSectionsByPlot, o.phoneMemoSectionsByPlot);
       phoneJjwxcCategoriesByPlot = {};
       if (o.phoneJjwxcCategoriesByPlot && typeof o.phoneJjwxcCategoriesByPlot === "object" && !Array.isArray(o.phoneJjwxcCategoriesByPlot)) {
         Object.keys(o.phoneJjwxcCategoriesByPlot).forEach(function (plotId) {
@@ -10690,7 +10834,7 @@
   /** 剧情续写：优先流式；失败或不支持时回退非流式（含 Gemini empty 重试） */
   async function callStoryPlayChatCompletion(cfg, messages, temperature, maxTokens, opts) {
     const onProgress = opts && typeof opts.onStreamProgress === "function" ? opts.onStreamProgress : null;
-    const apiOpts = Object.assign({ skipGenPaw: true, skipGenReady: true }, opts || {});
+    const apiOpts = Object.assign({ skipGenPaw: true, skipGenReady: true, apiRoute: "primary" }, opts || {});
     if (!STORY_PLAY_STREAM_ENABLED || !onProgress) {
       return callChatCompletion(messages, temperature, maxTokens, apiOpts);
     }
@@ -10704,23 +10848,101 @@
     }
   }
 
-  /** 开场概要、剧情续写、剧情标题等默认通过当前「设置 → API」中选中的配置发起请求（activeApiId），也可按需指定配置。 */
+  /** 开场概要、剧情续写、剧情标题等默认通过主 API（activeApiId）；点星/后台可走副 API 并行。 */
+  function getPrimaryApiId() {
+    return activeApiId || (apiConfigs[0] ? apiConfigs[0].id : "");
+  }
+
+  function getEnabledApiIds() {
+    const ids = [];
+    const primary = String(getPrimaryApiId() || "").trim();
+    const secondary = String(secondaryApiId || "").trim();
+    if (
+      primary &&
+      apiConfigs.some(function (a) {
+        return a.id === primary;
+      })
+    ) {
+      ids.push(primary);
+    }
+    if (
+      secondary &&
+      secondary !== primary &&
+      apiConfigs.some(function (a) {
+        return a.id === secondary;
+      }) &&
+      ids.indexOf(secondary) < 0
+    ) {
+      ids.push(secondary);
+    }
+    return ids;
+  }
+
+  function isDualApiParallelActive() {
+    return getEnabledApiIds().length >= 2;
+  }
+
+  function getBackgroundApiId() {
+    if (!isDualApiParallelActive()) return getPrimaryApiId();
+    const sid = String(secondaryApiId || "").trim();
+    if (
+      sid &&
+      sid !== activeApiId &&
+      apiConfigs.some(function (a) {
+        return a.id === sid;
+      })
+    ) {
+      return sid;
+    }
+    const enabled = getEnabledApiIds();
+    return enabled[1] || enabled[0] || getPrimaryApiId();
+  }
+
+  function getAlternateApiId(currentId) {
+    const cur = String(currentId || "").trim();
+    const enabled = getEnabledApiIds();
+    if (enabled.length < 2) return "";
+    const alt = enabled.find(function (id) {
+      return id !== cur;
+    });
+    return alt || "";
+  }
+
+  function resolveChatCompletionApiId(opts) {
+    const requestedId =
+      opts && typeof opts === "object" ? String(opts.apiConfigId || "").trim() : "";
+    if (requestedId) return requestedId;
+    const route =
+      opts && typeof opts === "object" && opts.apiRoute ? String(opts.apiRoute) : "";
+    if (route === "background") return getBackgroundApiId();
+    if (route === "primary") return getPrimaryApiId();
+    return getPrimaryApiId();
+  }
+
+  function findApiConfigById(id) {
+    const sid = String(id || "").trim();
+    if (!sid) return null;
+    return (
+      apiConfigs.find(function (a) {
+        return a.id === sid;
+      }) || null
+    );
+  }
+
   async function callChatCompletion(messages, temperature, maxTokens, opts) {
     if (temperature == null) temperature = 0.7;
     if (maxTokens == null) maxTokens = 2000;
-    const requestedId = opts && typeof opts === "object" ? String(opts.apiConfigId || "").trim() : "";
-    const targetApiId = requestedId || activeApiId;
-    const cfg = apiConfigs.find(function (a) {
-      return a.id === targetApiId;
-    });
+    opts = opts && typeof opts === "object" ? opts : {};
+    const targetApiId = resolveChatCompletionApiId(opts);
+    let cfg = findApiConfigById(targetApiId);
     if (!cfg) throw new Error("未配置 API，请先在设置中添加 API 配置。");
     const ep = cfg.endpoint != null ? String(cfg.endpoint).trim() : "";
     if (!ep) throw new Error("请填写 API 站点地址。");
     const k = cfg.key != null ? String(cfg.key).trim() : "";
     if (!k || k === "sk-placeholder") throw new Error("请填写有效的 API Key。");
 
-    const isGem = apiModelLooksGemini(cfg.model);
     const alreadyRetried = !!(opts && opts.geminiMergedRetry);
+    const alreadyFailover = !!(opts && opts.dualApiFailover);
     const genExtras = resolveGenCallExtras(opts);
     let ok = false;
     try {
@@ -10734,16 +10956,39 @@
           (firstErr && firstErr.code === "empty_response") ||
           raw.indexOf("empty_response") >= 0 ||
           raw.indexOf("empty response") >= 0;
-        if (alreadyRetried || !isEmpty) throw firstErr;
-        const merged = mergeSystemIntoUserMessages(messages);
-        const retryMax = Math.min(maxTokens, Math.max(1024, Math.round(maxTokens * 0.88)));
-        try {
-          const result = await callChatCompletionOnce(cfg, merged, Math.min(temperature, 0.62), retryMax);
-          ok = true;
-          return result;
-        } catch (retryErr) {
-          throw firstErr;
+        if (!alreadyRetried && isEmpty) {
+          const merged = mergeSystemIntoUserMessages(messages);
+          const retryMax = Math.min(maxTokens, Math.max(1024, Math.round(maxTokens * 0.88)));
+          try {
+            const result = await callChatCompletionOnce(cfg, merged, Math.min(temperature, 0.62), retryMax);
+            ok = true;
+            return result;
+          } catch (retryErr) {
+            /* fall through to failover / rethrow */
+          }
         }
+        if (!alreadyFailover && isDualApiParallelActive()) {
+          const altId = getAlternateApiId(targetApiId);
+          const altCfg = altId ? findApiConfigById(altId) : null;
+          if (altCfg) {
+            const altEp = altCfg.endpoint != null ? String(altCfg.endpoint).trim() : "";
+            const altKey = altCfg.key != null ? String(altCfg.key).trim() : "";
+            if (altEp && altKey && altKey !== "sk-placeholder") {
+              try {
+                const failoverOpts = Object.assign({}, opts, {
+                  apiConfigId: altId,
+                  dualApiFailover: true,
+                });
+                const result = await callChatCompletion(messages, temperature, maxTokens, failoverOpts);
+                ok = true;
+                return result;
+              } catch (failoverErr) {
+                /* use original error below */
+              }
+            }
+          }
+        }
+        throw firstErr;
       }
     } finally {
       if (ok && genExtras.genReady && !(opts && opts.skipGenReady)) stashGenReadyNotice(genExtras.genReady);
@@ -12852,12 +13097,17 @@
     const main = els.mainScroll();
     if (!main) return;
     const inOverviewSubFeature = activeTab === "overview" && !!overviewSubView;
+    const galleryTabs = ["overview", "worldbook", "plot", "characters", "settings"];
     main.classList.toggle("main-scroll--assistant", activeTab === "overview" && !overviewSubView);
     main.classList.toggle("main-scroll--phone", inOverviewSubFeature);
+    main.classList.toggle(
+      "main-scroll--gallery-skin",
+      galleryTabs.includes(activeTab) && !(activeTab === "overview" && overviewSubView)
+    );
   }
 
   function isOverviewFeatureFullscreenView(view) {
-    return view === "phone" || view === "knock" || view === "collect" || view === "todo";
+    return view === "phone" || view === "knock" || view === "collect" || view === "todo" || view === "radio" || view === "fanwork";
   }
 
   function syncOverviewSubViewUi() {
@@ -12867,17 +13117,20 @@
     const knockSub = els.overviewSubKnock();
     const collectSub = els.overviewSubCollect();
     const todoSub = els.overviewSubTodo();
+    const radioSub = els.overviewSubRadio();
     const showPhone = overviewSubView === "phone";
     const showFan = overviewSubView === "fanwork";
     const showKnock = overviewSubView === "knock";
     const showCollect = overviewSubView === "collect";
     const showTodo = overviewSubView === "todo";
-    if (hub) hub.hidden = showPhone || showFan || showKnock || showCollect || showTodo;
+    const showRadio = overviewSubView === "radio";
+    if (hub) hub.hidden = showPhone || showFan || showKnock || showCollect || showTodo || showRadio;
     if (phoneSub) phoneSub.hidden = !showPhone;
     if (fanSub) fanSub.hidden = !showFan;
     if (knockSub) knockSub.hidden = !showKnock;
     if (collectSub) collectSub.hidden = !showCollect;
     if (todoSub) todoSub.hidden = !showTodo;
+    if (radioSub) radioSub.hidden = !showRadio;
     const shell = document.getElementById("app-shell");
     if (shell) {
       shell.classList.toggle("app-shell--feature-fullscreen", isOverviewFeatureFullscreenView(overviewSubView));
@@ -12898,7 +13151,9 @@
               ? "collect"
               : view === "todo"
                 ? "todo"
-                : null;
+                : view === "radio"
+                  ? "radio"
+                  : null;
     if (!v) return;
     if (v === "knock") prepareKnockSession();
     overviewSubView = v;
@@ -12934,6 +13189,13 @@
         }
       }
       renderTaskTodoScreen(els.todoContentSlot());
+    } else if (v === "radio") {
+      stopStoryTts();
+      stopKnockTts();
+      stopCollectAudio();
+      sanitizeRadioState();
+      renderRadioScreen(els.radioContentSlot());
+      if (!radioPlotId || !radioHostCharId) openRadioHolderModal({ mode: "first" });
     }
   }
 
@@ -12995,6 +13257,30 @@
     { id: "lavender", label: "薰衣草", bubbleIn: "#ffffff", bubbleOut: "#e8dcff" },
     { id: "night", label: "深色", bubbleIn: "#3a3f4b", bubbleOut: "#5b6cff" },
   ];
+
+  function knockChatRecordWorthKeeping(rec) {
+    if (!rec) return false;
+    const style = rec.chatStyle || {};
+    return !!(
+      rec.messages.length ||
+      rec.contextConfirmed ||
+      rec.contextBackground ||
+      rec.contextDraft ||
+      rec.contextSeed ||
+      (rec.events && rec.events.length) ||
+      (rec.summaries && rec.summaries.length) ||
+      rec.summaryCursorMsgIndex >= 0 ||
+      style.bgUrl ||
+      style.bubbleIn ||
+      style.bubbleOut ||
+      rec.personaOverrides.user.traits ||
+      rec.personaOverrides.user.style ||
+      rec.personaOverrides.partner.traits ||
+      rec.personaOverrides.partner.style ||
+      rec.avatarOverrides.user ||
+      rec.avatarOverrides.partner
+    );
+  }
 
   function normalizeKnockChatRecord(raw) {
     const src = raw && typeof raw === "object" ? raw : {};
@@ -17516,7 +17802,7 @@
     renderKnockScreen(slot || els.knockContentSlot());
     try {
       showToast("正在生成相关人物与会话…", "info");
-      setGenCallContext(buildGenCallOpts("knock-contacts", { slot: slot }));
+      const _genCtx = beginGenCall("knock-contacts", { slot: slot });
       const systemPrompt =
         "你是中文互动叙事助手。根据已有主要角色、剧情上下文与聊天记录，为「敲敲」微信拓展 2～3 个相关新人物，并为每人生成简短聊天记录。\n" +
         "只输出全新人物，不得改写或覆盖已有角色与聊天。\n" +
@@ -18599,7 +18885,7 @@
     renderKnockScreen(slot || els.knockContentSlot());
     try {
       showToast("正在等待角色回复…", "info");
-      setGenCallContext(buildGenCallOpts("knock-moments-replies", { slot: slot }));
+      const _genCtx = beginGenCall("knock-moments-replies", { slot: slot });
       const systemPrompt =
         "你是中文互动叙事助手。用户在朋友圈某条动态下刚发表了评论，请让相关角色自然回复。\n" +
         "只输出其他角色（发帖人、联系人等）的评论；严禁替「" +
@@ -18836,7 +19122,7 @@
     renderKnockScreen(slot || els.knockContentSlot());
     try {
       showToast(isRegenerate ? "正在追加朋友圈…" : "正在生成朋友圈…", "info");
-      setGenCallContext(buildGenCallOpts("knock-moments", { slot: slot }));
+      const _genCtx = beginGenCall("knock-moments", { slot: slot });
       const systemPrompt = isRegenerate
         ? "你是中文互动叙事助手。根据角色关系与已有朋友圈数据，增量追加朋友圈 JSON。\n" +
           "只输出其他角色（联系人、路人等）的动态；严禁替用户主视角/my形象发帖、评论或点赞。\n" +
@@ -19382,7 +19668,7 @@
     renderKnockScreen(slot || els.knockContentSlot());
     try {
       showToast("正在等待角色回复…", "info");
-      setGenCallContext(buildGenCallOpts("knock-moments-post-replies", { slot: slot }));
+      const _genCtx = beginGenCall("knock-moments-post-replies", { slot: slot });
       const systemPrompt =
         "你是中文互动叙事助手。用户「" +
         userName +
@@ -21197,9 +21483,9 @@
     return activeApiId;
   }
 
-  /** 点星 AI 工具：使用设置中的当前模型，不注入助手人设 */
+  /** 点星 AI 工具与敲敲/查手机/收取/ToDo/小狗饭：走副 API（双 API 并行开启时） */
   function getWorkbenchApiId() {
-    return activeApiId;
+    return getBackgroundApiId();
   }
 
   function getAssistantModalApiTarget() {
@@ -21558,6 +21844,7 @@
     else if (overviewSubView === "knock") renderKnockScreen(els.knockContentSlot(), { scrollToEnd: true });
     else if (overviewSubView === "collect") renderCollectScreen(els.collectContentSlot());
     else if (overviewSubView === "todo") renderTaskTodoScreen(els.todoContentSlot());
+    else if (overviewSubView === "radio") renderRadioScreen(els.radioContentSlot());
     if (els.modalAssistantProfile() && !els.modalAssistantProfile().hidden) {
       renderAssistantProfileModal();
     }
@@ -22647,6 +22934,10 @@
       openOverviewSubView("todo");
       return;
     }
+    if (id === "radio") {
+      openOverviewSubView("radio");
+      return;
+    }
     const labelMap = {
       theme: "题材方向",
       "rewrite-persona": "改写人设",
@@ -22656,6 +22947,7 @@
       fanwork: "小狗饭",
       collect: "收取",
       todo: "任务ToDo",
+      radio: "电台",
     };
     const label = labelMap[id] || "该功能";
     showToast(
@@ -24878,6 +25170,30 @@
     return rows;
   }
 
+  function deleteCollectHistoryRow(rowId) {
+    const plot = getCollectPlot();
+    const sender = getCollectCharacter();
+    if (!plot || !sender) return false;
+    const key = collectStorageKey(plot.id, sender.id);
+    const id = String(rowId || "").trim();
+    if (!id) return false;
+    if (id === "current") {
+      if (!collectPackData[key]) return false;
+      delete collectPackData[key];
+    } else {
+      const arr = collectHistoryData[key];
+      if (!Array.isArray(arr)) return false;
+      const next = arr.filter(function (entry) {
+        return entry && entry.id !== id;
+      });
+      if (next.length === arr.length) return false;
+      if (next.length) collectHistoryData[key] = next;
+      else delete collectHistoryData[key];
+    }
+    schedulePersistNarrative();
+    return true;
+  }
+
   function resolveCollectPackForTts(slot) {
     const nav = slot ? getCollectNav(slot) : null;
     if (nav && nav.screen === "history" && nav.historyDetailEntryId) {
@@ -25124,7 +25440,7 @@
     try {
       preparePhoneStoryDateForGeneration(plot);
       showToast("正在收取来自「" + (sender.name || "TA") + "」的内容…", "info");
-      setGenCallContext(buildGenCallOpts("collect-pack", { slot: slot }));
+      const _genCtx = beginGenCall("collect-pack", { slot: slot });
       const systemPrompt =
         "你是中文互动叙事助手。根据剧情生成「收取」JSON，只输出 JSON，无 markdown 围栏。";
       const userPrompt = buildCollectGenerationPrompt(plot, sender);
@@ -25135,7 +25451,7 @@
         ],
         0.78,
         8192
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       const pack = normalizeCollectPack(parsed);
       if (!pack || !pack.whisper.text) throw new Error("生成结果不完整，请重试");
@@ -25781,7 +26097,6 @@
       '" alt="' +
       escapeHtml(caption || "照片") +
       '"/>' +
-      '<span class="collect-slip__photo-zoom-hint" aria-hidden="true">点击查看</span>' +
       "</button>"
     );
   }
@@ -26362,12 +26677,18 @@
       '<section class="collect-history-row">' +
       '<div class="collect-history-row__head">' +
       '<span class="collect-history-row__dot" aria-hidden="true"></span>' +
+      '<div class="collect-history-row__head-main">' +
       '<time class="collect-history-row__time" datetime="' +
       escapeHtml(String(row.generatedAt || "")) +
       '">' +
       escapeHtml(timeLabel) +
       (row.isCurrent ? '<span class="collect-history-row__badge">当前</span>' : "") +
       "</time></div>" +
+      '<button type="button" class="collect-history-row__delete" data-collect-history-delete="' +
+      escapeHtml(row.id) +
+      '" aria-label="删除此条收取记录">' +
+      '<svg class="icon-linear" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/><path d="M10 11v6M14 11v6"/></svg>' +
+      "</button></div>" +
       '<div class="collect-history-row__panel">' +
       '<div class="collect-history-row__scroll" data-h-scroll-key="collect-history-' +
       escapeHtml(row.id) +
@@ -26849,6 +27170,14 @@
   function closeOverviewPhoneView() {
     const slot = els.phoneContentSlot();
     if (slot) phoneNavHome(slot);
+    overviewSubView = null;
+    if (!location.hash.startsWith("#/story") && location.hash !== "#/tab/overview") {
+      location.hash = "#/tab/overview";
+    }
+    syncOverviewSubViewUi();
+  }
+
+  function closeOverviewFanworkView() {
     overviewSubView = null;
     if (!location.hash.startsWith("#/story") && location.hash !== "#/tab/overview") {
       location.hash = "#/tab/overview";
@@ -28081,6 +28410,1500 @@
     renderTaskTodoScreen(slot);
   }
 
+  /* ═══════════════════════════════════════════════════════════════
+     电台
+     ═══════════════════════════════════════════════════════════════ */
+
+  function radioStorageKey(plotId, hostCharId) {
+    return String(plotId || "") + "\u001e" + String(hostCharId || "");
+  }
+
+  function getRadioNav(slot) {
+    const id = (slot && slot.id) || "radio-content-slot";
+    if (!radioNavBySlotId[id]) {
+      radioNavBySlotId[id] = { screen: "live", historyDetailId: null };
+    }
+    return radioNavBySlotId[id];
+  }
+
+  function getRadioPlot() {
+    if (!radioPlotId) return null;
+    return plots.find(function (p) {
+      return p.id === radioPlotId;
+    }) || null;
+  }
+
+  function getRadioHostChar() {
+    if (!radioHostCharId) return null;
+    return getCharById(radioHostCharId);
+  }
+
+  function getRadioHostCandidatesForPlot(plotId) {
+    return getCollectCharacterCandidatesForPlot(plotId);
+  }
+
+  function sanitizeRadioState() {
+    if (!radioPlotId || !plots.some(function (p) { return p.id === radioPlotId; })) {
+      if (radioActiveSession && radioPlotId && radioHostCharId) {
+        stashRadioSessionToHistory(radioPlotId, radioHostCharId, radioActiveSession);
+      }
+      radioPlotId = null;
+      radioHostCharId = null;
+      radioActiveSession = null;
+      return;
+    }
+    const candidates = getRadioHostCandidatesForPlot(radioPlotId);
+    const hostValid =
+      radioHostCharId && candidates.some(function (c) { return c.id === radioHostCharId; });
+    if (!hostValid) {
+      if (radioActiveSession && radioHostCharId) {
+        stashRadioSessionToHistory(radioPlotId, radioHostCharId, radioActiveSession);
+      }
+      radioHostCharId = null;
+      radioActiveSession = null;
+    } else if (radioActiveSession) {
+      if (radioActiveSession.status === "live") {
+        radioActiveSession = normalizeRadioSession(radioActiveSession);
+      } else {
+        stashRadioSessionToHistory(radioPlotId, radioHostCharId, radioActiveSession);
+        radioActiveSession = null;
+      }
+    }
+  }
+
+  function normalizeRadioTranscriptItem(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const text = String(raw.text || "").trim();
+    if (!text) return null;
+    const role = raw.role === "caller" || raw.role === "system" ? raw.role : "host";
+    return {
+      id: typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : uid("rt"),
+      role: role,
+      speaker: String(raw.speaker || "").trim().slice(0, 40),
+      text: text.slice(0, 1200),
+      ts: typeof raw.ts === "number" ? raw.ts : Date.now(),
+      ttsAudioKey: raw.ttsAudioKey ? String(raw.ttsAudioKey) : "",
+      silenceMs: typeof raw.silenceMs === "number" ? raw.silenceMs : 0,
+    };
+  }
+
+  function normalizeRadioDanmakuItem(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const text = String(raw.text || raw).trim();
+    if (!text) return null;
+    return {
+      id: typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : uid("rd"),
+      text: text.slice(0, 80),
+      ts: typeof raw.ts === "number" ? raw.ts : Date.now(),
+    };
+  }
+
+  function normalizeRadioCallerPreview(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const nickname = String(raw.nickname || "").trim();
+    if (!nickname) return null;
+    return {
+      nickname: nickname.slice(0, 24),
+      tag: String(raw.tag || "").trim().slice(0, 32),
+      mood: String(raw.mood || "").trim().slice(0, 16),
+      topicSummary: String(raw.topicSummary || raw.topic || "").trim().slice(0, 160),
+      estimatedDurationSec: typeof raw.estimatedDurationSec === "number" ? raw.estimatedDurationSec : 0,
+    };
+  }
+
+  function normalizeRadioPendingConnection(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const callerSpeech = String(raw.callerSpeech || "").trim();
+    const preview = normalizeRadioCallerPreview(raw.preview || raw.callerPreview);
+    const hostReplyLines = Array.isArray(raw.hostReplyLines)
+      ? raw.hostReplyLines.map(function (l) { return String(l || "").trim(); }).filter(Boolean)
+      : [];
+    if (!preview && !callerSpeech && !hostReplyLines.length) return null;
+    return {
+      preview: preview,
+      callerSpeech: callerSpeech.slice(0, 1200),
+      hostReplyLines: hostReplyLines.map(function (l) { return l.slice(0, 600); }),
+    };
+  }
+
+  function normalizeRadioSession(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const transcript = Array.isArray(raw.transcript)
+      ? raw.transcript.map(normalizeRadioTranscriptItem).filter(Boolean)
+      : [];
+    const danmaku = Array.isArray(raw.danmaku)
+      ? raw.danmaku.map(normalizeRadioDanmakuItem).filter(Boolean)
+      : [];
+    const rounds = Array.isArray(raw.rounds) ? raw.rounds.slice() : [];
+    const createdAt = typeof raw.createdAt === "number" ? raw.createdAt : Date.now();
+    const status = raw.status === "ended" ? "ended" : raw.status === "live" ? "live" : "idle";
+    const title =
+      typeof raw.title === "string" && raw.title.trim()
+        ? raw.title.trim().slice(0, 60)
+        : formatRadioDefaultTitle(createdAt);
+    return {
+      id: typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : uid("rs"),
+      title: title,
+      createdAt: createdAt,
+      endedAt: typeof raw.endedAt === "number" ? raw.endedAt : null,
+      status: status,
+      hostAlias: String(raw.hostAlias || "").trim().slice(0, 40),
+      timePhase: String(raw.timePhase || getTaskTodoTimePhase()),
+      roundIndex: typeof raw.roundIndex === "number" ? raw.roundIndex : 0,
+      transcript: transcript,
+      danmaku: danmaku,
+      pendingConnection: normalizeRadioPendingConnection(raw.pendingConnection),
+      pendingUserComment: String(raw.pendingUserComment || "").trim().slice(0, 280),
+      pendingUserLetter: String(raw.pendingUserLetter || "").trim().slice(0, 800),
+      callerConnected: !!raw.callerConnected,
+      rounds: rounds,
+    };
+  }
+
+  function formatRadioDefaultTitle(ts) {
+    const phase = getRadioTimePhaseLabel(getTaskTodoTimePhase());
+    return phase + "电台";
+  }
+
+  function getRadioDisplayTitle(session) {
+    const raw = session && session.title ? String(session.title).trim() : "";
+    if (!raw) return "深夜电台";
+    const stripped = raw.replace(/^\d{1,2}月\d{1,2}日\s*[·•]\s*/, "").trim();
+    return stripped || "深夜电台";
+  }
+
+  function formatRadioHistoryMeta(session) {
+    if (!session) return "";
+    const dateLabel = formatTaskTodoDateLabel(getRealWorldDateKey(new Date(session.createdAt)));
+    const count = session.transcript ? session.transcript.length : 0;
+    return dateLabel + " · " + count + "条记录";
+  }
+
+  function getRadioTimePhaseLabel(phase) {
+    if (phase === "morning") return "清晨";
+    if (phase === "afternoon") return "午后";
+    if (phase === "dusk") return "黄昏";
+    return "深夜";
+  }
+
+  function createEmptyRadioSession() {
+    const now = Date.now();
+    return normalizeRadioSession({
+      id: uid("rs"),
+      title: formatRadioDefaultTitle(now),
+      createdAt: now,
+      status: "live",
+      hostAlias: "",
+      timePhase: getTaskTodoTimePhase(),
+      roundIndex: 0,
+      transcript: [],
+      danmaku: [],
+      pendingConnection: null,
+      pendingUserComment: "",
+      pendingUserLetter: "",
+      callerConnected: false,
+      rounds: [],
+    });
+  }
+
+  function getRadioSessionMutable() {
+    if (!radioActiveSession || radioActiveSession.status !== "live") return null;
+    return radioActiveSession;
+  }
+
+  function getRadioHistoryKey() {
+    if (!radioPlotId || !radioHostCharId) return "";
+    return radioStorageKey(radioPlotId, radioHostCharId);
+  }
+
+  function getRadioHistoryRows() {
+    const key = getRadioHistoryKey();
+    const rows = [];
+    const session = getRadioSessionMutable();
+    if (session) {
+      rows.push({
+        id: session.id,
+        session: session,
+        isLive: true,
+      });
+    }
+    (radioHistoryData[key] || []).forEach(function (entry) {
+      const s = normalizeRadioSession(entry);
+      if (s) {
+        rows.push({ id: s.id, session: s, isLive: false });
+      }
+    });
+    rows.sort(function (a, b) {
+      return (b.session.createdAt || 0) - (a.session.createdAt || 0);
+    });
+    return rows;
+  }
+
+  function stashRadioSessionToHistory(plotId, hostCharId, sessionRaw) {
+    const plot = String(plotId || "").trim();
+    const host = String(hostCharId || "").trim();
+    if (!plot || !host) return;
+    const session = normalizeRadioSession(sessionRaw);
+    if (!session) return;
+    session.status = "ended";
+    session.endedAt = session.endedAt || Date.now();
+    session.pendingConnection = null;
+    const key = radioStorageKey(plot, host);
+    if (!radioHistoryData[key]) radioHistoryData[key] = [];
+    radioHistoryData[key].unshift(JSON.parse(JSON.stringify(session)));
+    if (radioHistoryData[key].length > RADIO_HISTORY_MAX_PER_KEY) {
+      radioHistoryData[key] = radioHistoryData[key].slice(0, RADIO_HISTORY_MAX_PER_KEY);
+    }
+  }
+
+  function archiveRadioSession() {
+    const session = getRadioSessionMutable();
+    if (!session) return;
+    const key = getRadioHistoryKey();
+    if (!key) return;
+    session.status = "ended";
+    session.endedAt = Date.now();
+    session.pendingConnection = null;
+    if (!radioHistoryData[key]) radioHistoryData[key] = [];
+    radioHistoryData[key].unshift(JSON.parse(JSON.stringify(session)));
+    if (radioHistoryData[key].length > RADIO_HISTORY_MAX_PER_KEY) {
+      radioHistoryData[key] = radioHistoryData[key].slice(0, RADIO_HISTORY_MAX_PER_KEY);
+    }
+    radioActiveSession = null;
+    schedulePersistNarrative();
+  }
+
+  function estimateRadioCallerSilenceMs(text) {
+    const len = String(text || "").length;
+    return Math.min(18000, Math.max(3000, len * 85));
+  }
+
+  function clearRadioAudioElement() {
+    if (radioTtsAudio) {
+      try {
+        radioTtsAudio.pause();
+        radioTtsAudio.src = "";
+      } catch (_e) {}
+      radioTtsAudio = null;
+    }
+    if (radioTtsObjectUrl) {
+      try {
+        URL.revokeObjectURL(radioTtsObjectUrl);
+      } catch (_e2) {}
+      radioTtsObjectUrl = null;
+    }
+  }
+
+  function stopRadioPlayback() {
+    radioPlayAbortToken += 1;
+    radioPlaying = false;
+    radioPlayingMsgId = null;
+    radioTtsPaused = false;
+    clearRadioAudioElement();
+  }
+
+  function captureRadioTranscriptScroll(slot) {
+    const el = slot && slot.querySelector("[data-radio-transcript]");
+    if (!el) return null;
+    return {
+      top: el.scrollTop,
+      height: el.scrollHeight,
+      clientHeight: el.clientHeight,
+    };
+  }
+
+  function restoreRadioTranscriptScroll(slot, snap, opts) {
+    opts = opts || {};
+    const el = slot && slot.querySelector("[data-radio-transcript]");
+    if (!el || !snap) return;
+    if (opts.scrollToBottom) {
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
+    if (opts.preserveScroll) {
+      el.scrollTop = snap.top;
+      return;
+    }
+    const nearBottom = snap.height - snap.top - snap.clientHeight < 96;
+    if (nearBottom) {
+      el.scrollTop = el.scrollHeight;
+    } else {
+      el.scrollTop = Math.max(0, snap.top + (el.scrollHeight - snap.height));
+    }
+  }
+
+  function buildRadioTtsSceneContext(sessionId, itemId) {
+    return "radio:" + String(sessionId || "") + ":" + String(itemId || "");
+  }
+
+  async function synthesizeRadioHostLine(hostChar, text, session, item) {
+    syncTtsSettingsFromOpenForm();
+    const model = String(ttsSettings.model || "speech-2.8-hd").trim() || "speech-2.8-hd";
+    const speakText = enrichStoryTtsSpeakText(text, "", model);
+    const voicePrompt = buildMinimaxVoicePrompt(hostChar, "", getRadioPlot(), text, {
+      sceneContext: "radio-host",
+    });
+    const sceneContext = buildRadioTtsSceneContext(session && session.id, item && item.id);
+    const cacheKey = buildStoryTtsCacheKey(speakText, voicePrompt, "", sceneContext);
+    if (item) item.ttsAudioKey = cacheKey;
+    const blob = await getOrCreateStoryTtsBlob(speakText, voicePrompt, "", sceneContext);
+    return blob;
+  }
+
+  function waitMs(ms, abortToken) {
+    return new Promise(function (resolve) {
+      const start = radioPlayAbortToken;
+      if (abortToken !== start) {
+        resolve(false);
+        return;
+      }
+      setTimeout(function () {
+        resolve(radioPlayAbortToken === abortToken);
+      }, ms);
+    });
+  }
+
+  function syncRadioPlaybackUi(slot) {
+    if (!slot) return;
+    slot.querySelectorAll(".radio-msg--host").forEach(function (article) {
+      const btn = article.querySelector("[data-radio-msg-play]");
+      if (!btn) return;
+      const msgId = btn.getAttribute("data-radio-msg-play");
+      const isActive = msgId === radioPlayingMsgId && !!radioTtsAudio;
+      const isPlaying = isActive && radioPlaying && !radioTtsPaused;
+      const isPaused = isActive && radioTtsPaused;
+      const label = isPlaying ? "暂停" : isPaused ? "继续播放" : "播放语音";
+      article.classList.toggle("is-playing", isActive && (isPlaying || isPaused));
+      btn.classList.toggle("is-playing", isPlaying);
+      btn.classList.toggle("is-paused", isPaused);
+      btn.innerHTML = isPlaying ? RADIO_MSG_PAUSE_SVG : RADIO_MSG_PLAY_SVG;
+      btn.setAttribute("aria-label", label);
+      btn.title = label;
+    });
+    const avBtn = slot.querySelector(".radio-deck__avatar-btn");
+    if (avBtn) avBtn.classList.toggle("is-speaking", !!(radioPlaying && !radioTtsPaused));
+    const meter = slot.querySelector(".radio-deck__meter");
+    if (meter) meter.classList.toggle("is-live", !!(radioPlaying && !radioTtsPaused));
+    const primaryBtn = slot.querySelector("[data-radio-primary]");
+    if (primaryBtn) {
+      const hasLive = !!getRadioSessionMutable();
+      const label = !hasLive
+        ? radioGenerating
+          ? "生成中…"
+          : "开始"
+        : radioGenerating
+          ? "生成中…"
+          : radioPlaying && !radioTtsPaused
+            ? "播放中…"
+            : "继续";
+      primaryBtn.textContent = label;
+    }
+  }
+
+  async function playRadioAudioBlob(blob, abortToken) {
+    if (abortToken !== radioPlayAbortToken) return false;
+    clearRadioAudioElement();
+    radioPlaying = true;
+    const objUrl = URL.createObjectURL(blob);
+    radioTtsObjectUrl = objUrl;
+    radioTtsAudio = new Audio(objUrl);
+    return new Promise(function (resolve) {
+      radioTtsAudio.addEventListener(
+        "ended",
+        function () {
+          resolve(radioPlayAbortToken === abortToken);
+        },
+        { once: true }
+      );
+      radioTtsAudio.addEventListener(
+        "error",
+        function () {
+          resolve(false);
+        },
+        { once: true }
+      );
+      radioTtsAudio.play().catch(function () {
+        resolve(false);
+      });
+    });
+  }
+
+  async function playRadioRoundHostLines(slot, hostChar, lineItems, abortToken) {
+    for (let i = 0; i < lineItems.length; i++) {
+      if (abortToken !== radioPlayAbortToken) return;
+      const item = lineItems[i];
+      if (!item || !item.text) continue;
+      const session = getRadioSessionMutable();
+      try {
+        if (ttsSettings.enabled && resolveGlobalMinimaxVoiceId()) {
+          radioPlayingMsgId = item.id;
+          radioTtsPaused = false;
+          const blob = await synthesizeRadioHostLine(hostChar, item.text, session, item);
+          schedulePersistNarrative();
+          syncRadioPlaybackUi(slot);
+          const ok = await playRadioAudioBlob(blob, abortToken);
+          if (!ok) return;
+        }
+      } catch (err) {
+        showToast("语音播放失败：" + (err && err.message ? err.message : String(err)), "error", 4200);
+      }
+    }
+    if (abortToken === radioPlayAbortToken) {
+      radioPlayingMsgId = null;
+      syncRadioPlaybackUi(slot);
+    }
+  }
+
+  async function playRadioPendingConnection(slot, hostChar, pending, abortToken) {
+    if (!pending || abortToken !== radioPlayAbortToken) return;
+    const session = getRadioSessionMutable();
+    if (!session) return;
+    session.pendingConnection = null;
+    session.callerConnected = true;
+    schedulePersistNarrative();
+    renderRadioScreen(slot, { scrollToBottom: true });
+    const callerName =
+      (pending.preview && pending.preview.nickname) || "匿名听众";
+    if (pending.callerSpeech) {
+      const callerItem = {
+        id: uid("rt"),
+        role: "caller",
+        speaker: callerName,
+        text: pending.callerSpeech,
+        ts: Date.now(),
+        silenceMs: estimateRadioCallerSilenceMs(pending.callerSpeech),
+      };
+      session.transcript.push(callerItem);
+      schedulePersistNarrative();
+      renderRadioScreen(slot, { scrollToBottom: true });
+      const silenceOk = await waitMs(callerItem.silenceMs, abortToken);
+      if (!silenceOk) return;
+    }
+    const replyItems = [];
+    (pending.hostReplyLines || []).forEach(function (line) {
+      const item = {
+        id: uid("rt"),
+        role: "host",
+        speaker: session.hostAlias || (hostChar && hostChar.name) || "主播",
+        text: line,
+        ts: Date.now(),
+      };
+      session.transcript.push(item);
+      replyItems.push(item);
+    });
+    schedulePersistNarrative();
+    renderRadioScreen(slot, { scrollToBottom: true });
+    await playRadioRoundHostLines(slot, hostChar, replyItems, abortToken);
+    session.callerConnected = false;
+    schedulePersistNarrative();
+  }
+
+  async function playRadioHostLinesOnly(slot, hostChar, items) {
+    const abortToken = radioPlayAbortToken;
+    radioPlaying = true;
+    try {
+      await playRadioRoundHostLines(slot, hostChar, items, abortToken);
+    } finally {
+      if (abortToken === radioPlayAbortToken) radioPlaying = false;
+      syncRadioPlaybackUi(slot);
+    }
+  }
+
+  function buildRadioRoundPrompt(plot, hostChar, session, opts) {
+    opts = opts || {};
+    const mode = opts.mode || "continue";
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, hostChar);
+    const hostName = hostChar && hostChar.name ? String(hostChar.name).trim() : "TA";
+    const phase = getTaskTodoTimePhase();
+    const phaseLabel = getRadioTimePhaseLabel(phase);
+    const dateLabel = formatTaskTodoDateLabel(getRealWorldDateKey());
+    const lines = [
+      "请为「电台深夜连线」功能生成 JSON。角色「" + hostName + "」在本场直播中担任匿名电台主播。",
+      "现实日期：" + dateLabel + "；现实时段：" + phaseLabel + "（须影响语气、话题与氛围）。",
+      "主播须使用匿名化名直播（hostAlias），与所有来电听众互不相识；听众可聊与剧情无关的话题，也可弱相关，但不得认出「我的形象」主角或真实听众身份。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    if (session && session.hostAlias) {
+      lines.push("【当前主播匿名化名】" + session.hostAlias);
+      lines.push("");
+    }
+    if (session && session.transcript.length) {
+      lines.push("【已有直播记录（最近若干条）】");
+      session.transcript.slice(-12).forEach(function (m) {
+        lines.push((m.speaker || m.role) + "：" + m.text);
+      });
+      lines.push("");
+    }
+    if (session && session.pendingUserComment) {
+      lines.push("【直播间匿名留言（待主播下轮朗读并回应，不可确认留言者身份）】");
+      lines.push(session.pendingUserComment);
+      lines.push("");
+    }
+    if (session && session.pendingUserLetter) {
+      lines.push("【用户来信（以匿名听众身份接入，callerSpeech 须基于此内容，可适度口语化但保留核心意思）】");
+      lines.push(session.pendingUserLetter);
+      lines.push("");
+    }
+    if (mode === "skipPreview") {
+      lines.push("【指令】听众 preview 未被接受，请换一位新的来电 preview，hostLines 可为简短过渡语。");
+    } else if (mode === "nextCaller" && opts.wrapUp) {
+      lines.push("【指令】请让主播先简短回应【已有直播记录】中最近一位听众的具体发言，再收尾本次连线；hostReplyLines 须承接该听众原话，然后给出新的 callerPreview + callerSpeech + hostReplyLines（新听众与主播回应同样须有问答衔接）。");
+    } else if (mode === "start") {
+      lines.push("【指令】首轮开播：hostLines 为开场白与欢迎来电；生成第一位听众 preview 及完整连线内容。");
+    } else {
+      lines.push("【指令】继续直播：hostLines 仅作简短过渡（如欢迎下一位、念留言），勿提前回应尚未接入的听众；生成下一位听众 preview 及完整连线内容。");
+    }
+    lines.push("");
+    lines.push(
+      "输出要求：\n" +
+        "1. 只输出一个 JSON 对象，无 markdown。\n" +
+        "2. 格式：\n" +
+        '{"hostAlias":"匿名电台名（首轮必填，后续可省略）","hostLines":["主播话1"],"callerPreview":{"nickname":"匿名…","tag":"标签","mood":"心情","topicSummary":"来电主题摘要"},"callerSpeech":"来电者发言全文","hostReplyLines":["主播回应1"]}\n' +
+        "3. hostLines：首轮 2~4 段、继续轮 1~2 段，每段 40~160 字；callerSpeech 120~380 字（第一人称倾诉，含具体细节与情绪）；hostReplyLines 2~4 段，每段 40~180 字。\n" +
+        "4. 互动规则（必守）：\n" +
+        "   · hostLines 是主播独自对着麦克风说的话，禁止替听众发言，禁止假装已听到 callerSpeech。\n" +
+        "   · callerSpeech 与 hostLines 不可重复同一倾诉内容；听众话须独立完整。\n" +
+        "   · hostReplyLines 必须逐条承接 callerSpeech：引用其中的具体信息（事件/情绪/原话），用「我听到你说…」「刚才你提到…」等口吻回应、共情或追问，像真实深夜电台主持。\n" +
+        "5. 口语自然，符合 " +
+        hostName +
+        " 人设；主播保持匿名直播状态。\n" +
+        "6. 若存在用户留言/来信，须在 hostLines 或 hostReplyLines 中自然回应。"
+    );
+    return lines.join("\n");
+  }
+
+  function parseRadioRoundResponse(raw) {
+    const parsed = parseAssistantJsonObject(raw);
+    if (!parsed || typeof parsed !== "object") throw new Error("无法解析电台 JSON");
+    const hostLines = Array.isArray(parsed.hostLines)
+      ? parsed.hostLines.map(function (l) { return String(l || "").trim(); }).filter(Boolean)
+      : [];
+    const hostReplyLines = Array.isArray(parsed.hostReplyLines)
+      ? parsed.hostReplyLines.map(function (l) { return String(l || "").trim(); }).filter(Boolean)
+      : [];
+    return {
+      hostAlias: String(parsed.hostAlias || "").trim(),
+      hostLines: hostLines,
+      callerPreview: normalizeRadioCallerPreview(parsed.callerPreview),
+      callerSpeech: String(parsed.callerSpeech || "").trim(),
+      hostReplyLines: hostReplyLines,
+    };
+  }
+
+  function applyRadioRoundToSession(session, round, hostChar) {
+    if (!session || !round) return [];
+    const hostSpeaker = session.hostAlias || (hostChar && hostChar.name) || "主播";
+    if (round.hostAlias && !session.hostAlias) session.hostAlias = round.hostAlias.slice(0, 40);
+    const newHostItems = [];
+    round.hostLines.forEach(function (line) {
+      const item = normalizeRadioTranscriptItem({
+        role: "host",
+        speaker: hostSpeaker,
+        text: line,
+        ts: Date.now(),
+      });
+      if (item) {
+        session.transcript.push(item);
+        newHostItems.push(item);
+      }
+    });
+    const preview =
+      round.callerPreview ||
+      (round.callerSpeech
+        ? { nickname: "匿名听众", tag: "", mood: "", topicSummary: "即将接入…" }
+        : null);
+    session.pendingConnection = normalizeRadioPendingConnection({
+      preview: preview,
+      callerSpeech: round.callerSpeech,
+      hostReplyLines: round.hostReplyLines,
+    });
+    const now = Date.now();
+    session.roundIndex = (session.roundIndex || 0) + 1;
+    session.rounds.push({
+      id: uid("rr"),
+      roundIndex: session.roundIndex,
+      at: now,
+    });
+    if (session.pendingUserComment) session.pendingUserComment = "";
+    if (session.pendingUserLetter) session.pendingUserLetter = "";
+    return newHostItems;
+  }
+
+  async function generateRadioRound(slot, opts) {
+    opts = opts || {};
+    const plot = getRadioPlot();
+    const hostChar = getRadioHostChar();
+    if (!plot || !hostChar) {
+      showToast("请先选择剧情与主播角色。", "warning");
+      return;
+    }
+    if (radioGenerating || radioPlaying) return;
+    let session = getRadioSessionMutable();
+    if (opts.mode === "start" || !session) {
+      session = createEmptyRadioSession();
+      radioActiveSession = session;
+    }
+    if (opts.mode === "skipPreview" && session) {
+      session.pendingConnection = null;
+    }
+    if (opts.mode === "nextCaller" && opts.wrapUp && session) {
+      session.pendingConnection = null;
+    }
+    radioGenerating = true;
+    renderRadioScreen(slot);
+    try {
+      const systemPrompt =
+        "你是中文互动叙事助手，擅长模拟有来有往的匿名深夜电台连线。主播与听众必须像真实电话互动：听众先倾诉，主播再针对性回应，避免各说各话。只输出 JSON，不要 markdown 围栏。";
+      const userPrompt = buildRadioRoundPrompt(plot, hostChar, session, opts);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.82,
+        4096,
+        { apiConfigId: getWorkbenchApiId() }
+      );
+      const round = parseRadioRoundResponse(raw);
+      const newHostItems = applyRadioRoundToSession(session, round, hostChar);
+      schedulePersistNarrative();
+      radioGenerating = false;
+      renderRadioScreen(slot, { scrollToBottom: true });
+      await playRadioHostLinesOnly(slot, hostChar, newHostItems);
+    } catch (err) {
+      radioGenerating = false;
+      renderRadioScreen(slot);
+      showToast(err && err.message ? err.message : "电台生成失败", "error", 4800);
+    }
+  }
+
+  async function radioAcceptPendingConnection(slot) {
+    const session = getRadioSessionMutable();
+    const hostChar = getRadioHostChar();
+    if (!session || !hostChar || !session.pendingConnection) return;
+    if (radioGenerating || (radioPlaying && !radioTtsPaused)) return;
+    stopRadioPlayback();
+    const pending = session.pendingConnection;
+    const abortToken = radioPlayAbortToken;
+    radioPlaying = true;
+    renderRadioScreen(slot, { preserveScroll: true });
+    try {
+      await playRadioPendingConnection(slot, hostChar, pending, abortToken);
+    } finally {
+      if (abortToken === radioPlayAbortToken) radioPlaying = false;
+      renderRadioScreen(slot, { preserveScroll: true });
+    }
+  }
+
+  async function radioContinueOrConnect(slot) {
+    const session = getRadioSessionMutable();
+    const hostChar = getRadioHostChar();
+    if (!session || !hostChar) {
+      void generateRadioRound(slot, { mode: "start" });
+      return;
+    }
+    void generateRadioRound(slot, { mode: "continue" });
+  }
+
+  function getRadioSessionForView(slot) {
+    const nav = getRadioNav(slot);
+    if (nav.screen === "history" && nav.historyDetailId) {
+      const row = getRadioHistoryRows().find(function (r) {
+        return r.id === nav.historyDetailId;
+      });
+      return row && row.session ? row.session : null;
+    }
+    return getRadioSessionMutable();
+  }
+
+  const RADIO_MSG_PLAY_SVG =
+    '<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+  const RADIO_MSG_PAUSE_SVG =
+    '<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true"><path d="M7 5h4v14H7zm6 0h4v14h-4z"/></svg>';
+
+  function buildRadioMsgPlayBtnHtml(msgId) {
+    const isActive = msgId === radioPlayingMsgId && !!radioTtsAudio;
+    const isPlaying = isActive && radioPlaying && !radioTtsPaused;
+    const isPaused = isActive && radioTtsPaused;
+    const label = isPlaying ? "暂停" : isPaused ? "继续播放" : "播放语音";
+    const svg = isPlaying ? RADIO_MSG_PAUSE_SVG : RADIO_MSG_PLAY_SVG;
+    let cls = "radio-msg__play-btn";
+    if (isPlaying) cls += " is-playing";
+    if (isPaused) cls += " is-paused";
+    return (
+      '<button type="button" class="' +
+      cls +
+      '" data-radio-msg-play="' +
+      escapeHtml(msgId) +
+      '" aria-label="' +
+      label +
+      '" title="' +
+      label +
+      '">' +
+      svg +
+      "</button>"
+    );
+  }
+
+  async function toggleRadioHostLinePlayback(slot, msgId) {
+    if (radioGenerating) return;
+    const hostChar = getRadioHostChar();
+    const session = getRadioSessionForView(slot);
+    if (!hostChar || !session || !msgId) return;
+    const item = session.transcript.find(function (m) {
+      return m.id === msgId && m.role === "host";
+    });
+    if (!item || !item.text) return;
+
+    if (radioPlayingMsgId === msgId && radioTtsAudio) {
+      if (radioPlaying && !radioTtsPaused) {
+        radioTtsAudio.pause();
+        radioPlaying = false;
+        radioTtsPaused = true;
+        syncRadioPlaybackUi(slot);
+        return;
+      }
+      if (radioTtsPaused) {
+        radioTtsPaused = false;
+        radioPlaying = true;
+        try {
+          await radioTtsAudio.play();
+        } catch (_playErr) {
+          showToast("语音播放失败", "error", 3200);
+        }
+        syncRadioPlaybackUi(slot);
+        return;
+      }
+    }
+
+    if (!ttsSettings.enabled || !resolveGlobalMinimaxVoiceId()) {
+      showToast("请先在设置中开启语音合成。", "warning");
+      return;
+    }
+    stopRadioPlayback();
+    const abortToken = radioPlayAbortToken;
+    radioPlaying = true;
+    radioPlayingMsgId = item.id;
+    radioTtsPaused = false;
+    syncRadioPlaybackUi(slot);
+    try {
+      const blob = await synthesizeRadioHostLine(hostChar, item.text, session, item);
+      schedulePersistNarrative();
+      await playRadioAudioBlob(blob, abortToken);
+    } catch (err) {
+      showToast("语音播放失败：" + (err && err.message ? err.message : String(err)), "error", 4200);
+    } finally {
+      if (abortToken === radioPlayAbortToken) {
+        radioPlaying = false;
+        radioPlayingMsgId = null;
+        radioTtsPaused = false;
+      }
+      syncRadioPlaybackUi(slot);
+    }
+  }
+
+  function buildRadioTranscriptHtml(session) {
+    if (!session || !session.transcript.length) {
+      return '<p class="radio-transcript__empty">点击「开始」，让主播开启本场匿名直播。</p>';
+    }
+    return session.transcript
+      .map(function (m) {
+        const roleCls =
+          m.role === "caller" ? "radio-msg--caller" : m.role === "system" ? "radio-msg--system" : "radio-msg--host";
+        const playingCls = m.id === radioPlayingMsgId ? " is-playing" : "";
+        let silenceHtml = "";
+        if (m.role === "caller" && m.silenceMs) {
+          silenceHtml =
+            '<span class="radio-msg__silence"><span class="radio-msg__silence-dots"><span>·</span><span>·</span><span>·</span></span> 连线发言中</span>';
+        }
+        let bubbleHtml =
+          '<div class="radio-msg__bubble">' + escapeHtml(m.text) + "</div>";
+        if (m.role === "host") {
+          bubbleHtml =
+            '<div class="radio-msg__bubble-wrap">' +
+            bubbleHtml +
+            buildRadioMsgPlayBtnHtml(m.id) +
+            "</div>";
+        }
+        return (
+          '<article class="radio-msg ' +
+          roleCls +
+          playingCls +
+          '">' +
+          (m.speaker ? '<span class="radio-msg__speaker">' + escapeHtml(m.speaker) + "</span>" : "") +
+          bubbleHtml +
+          silenceHtml +
+          "</article>"
+        );
+      })
+      .join("");
+  }
+
+  function buildRadioPreviewHtml(session, disabled) {
+    const pending = session && session.pendingConnection;
+    const preview = pending && pending.preview;
+    if (!preview) return "";
+    return (
+      '<div class="radio-preview">' +
+      '<div class="radio-preview__row">' +
+      '<div class="radio-preview__main">' +
+      '<div class="radio-preview__label">待接入 · INCOMING</div>' +
+      '<div class="radio-preview__name">' +
+      escapeHtml(preview.nickname) +
+      "</div>" +
+      (preview.tag ? '<div class="radio-preview__tag">' + escapeHtml(preview.tag) + "</div>" : "") +
+      (preview.topicSummary
+        ? '<div class="radio-preview__topic">' + escapeHtml(preview.topicSummary) + "</div>"
+        : "") +
+      "</div>" +
+      '<button type="button" class="radio-preview__connect"' +
+      (disabled ? " disabled" : "") +
+      ' data-radio-connect>选择接入</button>' +
+      "</div>" +
+      '<button type="button" class="radio-preview__skip"' +
+      (disabled ? " disabled" : "") +
+      ' data-radio-skip>换一位</button>' +
+      "</div>"
+    );
+  }
+
+  function buildRadioLiveHtml(slot, session, hostChar, plot) {
+    const hostName = hostChar && hostChar.name ? hostChar.name : "主播";
+    const title =
+      (session && session.hostAlias ? session.hostAlias : hostName) + "的电台";
+    const phaseLabel = getRadioTimePhaseLabel(
+      (session && session.timePhase) || getTaskTodoTimePhase()
+    );
+    const hasLive = session && session.status === "live";
+    const hasPending = !!(session && session.pendingConnection);
+    const primaryLabel = !hasLive
+      ? radioGenerating
+        ? "生成中…"
+        : "开始"
+      : radioGenerating
+        ? "生成中…"
+        : radioPlaying
+          ? "播放中…"
+          : "继续";
+    const pendingHint = [];
+    if (session && session.pendingUserComment) {
+      pendingHint.push("已发送留言，下次继续时将由主播朗读");
+    }
+    if (session && session.pendingUserLetter) {
+      pendingHint.push("信件已寄出，下次继续时将作为来电接入");
+    }
+    const actionDisabled = radioGenerating || radioPlaying;
+    const primaryDisabled = actionDisabled || (hasPending && hasLive);
+    const endDisabled = radioGenerating;
+    const meterLiveCls = radioPlaying ? " is-live" : "";
+
+    return (
+      '<div class="radio-shell" data-radio-root>' +
+      '<div class="radio-shell__backdrop" aria-hidden="true">' +
+      '<div class="radio-shell__glow"></div>' +
+      '<div class="radio-shell__wave"></div>' +
+      "</div>" +
+      '<header class="radio-shell__bar">' +
+      '<button type="button" class="icon-btn radio-shell__icon" data-radio-back aria-label="返回">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<h1 class="radio-shell__title"><span class="radio-shell__live-tag">ON AIR</span>' +
+      escapeHtml(title) +
+      "</h1>" +
+      '<button type="button" class="icon-btn radio-shell__icon" data-radio-settings aria-label="设置">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>' +
+      "</button>" +
+      "</header>" +
+      '<section class="radio-deck">' +
+      '<div class="radio-deck__player">' +
+      '<button type="button" class="radio-deck__avatar-btn' +
+      (radioPlaying ? " is-speaking" : "") +
+      '" data-radio-history aria-label="查看历史直播">' +
+      '<div class="avatar" data-radio-host-avatar></div>' +
+      '<span class="radio-deck__ring" aria-hidden="true"></span>' +
+      "</button>" +
+      '<div class="radio-deck__meta">' +
+      '<span class="radio-deck__phase">' +
+      escapeHtml(phaseLabel) +
+      " · 深夜电台</span>" +
+      '<div class="radio-deck__meter' +
+      meterLiveCls +
+      '" aria-hidden="true">' +
+      "<span></span><span></span><span></span><span></span><span></span>" +
+      "</div></div>" +
+      '<button type="button" class="radio-deck__primary" data-radio-primary' +
+      (primaryDisabled ? " disabled" : "") +
+      ">" +
+      escapeHtml(primaryLabel) +
+      "</button></div>" +
+      '<div class="radio-deck__tools">' +
+      '<button type="button" class="radio-deck__tool" data-radio-letter' +
+      (actionDisabled ? " disabled" : "") +
+      '>' +
+      '<svg class="icon-linear" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 4h16v16H4z"/><path d="M22 6l-10 7L2 6"/></svg>' +
+      "写信</button>" +
+      '<button type="button" class="radio-deck__tool radio-deck__tool--end" data-radio-hangup' +
+      (endDisabled ? " disabled" : "") +
+      ">结束</button>" +
+      "</div></section>" +
+      '<div class="radio-shell__body">' +
+      '<section class="radio-transcript" data-radio-transcript>' +
+      '<div class="radio-transcript__head"><span class="radio-transcript__dot"></span>电波记录</div>' +
+      buildRadioTranscriptHtml(session) +
+      "</section></div>" +
+      '<div class="radio-shell__dock">' +
+      buildRadioPreviewHtml(session, actionDisabled) +
+      '<footer class="radio-footer">' +
+      (pendingHint.length
+        ? '<p class="radio-footer__pending">' + escapeHtml(pendingHint.join(" · ")) + "</p>"
+        : "") +
+      '<div class="radio-footer__compose">' +
+      '<input type="text" class="radio-footer__input" data-radio-input maxlength="280" placeholder="悄悄留一句给主播…" value="' +
+      escapeHtml(radioInputDraft) +
+      '">' +
+      '<button type="button" class="radio-footer__send" data-radio-send>发送</button>' +
+      "</div></footer></div></div>"
+    );
+  }
+
+  function buildRadioHistoryHtml(slot) {
+    const hostChar = getRadioHostChar();
+    const hostName = hostChar && hostChar.name ? hostChar.name : "主播";
+    const rows = getRadioHistoryRows();
+    const listHtml = rows.length
+      ? rows
+          .map(function (row) {
+            const s = row.session;
+            const meta = formatRadioHistoryMeta(s);
+            const displayTitle = getRadioDisplayTitle(s);
+            return (
+              '<div class="radio-history-row" data-radio-history-row="' +
+              escapeHtml(s.id) +
+              '">' +
+              '<div class="radio-history-row__main">' +
+              '<div class="radio-history-row__top">' +
+              '<div class="radio-history-row__name" data-radio-history-name="' +
+              escapeHtml(s.id) +
+              '">' +
+              escapeHtml(displayTitle) +
+              "</div>" +
+              '<div class="radio-history-row__actions">' +
+              (row.isLive ? '<span class="radio-history-card__badge">进行中</span>' : "") +
+              '<button type="button" class="radio-history-icon-btn" data-radio-history-rename="' +
+              escapeHtml(s.id) +
+              '" aria-label="改名">' +
+              '<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M17 3a2.828 2.828 0 114 4L7 21H3v-4L17 3z"/></svg>' +
+              "</button>" +
+              '<button type="button" class="radio-history-icon-btn radio-history-icon-btn--danger" data-radio-history-delete="' +
+              escapeHtml(s.id) +
+              '" aria-label="删除">' +
+              '<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>' +
+              "</button>" +
+              '<button type="button" class="radio-history-icon-btn" data-radio-history-open="' +
+              escapeHtml(s.id) +
+              '" aria-label="查看">' +
+              '<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M9 18l6-6-6-6"/></svg>' +
+              "</button></div></div>" +
+              '<div class="radio-history-row__meta">' +
+              escapeHtml(meta) +
+              "</div></div></div>"
+            );
+          })
+          .join("")
+      : '<p class="radio-transcript__empty">暂无历史直播记录</p>';
+
+    return (
+      '<div class="radio-history">' +
+      '<header class="radio-history__bar">' +
+      '<button type="button" class="icon-btn" data-radio-history-back aria-label="返回">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      "<h2 class=\"radio-history__title\">" +
+      escapeHtml(hostName) +
+      " · 历史直播</h2></header>" +
+      listHtml +
+      "</div>"
+    );
+  }
+
+  function buildRadioHistoryDetailHtml(session) {
+    if (!session) return "";
+    return (
+      '<div class="radio-history-detail">' +
+      '<header class="radio-history__bar">' +
+      '<button type="button" class="icon-btn" data-radio-history-back aria-label="返回">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      "<h2 class=\"radio-history__title\">" +
+      escapeHtml(getRadioDisplayTitle(session)) +
+      "</h2></header>" +
+      '<section class="radio-transcript radio-transcript--detail" data-radio-transcript>' +
+      '<div class="radio-transcript__head"><span class="radio-transcript__dot"></span>电波记录</div>' +
+      buildRadioTranscriptHtml(session) +
+      "</section></div>"
+    );
+  }
+
+  function renderRadioScreen(slot, opts) {
+    opts = opts || {};
+    if (!slot) return;
+    const scrollSnap = captureRadioTranscriptScroll(slot);
+    slot.classList.remove("story-placeholder");
+    const nav = getRadioNav(slot);
+    const plot = getRadioPlot();
+    const hostChar = getRadioHostChar();
+    const session = getRadioSessionMutable();
+
+    if (nav.screen === "history" && nav.historyDetailId) {
+      const row = getRadioHistoryRows().find(function (r) {
+        return r.id === nav.historyDetailId;
+      });
+      slot.innerHTML = buildRadioHistoryDetailHtml(row && row.session);
+      restoreRadioTranscriptScroll(slot, scrollSnap, opts);
+      return;
+    }
+    if (nav.screen === "history") {
+      slot.innerHTML = buildRadioHistoryHtml(slot);
+      return;
+    }
+
+    slot.innerHTML = buildRadioLiveHtml(slot, session, hostChar, plot);
+    const av = slot.querySelector("[data-radio-host-avatar]");
+    if (av && hostChar) fillAvatarElement(av, hostChar);
+    restoreRadioTranscriptScroll(slot, scrollSnap, opts);
+  }
+
+  function closeOverviewRadioView() {
+    stopRadioPlayback();
+    stopCollectAudio();
+    overviewSubView = null;
+    if (!location.hash.startsWith("#/story") && location.hash !== "#/tab/overview") {
+      location.hash = "#/tab/overview";
+    }
+    syncOverviewSubViewUi();
+  }
+
+  function syncRadioHolderModalChrome() {
+    const onCharStep = radioHolderModalStep === "char";
+    const titleEl = els.radioHolderTitle();
+    const hintEl = els.radioHolderHint();
+    const backBtn = els.radioHolderStepBack();
+    const plotList = els.radioHolderPlotList();
+    const pick = els.radioHolderPick();
+    const plot = plots.find(function (p) {
+      return p.id === radioHolderModalPlotId;
+    });
+    if (titleEl) titleEl.textContent = onCharStep ? "选择主播" : "选择剧情";
+    if (hintEl) {
+      if (onCharStep) {
+        hintEl.hidden = false;
+        hintEl.textContent = plot
+          ? "《" + (plot.title || "未命名剧情") + "》· 点选一名主要角色担任电台主播"
+          : "点选主要角色担任电台主播";
+      } else {
+        hintEl.hidden = false;
+        hintEl.textContent = "先选择电台主播所在的剧情";
+      }
+    }
+    if (backBtn) backBtn.hidden = !onCharStep;
+    if (plotList) plotList.hidden = onCharStep;
+    if (pick) pick.hidden = !onCharStep;
+  }
+
+  function renderRadioHolderPlotList() {
+    const listEl = els.radioHolderPlotList();
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    if (!plots.length) {
+      const ph = document.createElement("p");
+      ph.className = "field__hint phone-holder-empty";
+      ph.textContent = "暂无剧情，请先在「剧情」中创建。";
+      listEl.appendChild(ph);
+      return;
+    }
+    plots.forEach(function (p) {
+      const candidates = getRadioHostCandidatesForPlot(p.id);
+      const btn = buildPhoneHolderPlotRowBtn(p, radioPlotId === p.id);
+      btn.addEventListener("click", function () {
+        if (!candidates.length) {
+          showToast("该剧情下没有可担任主播的主要角色。", "warning");
+          return;
+        }
+        radioHolderModalPlotId = p.id;
+        radioHolderModalStep = "char";
+        renderRadioHolderModal();
+      });
+      listEl.appendChild(btn);
+    });
+  }
+
+  function finishRadioHolderSelection(charId) {
+    const plotId = radioHolderModalPlotId;
+    const plot = plots.find(function (p) {
+      return p.id === plotId;
+    });
+    const host = getCharById(charId);
+    if (!plot || !host) return;
+    radioPlotId = plotId;
+    radioHostCharId = charId;
+    sanitizeRadioState();
+    schedulePersistNarrative();
+    closeRadioHolderModal();
+    const slot = els.radioContentSlot();
+    if (slot) renderRadioScreen(slot);
+    showToast("已选择主播「" + (host.name || "TA") + "」", "success");
+  }
+
+  function renderRadioHolderCharPick() {
+    const pick = els.radioHolderPick();
+    if (!pick) return;
+    pick.innerHTML = "";
+    const list = getRadioHostCandidatesForPlot(radioHolderModalPlotId);
+    if (!list.length) {
+      const ph = document.createElement("p");
+      ph.className = "field__hint phone-holder-empty";
+      ph.textContent = "该剧情下没有主要角色。";
+      pick.appendChild(ph);
+      return;
+    }
+    list.forEach(function (c) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className =
+        "char-pick-avatar" +
+        (c.id === radioHostCharId && radioPlotId === radioHolderModalPlotId ? " is-selected" : "");
+      b.title = c.name || "未命名";
+      b.setAttribute("aria-label", c.name || "未命名");
+      const av = document.createElement("div");
+      av.className = "avatar";
+      b.appendChild(av);
+      fillAvatarElement(av, c);
+      b.addEventListener("click", function () {
+        finishRadioHolderSelection(c.id);
+      });
+      pick.appendChild(b);
+    });
+  }
+
+  function renderRadioHolderModal() {
+    syncRadioHolderModalChrome();
+    if (radioHolderModalStep === "char") {
+      renderRadioHolderCharPick();
+      return;
+    }
+    renderRadioHolderPlotList();
+  }
+
+  function openRadioHolderModal(opts) {
+    opts = opts || {};
+    const modal = els.modalRadioHolder();
+    if (!modal) return;
+    radioHolderModalMode = opts.mode === "settings" ? "settings" : "first";
+    radioHolderModalStep = "plot";
+    radioHolderModalPlotId = radioPlotId;
+    renderRadioHolderModal();
+    modal.hidden = false;
+  }
+
+  function radioHolderModalBackToPlot() {
+    radioHolderModalStep = "plot";
+    renderRadioHolderModal();
+  }
+
+  function closeRadioHolderModal() {
+    const modal = els.modalRadioHolder();
+    if (!modal) return;
+    modal.hidden = true;
+    radioHolderModalStep = "plot";
+    radioHolderModalPlotId = null;
+    if (radioHolderModalMode === "first" && (!radioPlotId || !radioHostCharId)) {
+      closeOverviewRadioView();
+    }
+  }
+
+  function openRadioLetterModal() {
+    const modal = els.modalRadioLetter();
+    const input = els.radioLetterInput();
+    if (!modal) return;
+    if (input) {
+      const session = getRadioSessionMutable();
+      input.value = (session && session.pendingUserLetter) || "";
+    }
+    modal.hidden = false;
+  }
+
+  function closeRadioLetterModal() {
+    const modal = els.modalRadioLetter();
+    if (modal) modal.hidden = true;
+  }
+
+  function confirmRadioLetter() {
+    const input = els.radioLetterInput();
+    const text = input ? String(input.value || "").trim() : "";
+    if (!text) {
+      showToast("请先写下信件内容。", "warning");
+      return;
+    }
+    let session = getRadioSessionMutable();
+    if (!session) {
+      session = createEmptyRadioSession();
+      radioActiveSession = session;
+    }
+    session.pendingUserLetter = text.slice(0, 800);
+    schedulePersistNarrative();
+    closeRadioLetterModal();
+    renderRadioScreen(els.radioContentSlot());
+    showToast("信件已寄出，点击「继续/接入」时将来电接入", "success");
+  }
+
+  function openRadioEndCallModal() {
+    const modal = els.modalRadioEndCall();
+    if (modal) modal.hidden = false;
+  }
+
+  function closeRadioEndCallModal() {
+    const modal = els.modalRadioEndCall();
+    if (modal) modal.hidden = true;
+  }
+
+  function radioEndCallSkipGenerate() {
+    const session = getRadioSessionMutable();
+    if (session) {
+      session.pendingConnection = null;
+      session.callerConnected = false;
+      session.transcript.push(
+        normalizeRadioTranscriptItem({
+          role: "system",
+          speaker: "",
+          text: "已结束本次连线",
+          ts: Date.now(),
+        })
+      );
+      schedulePersistNarrative();
+    }
+    closeRadioEndCallModal();
+    renderRadioScreen(els.radioContentSlot());
+  }
+
+  function radioEndCallGenerateNext(slot) {
+    closeRadioEndCallModal();
+    void generateRadioRound(slot, { mode: "nextCaller", wrapUp: true });
+  }
+
+  function radioHangup(slot) {
+    stopRadioPlayback();
+    if (getRadioSessionMutable()) {
+      archiveRadioSession();
+    }
+    renderRadioScreen(slot);
+    showToast("已挂断，本场直播已保存", "success");
+  }
+
+  function radioSendComment(slot) {
+    const input = slot && slot.querySelector("[data-radio-input]");
+    const text = input ? String(input.value || "").trim() : String(radioInputDraft || "").trim();
+    if (!text) {
+      showToast("请输入留言内容。", "warning");
+      return;
+    }
+    let session = getRadioSessionMutable();
+    if (!session) {
+      session = createEmptyRadioSession();
+      radioActiveSession = session;
+    }
+    session.pendingUserComment = text.slice(0, 280);
+    radioInputDraft = "";
+    schedulePersistNarrative();
+    renderRadioScreen(slot);
+    showToast("留言已发送，下次继续时主播将朗读并回应", "success");
+  }
+
+  function radioHandleNext(slot) {
+    const session = getRadioSessionMutable();
+    if (!session) {
+      void generateRadioRound(slot, { mode: "start" });
+      return;
+    }
+    if (session.pendingConnection) {
+      void generateRadioRound(slot, { mode: "skipPreview" });
+      return;
+    }
+    const hasCaller = session.transcript.some(function (m) {
+      return m.role === "caller";
+    });
+    if (hasCaller) {
+      openRadioEndCallModal();
+      return;
+    }
+    void generateRadioRound(slot, { mode: "continue" });
+  }
+
+  function radioRenameHistoryEntry(sessionId, newTitle) {
+    const title = String(newTitle || "").trim().slice(0, 60);
+    if (!title || !sessionId) return;
+    const live = getRadioSessionMutable();
+    if (live && live.id === sessionId) {
+      live.title = title;
+      schedulePersistNarrative();
+      return;
+    }
+    const key = getRadioHistoryKey();
+    const arr = radioHistoryData[key] || [];
+    const hit = arr.find(function (s) {
+      return s && s.id === sessionId;
+    });
+    if (hit) {
+      hit.title = title;
+      schedulePersistNarrative();
+    }
+  }
+
+  function radioDeleteHistoryEntry(sessionId) {
+    if (!sessionId) return;
+    const live = getRadioSessionMutable();
+    if (live && live.id === sessionId) {
+      stopRadioPlayback();
+      radioActiveSession = null;
+      schedulePersistNarrative();
+      return;
+    }
+    const key = getRadioHistoryKey();
+    if (!key || !radioHistoryData[key]) return;
+    radioHistoryData[key] = radioHistoryData[key].filter(function (s) {
+      return s && s.id !== sessionId;
+    });
+    schedulePersistNarrative();
+  }
+
+  function handleRadioSlotClick(e, slot) {
+    if (e.target.closest("[data-radio-back]")) {
+      const nav = getRadioNav(slot);
+      if (nav.screen === "history") {
+        if (nav.historyDetailId) {
+          nav.historyDetailId = null;
+          renderRadioScreen(slot);
+        } else {
+          nav.screen = "live";
+          renderRadioScreen(slot);
+        }
+      } else {
+        closeOverviewRadioView();
+      }
+      return;
+    }
+    if (e.target.closest("[data-radio-settings]")) {
+      openRadioHolderModal({ mode: "settings" });
+      return;
+    }
+    if (e.target.closest("[data-radio-history]")) {
+      const nav = getRadioNav(slot);
+      nav.screen = "history";
+      nav.historyDetailId = null;
+      renderRadioScreen(slot);
+      return;
+    }
+    if (e.target.closest("[data-radio-history-back]")) {
+      const nav = getRadioNav(slot);
+      if (nav.historyDetailId) {
+        nav.historyDetailId = null;
+      } else {
+        nav.screen = "live";
+      }
+      renderRadioScreen(slot);
+      return;
+    }
+    if (e.target.closest("[data-radio-primary]")) {
+      const btn = e.target.closest("[data-radio-primary]");
+      if (btn && btn.disabled) return;
+      const session = getRadioSessionMutable();
+      if (!session) {
+        void generateRadioRound(slot, { mode: "start" });
+      } else {
+        void radioContinueOrConnect(slot);
+      }
+      return;
+    }
+    if (e.target.closest("[data-radio-letter]")) {
+      const btn = e.target.closest("[data-radio-letter]");
+      if (btn && btn.disabled) return;
+      openRadioLetterModal();
+      return;
+    }
+    if (e.target.closest("[data-radio-connect]")) {
+      const btn = e.target.closest("[data-radio-connect]");
+      if (btn && btn.disabled) return;
+      void radioAcceptPendingConnection(slot);
+      return;
+    }
+    if (e.target.closest("[data-radio-skip]")) {
+      const btn = e.target.closest("[data-radio-skip]");
+      if (btn && btn.disabled) return;
+      void generateRadioRound(slot, { mode: "skipPreview" });
+      return;
+    }
+    if (e.target.closest("[data-radio-send]")) {
+      radioSendComment(slot);
+      return;
+    }
+    if (e.target.closest("[data-radio-hangup]")) {
+      radioHangup(slot);
+      return;
+    }
+    const playBtn = e.target.closest("[data-radio-msg-play]");
+    if (playBtn) {
+      e.preventDefault();
+      const msgId = playBtn.getAttribute("data-radio-msg-play");
+      void toggleRadioHostLinePlayback(slot, msgId);
+      return;
+    }
+
+    const renameBtn = e.target.closest("[data-radio-history-rename]");
+    if (renameBtn) {
+      const sessionId = renameBtn.getAttribute("data-radio-history-rename");
+      const row = renameBtn.closest("[data-radio-history-row]");
+      const nameEl = row && row.querySelector("[data-radio-history-name]");
+      if (!nameEl || !sessionId) return;
+      const input = document.createElement("input");
+      input.className = "cat-manage-row__name-input field__input radio-history-row__name-input";
+      input.value = nameEl.textContent || "";
+      nameEl.replaceWith(input);
+      input.focus();
+      const commit = function () {
+        radioRenameHistoryEntry(sessionId, input.value);
+        renderRadioScreen(slot);
+      };
+      input.addEventListener("blur", commit);
+      input.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          commit();
+        }
+      });
+      return;
+    }
+
+    const deleteBtn = e.target.closest("[data-radio-history-delete]");
+    if (deleteBtn) {
+      const sessionId = deleteBtn.getAttribute("data-radio-history-delete");
+      showConfirm("确认删除这条直播记录？", "删除记录").then(function (ok) {
+        if (!ok) return;
+        radioDeleteHistoryEntry(sessionId);
+        renderRadioScreen(slot);
+      });
+      return;
+    }
+
+    const openBtn = e.target.closest("[data-radio-history-open]");
+    if (openBtn) {
+      const nav = getRadioNav(slot);
+      nav.historyDetailId = openBtn.getAttribute("data-radio-history-open");
+      renderRadioScreen(slot);
+      return;
+    }
+  }
+
   function getPhoneWallpaperUrlForChar(charId) {
     if (!charId) return "";
     return String(phoneWallpapers[charId] || "").trim();
@@ -28303,6 +30126,28 @@
 
   function phoneSharedSectionStoreGetUpdatedAt(store, plotId) {
     return phoneSharedSectionEntryUpdatedAt(store[plotId]);
+  }
+
+  /** 从备份 narrative 恢复查手机各 App 的按剧情分类存储。 */
+  function applyPhoneSharedSectionsByPlotFromBackup(targetStore, sourceObj) {
+    if (!targetStore || !sourceObj || typeof sourceObj !== "object" || Array.isArray(sourceObj)) return;
+    Object.keys(sourceObj).forEach(function (plotId) {
+      const raw = sourceObj[plotId];
+      const arr = phoneSharedSectionEntrySections(raw);
+      if (!Array.isArray(arr) || !arr.length) return;
+      phoneSharedSectionStoreSetSections(
+        targetStore,
+        plotId,
+        arr.map(function (s) {
+          return {
+            id: String((s && s.id) || ""),
+            name: String((s && s.name) || ""),
+            description: String((s && s.description) || ""),
+          };
+        }),
+        phoneSharedSectionEntryUpdatedAt(raw) || Date.now()
+      );
+    });
   }
 
   function phoneSharedSectionStoreSetSections(store, plotId, sections, updatedAt) {
@@ -29571,7 +31416,7 @@
     if (slot && getPhoneNav(slot).screen === "moments") renderPhoneScreen(slot);
     try {
       showToast(isRegenerate ? "正在追加朋友圈…" : "正在生成朋友圈…", "info");
-      setGenCallContext(buildGenCallOpts("phone-moments", { slot: slot }));
+      const _genCtx = beginGenCall("phone-moments", { slot: slot });
       const systemPrompt = isRegenerate
         ? "你是中文互动叙事助手。根据剧情与已有朋友圈数据，增量追加朋友圈 JSON。\n" +
           "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
@@ -29589,7 +31434,7 @@
         ],
         0.78,
         8192
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       const bundle = isRegenerate
         ? mergePhoneMomentsIncrement(existing, parsed, plot, holder)
@@ -30281,7 +32126,7 @@
     if (slot && getPhoneNav(slot).screen === "music") renderPhoneScreen(slot);
     try {
       showToast(isRegenerate ? "正在追加音乐记录…" : "正在生成音乐记录…", "info");
-      setGenCallContext(buildGenCallOpts("phone-music", { slot: slot }));
+      const _genCtx = beginGenCall("phone-music", { slot: slot });
       const systemPrompt = isRegenerate
         ? "你是中文互动叙事助手。根据剧情与已有音乐播放数据，增量追加真实歌曲记录 JSON。\n" +
           "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
@@ -30301,7 +32146,7 @@
         ],
         0.72,
         8192
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       const bundle = isRegenerate
         ? mergePhoneMusicIncrement(existing, parsed)
@@ -30894,7 +32739,7 @@
     if (slot && getPhoneNav(slot).screen === "album") renderPhoneScreen(slot);
     try {
       showToast(isRegenerate ? "正在追加相册…" : "正在生成相册…", "info");
-      setGenCallContext(buildGenCallOpts("phone-album", { slot: slot }));
+      const _genCtx = beginGenCall("phone-album", { slot: slot });
       const systemPrompt = isRegenerate
         ? "你是中文互动叙事助手。根据剧情与已有相册数据，增量追加相册 JSON。\n" +
           "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
@@ -30912,7 +32757,7 @@
         ],
         0.76,
         16384
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       const bundle = isRegenerate
         ? mergePhoneAlbumIncrement(existing, parsed)
@@ -32010,7 +33855,7 @@
     if (slot && getPhoneNav(slot).screen === "forum") renderPhoneScreen(slot);
     try {
       showToast(isRegenerate ? "正在追加论坛帖子…" : "正在生成论坛帖子…", "info");
-      setGenCallContext(buildGenCallOpts("phone-forum-list", { slot: slot }));
+      const _genCtx = beginGenCall("phone-forum-list", { slot: slot });
       const systemPrompt = isRegenerate
         ? "你是中文互动叙事助手。根据剧情与已有论坛帖子，增量追加列表 JSON。\n" +
           "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
@@ -32028,7 +33873,7 @@
         ],
         0.76,
         16384
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       const bundle = isRegenerate
         ? mergePhoneForumListIncrement(existing, parsed)
@@ -32076,7 +33921,7 @@
         "正在为「" + sec.name + "」生成 " + PHONE_FORUM_SECTION_GENERATE_COUNT + " 篇帖子…",
         "info"
       );
-      setGenCallContext(buildGenCallOpts("phone-forum-section", { slot: slot, sectionId: sectionId }));
+      const _genCtx = beginGenCall("phone-forum-section", { slot: slot, sectionId: sectionId });
       const systemPrompt =
         "你是中文互动叙事助手。根据剧情与已有论坛帖子，为指定分区增量追加列表 JSON。\n" +
         "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
@@ -32091,7 +33936,7 @@
         ],
         0.76,
         8192
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       if (getPhoneForumStorageKeyForCurrentHolder() !== key) {
         showToast("手机持有者已切换，已取消本次生成结果。", "warning");
@@ -32135,7 +33980,7 @@
     if (slot && getPhoneNav(slot).screen === "forum-post") renderPhoneScreen(slot);
     try {
       showToast(isRegenerate ? "正在追加楼层…" : "正在生成帖子内容…", "info");
-      setGenCallContext(buildGenCallOpts("phone-forum-post", { slot: slot, postId: postId }));
+      const _genCtx = beginGenCall("phone-forum-post", { slot: slot, postId: postId });
       const systemPrompt = isRegenerate
         ? "你是中文互动叙事助手。根据剧情与已有帖子楼层，增量追加 JSON。\n" +
           "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
@@ -32151,7 +33996,7 @@
         ],
         0.78,
         16384
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       applyPhoneForumThreadToPost(post, parsed, isRegenerate);
       persistPhoneForumBundle(target.bundle);
@@ -34438,7 +36283,7 @@
     if (slot && getPhoneNav(slot).screen === "browser") renderPhoneScreen(slot);
     try {
       showToast(isRegenerate ? "正在追加浏览记录…" : "正在生成浏览记录…", "info");
-      setGenCallContext(buildGenCallOpts("phone-browser", { slot: slot }));
+      const _genCtx = beginGenCall("phone-browser", { slot: slot });
       const systemPrompt = isRegenerate
         ? "你是中文互动叙事助手。根据剧情与已有浏览历史，增量追加浏览器记录 JSON。\n" +
           "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
@@ -34456,7 +36301,7 @@
         ],
         0.78,
         16384
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       if (isRegenerate && parsed && parsed.newEntries) {
         parsed.newEntries = bumpPhoneStoryDateKeysForIncrement(parsed.newEntries, "dateKey");
@@ -34510,7 +36355,7 @@
         "正在为「" + sec.name + "」生成 " + PHONE_BROWSER_SECTION_GENERATE_COUNT + " 条记录…",
         "info"
       );
-      setGenCallContext(buildGenCallOpts("phone-browser-section", { slot: slot, sectionId: sectionId }));
+      const _genCtx = beginGenCall("phone-browser-section", { slot: slot, sectionId: sectionId });
       const systemPrompt =
         "你是中文互动叙事助手。根据剧情与已有浏览历史，为指定分类增量追加浏览器记录 JSON。\n" +
         "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
@@ -34525,7 +36370,7 @@
         ],
         0.78,
         8192
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       if (parsed && parsed.newEntries) {
         parsed.newEntries = bumpPhoneStoryDateKeysForIncrement(parsed.newEntries, "dateKey");
@@ -36193,7 +38038,7 @@
     if (slot && getPhoneNav(slot).screen === "memo") renderPhoneScreen(slot);
     try {
       showToast(isRegenerate ? "正在追加备忘录…" : "正在生成备忘录…", "info");
-      setGenCallContext(buildGenCallOpts("phone-memo", { slot: slot }));
+      const _genCtx = beginGenCall("phone-memo", { slot: slot });
       const systemPrompt = isRegenerate
         ? "你是中文互动叙事助手。根据剧情与已有备忘录，增量追加备忘录 JSON。\n" +
           "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
@@ -36211,7 +38056,7 @@
         ],
         0.78,
         16384
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       if (isRegenerate && parsed && parsed.newNotes) {
         parsed.newNotes = bumpPhoneStoryDateKeysForIncrement(parsed.newNotes, "dateKey");
@@ -36265,7 +38110,7 @@
         "正在为「" + sec.name + "」生成 " + PHONE_MEMO_SECTION_GENERATE_COUNT + " 条备忘录…",
         "info"
       );
-      setGenCallContext(buildGenCallOpts("phone-memo-section", { slot: slot, sectionId: sectionId }));
+      const _genCtx = beginGenCall("phone-memo-section", { slot: slot, sectionId: sectionId });
       const systemPrompt =
         "你是中文互动叙事助手。根据剧情与已有备忘录，为指定分类增量追加备忘录 JSON。\n" +
         "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
@@ -36280,7 +38125,7 @@
         ],
         0.78,
         8192
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       if (parsed && parsed.newNotes) {
         parsed.newNotes = bumpPhoneStoryDateKeysForIncrement(parsed.newNotes, "dateKey");
@@ -37163,7 +39008,7 @@
     if (slot && nav.screen === "diary") renderPhoneScreen(slot);
     try {
       showToast("正在生成新日记…", "info");
-      setGenCallContext(buildGenCallOpts("phone-diary", { slot: slot }));
+      const _genCtx = beginGenCall("phone-diary", { slot: slot });
       const systemPrompt =
         "你是中文互动叙事助手。根据剧情与人设，以手机持有者的第一人称撰写私人日记 JSON。\n" +
         "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
@@ -37178,7 +39023,7 @@
         ],
         0.78,
         16384
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       const item = parsed && parsed.entry ? parsed.entry : parsed;
       const seenIds = new Set(
@@ -37806,7 +39651,7 @@
     if (slot && getPhoneNav(slot).screen === "bill") renderPhoneScreen(slot);
     try {
       showToast(isRegenerate ? "正在追加账单…" : "正在生成账单…", "info");
-      setGenCallContext(buildGenCallOpts("phone-bill", { slot: slot }));
+      const _genCtx = beginGenCall("phone-bill", { slot: slot });
       const systemPrompt = isRegenerate
         ? "你是中文互动叙事助手。根据剧情与已有账单，增量追加消费记录 JSON。\n" +
           "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
@@ -37824,7 +39669,7 @@
         ],
         0.78,
         16384
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       if (isRegenerate && parsed && parsed.newTransactions) {
         parsed.newTransactions = bumpPhoneStoryDateKeysForIncrement(parsed.newTransactions, "dateKey");
@@ -38641,7 +40486,7 @@
     }
     try {
       showToast(isRegenerate ? "正在追加阅读记录…" : "正在生成阅读记录…", "info");
-      setGenCallContext(buildGenCallOpts("phone-weread", { slot: slot }));
+      const _genCtx = beginGenCall("phone-weread", { slot: slot });
       const systemPrompt = isRegenerate
         ? "你是中文互动叙事助手。根据剧情与已有书架，增量追加微信读书 JSON。\n" +
           "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
@@ -38660,7 +40505,7 @@
         ],
         0.72,
         12288
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       const parsedSafe = isRegenerate ? bumpPhoneStoryWereadIncrement(parsed) : parsed;
       const bundle = isRegenerate ? mergePhoneWereadIncrement(existing, parsedSafe) : normalizePhoneWereadBundle(parsedSafe);
@@ -39826,7 +41671,7 @@
     if (slot && String(getPhoneNav(slot).screen || "").indexOf("jjwxc") === 0) renderPhoneScreen(slot);
     try {
       showToast(isRegenerate ? "正在追加书城数据…" : "正在生成晋江书城…", "info");
-      setGenCallContext(buildGenCallOpts("phone-jjwxc-catalog", { slot: slot }));
+      const _genCtx = beginGenCall("phone-jjwxc-catalog", { slot: slot });
       const systemPrompt = isRegenerate
         ? "你是中文互动叙事助手。根据剧情增量追加晋江书城 JSON。\n只输出一个 JSON 对象，不要用 markdown 代码围栏。\n格式：{\"newNovels\":[...],\"newTips\":[...],\"newReadingNotes\":[...],\"readerProfile\":{}}"
         : "你是中文互动叙事助手。生成「查手机·晋江」书城 JSON。\n小说作者与剧情人物无关；持有者是读者。\n首次生成须含 categories（分类及 description 提示词）与 novels。\n只输出一个 JSON 对象，不要用 markdown 代码围栏。\n格式：{\"categories\":[{\"id\":\"...\",\"name\":\"...\",\"description\":\"...\"}],\"novels\":[...],\"tips\":[...],\"readingNotes\":[...],\"readerProfile\":{\"nickname\":\"\",\"coins\":0,\"totalTips\":0,\"favoriteCount\":0}}";
@@ -39840,7 +41685,7 @@
         ],
         0.78,
         16384
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       const parsedSafe = isRegenerate ? bumpPhoneStoryJjwxcIncrement(parsed) : parsed;
       const bundle = isRegenerate
@@ -39889,7 +41734,7 @@
         "正在为「" + cat.name + "」生成 " + PHONE_JJWXC_CATEGORY_GENERATE_COUNT + " 篇作品…",
         "info"
       );
-      setGenCallContext(buildGenCallOpts("phone-jjwxc-category", { slot: slot, categoryId: categoryId }));
+      const _genCtx = beginGenCall("phone-jjwxc-category", { slot: slot, categoryId: categoryId });
       const systemPrompt =
         "你是中文互动叙事助手。根据剧情为晋江书城指定分类增量追加作品 JSON。\n" +
         "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
@@ -39904,7 +41749,7 @@
         ],
         0.78,
         8192
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = bumpPhoneStoryJjwxcIncrement(parseAssistantJsonObject(raw));
       const bundle = mergePhoneJjwxcCategoryIncrement(existing, parsed, categoryId);
       phoneJjwxcData[key] = bundle;
@@ -39939,7 +41784,7 @@
         incremental ? "正在追加 " + PHONE_JJWXC_APPEND_CHAPTERS + " 章梗概…" : "正在生成作品详情与章节目录…",
         "info"
       );
-      setGenCallContext(buildGenCallOpts("phone-jjwxc-novel", { slot: slot, novelId: novelId }));
+      const _genCtx = beginGenCall("phone-jjwxc-novel", { slot: slot, novelId: novelId });
       const systemPrompt = incremental
         ? "你是中文互动叙事助手。增量追加晋江作品章节目录 JSON（梗概+阅读心理，无正文）。\n只输出 JSON：{\"newChapters\":[{\"id\":\"...\",\"title\":\"...\",\"wordCount\":0,\"blurb\":\"…\",\"readerThought\":\"…\"}]}"
         : "你是中文互动叙事助手。生成晋江作品详情 JSON（每章含 blurb 与 readerThought，无正文）。\n只输出 JSON：{\"synopsis\":\"...\",\"authorNote\":\"...\",\"chapters\":[{\"id\":\"...\",\"title\":\"...\",\"wordCount\":0,\"blurb\":\"…\",\"readerThought\":\"…\"}]}";
@@ -39951,7 +41796,7 @@
         ],
         0.76,
         8192
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       const target = getPhoneJjwxcNovelMutable(novelId);
       if (!target) throw new Error("作品不存在");
@@ -39988,7 +41833,7 @@
     if (slot) renderPhoneScreen(slot);
     try {
       showToast("正在生成章节正文…", "info");
-      setGenCallContext(buildGenCallOpts("phone-jjwxc-chapter", { slot: slot, novelId: novelId, chapterId: chapterId }));
+      const _genCtx = beginGenCall("phone-jjwxc-chapter", { slot: slot, novelId: novelId, chapterId: chapterId });
       const chIdx = (hit.novel.chapters || []).findIndex(function (c) {
         return c && c.id === chapterId;
       });
@@ -40007,7 +41852,7 @@
         ],
         0.82,
         16384
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       applyPhoneJjwxcChapterContent(hit.novel, chapterId, parsed);
       const target = getPhoneJjwxcNovelMutable(novelId);
@@ -42540,8 +44385,8 @@
     fanworkJjwxcGenerating = true;
     if (slot && String(getFanworkNav(slot).screen || "").indexOf("jjwxc") === 0) renderFanworkScreen(slot);
     showToast(isRegenerate ? "正在追加同人文…" : "正在生成同人文城…", "info");
+    const _genCtx = beginGenCall("fanwork-jjwxc-catalog", { slot: slot });
     try {
-      setGenCallContext(buildGenCallOpts("fanwork-jjwxc-catalog", { slot: slot }));
       const systemPrompt = isRegenerate
         ? "你是中文同人向叙事助手。增量追加 CP 同人文书城 JSON。\n每次追加 newNovels 共 " +
           FANWORK_JJWXC_GENERATE_NOVEL_COUNT +
@@ -42563,7 +44408,7 @@
         ],
         0.78,
         16384
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       if (getFanworkCpStorageKey() !== key) {
         showToast("剧情已切换，已取消本次生成结果。", "warning");
@@ -42617,7 +44462,7 @@
         "正在为「" + cat.name + "」生成 " + PHONE_JJWXC_CATEGORY_GENERATE_COUNT + " 篇同人文…",
         "info"
       );
-      setGenCallContext(buildGenCallOpts("fanwork-jjwxc-category", { slot: slot, categoryId: categoryId }));
+      const _genCtx = beginGenCall("fanwork-jjwxc-category", { slot: slot, categoryId: categoryId });
       const systemPrompt =
         "你是中文同人向叙事助手。为指定 CP 同人分类增量追加 " +
         PHONE_JJWXC_CATEGORY_GENERATE_COUNT +
@@ -42634,7 +44479,7 @@
         ],
         0.78,
         8192
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       if (getFanworkCpStorageKey() !== key) {
         showToast("剧情已切换，已取消本次生成结果。", "warning");
@@ -42666,7 +44511,7 @@
     if (slot) renderFanworkScreen(slot);
     try {
       showToast("正在生成作品详情…", "info");
-      setGenCallContext(buildGenCallOpts("fanwork-jjwxc-novel", { slot: slot, novelId: novelId }));
+      const _genCtx = beginGenCall("fanwork-jjwxc-novel", { slot: slot, novelId: novelId });
       const systemPrompt =
         "你是中文同人向叙事助手。生成 CP 同人文详情 JSON。\n" +
         "只输出 JSON：{\"synopsis\":\"...\",\"authorNote\":\"...\",\"chapters\":[{\"id\":\"ch-1\",\"title\":\"...\",\"wordCount\":0}]}\n" +
@@ -42680,7 +44525,7 @@
         ],
         0.76,
         12288
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       const target = getFanworkJjwxcNovelMutable(novelId, plotKeyHint);
       if (!target) throw new Error("作品不存在");
@@ -42709,7 +44554,7 @@
     if (slot) renderFanworkScreen(slot);
     try {
       showToast("正在生成新章节…", "info");
-      setGenCallContext(buildGenCallOpts("fanwork-jjwxc-append", { slot: slot, novelId: novelId }));
+      const _genCtx = beginGenCall("fanwork-jjwxc-append", { slot: slot, novelId: novelId });
       const systemPrompt =
         "你是中文同人向叙事助手。为 CP 同人文追加下一章，输出含标题与正文的 JSON。\n" +
         "正文约" +
@@ -42727,7 +44572,7 @@
         ],
         0.82,
         16384
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       const target = getFanworkJjwxcNovelMutable(novelId, plotKeyHint);
       if (!target) throw new Error("作品不存在");
@@ -42842,7 +44687,7 @@
     if (slot) renderFanworkScreen(slot);
     try {
       showToast("正在生成章节正文…", "info");
-      setGenCallContext(buildGenCallOpts("fanwork-jjwxc-chapter", { slot: slot, novelId: novelId, chapterId: chapterId }));
+      const _genCtx = beginGenCall("fanwork-jjwxc-chapter", { slot: slot, novelId: novelId, chapterId: chapterId });
       const chIdx = (hit.novel.chapters || []).findIndex(function (c) {
         return c && c.id === chapterId;
       });
@@ -42864,7 +44709,7 @@
         ],
         0.82,
         16384
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       applyFanworkJjwxcChapterContent(novelId, chapterId, parsed, plotKeyHint);
       const target = getFanworkJjwxcNovelMutable(novelId, plotKeyHint);
@@ -43420,7 +45265,7 @@
     if (tab === "shelf") panelHtml = buildFanworkJjwxcShelfPanelHtml();
     else if (tab === "fav") panelHtml = buildFanworkJjwxcFavPanelHtml();
     else panelHtml = buildFanworkJjwxcStorePanelHtml(nav);
-    const showMainBack = !!(slot && slot.id === "story-fanwork-slot");
+    const showMainBack = !!(slot && (slot.id === "story-fanwork-slot" || slot.id === "fanwork-content-slot"));
     return (
       '<div class="phone-app phone-jjwxc phone-jjwxc--fanwork" aria-label="小狗饭">' +
       '<div class="phone-jjwxc__top">' +
@@ -43637,7 +45482,10 @@
       if (nav.plotPickOpen) nav.plotPickOpen = false;
       else if (nav.jjwxcCategoryFormId) nav.jjwxcCategoryFormId = null;
       else if (nav.jjwxcManageOpen) nav.jjwxcManageOpen = false;
-      else if (slot && slot.id === "story-fanwork-slot") {
+      else if (slot && slot.id === "fanwork-content-slot") {
+        closeOverviewFanworkView();
+        return;
+      } else if (slot && slot.id === "story-fanwork-slot") {
         closeStoryFanworkModal();
         return;
       }
@@ -44365,7 +46213,7 @@
     if (slot) renderPhoneScreen(slot);
     try {
       showToast("正在生成「" + (target.chat.name || "会话") + "」的新消息…", "info");
-      setGenCallContext(buildGenCallOpts("phone-wechat-chat", { slot: slot, chatId: id, chat: target.chat }));
+      const _genCtx = beginGenCall("phone-wechat-chat", { slot: slot, chatId: id, chat: target.chat });
       const systemPrompt =
         "你是中文互动叙事助手。根据用户提供的剧情与单个微信会话上下文，增量追加该会话消息 JSON。\n" +
         "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
@@ -44379,7 +46227,7 @@
         ],
         0.78,
         4096
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       if (!mergePhoneWechatSingleChatAppend(target.chat, parsed, holder)) {
         throw new Error("未能解析有效的新消息");
@@ -44418,7 +46266,7 @@
     if (slot && getPhoneNav(slot).screen === "wechat-list") renderPhoneScreen(slot);
     try {
       showToast(isRegenerate ? "正在追加微信内容…" : "正在生成微信内容…", "info");
-      setGenCallContext(buildGenCallOpts("phone-wechat-list", { slot: slot }));
+      const _genCtx = beginGenCall("phone-wechat-list", { slot: slot });
       const systemPrompt = isRegenerate
         ? "你是中文互动叙事助手。根据用户提供的剧情与已有微信数据，增量追加微信聊天 JSON。\n" +
           "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
@@ -44439,7 +46287,7 @@
         ],
         0.78,
         8192
-      );
+      , chatApiOptsFromGen(_genCtx));
       const parsed = parseAssistantJsonObject(raw);
       const bundle = isRegenerate
         ? mergePhoneWechatIncrement(existing, parsed, plot, holder)
@@ -45427,7 +47275,7 @@
     renderPhoneScreen(slot);
   }
 
-  function buildGenCallOpts(kind, params) {
+  function buildGenCallOptsCore(kind, params) {
     params = params || {};
     const slot = params.slot;
     const slotId = resolveGenSlotId(
@@ -45705,6 +47553,30 @@
     }
 
     return {};
+  }
+
+  function isBackgroundGenCallKind(kind) {
+    const k = String(kind || "");
+    if (!k || k.indexOf("story") === 0) return false;
+    return (
+      k.indexOf("knock") === 0 ||
+      k.indexOf("collect") === 0 ||
+      k.indexOf("phone") === 0 ||
+      k.indexOf("fanwork") === 0 ||
+      k.indexOf("radio") === 0 ||
+      k.indexOf("todo") === 0
+    );
+  }
+
+  function withGenCallRouting(kind, payload) {
+    payload = payload && typeof payload === "object" ? payload : {};
+    if (isBackgroundGenCallKind(kind)) payload.apiRoute = "background";
+    else if (String(kind || "").indexOf("story") === 0) payload.apiRoute = "primary";
+    return payload;
+  }
+
+  function buildGenCallOpts(kind, params) {
+    return withGenCallRouting(kind, buildGenCallOptsCore(kind, params));
   }
 
   function truncateStorySearchText(text, maxLen) {
@@ -46377,8 +48249,8 @@
 
     try {
       showToast("正在生成剧情标题与开场概要…", "info");
-      setGenCallContext(buildGenCallOpts("story-setup", { plot: plot }));
-      const storyBriefApiOpts = { skipGenReady: true };
+      const _genCtx = beginGenCall("story-setup", { plot: plot });
+      const storyBriefApiOpts = chatApiOptsFromGen(_genCtx, { skipGenReady: true });
       let response = await callChatCompletion(messages, 0.8, storyBriefMaxTokens(), storyBriefApiOpts);
       let parsed = parseStoryBriefResponse(response);
       let fields = buildStoryBriefFieldsFromParsed(parsed);
@@ -49020,9 +50892,9 @@
           },
         ],
         0.72,
-        1040
+        1040,
+        { apiRoute: "primary" }
       );
-      const rtxt = String(rescueRaw || "").trim();
       const rescueParsed = sanitizeStoryChoices(parseStoryChoices(rtxt, rtxt));
       if (!Array.isArray(rescueParsed) || rescueParsed.length < 2) {
         throw new Error("未能生成足够选项");
@@ -49282,10 +51154,11 @@
       .filter(Boolean)
       .join("，");
     let playApiCfg = null;
-    if (typeof activeApiId === "string" && apiConfigs && apiConfigs.length) {
+    const primaryApiId = getPrimaryApiId();
+    if (primaryApiId && apiConfigs && apiConfigs.length) {
       playApiCfg =
         apiConfigs.find(function (a) {
-          return a.id === activeApiId;
+          return a.id === primaryApiId;
         }) || null;
     }
     const playModelLc = String(playApiCfg && playApiCfg.model ? playApiCfg.model : "").toLowerCase();
@@ -49443,8 +51316,7 @@
 
     let scrollToNewTurnFirstLineId = "";
     let streamTurnIndex = -1;
-    const playGenOpts = buildGenCallOpts("story-play", { plot: plot });
-    setGenCallContext(playGenOpts);
+    const playGenOpts = beginGenCall("story-play", { plot: plot });
     let storyTurnGenOk = false;
     try {
       showToast("AI 正在续写剧情…", "info");
@@ -49663,12 +51535,14 @@
     const panel = document.getElementById("story-panel-setup");
     if (panel) panel.classList.remove("story-setup--editing");
     els.layerStory().hidden = true;
+    overviewSubView = null;
     if (targetTab && MAIN_TAB_IDS.includes(targetTab)) {
       location.hash = "#/tab/" + targetTab;
     } else {
       location.hash = "#/tab/" + activeTab;
     }
     applyHash();
+    syncOverviewSubViewUi();
     renderDynamic();
   }
 
@@ -49714,8 +51588,6 @@
   function buildApiSettingsSectionHtml(opts) {
     opts = opts || {};
     const omitPanelHead = !!opts.omitPanelHead;
-    const active = apiConfigs.find((a) => a.id === activeApiId);
-    const others = apiConfigs.filter((a) => a.id !== activeApiId);
     const plugSvg =
       '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a6 6 0 01-12 0V8h12z"/></svg>';
 
@@ -49727,19 +51599,9 @@
         '</span><div><h3 class="settings-panel__title">API 与模型</h3></div></div>';
     }
     html += '<div class="settings-panel__body">';
-    html += '';
-
-    html += '<p class="settings-section-title">当前使用</p>';
-    if (active) {
-      html += renderApiCard(active, true);
-    }
-
-    if (others.length) {
-      html += '<p class="settings-section-title">其他配置</p>';
-      others.forEach((a) => {
-        html += renderApiCard(a, false);
-      });
-    }
+    apiConfigs.forEach(function (a) {
+      html += renderApiCard(a);
+    });
 
     html +=
       (showSettingsAdd
@@ -49770,7 +51632,6 @@
   function buildVisualMultiRefSectionHtml(opts) {
     const refKey = opts.refKey;
     const sectionTitle = opts.sectionTitle;
-    const uploadHint = opts.uploadHint;
     const slotLabel = opts.slotLabel || "参考";
     const inputId = refKey === "daily" ? "visual-daily-file" : "visual-appearance-file";
     const pickAttr = refKey === "daily" ? "data-visual-daily-pick" : "data-visual-appearance-pick";
@@ -49839,7 +51700,6 @@
       "/" +
       max +
       "</span></div>" +
-      (atMax ? "" : '<p class="visual-image-upload-block__hint">' + escapeHtml(uploadHint) + "</p>") +
       '<div class="visual-image-appearance-thumbs" aria-label="' +
       escapeHtml(sectionTitle) +
       "，最多 " +
@@ -49850,17 +51710,9 @@
       '<input type="file" accept="image/*" id="' +
       inputId +
       '" hidden multiple /></div>' +
-      (count > 0
-        ? '<div class="visual-image-ref-analyze-row">' +
-          '<button type="button" class="btn-refresh visual-image-ref-analyze" data-visual-ref-analyze="' +
-          refKey +
-          '"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>重新分析参考图</button>' +
-          '<p class="field__hint field__hint--tight">上传后会自动分析并写入下方英文描述；换图后可点此重新分析。</p></div>'
-        : "") +
       '<div class="visual-image-ref-fields">' +
       '<label class="field visual-image-ref-fields__prompt">' +
       '<span class="field__label">参考描述提示词</span>' +
-      '<p class="field__hint field__hint--tight">可编辑；点空白处离开输入框即自动保存，或下滑点底部「保存生图设置」。</p>' +
       '<textarea class="field__input field__textarea visual-image-ref-card__prompt" data-visual-ref-prompt="' +
       refKey +
       '" rows="4" placeholder="参考图描述提示词（可编辑）">' +
@@ -49872,7 +51724,6 @@
           '<input class="field__input" type="text" data-visual-ref-celebrity="appearance" placeholder="留空则仅以上传照片为准" value="' +
           escapeHtml(celebrity) +
           '" autocomplete="off" />' +
-          '<p class="field__hint field__hint--tight">可选填，仅作松散的气质/风格提示，不会向生图 API 发送明星姓名。人脸身份<strong>只</strong>以上方 1～3 张上传照片为准。读图走「设置→API 当前模型」（需支持视觉）；自拍生图优先用 <strong>gpt-image-2</strong>，参考图会通过 <code>images/edits</code> 一并传给模型。推荐上传顺序：正脸 → 3/4 侧脸 → 半身。</p>' +
           "</label>"
         : "") +
       "</div>"
@@ -49883,8 +51734,6 @@
     return buildVisualMultiRefSectionHtml({
       refKey: "appearance",
       sectionTitle: "外貌参考（自拍/人像）",
-      uploadHint:
-        "点击空位上传 1～3 张：建议正脸、3/4 侧脸、半身（不同角度）。上传后自动分析五官并写入描述；自拍用 gpt-image-2 时会将参考图传给模型锁定同一张脸",
       slotLabel: "角度",
     });
   }
@@ -49893,7 +51742,6 @@
     return buildVisualMultiRefSectionHtml({
       refKey: "daily",
       sectionTitle: "日常参考（打卡/环境）",
-      uploadHint: "点击空位上传，可参考网红打卡照：美食、街景、自然风光等",
       slotLabel: "参考",
     });
   }
@@ -49932,7 +51780,7 @@
       visualImageModelsRefreshing || visualImageModelTesting ? " disabled" : "";
     let html =
       '<section class="settings-panel settings-panel--visual-image">' +
-      '<div class="settings-panel__head"><h3 class="settings-panel__title">聊天发图 (Visual)</h3></div>' +
+      '<div class="settings-panel__head"><h3 class="settings-panel__title">图片生成</h3></div>' +
       '<div class="settings-panel__body tts-settings-compact">' +
       '<div class="visual-image-enable-card' +
       (visualImageSettings.enabled ? " visual-image-enable-card--on" : "") +
@@ -49943,7 +51791,6 @@
       "</span>" +
       '<div class="visual-image-enable-card__text">' +
       '<span class="visual-image-enable-card__title">启用聊天发图</span>' +
-      '<span class="visual-image-enable-card__hint">开启后，与「主要角色」敲敲聊天可发图（收取拍立得同用此 API）；写实手机拍照风格。发送「测试生成一张自拍/场景」可一键测试</span>' +
       "</div></div>" +
       '<button type="button" class="story-summaries-switch' +
       (visualImageSettings.enabled ? " story-summaries-switch--on" : "") +
@@ -50051,8 +51898,7 @@
           invalidateVisualRefVisionCache(refKey);
           persistVisualImageSettings();
           renderDynamic();
-          showToast("已添加 " + dataUrls.length + " 张参考图，正在分析…", "info", 3600);
-          return runVisualRefVisionAnalysis(refKey, rootEl);
+          showToast("已添加 " + dataUrls.length + " 张参考图", "success");
         })
         .catch(function () {
           showToast("图片过大或格式不支持", "warning");
@@ -50119,13 +51965,6 @@
     });
     bindVisualMultiRefFileInput(rootEl, "appearance");
     bindVisualMultiRefFileInput(rootEl, "daily");
-    rootEl.querySelectorAll("[data-visual-ref-analyze]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        const key = btn.getAttribute("data-visual-ref-analyze");
-        if (key !== "appearance" && key !== "daily") return;
-        void runVisualRefVisionAnalysis(key, rootEl, { forceOverwrite: true });
-      });
-    });
     const visualModelSel = rootEl.querySelector("#visual-api-model");
     if (visualModelSel) {
       visualModelSel.addEventListener("change", function () {
@@ -50248,14 +52087,6 @@
       '<section class="settings-panel settings-panel--tts">' +
       '<div class="settings-panel__head"><h3 class="settings-panel__title">剧情朗读</h3></div>' +
       '<div class="settings-panel__body tts-settings-compact">' +
-      '<div class="tts-settings-compact__toggle">' +
-      '<button type="button" class="story-summaries-switch' +
-      (ttsSettings.enabled ? " story-summaries-switch--on" : "") +
-      '" id="tts-enabled-toggle" role="switch" aria-checked="' +
-      (ttsSettings.enabled ? "true" : "false") +
-      '" aria-label="启用剧情朗读"><span class="story-summaries-switch__track" aria-hidden="true"><span class="story-summaries-switch__thumb"></span></span></button>' +
-      "</div>" +
-      '<p class="field__hint tts-settings-compact__key-hint">已购 Token Plan 请填控制台「账户管理 → Token Plan」里的<strong>订阅 Key</strong>，走套餐额度；填「API Key 管理」里的按量 Key 会扣账户余额，套餐进度条不会动。</p>' +
       '<div class="tts-settings-compact__grid">' +
       '<input class="field__input" id="minimax-api-key" type="password" placeholder="订阅 Key 或按量 API Key" value="' +
       escapeHtml(ttsSettings.apiKey || "") +
@@ -50288,13 +52119,9 @@
 
   function bindTtsSettingsHandlers(rootEl) {
     if (!rootEl) return;
-    const enabledToggle = rootEl.querySelector("#tts-enabled-toggle");
-    if (enabledToggle) {
-      enabledToggle.addEventListener("click", function () {
-        ttsSettings.enabled = !ttsSettings.enabled;
-        persistTtsSettings();
-        renderDynamic();
-      });
+    if (!ttsSettings.enabled) {
+      ttsSettings.enabled = true;
+      persistTtsSettings();
     }
     const regionSel = rootEl.querySelector("#minimax-region-select");
     if (regionSel) {
@@ -50348,16 +52175,25 @@
 
   function bindApiSettingsHandlers(rootEl) {
     if (!rootEl) return;
-    rootEl.querySelectorAll(".api-card").forEach((card) => {
-      const id = card.dataset.id;
-      card.addEventListener("click", (e) => {
-        if (e.target.closest("button") || e.target.closest("select") || e.target.closest("[data-custom-select-root]"))
+    rootEl.querySelectorAll(".api-enable-check").forEach(function (cb) {
+      cb.addEventListener("change", function (e) {
+        e.stopPropagation();
+        const id = String(cb.dataset.id || "").trim();
+        if (cb.checked) {
+          const checkedCount = rootEl.querySelectorAll(".api-enable-check:checked").length;
+          if (checkedCount > 2) {
+            rootEl.querySelectorAll(".api-enable-check:checked").forEach(function (other) {
+              const oid = String(other.dataset.id || "").trim();
+              if (oid && oid !== activeApiId && oid !== id) other.checked = false;
+            });
+          }
+        } else if (!rootEl.querySelectorAll(".api-enable-check:checked").length) {
+          cb.checked = true;
           return;
-        if (id !== activeApiId) {
-          activeApiId = id;
-          persistApiConfigs();
-          renderDynamic();
         }
+        syncApiSelectionFromChecks(rootEl);
+        persistApiConfigs();
+        renderDynamic();
       });
     });
 
@@ -50373,6 +52209,7 @@
         if (!(await showConfirm("确定删除此配置？"))) return;
         apiConfigs = apiConfigs.filter((a) => a.id !== btn.dataset.id);
         if (activeApiId === btn.dataset.id) activeApiId = apiConfigs[0]?.id || "";
+        if (secondaryApiId === btn.dataset.id) secondaryApiId = "";
         persistApiConfigs();
         renderDynamic();
       });
@@ -50496,10 +52333,6 @@
         : THEME_PALETTES[0].tones
     );
     const customTones = customPalette ? customPalette.tones : THEME_PALETTES[0].tones;
-    const fontLine =
-      customFontMeta && customFontMeta.name
-        ? "当前字体：<strong>" + escapeHtml(customFontMeta.name) + "</strong>（已保存，刷新后仍保留）"
-        : "当前字体：<strong>系统默认</strong>";
     const uiFontScale = getPersistedUiFontScale();
     const uiFontSliderPct = Math.round(uiFontScale * 100);
     const uiFontPctLabel = uiFontSliderPct + "%";
@@ -50634,15 +52467,6 @@
       typeSvg +
       '</span><div><h3 class="settings-panel__title">字体</h3></div></div>' +
       '<div class="settings-panel__body">' +
-      '<p class="font-status">' +
-      fontLine +
-      '</p>' +
-      '' +
-      '<label class="field font-file-label"><span class="field__label">上传字体文件</span>' +
-      '<input class="field__input" type="file" id="font-file-input" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,application/font-woff" /></label>' +
-      '' +
-      '<div class="btn-row">' +
-      '<button type="button" class="btn btn--secondary btn--pill" id="btn-font-clear">清除自定义字体</button></div>' +
       '<div class="font-scale-control">' +
       '<label class="font-scale-control__label" for="font-scale-slider">界面字体大小</label>' +
       '<div class="font-scale-control__row">' +
@@ -50656,7 +52480,6 @@
       '<span class="font-scale-control__value" id="font-scale-value">' +
       escapeHtml(uiFontPctLabel) +
       "</span></div>" +
-      '' +
       "</div></div></section>";
 
     html += buildTtsSettingsSectionHtml();
@@ -50667,10 +52490,10 @@
     bindVisualImageSettingsHandlers(el);
     bindTtsSettingsHandlers(el);
     enhanceCustomSelectsIn(el);
-    void refreshSettingsFontDiagnostics(el);
   }
 
-  function renderApiCard(a, isActive) {
+  function renderApiCard(a) {
+    const isEnabled = isApiConfigEnabled(a.id);
     const models = getModelOptionsForConfig(a);
     const opts = models
       .map(
@@ -50686,10 +52509,16 @@
       .join("");
     return (
       '<article class="api-card glass-surface' +
-      (isActive ? " api-card--active" : "") +
+      (isEnabled ? " api-card--active" : "") +
       '" data-id="' +
       a.id +
-      '"><div class="api-card__row1"><div class="api-card__name-wrap"><span class="radio-dot"></span><span class="api-card__name">' +
+      '"><div class="api-card__row1"><div class="api-card__name-wrap"><label class="api-card__enable"><input type="checkbox" class="api-enable-check" data-id="' +
+      escapeHtml(a.id) +
+      '"' +
+      (isEnabled ? " checked" : "") +
+      ' aria-label="启用 ' +
+      escapeHtml(a.name || "API") +
+      '" /></label><span class="api-card__name">' +
       escapeHtml(a.name) +
       '</span></div><div class="api-card__actions">' +
       '<button type="button" class="icon-btn api-edit" data-id="' +
@@ -50726,6 +52555,11 @@
     document.getElementById("api-form-name").value = a.name;
     document.getElementById("api-form-endpoint").value = a.endpoint;
     document.getElementById("api-form-key").value = a.key;
+    const route = getApiConfigRoute(a.id);
+    const primaryRadio = document.getElementById("api-form-route-primary");
+    const backgroundRadio = document.getElementById("api-form-route-background");
+    if (primaryRadio) primaryRadio.checked = route !== "background";
+    if (backgroundRadio) backgroundRadio.checked = route === "background";
     els.modalApi().hidden = false;
   }
 
@@ -50744,6 +52578,7 @@
       else if (overviewSubView === "knock") renderKnockScreen(els.knockContentSlot(), { scrollToEnd: true });
       else if (overviewSubView === "collect") renderCollectScreen(els.collectContentSlot());
       else if (overviewSubView === "todo") renderTaskTodoScreen(els.todoContentSlot());
+    else if (overviewSubView === "radio") renderRadioScreen(els.radioContentSlot());
     }
     if (els.modalAssistantProfile() && !els.modalAssistantProfile().hidden) {
       renderAssistantProfileModal();
@@ -50836,10 +52671,12 @@
       }
       if (MAIN_TAB_IDS.includes(t)) {
         els.layerStory().hidden = true;
+        if (t !== "overview") overviewSubView = null;
         activeTab = t;
         els.views().forEach((v) => v.classList.toggle("view--active", v.dataset.view === t));
         els.navItems().forEach((btn) => btn.classList.toggle("is-active", btn.dataset.tab === t));
         syncMainScrollMode();
+        syncOverviewSubViewUi();
         renderDynamic();
       }
     }
@@ -52518,6 +54355,22 @@
       return;
     }
 
+    const historyDeleteBtn = e.target.closest("[data-collect-history-delete]");
+    if (historyDeleteBtn) {
+      const rowId = historyDeleteBtn.getAttribute("data-collect-history-delete");
+      const nav = getCollectNav(slot);
+      if (deleteCollectHistoryRow(rowId)) {
+        stopCollectAudio();
+        if (nav.historyDetailEntryId === rowId) {
+          nav.historyDetailEntryId = null;
+          nav.historyDetailKind = null;
+        }
+        showToast("已删除该条收取记录。", "success");
+        renderCollectScreen(slot);
+      }
+      return;
+    }
+
     const historyOpenBtn = e.target.closest("[data-collect-history-open]");
     if (historyOpenBtn && !historyOpenBtn.disabled) {
       const nav = getCollectNav(slot);
@@ -52564,7 +54417,7 @@
 
     const collectViewerSaveBtn = e.target.closest("[data-collect-photo-viewer-save]");
     if (collectViewerSaveBtn) {
-      void saveCollectPhotoToDevice(collectViewerSaveBtn.getAttribute("data-photo-url"));
+      void saveCollectPhotoToDevice(collectPhotoViewerUrl || collectViewerSaveBtn.getAttribute("data-photo-url"));
       return;
     }
 
@@ -52573,6 +54426,66 @@
       void saveCollectPhotoToDevice(savePhotoBtn.getAttribute("data-collect-photo-url"));
       return;
     }
+  });
+  if (els.radioHolderClose()) {
+    els.radioHolderClose().addEventListener("click", closeRadioHolderModal);
+  }
+  if (els.radioHolderStepBack()) {
+    els.radioHolderStepBack().addEventListener("click", radioHolderModalBackToPlot);
+  }
+  if (els.modalRadioHolder()) {
+    els.modalRadioHolder().addEventListener("click", function (e) {
+      if (e.target.id === "modal-radio-holder") closeRadioHolderModal();
+    });
+  }
+  if (els.radioLetterClose()) {
+    els.radioLetterClose().addEventListener("click", closeRadioLetterModal);
+  }
+  if (els.radioLetterCancel()) {
+    els.radioLetterCancel().addEventListener("click", closeRadioLetterModal);
+  }
+  if (els.radioLetterConfirm()) {
+    els.radioLetterConfirm().addEventListener("click", confirmRadioLetter);
+  }
+  if (els.modalRadioLetter()) {
+    els.modalRadioLetter().addEventListener("click", function (e) {
+      if (e.target.id === "modal-radio-letter") closeRadioLetterModal();
+    });
+  }
+  if (els.radioEndCallClose()) {
+    els.radioEndCallClose().addEventListener("click", closeRadioEndCallModal);
+  }
+  if (els.radioEndCallSkip()) {
+    els.radioEndCallSkip().addEventListener("click", radioEndCallSkipGenerate);
+  }
+  if (els.radioEndCallNext()) {
+    els.radioEndCallNext().addEventListener("click", function () {
+      radioEndCallGenerateNext(els.radioContentSlot());
+    });
+  }
+  if (els.modalRadioEndCall()) {
+    els.modalRadioEndCall().addEventListener("click", function (e) {
+      if (e.target.id === "modal-radio-end-call") closeRadioEndCallModal();
+    });
+  }
+  document.addEventListener("click", function (e) {
+    const slot = e.target.closest("#radio-content-slot");
+    if (!slot || !slot.contains(e.target)) return;
+    handleRadioSlotClick(e, slot);
+  });
+  document.addEventListener("input", function (e) {
+    if (e.target && e.target.matches && e.target.matches("[data-radio-input]")) {
+      radioInputDraft = String(e.target.value || "");
+    }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" || e.isComposing || e.shiftKey) return;
+    const input = e.target && e.target.closest && e.target.closest("[data-radio-input]");
+    if (!input) return;
+    const slot = input.closest("#radio-content-slot");
+    if (!slot) return;
+    e.preventDefault();
+    radioSendComment(slot);
   });
   document.addEventListener("click", function (e) {
     const slot = e.target.closest("#todo-content-slot");
@@ -54460,6 +56373,8 @@
       if (oldEndpoint !== a.endpoint || (k && oldKey !== a.key)) {
         a.availableModels = [];
       }
+      const routeEl = document.querySelector('input[name="api-form-route"]:checked');
+      applyApiRouteFromModal(id, routeEl ? routeEl.value : "primary");
     }
     closeApiModal();
     persistApiConfigs();
