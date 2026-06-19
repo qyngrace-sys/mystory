@@ -2169,18 +2169,18 @@ html[data-theme="dark"] .overview-hub--gallery .wb-g__stroke-bold {
 }
 
 .view--gallery-skin .page-title {
-  font-family: "Source Han Serif CN", "Noto Serif TC", serif;
+  font-family: var(--font-stack);
   font-size: 1.55rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-weight: 500;
+  letter-spacing: 0.02em;
   color: var(--text);
 }
 
 .view--gallery-skin .page-title-en {
-  font-family: "Source Han Serif CN", "Noto Serif TC", Georgia, serif;
+  font-family: var(--font-stack);
   font-size: 0.62rem;
-  font-weight: 500;
-  letter-spacing: 0.14em;
+  font-weight: 400;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted2);
   white-space: nowrap;
@@ -2192,9 +2192,9 @@ html[data-theme="dark"] .overview-hub--gallery .wb-g__stroke-bold {
   --snack-tilt: -1.5deg;
   padding: 5px 11px 6px;
   font-size: 0.72rem;
-  font-weight: 600;
-  font-family: "Source Han Serif CN", "Noto Serif TC", serif;
-  letter-spacing: 0.06em;
+  font-weight: 400;
+  font-family: var(--font-stack);
+  letter-spacing: 0.02em;
   line-height: 1.25;
   border-radius: 2px;
   background: #faf8f5;
