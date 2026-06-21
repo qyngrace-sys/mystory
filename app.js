@@ -110,7 +110,7 @@
     "题材方向：帮用户把一团想法收成「可开局的叙事方向」，追问缺失的一环（冲突、视点、 stakes），产出要能被放进剧情表单使用。\n" +
     "改写人设：只做结构化整理与润色建议，尊重用户原有设定；输出需便于填入角色表单，不擅自改成另一个角色。\n" +
     "生成世界书：根据用户给的剧情/设定需求，生成可入库的世界书条目思路（标题、分类倾向、适用范围等），条理清晰、便于粘贴或微调。\n" +
-    "敲敲：双角色人设模拟私聊；仅依据双方角色设定对话，不涉及剧情正文。\n" +
+    "敲敲：双角色人设模拟私聊；须结合剧情设定、记忆与聊天记录生成对话。\n" +
     "在进行以上四类工作时，你克制、干练，少煽情，多可执行；需要用户补信息时，用少量具体问题提问，不写长篇文章。\n\n" +
     "日常笔友式陪聊（用户分享剧情片段、生成结果或读后感触时）\n" +
     "你先承接情绪与印象（一两句即可），再轻量回应：可以点出一两个你读到的意象、节奏或人物选择，偶尔提一个「如果往下写可能会怎样」的开放式想法，不抢戏、不下结论、不教训人。除非用户明确要求，否则不做篇幅巨大的剧情代写或设定盘点。\n" +
@@ -1242,6 +1242,18 @@
         console.error(eNar);
       } catch (_eLog) {}
     }
+    try {
+      var memCheckNar = serializeNarrativePayload();
+      if (
+        memCheckNar &&
+        narrativeBlobHasContent(memCheckNar) &&
+        !(backupNar && narrativeBlobHasContent(backupNar))
+      ) {
+        throw new Error("BACKUP_NARRATIVE_EXPORT_FAILED");
+      }
+    } catch (eExportChk) {
+      if (eExportChk && eExportChk.message === "BACKUP_NARRATIVE_EXPORT_FAILED") throw eExportChk;
+    }
     zip.file("localStorage.json", JSON.stringify(storageSnap, null, 2));
     let fontBuffer = null;
     try {
@@ -1288,6 +1300,8 @@
               "剧情正文/总结/记忆/收藏/划线/想法/背景图",
               "查手机各 App 生成内容与壁纸",
               "小狗饭剧情、分区与作品数据",
+              "收取、任务 ToDo、电台、传纸条、恩怨本",
+              "你才是狗动态与群聊（含管理员/系统提示）",
               "点星助手、人设与聊天记录",
               "API 配置与密钥",
               "外观主题、亮度、字体与状态栏等设置",
@@ -1326,6 +1340,10 @@
       var sizeLabel = formatApproxStoredBytes(blob.size);
       showToast("备份已导出（" + sizeLabel + "）。", "success");
     } catch (e) {
+      if (e && e.message === "BACKUP_NARRATIVE_EXPORT_FAILED") {
+        showToast("导出失败：剧情数据未能写入备份包，请刷新页面后重试。", "error");
+        return;
+      }
       showToast("导出备份失败，请稍后重试。", "error");
     }
   }
@@ -2266,6 +2284,62 @@
   const PHONE_PLOT_REF_TURN_LIMIT = 3;
   /** 查手机生成：引用记忆条数 */
   const PHONE_PLOT_MEMORY_REF_LIMIT = 3;
+  /** 你才是狗：引用最近剧情轮数 */
+  const YOU_DOG_PLOT_REF_TURN_LIMIT = 1;
+  /** 你才是狗：引用记忆条数 */
+  const YOU_DOG_PLOT_MEMORY_REF_LIMIT = 1;
+  /** 你才是狗：引用已有推文条数 */
+  const YOU_DOG_HISTORY_POST_LIMIT = 5;
+  /** 你才是狗：提示词中人设/设定摘录上限 */
+  const YOU_DOG_PROMPT_PROFILE_MAX_CHARS = 280;
+  const YOU_DOG_PROMPT_IDENTITY_MAX_CHARS = 360;
+  const YOU_DOG_PROMPT_HISTORY_POST_CHARS = 56;
+  const YOU_DOG_PROMPT_MEMORY_ITEM_MAX_CHARS = 240;
+  const YOU_DOG_PROMPT_SUMMARY_MAX_CHARS = 320;
+  /** 你才是狗：生成文风（禁止方括号表情） */
+  const YOU_DOG_EMOJI_STYLE_RULE =
+    "表达情绪请直接用 Unicode emoji（如 😊😂🥺），禁止 [微笑]、[捂脸]、[表情] 等方括号表情文字；也可不使用表情。";
+  /** 你才是狗：匿名发帖语气（生活流、不暴露身份） */
+  const YOU_DOG_ANON_TONE_RULE =
+    "文风须像真实匿名论坛/树洞发帖：第一人称口语化，自然随意，像在跟陌生网友碎碎念日常；" +
+    "禁止写出角色真名、具体职业职称、公司单位名称等可识别身份的信息；" +
+    "用「她/他/老婆/姐姐/对象/室友/同事」等泛指代替姓名；不写具体工作场景，只写感情与日常小事；" +
+    "句子长短错落，可有生活流吐槽、甜蜜互动或委屈心事，避免 AI 腔、公文腔和文艺腔。";
+  const YOU_DOG_CHAT_LONG_PRESS_MS = 480;
+  /** 你才是狗：每批发帖角色上限（生成弹窗中手动勾选） */
+  const YOU_DOG_SPEAKERS_PER_BATCH = 4;
+  /** 嗅闻博客群聊：每批参与发言 memberRef 上限（生成弹窗中手动勾选） */
+  const YOU_DOG_CHAT_SPEAKERS_PER_BATCH = 4;
+  /** 你才是狗：已选角色较多时，每批至少发言人数 */
+  const YOU_DOG_TARGET_SPEAKERS_PER_BATCH = 5;
+  const YOU_DOG_POST_TEXT_MAX = 280;
+  const YOU_DOG_COMMENT_TEXT_MAX = 200;
+  /** 嗅闻博客群聊：同时参与生成上限 */
+  const YOU_DOG_CHAT_ACTIVE_LIMIT = 5;
+  /** 嗅闻博客群聊：每人引用剧情轮数 */
+  const YOU_DOG_CHAT_PLOT_TURN_LIMIT = 5;
+  /** 嗅闻博客群聊：每人引用总结条数 */
+  const YOU_DOG_CHAT_SUMMARY_LIMIT = 1;
+  /** 嗅闻博客群聊：引用历史消息条数 */
+  const YOU_DOG_CHAT_HISTORY_MSG_LIMIT = 40;
+  /** 嗅闻博客群聊：每批最少/最多消息数 */
+  const YOU_DOG_CHAT_MSGS_PER_BATCH_MIN = 8;
+  const YOU_DOG_CHAT_MSGS_PER_BATCH_MAX = 18;
+  const YOU_DOG_CHAT_TEXT_MAX = 300;
+  const YOU_DOG_CHAT_GROUP_NAME_MAX = 24;
+  const YOU_DOG_CHAT_CATEGORY_NAME_MAX = 8;
+  const YOU_DOG_CHAT_PROFILE_MAX_CHARS = 600;
+  const YOU_DOG_CHAT_SUMMARY_MAX_CHARS = 800;
+  const YOU_DOG_CHAT_OPENING_MSG_THRESHOLD = 15;
+  const YOU_DOG_CHAT_DISCOVERY_MSG_THRESHOLD = 40;
+  const YOU_DOG_CHAT_DEFAULT_CATEGORIES = [
+    { id: "ydc-cat-owner", name: "群主", color: "#FF6B6B" },
+    { id: "ydc-cat-core", name: "核心", color: "#FFB347" },
+    { id: "ydc-cat-active", name: "活跃", color: "#4ECDC4" },
+    { id: "ydc-cat-slacker", name: "划水", color: "#95A5A6" },
+    { id: "ydc-cat-new", name: "新人", color: "#A29BFE" },
+    { id: "ydc-cat-wild", name: "野路子", color: "#FD79A8" },
+  ];
   /** 剧情续写优先使用流式输出，按说话块逐条显示（不支持时自动回退为非流式） */
   const STORY_PLAY_STREAM_ENABLED = true;
   const PLOT_MEMORY_MANDATORY_FROM_SUMMARY = 2;
@@ -2628,10 +2702,10 @@
     "settings",
   ];
   /** 旧版底栏 tab，hash 兼容重定向到点星子视图 */
-  const LEGACY_OVERVIEW_SUB_TAB_IDS = { phone: "phone", fanwork: "fanwork", knock: "knock", collect: "collect", todo: "todo", radio: "radio" };
+  const LEGACY_OVERVIEW_SUB_TAB_IDS = { phone: "phone", fanwork: "fanwork", knock: "knock", collect: "collect", todo: "todo", radio: "radio", "pass-note": "pass-note", "you-dog": "you-dog", "grudge-book": "grudge-book" };
 
   let activeTab = "overview";
-  /** 点星内嵌子页：null | "phone" | "fanwork" | "knock" | "collect" | "todo" | "radio" */
+  /** 点星内嵌子页：null | "phone" | "fanwork" | "knock" | "collect" | "todo" | "radio" | "pass-note" | "you-dog" | "grudge-book" */
   let overviewSubView = null;
   /** 敲敲：主视角角色 id（我的形象） */
   let knockUserCharId = null;
@@ -2927,6 +3001,127 @@
   let radioHolderModalMode = "first";
   const radioNavBySlotId = Object.create(null);
 
+  /** 传纸条：剧情 id */
+  let passNotePlotId = null;
+  /** 传纸条：主要角色 id */
+  let passNoteCharId = null;
+  /** 传纸条：进行中的 session */
+  let passNoteActiveSession = null;
+  /** 传纸条历史：key = plotId + \\u001e + charId → 单题记录[] */
+  let passNoteRecordsData = {};
+  const PASS_NOTE_SESSIONS_MAX_PER_KEY = 50;
+  let passNoteGenerating = false;
+  let passNoteTossing = false;
+  let passNoteHolderModalStep = "plot";
+  let passNoteHolderModalPlotId = null;
+  let passNoteHolderModalMode = "first";
+  const passNoteNavBySlotId = Object.create(null);
+
+  /** 恩怨本：剧情 id */
+  let grudgeBookPlotId = null;
+  /** 恩怨本：主要角色 id（非我的形象） */
+  let grudgeBookCharId = null;
+  /** 恩怨本：数据 key = plotId + \u001e + charId */
+  let grudgeBookData = {};
+  let grudgeBookViewPerspective = "user";
+  let grudgeBookActiveBook = "grudge";
+  let grudgeBookGenerating = false;
+  let grudgeBookHolderModalStep = "plot";
+  let grudgeBookHolderModalPlotId = null;
+  let grudgeBookHolderModalMode = "first";
+  const GRUDGE_BOOK_DEFAULT_RELATIONSHIP = "情侣";
+  const GRUDGE_BOOK_ENTRIES_MAX = 30;
+  const grudgeBookNavBySlotId = Object.create(null);
+
+  /** 你才是狗：已开启的剧情 id 列表（可多选，时间线合并显示） */
+  let youDogPlotIds = [];
+  /** 你才是狗：参与生成的角色 id 列表（已废弃，仅兼容旧存档） */
+  let youDogParticipantIds = [];
+  /** 你才是狗：下次生成推文的发言角色 id */
+  let youDogNextGenCharId = null;
+  /** 你才是狗：互动用「我的形象」id（可跨剧情切换） */
+  let youDogUserCharId = null;
+  /** 你才是狗：全局匿名马甲（绑定所有「我的形象」） */
+  let youDogUserAnonAlias = null;
+  /** 你才是狗：主 Tab feed | profile | chat */
+  let youDogMainTab = "feed";
+  /** 嗅闻博客子屏：feed | post | profile */
+  let youDogScreen = "feed";
+  let youDogDetailPostId = null;
+  let youDogProfileSpeakerRef = null;
+  let youDogNavFrom = "feed";
+  /** 你才是狗推特数据：key = plotId */
+  let youDogTwitterData = {};
+  let youDogFeedGenerating = false;
+  let youDogRepliesGenerating = false;
+  let youDogRepliesGeneratingPostId = null;
+  let youDogCommentPostId = null;
+  let youDogCommentDraft = "";
+  let youDogPostMenuPostId = null;
+  let youDogParticipantPanelOpen = false;
+  let youDogHolderModalStep = "plot";
+  let youDogHolderModalPlotId = null;
+  let youDogHolderModalMode = "first";
+  let youDogHolderModalSelectedIds = [];
+  /** 你才是狗：时间线分区 tag（all | hot | sectionId） */
+  let youDogFeedTag = "all";
+  /** 你才是狗：可编辑分区 */
+  let youDogSections = [];
+  let youDogSectionManageOpen = false;
+  let youDogSectionFormId = null;
+  /** 嗅闻博客：生成时选角弹层 */
+  let youDogGenPickOpen = false;
+  /** @type {"feed"|"chat"} */
+  let youDogGenPickMode = "feed";
+  let youDogGenPickDraft = [];
+  /** @type {{ userText?: string, silent?: boolean, regenerateBatch?: boolean }|null} */
+  let youDogGenPickPendingChat = null;
+  /** 嗅闻博客群聊：feed | chat 子屏（铃铛切换） */
+  let youDogChatSubScreen = "feed";
+  /** 嗅闻博客群聊：群数据 */
+  let youDogChatData = null;
+  /** 嗅闻博客群聊：参与生成的 memberRef 列表（最多 5） */
+  let youDogChatParticipantIds = [];
+  /** 嗅闻博客群聊：用户形象 id（cc-self，与推特互动身份独立） */
+  let youDogChatUserCharId = null;
+  let youDogChatGenerating = false;
+  let youDogChatParticipantPanelOpen = false;
+  let youDogChatSettingsOpen = false;
+  let youDogChatMoreOpen = false;
+  let youDogChatSilentMode = false;
+  let youDogChatSelectMode = false;
+  let youDogChatSelectedMsgIds = [];
+  /** @type {{ msgId: string, text: string, authorName: string }|null} */
+  let youDogChatQuoteDraft = null;
+  let youDogChatMsgActionContext = null;
+  let youDogChatLongPressTimer = null;
+  /** @type {{ x: number, y: number, msgId: string, anchor: Element }|null} */
+  let youDogChatLongPressStart = null;
+  let youDogChatSetupOpen = false;
+  let youDogChatSetupStep = "tag";
+  /** @type {{ memberTagNames: Record<string,string>, groupName: string, participantIds: string[], userCharId: string|null, isReopen?: boolean }} */
+  let youDogChatSetupDraft = null;
+
+  const YOU_DOG_DEFAULT_SECTIONS = [
+    {
+      id: "tree",
+      name: "树洞",
+      description: "倾诉秘密、心事与难以对熟人说的话；情感细腻克制，狗味暗涌，重在情绪共鸣。",
+    },
+    {
+      id: "sweet",
+      name: "狗粮",
+      description: "暗搓搓秀恩爱、撒糖、炫耀与心动瞬间；须符合角色关系，甜而不腻。",
+    },
+    {
+      id: "gossip",
+      name: "吃瓜",
+      description: "吃瓜、较劲、阴阳怪气与半真半假的八卦；围观语气，可提问求证。",
+    },
+  ];
+  const YOU_DOG_SECTION_NAME_MAX = 12;
+  const YOU_DOG_SECTION_DESC_MAX = 200;
+
   const COLLECT_TTS_LABELS = {
     whisper: "播放",
     letter: "倾听",
@@ -3108,10 +3303,49 @@
     overviewSubCollect: () => document.getElementById("overview-sub-collect"),
     overviewSubTodo: () => document.getElementById("overview-sub-todo"),
     overviewSubRadio: () => document.getElementById("overview-sub-radio"),
+    overviewSubPassNote: () => document.getElementById("overview-sub-pass-note"),
+    overviewSubYouDog: () => document.getElementById("overview-sub-you-dog"),
+    overviewSubGrudgeBook: () => document.getElementById("overview-sub-grudge-book"),
+    youDogContentSlot: () => document.getElementById("you-dog-content-slot"),
+    grudgeBookContentSlot: () => document.getElementById("grudge-book-content-slot"),
+    modalGrudgeBookHolder: () => document.getElementById("modal-grudge-book-holder"),
+    grudgeBookHolderClose: () => document.getElementById("grudge-book-holder-close"),
+    grudgeBookHolderStepBack: () => document.getElementById("grudge-book-holder-step-back"),
+    grudgeBookHolderTitle: () => document.getElementById("grudge-book-holder-title"),
+    grudgeBookHolderHint: () => document.getElementById("grudge-book-holder-hint"),
+    grudgeBookHolderPlotList: () => document.getElementById("grudge-book-holder-plot-list"),
+    grudgeBookHolderPick: () => document.getElementById("grudge-book-holder-pick"),
+    modalYouDogHolder: () => document.getElementById("modal-you-dog-holder"),
+    youDogHolderClose: () => document.getElementById("you-dog-holder-close"),
+    youDogHolderStepBack: () => document.getElementById("you-dog-holder-step-back"),
+    youDogHolderTitle: () => document.getElementById("you-dog-holder-title"),
+    youDogHolderHint: () => document.getElementById("you-dog-holder-hint"),
+    youDogHolderPlotList: () => document.getElementById("you-dog-holder-plot-list"),
+    youDogHolderPick: () => document.getElementById("you-dog-holder-pick"),
+    youDogHolderActions: () => document.getElementById("you-dog-holder-actions"),
+    youDogHolderConfirm: () => document.getElementById("you-dog-holder-confirm"),
+    modalYouDogPersona: () => document.getElementById("modal-you-dog-persona"),
+    youDogPersonaClose: () => document.getElementById("you-dog-persona-close"),
+    youDogPersonaPick: () => document.getElementById("you-dog-persona-pick"),
+    modalYouDogComment: () => document.getElementById("modal-you-dog-comment"),
+    youDogCommentClose: () => document.getElementById("you-dog-comment-close"),
+    youDogCommentInput: () => document.getElementById("you-dog-comment-input"),
+    youDogCommentSubmit: () => document.getElementById("you-dog-comment-submit"),
+    modalYouDogChatSetup: () => document.getElementById("modal-you-dog-chat-setup"),
+    youDogChatSetupClose: () => document.getElementById("you-dog-chat-setup-close"),
+    youDogChatSetupBack: () => document.getElementById("you-dog-chat-setup-back"),
+    youDogChatSetupTitle: () => document.getElementById("you-dog-chat-setup-title"),
+    youDogChatSetupHint: () => document.getElementById("you-dog-chat-setup-hint"),
+    youDogChatSetupBody: () => document.getElementById("you-dog-chat-setup-body"),
+    youDogChatSetupConfirm: () => document.getElementById("you-dog-chat-setup-confirm"),
+    modalYouDogChatPersona: () => document.getElementById("modal-you-dog-chat-persona"),
+    youDogChatPersonaClose: () => document.getElementById("you-dog-chat-persona-close"),
+    youDogChatPersonaPick: () => document.getElementById("you-dog-chat-persona-pick"),
     knockContentSlot: () => document.getElementById("knock-content-slot"),
     collectContentSlot: () => document.getElementById("collect-content-slot"),
     todoContentSlot: () => document.getElementById("todo-content-slot"),
     radioContentSlot: () => document.getElementById("radio-content-slot"),
+    passNoteContentSlot: () => document.getElementById("pass-note-content-slot"),
     modalRadioHolder: () => document.getElementById("modal-radio-holder"),
     radioHolderClose: () => document.getElementById("radio-holder-close"),
     radioHolderStepBack: () => document.getElementById("radio-holder-step-back"),
@@ -3143,6 +3377,13 @@
     collectHolderHint: () => document.getElementById("collect-holder-hint"),
     collectHolderPlotList: () => document.getElementById("collect-holder-plot-list"),
     collectHolderPick: () => document.getElementById("collect-holder-pick"),
+    modalPassNoteHolder: () => document.getElementById("modal-pass-note-holder"),
+    passNoteHolderClose: () => document.getElementById("pass-note-holder-close"),
+    passNoteHolderStepBack: () => document.getElementById("pass-note-holder-step-back"),
+    passNoteHolderTitle: () => document.getElementById("pass-note-holder-title"),
+    passNoteHolderHint: () => document.getElementById("pass-note-holder-hint"),
+    passNoteHolderPlotList: () => document.getElementById("pass-note-holder-plot-list"),
+    passNoteHolderPick: () => document.getElementById("pass-note-holder-pick"),
     modalAssistantProfile: () => document.getElementById("modal-assistant-profile"),
     assistantDedicatedApiSelect: () => document.getElementById("assistant-dedicated-api-select"),
     wbFilters: () => document.getElementById("wb-filters"),
@@ -7490,12 +7731,37 @@
   }
 
   function buildVisualRefVisionCacheKey(urls) {
-    return urls
-      .map(function (u, i) {
-        const s = String(u || "");
-        return i + ":" + s.length + ":" + s.slice(-64);
-      })
-      .join("|");
+    return (
+      "v2-multi-ref|" +
+      urls
+        .map(function (u, i) {
+          const s = String(u || "");
+          return i + ":" + s.length + ":" + s.slice(-64);
+        })
+        .join("|")
+    );
+  }
+
+  function buildAllRefsIdentityClause(refCount) {
+    const n = Number(refCount) || 0;
+    if (n <= 0) return "";
+    if (n === 1) {
+      return " Study the attached reference photo carefully before generating.";
+    }
+    return (
+      " You are given " +
+      n +
+      " reference photos of the same person (labeled ref-0 through ref-" +
+      (n - 1) +
+      "). Examine EVERY attached reference image and synthesize facial identity across all angles and lighting—do not rely on only the first photo."
+    );
+  }
+
+  function buildSceneOutfitRichnessSuffix() {
+    return (
+      " Render rich, specific scene and styling detail: name concrete clothing items (fabric, color, fit, layers, accessories), hairstyle as styled for this moment, and a vivid background with readable environmental objects, textures, depth, and ambient light." +
+      " Outfit, pose, and location follow the scene description, not the reference photo wardrobe or setting."
+    );
   }
 
   function invalidateVisualRefVisionCache(refKey) {
@@ -7572,7 +7838,8 @@
       refCount > 0
         ? "CRITICAL IDENTITY LOCK — Recreate the exact same person from " +
           refCount +
-          " uploaded reference photo(s). Match face shape, eyes, nose, lips, jaw, hair, skin tone precisely."
+          " uploaded reference photo(s). Match face shape, eyes, nose, lips, jaw, hair, skin tone precisely." +
+          buildAllRefsIdentityClause(refCount)
         : "CRITICAL IDENTITY LOCK — " + DEFAULT_CELEBRITY_FACE_BLUEPRINT + ".";
     if (visionDesc) identity += " Reference face analysis: " + visionDesc + ".";
     identity +=
@@ -7621,7 +7888,8 @@
             refCount +
             " attached reference photo(s). Face identity: " +
             visionDesc +
-            ". Reproduce this exact individual; do not drift to a generic face."
+            ". Reproduce this exact individual; do not drift to a generic face." +
+            buildAllRefsIdentityClause(refCount)
           : "Face identity: " + visionDesc + ". Reproduce this exact individual; do not drift to a generic face.";
       const looseHint = getOptionalLooseAestheticHint("appearance");
       if (looseHint) identity += looseHint;
@@ -7765,9 +8033,11 @@
     const refCount = getVisualRefImages("appearance").length;
     const visionDesc = getVisualRefManualPrompt("appearance");
     const parts = [
-      "Generate a photorealistic front-camera smartphone selfie portrait of the EXACT SAME PERSON shown in the " +
+      "Generate a photorealistic smartphone portrait of the EXACT SAME PERSON shown across all " +
         refCount +
-        " attached reference photo(s). Face identity is the absolute highest priority: match face shape, eye spacing, nose bridge, lip shape, jawline, hairline, hairstyle, hair color, and skin tone precisely from the reference photos. Do not invent a different or generic face.",
+        " attached reference photo(s)." +
+        buildAllRefsIdentityClause(refCount) +
+        " Face identity is the absolute highest priority: match face shape, eye spacing, nose bridge, lip shape, jawline, hairline, hairstyle, hair color, and skin tone precisely from every reference photo. Do not invent a different or generic face.",
     ];
     if (visionDesc) {
       parts.push("Facial identity from references: " + truncateCharsWithEllipsis(visionDesc, 400) + ".");
@@ -7799,8 +8069,9 @@
     const looseHint = getOptionalLooseAestheticHint("appearance");
     if (looseHint) parts.push(looseHint);
     parts.push(
-      "Eye-level phone selfie, natural ambient light, authentic smartphone photo realism. Outfit and background follow the scene, not the reference photo setting."
+      "Eye-level phone portrait (selfie, side profile, or friend-taken candid—no death angles), natural ambient light, authentic smartphone photo realism."
     );
+    parts.push(buildSceneOutfitRichnessSuffix());
     return parts.join(" ");
   }
 
@@ -7882,8 +8153,9 @@
       out =
         "HIGHEST PRIORITY — Generate the exact same person shown in the " +
         refCount +
-        " uploaded reference photo(s). Lock identity: same face shape, eye spacing, nose bridge, lip shape, jawline, hairline, hairstyle, hair color, skin tone. Reference photos are the sole identity source; do not drift to a generic or different face.";
-      if (vision) out += " Facial features from reference photos: " + vision + ".";
+        " uploaded reference photo(s). Lock identity: same face shape, eye spacing, nose bridge, lip shape, jawline, hairline, hairstyle, hair color, skin tone. Reference photos are the sole identity source; do not drift to a generic or different face." +
+        buildAllRefsIdentityClause(refCount);
+      if (vision) out += " Facial features synthesized from all reference photos: " + vision + ".";
     } else {
       out =
         "HIGHEST PRIORITY — Consistent handsome photogenic face identity across generations. " +
@@ -7904,9 +8176,10 @@
 
   function buildFlexiblePhonePhotoFramingSuffix() {
     return (
-      " Eye-level smartphone portrait only: camera at subject eye height or up to 10° above, never bird's-eye overhead, never low-angle worm's-eye or dramatic chin-up shot." +
-      " Natural front-camera selfie or friend-taken portrait at standing/sitting height; subject faces camera or slight 3/4 turn." +
+      " Eye-level smartphone portrait only: camera at subject eye height or up to 10° above, never bird's-eye overhead, never low-angle worm's-eye or dramatic chin-up death angle." +
+      " Allowed framing: front-camera selfie, slight 3/4 turn, clean side profile, or friend-taken candid portrait (他拍) at standing/sitting height—natural distance, subject may look at camera or away." +
       " Natural ambient light, auto exposure, mild noise or JPEG compression, casual imperfect framing." +
+      buildSceneOutfitRichnessSuffix() +
       visualImageStylePromptSuffix()
     );
   }
@@ -7922,8 +8195,8 @@
     const isAppearance = refKey === "appearance";
     const imageParts = buildVisualRefImagePartsForVision(refKey);
     const systemContent = isAppearance
-      ? "你是专业人像分析师。用户上传多张同一人物的参考照片。请综合所有角度，用英文写一段精确、可执行的文生图描述，仅限：脸型、颧骨、下颌、眼型、鼻型、唇形、发型、发色、肤色、肩宽腰细体型（宽肩窄腰 V 型躯干）。以照片所见为准，只描述照片中实际可见的特征。不要描述衣着、场景、氛围、姿态或表情。不要提及任何明星、艺人或公众人物姓名。描述应适用于手机自拍/手机人像，不要写专业相机镜头参数。只输出描述正文，不要标题、不要 markdown、不要中文。"
-      : "你是场景与影像分析师。用户上传多张日常/环境参考照片。请综合这些图，用英文写一段精确的场景与影像风格描述：rear-camera 手机快照特征，包括地点类型、光线、色调、构图、氛围、常见打卡元素（美食、街景、自然风光、城市景色等）与材质。只描述照片里的场景与影像风格，不要描述人物五官或身份。只输出描述正文，不要标题、不要 markdown、不要中文。";
+      ? "你是专业人像分析师。用户上传多张同一人物的参考照片（可能含正脸、侧脸、他拍等不同角度）。你必须逐张查看每一张参考图，再综合全部角度写一段英文文生图描述。内容仅限：脸型、颧骨、下颌、眼型、鼻型、唇形、发型、发色、肤色、肩宽腰细体型（宽肩窄腰 V 型躯干）；若不同照片展示了侧脸或半脸，须分别提取并合并为同一人的完整特征。禁止只依据第一张图。不要描述衣着、场景、氛围、姿态或表情。不要提及任何明星、艺人或公众人物姓名。描述应适用于手机自拍/手机人像，不要写专业相机镜头参数。只输出描述正文，不要标题、不要 markdown、不要中文。"
+      : "你是场景与影像分析师。用户上传多张日常/环境参考照片。请逐张查看并综合这些图，用英文写一段精确的场景与影像风格描述：rear-camera 手机快照特征，包括地点类型、光线、色调、构图、氛围、常见打卡元素（美食、街景、自然风光、城市景色等）与材质。只描述照片里的场景与影像风格，不要描述人物五官或身份。只输出描述正文，不要标题、不要 markdown、不要中文。";
     const userContent = [
       {
         type: "text",
@@ -7931,10 +8204,17 @@
           "以下为 " +
           urls.length +
           " 张参考图（" +
-          (isAppearance ? "同一人物不同角度" : "场景/环境参考") +
+          (isAppearance ? "同一人物不同角度；请逐张分析后合并，勿只看第一张" : "场景/环境参考；请逐张分析后合并") +
           "）。请合并成一条统一的英文描述，供后续 images/generations 使用。",
       },
-    ].concat(imageParts);
+    ];
+    urls.forEach(function (_url, i) {
+      userContent.push({
+        type: "text",
+        text: "Reference photo " + (i + 1) + " of " + urls.length + ":",
+      });
+      userContent.push(imageParts[i]);
+    });
     try {
       const text = await callChatCompletion(
         [
@@ -7942,7 +8222,7 @@
           { role: "user", content: userContent },
         ],
         0.25,
-        700,
+        900,
         { apiConfigId: getWorkbenchApiId(), skipGenPaw: true }
       );
       const desc = String(text || "").trim();
@@ -7986,7 +8266,7 @@
     const chatContext = String(opts.chatContext || "").trim();
     if (chatContext) {
       prompt +=
-        " Current moment outfit, location, mood (from chat only): " +
+        " Current moment outfit, location, mood, and background details (from chat only): " +
         truncateCharsWithEllipsis(chatContext, 480) +
         ".";
     }
@@ -8228,6 +8508,13 @@
     } else {
       variants.push(Object.assign({}, baseBody, { images: b64List }));
       variants.push(Object.assign({}, baseBody, { reference_images: b64List }));
+      variants.push(
+        Object.assign({}, baseBody, {
+          images: b64List.map(function (b64) {
+            return dataUrl(b64);
+          }),
+        })
+      );
       variants.push(Object.assign({}, baseBody, { image: b64List[0] }));
       variants.push(Object.assign({}, baseBody, { image: dataUrl(b64List[0]) }));
       variants.push(Object.assign({}, baseBody, { init_image: b64List[0], image_strength: 0.52 }));
@@ -8361,7 +8648,7 @@
     return (
       "\n\n【发图·仅主要角色】你可在合适时机发照片（手机自拍、手机随手拍的眼前景象），像真人微信一样克制，不要频繁发图；整段对话里通常 0～1 条 <<<SNAP>>> 即可，不要连续多轮都发。" +
       "格式：单独一行 <<<SNAP>>>简短画面描述（中文或英文均可）<<<SNAP>>>，可与 <<<BUBBLE>>> 文字气泡混发。" +
-      "自拍是你本人（主要角色）前置手机自拍出镜，宽肩窄腰健美体型，镜头与眼睛平齐，禁止俯拍仰拍等死亡角度；景象是你此刻用手机后置镜头拍下、眼前看到的（不是用户那边）。" +
+      "自拍是你本人（主要角色）出镜，宽肩窄腰健美体型，镜头与眼睛平齐或略高，禁止俯拍仰拍等死亡角度；允许正脸、3/4侧脸、纯侧脸或他拍（朋友帮忙拍）等自然手机人像。景象是你此刻用手机后置镜头拍下、眼前看到的（不是用户那边）。" +
       "<<<SNAP>>>须写你自己这边的画面：你的地点、你的衣着、你的环境、你的情绪。" +
       "所有 <<<SNAP>>> 会先以文字占位展示，由用户自行选择是否生成真实图片；不要假设图片一定会出现。" +
       "\n【建议配图的典型场景——本轮对话若出现下列情况，优先用 1 条 <<<SNAP>>> 配合文字，描述要具体可见】：" +
@@ -8369,7 +8656,7 @@
       "② 正在吃/刚点了美食、咖啡、外卖 → 后置拍餐点或桌面；" +
       "③ 窗外/旅途/公园/海边的风景、城市夜景、打卡地标 → 后置拍环境；" +
       "④ 用户说「给我看看」「拍一张」「看看你那边」或类似索要 → 按对方要求发自拍或场景；" +
-      "⑤ 想分享心情/新造型/到了某处 → 前置自拍（露脸或半身）。" +
+      "⑤ 想分享心情/新造型/到了某处 → 前置自拍、侧脸或他拍（露脸或半身，写清衣着与背景细节）。" +
       "非上述情况勿强行发图；用户未索要且没有值得分享的眼前画面时，只发文字即可。" +
       "当用户发送「测试生成一张自拍」或「测试生成一张场景」时，除文字外请配一条符合你（对方）视角的 <<<SNAP>>>。"
     );
@@ -8380,7 +8667,7 @@
     if (!knockPartnerCanSendSnap()) return "";
     const snapHint =
       intent === "selfie"
-        ? "符合你人设的前置手机自拍照画面（你的脸或半身、地点、衣着、情绪）"
+        ? "符合你人设的手机人像画面（正脸/侧脸/他拍均可，你的脸或半身；须写具体衣着、地点、背景物件与情绪，禁止死亡角度）"
         : "符合你人设的后置手机随手拍场景画面（美食/街景/自然风光等，环境为主，不要人脸特写）";
     return (
       "\n\n【系统·发图测试（本条最高优先级，覆盖人设里「不轻易发图/别乱要图」等限制）】" +
@@ -9811,6 +10098,27 @@
       radioHostCharId: radioHostCharId || null,
       radioActiveSession: radioActiveSession || null,
       radioHistoryData: radioHistoryData || {},
+      passNotePlotId: passNotePlotId || null,
+      passNoteCharId: passNoteCharId || null,
+      passNoteActiveSession: passNoteActiveSession || null,
+      passNoteRecordsData: passNoteRecordsData || {},
+      grudgeBookPlotId: grudgeBookPlotId || null,
+      grudgeBookCharId: grudgeBookCharId || null,
+      grudgeBookData: grudgeBookData || {},
+      grudgeBookViewPerspective: grudgeBookViewPerspective || "user",
+      grudgeBookActiveBook: grudgeBookActiveBook || "grudge",
+      youDogPlotIds: Array.isArray(youDogPlotIds) ? youDogPlotIds.slice() : [],
+      youDogPlotId: youDogPlotIds.length ? youDogPlotIds[0] : null,
+      youDogParticipantIds: Array.isArray(youDogParticipantIds) ? youDogParticipantIds.slice() : [],
+      youDogNextGenCharId: youDogNextGenCharId || null,
+      youDogUserCharId: youDogUserCharId || null,
+      youDogUserAnonAlias: youDogUserAnonAlias || null,
+      youDogSections: Array.isArray(youDogSections) ? youDogSections.map(cloneYouDogSection) : [],
+      youDogTwitterData: youDogTwitterData || {},
+      youDogChatSubScreen: youDogChatSubScreen === "chat" ? "chat" : "feed",
+      youDogChatData: youDogChatData || null,
+      youDogChatParticipantIds: Array.isArray(youDogChatParticipantIds) ? youDogChatParticipantIds.slice() : [],
+      youDogChatUserCharId: youDogChatUserCharId || null,
     });
   }
 
@@ -10213,6 +10521,111 @@
         });
       }
       sanitizeRadioState();
+      passNotePlotId = null;
+      passNoteCharId = null;
+      if (typeof o.passNotePlotId === "string" && o.passNotePlotId.trim()) {
+        passNotePlotId = o.passNotePlotId.trim();
+      }
+      if (typeof o.passNoteCharId === "string" && o.passNoteCharId.trim()) {
+        passNoteCharId = o.passNoteCharId.trim();
+      }
+      passNoteActiveSession = normalizePassNoteSession(o.passNoteActiveSession);
+      passNoteRecordsData = {};
+      if (o.passNoteRecordsData && typeof o.passNoteRecordsData === "object" && !Array.isArray(o.passNoteRecordsData)) {
+        Object.keys(o.passNoteRecordsData).forEach(function (k) {
+          const arr = o.passNoteRecordsData[k];
+          if (!Array.isArray(arr)) return;
+          const normalized = arr.map(normalizePassNoteRecord).filter(Boolean);
+          if (normalized.length) passNoteRecordsData[k] = normalized;
+        });
+      } else if (o.passNoteSessionsData && typeof o.passNoteSessionsData === "object" && !Array.isArray(o.passNoteSessionsData)) {
+        Object.keys(o.passNoteSessionsData).forEach(function (k) {
+          const arr = o.passNoteSessionsData[k];
+          if (!Array.isArray(arr)) return;
+          arr.forEach(function (sess) {
+            const normalized = normalizePassNoteSession(sess);
+            if (!normalized || normalized.status !== "completed") return;
+            migratePassNoteSessionToRecords(normalized);
+          });
+        });
+      }
+      sanitizePassNoteState();
+      grudgeBookPlotId = null;
+      grudgeBookCharId = null;
+      if (typeof o.grudgeBookPlotId === "string" && o.grudgeBookPlotId.trim()) {
+        grudgeBookPlotId = o.grudgeBookPlotId.trim();
+      }
+      if (typeof o.grudgeBookCharId === "string" && o.grudgeBookCharId.trim()) {
+        grudgeBookCharId = o.grudgeBookCharId.trim();
+      }
+      grudgeBookData = {};
+      if (o.grudgeBookData && typeof o.grudgeBookData === "object" && !Array.isArray(o.grudgeBookData)) {
+        Object.keys(o.grudgeBookData).forEach(function (k) {
+          const v = normalizeGrudgeBookBundle(o.grudgeBookData[k]);
+          if (v) grudgeBookData[k] = v;
+        });
+      }
+      grudgeBookViewPerspective =
+        o.grudgeBookViewPerspective === "character" ? "character" : "user";
+      grudgeBookActiveBook = o.grudgeBookActiveBook === "merit" ? "merit" : "grudge";
+      sanitizeGrudgeBookState();
+      youDogPlotIds = [];
+      youDogParticipantIds = [];
+      youDogNextGenCharId = null;
+      youDogUserCharId = null;
+      youDogUserAnonAlias = null;
+      if (Array.isArray(o.youDogPlotIds)) {
+        youDogPlotIds = o.youDogPlotIds.filter(function (id) {
+          return typeof id === "string" && id.trim();
+        });
+      } else if (typeof o.youDogPlotId === "string" && o.youDogPlotId.trim()) {
+        youDogPlotIds = [o.youDogPlotId.trim()];
+      }
+      if (Array.isArray(o.youDogParticipantIds)) {
+        youDogParticipantIds = o.youDogParticipantIds.filter(function (id) {
+          return typeof id === "string" && id.trim();
+        });
+      }
+      if (typeof o.youDogNextGenCharId === "string" && o.youDogNextGenCharId.trim()) {
+        youDogNextGenCharId = o.youDogNextGenCharId.trim();
+      } else if (youDogParticipantIds.length) {
+        youDogNextGenCharId = youDogParticipantIds[0];
+      }
+      if (typeof o.youDogUserCharId === "string" && o.youDogUserCharId.trim()) {
+        youDogUserCharId = o.youDogUserCharId.trim();
+      }
+      if (typeof o.youDogUserAnonAlias === "string" && o.youDogUserAnonAlias.trim()) {
+        youDogUserAnonAlias = o.youDogUserAnonAlias.trim();
+      }
+      youDogSections = [];
+      if (Array.isArray(o.youDogSections)) {
+        o.youDogSections.forEach(function (sec) {
+          if (!sec || typeof sec !== "object") return;
+          const cloned = cloneYouDogSection(sec);
+          if (cloned.id && cloned.name) youDogSections.push(cloned);
+        });
+      }
+      youDogTwitterData = {};
+      if (o.youDogTwitterData && typeof o.youDogTwitterData === "object" && !Array.isArray(o.youDogTwitterData)) {
+        Object.keys(o.youDogTwitterData).forEach(function (k) {
+          const v = o.youDogTwitterData[k];
+          if (v && typeof v === "object" && Array.isArray(v.posts)) youDogTwitterData[k] = v;
+        });
+      }
+      sanitizeYouDogState();
+      youDogChatSubScreen = o.youDogChatSubScreen === "chat" ? "chat" : "feed";
+      youDogChatData = normalizeYouDogChatData(o.youDogChatData);
+      youDogChatParticipantIds = [];
+      if (Array.isArray(o.youDogChatParticipantIds)) {
+        youDogChatParticipantIds = o.youDogChatParticipantIds.filter(function (id) {
+          return typeof id === "string" && id.trim();
+        });
+      }
+      youDogChatUserCharId =
+        typeof o.youDogChatUserCharId === "string" && o.youDogChatUserCharId.trim()
+          ? o.youDogChatUserCharId.trim()
+          : null;
+      sanitizeYouDogChatState();
       knockPlotId =
         typeof o.knockPlotId === "string" && o.knockPlotId.trim() ? o.knockPlotId.trim() : null;
       knockUserCharId =
@@ -11139,7 +11552,7 @@
       const prefix = s.slice(0, contentStart);
       const core = s.slice(contentStart);
       const omitNote =
-        "【篇幅说明】设定与世界书等前文因过长已省略；须严格依据下列「最近剧情」及后附记忆/总结续写，禁止当作新故事。\n\n";
+        "【篇幅说明】设定与世界书等前文因过长已省略；须严格依据下列「最近剧情」及后附记忆/总结续写，禁止当作新故事；记忆/总结均为已发生过去式，勿复述重演，须向前推进。\n\n";
       const noteLen = charCountForApiPrompt(omitNote);
       const coreLen = charCountForApiPrompt(core);
       const minCoreBudget = Math.min(coreLen, Math.max(9000, Math.floor(maxC * 0.52)));
@@ -11378,7 +11791,7 @@
     "② 世界书·禁令及条目明示的硬性规则、不可违反的叙事边界：次优先；若与①冲突，以①为准。\n" +
     "③ 玩家本轮指令、最近剧情正文（最近 " +
     STORY_PLAY_REF_TURN_LIMIT +
-    " 轮）、记忆、阶段总结、题材与故事开端：再次，用于接戏与连贯，须严格参照不得失忆；同层冲突时以最近剧情正文优先于阶段总结；若与①或②冲突，以前两层为准。\n" +
+    " 轮）、记忆、阶段总结、题材与故事开端：再次，用于接戏与连贯，须严格参照不得失忆；记忆与总结均为已发生过去式，勿复述重演，须在其基础上向前推进；同层冲突时以最近剧情正文优先于阶段总结；若与①或②冲突，以前两层为准。\n" +
     "④ 角色档案中的职业、学籍、过往经历等可调整背景：仅作情节参考，勿用语义锁死①中的外貌与性格气质。";
 
   /**
@@ -11419,12 +11832,12 @@
     "【信息衔接】正文里首次点到的重要他人、具体约定（时间、地点、同行者）须扣回当前话题或上文情绪，勿单独一句像补设定般硬插入。\n" +
     "【收尾完整】进入文末选项区前，正文最后一句尽量落在完整句号或已闭合的对白引号上；避免以「对了，」「他刚要——」等明显半截悬停结束（若篇幅吃紧宁可略写景物也要把尾句说圆）。\n";
 
-  /** 续写时须严格参照用户消息中的最近正文、记忆与总结 */
+  /** 续写时须严格参照用户消息中的最近正文、记忆与总结（均为已发生过去式，勿复述重演） */
   var STORY_PLAY_CONTEXT_REF_GUIDE =
-    "【上下文必读·禁失忆】续写前须完整阅读用户消息中的「最近剧情」「记忆」「阶段总结」及世界书；将其视为已发生内容的权威依据，须无缝衔接、不得矛盾、不得当作新故事重写。\n" +
+    "【上下文必读·禁失忆】续写前须完整阅读用户消息中的「最近剧情」「记忆」「阶段总结」及世界书；记忆与阶段总结均为**已发生、已写过的过去式背景**，不是本轮要写的新情节；须无缝衔接、不得矛盾、不得当作新故事重写。\n" +
     "· 最近剧情（最高）：窗口内最后一轮为完整正文；更早轮次若为「轮概要」或「轮摘录」则与正文同等视为已发生事实。紧接上一场的台词、动作与情绪，从最后一轮收束处自然续写；同层冲突时以本段为准，勿重复上一轮已写过的信息。\n" +
-    "· 记忆：用户标记须长期遵守的要点（含自总结钉选），本轮须呼应，不得遗漏或反向处理。\n" +
-    "· 阶段总结：覆盖更早回合的概要，补充最近剧情未写明的历史事实与关系；勿与最近剧情及总结中的核心事实相悖，勿凭空改写已确立设定。\n" +
+    "· 记忆：用户标记须长期遵守的要点（含自总结钉选）；本轮可照应其后果与当前状态，但**禁止复述、重演**记忆中的场景、对白或情节节点，禁止把记忆内容当正文再写一遍。\n" +
+    "· 阶段总结：覆盖更早回合的已发生概要，补充最近剧情未写明的历史事实与关系；**禁止复述**总结中已有情节与发展节点，须在其基础上**向前推进**新局面、新动作与新因果；勿与最近剧情及总结中的核心事实相悖，勿凭空改写已确立设定。\n" +
     "· 若阶段总结/记忆与最近剧情细节表面冲突，**以最近剧情为准**；不得推翻总结中的核心事实时，用一两句过渡交代即可。\n";
 
   function storyBriefCharCount(s) {
@@ -11811,8 +12224,12 @@
   function buildVisualImageEditsFormData(model, prompt, blobList, imageFieldName) {
     const formData = new FormData();
     const modelName = String(model || "").trim();
+    const refCount = Array.isArray(blobList) ? blobList.filter(Boolean).length : 0;
+    const refClause = buildAllRefsIdentityClause(refCount);
+    const fullPrompt =
+      String(prompt || "").trim() + (refClause && !String(prompt || "").includes("ref-0") ? refClause : "");
     formData.append("model", modelName);
-    formData.append("prompt", String(prompt || "").trim());
+    formData.append("prompt", fullPrompt);
     formData.append("n", "1");
     formData.append("size", "1024x1024");
     if (/gpt-image-1/i.test(modelName) && !/gpt-image-2/i.test(modelName)) {
@@ -12954,7 +13371,7 @@
     const mainline = String(plot.mainlineSummary || "").trim();
     if (mainline) {
       parts.push(
-        "【至今剧情主线（滚动摘要·优先于更早阶段总结）】\n" +
+        "【至今剧情主线（滚动摘要·均已发生·勿复述重演）】\n" +
           truncateTailCharsWithEllipsis(mainline, STORY_PLAY_MAINLINE_SUMMARY_MAX_CHARS)
       );
     }
@@ -12983,7 +13400,7 @@
     const mainline = String(plot.mainlineSummary || "").trim();
     if (mainline) {
       return (
-        "【至今剧情主线（滚动摘要·优先于更早阶段总结）】\n" +
+        "【至今剧情主线（滚动摘要·均已发生·勿复述重演）】\n" +
         truncateTailCharsWithEllipsis(mainline, STORY_PLAY_MAINLINE_SUMMARY_MAX_CHARS)
       );
     }
@@ -13224,7 +13641,7 @@
   }
 
   function isOverviewFeatureFullscreenView(view) {
-    return view === "phone" || view === "knock" || view === "collect" || view === "todo" || view === "radio" || view === "fanwork";
+    return view === "phone" || view === "knock" || view === "collect" || view === "todo" || view === "radio" || view === "fanwork" || view === "pass-note" || view === "you-dog" || view === "grudge-book";
   }
 
   function syncOverviewSubViewUi() {
@@ -13235,19 +13652,28 @@
     const collectSub = els.overviewSubCollect();
     const todoSub = els.overviewSubTodo();
     const radioSub = els.overviewSubRadio();
+    const passNoteSub = els.overviewSubPassNote();
+    const youDogSub = els.overviewSubYouDog();
+    const grudgeBookSub = els.overviewSubGrudgeBook();
     const showPhone = overviewSubView === "phone";
     const showFan = overviewSubView === "fanwork";
     const showKnock = overviewSubView === "knock";
     const showCollect = overviewSubView === "collect";
     const showTodo = overviewSubView === "todo";
     const showRadio = overviewSubView === "radio";
-    if (hub) hub.hidden = showPhone || showFan || showKnock || showCollect || showTodo || showRadio;
+    const showPassNote = overviewSubView === "pass-note";
+    const showYouDog = overviewSubView === "you-dog";
+    const showGrudgeBook = overviewSubView === "grudge-book";
+    if (hub) hub.hidden = showPhone || showFan || showKnock || showCollect || showTodo || showRadio || showPassNote || showYouDog || showGrudgeBook;
     if (phoneSub) phoneSub.hidden = !showPhone;
     if (fanSub) fanSub.hidden = !showFan;
     if (knockSub) knockSub.hidden = !showKnock;
     if (collectSub) collectSub.hidden = !showCollect;
     if (todoSub) todoSub.hidden = !showTodo;
     if (radioSub) radioSub.hidden = !showRadio;
+    if (passNoteSub) passNoteSub.hidden = !showPassNote;
+    if (youDogSub) youDogSub.hidden = !showYouDog;
+    if (grudgeBookSub) grudgeBookSub.hidden = !showGrudgeBook;
     const shell = document.getElementById("app-shell");
     if (shell) {
       shell.classList.toggle("app-shell--feature-fullscreen", isOverviewFeatureFullscreenView(overviewSubView));
@@ -13270,7 +13696,13 @@
                 ? "todo"
                 : view === "radio"
                   ? "radio"
-                  : null;
+                  : view === "pass-note"
+                    ? "pass-note"
+                    : view === "you-dog"
+                      ? "you-dog"
+                      : view === "grudge-book"
+                        ? "grudge-book"
+                        : null;
     if (!v) return;
     if (v === "knock") prepareKnockSession();
     overviewSubView = v;
@@ -13313,6 +13745,32 @@
       sanitizeRadioState();
       renderRadioScreen(els.radioContentSlot());
       if (!radioPlotId || !radioHostCharId) openRadioHolderModal({ mode: "first" });
+    } else if (v === "pass-note") {
+      sanitizePassNoteState();
+      renderPassNoteScreen(els.passNoteContentSlot());
+      if (!passNotePlotId || !passNoteCharId) openPassNoteHolderModal({ mode: "first" });
+      else if (
+        passNoteActiveSession &&
+        passNoteActiveSession.status === "generating_reply" &&
+        !passNoteGenerating
+      ) {
+        void generatePassNoteUserReplies(els.passNoteContentSlot());
+      }
+    } else if (v === "you-dog") {
+      sanitizeYouDogState();
+      renderYouDogScreen(els.youDogContentSlot());
+      if (!youDogPlotIds.length) openYouDogHolderModal({ mode: "first" });
+    } else if (v === "grudge-book") {
+      sanitizeGrudgeBookState();
+      if (!grudgeBookPlotId || !grudgeBookCharId) {
+        if (overviewPlotId && overviewFocusCharId) {
+          grudgeBookPlotId = overviewPlotId;
+          grudgeBookCharId = overviewFocusCharId;
+          sanitizeGrudgeBookState();
+        }
+      }
+      renderGrudgeBookScreen(els.grudgeBookContentSlot());
+      if (!grudgeBookPlotId || !grudgeBookCharId) openGrudgeBookHolderModal({ mode: "first" });
     }
   }
 
@@ -16829,6 +17287,17 @@
     return ctx.lines.join("\n");
   }
 
+  function buildKnockPlotContextForGenerate(holderChar) {
+    return buildKnockPlotContextPromptBlock(holderChar);
+  }
+
+  function isKnockChatAwaitingPartnerReply(rec) {
+    const msgs = rec && Array.isArray(rec.messages) ? rec.messages : [];
+    if (!msgs.length) return false;
+    const last = msgs[msgs.length - 1];
+    return !!(last && last.role === "user");
+  }
+
   function buildKnockReplySystemPrompt(userChar, partnerChar, opts) {
     opts = opts || {};
     const userName = String(userChar && userChar.name ? userChar.name : "用户").trim() || "用户";
@@ -17799,12 +18268,15 @@
       if (!p) return;
       const key = knockChatStorageKey(userId, p.id);
       const rec = knockChatData[key];
-      if (!rec) return;
       lines.push("【与「" + (p.name || "未命名") + "」】");
-      if (rec.contextBackground) {
+      if (item.pinned) lines.push("（置顶主要角色，本次生成必须续聊）");
+      if (rec && rec.contextBackground) {
         lines.push("背景：" + truncateCharsWithEllipsis(rec.contextBackground, 200));
       }
-      const msgs = Array.isArray(rec.messages) ? rec.messages : [];
+      const msgs = rec && Array.isArray(rec.messages) ? rec.messages : [];
+      if (rec && isKnockChatAwaitingPartnerReply(rec)) {
+        lines.push("（用户已发消息尚未回复；非置顶角色可视情况跳过续聊）");
+      }
       msgs.slice(-6).forEach(function (m) {
         const who = m.role === "user" ? "我" : p.name || "对方";
         lines.push(who + "：" + truncateCharsWithEllipsis(formatKnockMessageContentForApi(m), 80));
@@ -17812,6 +18284,57 @@
       if (!msgs.length) lines.push("（暂无消息）");
     });
     return lines.length ? lines.join("\n") : "（暂无聊天记录）";
+  }
+
+  function findKnockPartnerByName(name) {
+    const n = String(name || "").trim();
+    if (!n) return null;
+    let found = null;
+    getKnockChatListPartners().some(function (item) {
+      const p = item.partner;
+      if (p && String(p.name || "").trim() === n) {
+        found = p;
+        return true;
+      }
+      return false;
+    });
+    return found;
+  }
+
+  function appendKnockAssistantMessagesToChat(userCharId, partnerCharId, rawMessages) {
+    const key = knockChatStorageKey(userCharId, partnerCharId);
+    if (!knockChatData[key]) knockChatData[key] = normalizeKnockChatRecord({});
+    const rec = knockChatData[key];
+    if (!rec) return 0;
+    if (!Array.isArray(rec.messages)) rec.messages = [];
+    const msgs = Array.isArray(rawMessages) ? rawMessages : [];
+    const assistantMsgs = msgs.filter(function (m) {
+      return m && m.role === "assistant" && String(m.content || "").trim();
+    });
+    if (!assistantMsgs.length) return 0;
+    const baseTs = Date.now();
+    assistantMsgs.forEach(function (m, idx) {
+      rec.messages.push({
+        role: "assistant",
+        kind: "text",
+        content: String(m.content || "").trim(),
+        ts: baseTs + idx * 60000,
+      });
+    });
+    return assistantMsgs.length;
+  }
+
+  function applyKnockExistingReplies(replies) {
+    const userId = knockUserCharId;
+    if (!userId || !Array.isArray(replies)) return 0;
+    let total = 0;
+    replies.forEach(function (item) {
+      const name = String((item && item.name) || "").trim();
+      const partner = findKnockPartnerByName(name);
+      if (!partner) return;
+      total += appendKnockAssistantMessagesToChat(userId, partner.id, item && item.messages);
+    });
+    return total;
   }
 
   function getKnockEffectivePersonaForPair(char, role, userCharId, partnerCharId) {
@@ -17880,23 +18403,7 @@
   }
 
   function applyKnockGeneratedChat(userCharId, partnerCharId, raw) {
-    const key = knockChatStorageKey(userCharId, partnerCharId);
-    if (!knockChatData[key]) knockChatData[key] = normalizeKnockChatRecord({});
-    const rec = knockChatData[key];
-    if (!rec) return;
-    const msgs = Array.isArray(raw.messages) ? raw.messages : [];
-    const now = Date.now();
-    const assistantMsgs = msgs.filter(function (m) {
-      return m && m.role === "assistant" && String(m.content || "").trim();
-    });
-    rec.messages = assistantMsgs.map(function (m, idx) {
-      return {
-        role: "assistant",
-        kind: "text",
-        content: String(m.content || "").trim(),
-        ts: now - (assistantMsgs.length - idx) * 60000,
-      };
-    });
+    appendKnockAssistantMessagesToChat(userCharId, partnerCharId, raw && raw.messages);
   }
 
   async function generateKnockRelatedContacts(slot) {
@@ -18007,8 +18514,7 @@
         const msgs = rec && Array.isArray(rec.messages) ? rec.messages : [];
         const lastMsg = msgs.length ? msgs[msgs.length - 1] : null;
         const ready = isKnockContextReadyForPair(userId, partner.id);
-        let preview = "待设定";
-        if (ready) preview = lastMsg ? formatKnockChatListPreview(lastMsg) : "暂无消息";
+        const preview = lastMsg ? formatKnockChatListPreview(lastMsg) : "暂无消息";
         return {
           partner: partner,
           preview: preview,
@@ -18116,7 +18622,7 @@
         '<div class="phone-app__bar-actions knock-wechat-app__actions">' +
         '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
         loadingCls +
-        '" data-knock-chats-generate aria-label="生成相关人物与会话" title="生成相关人物与会话"' +
+        '" data-knock-chats-generate aria-label="生成/续聊相关会话" title="生成/续聊相关会话"' +
         disabled +
         ">" +
         buildPhoneWechatStarIconSvg() +
@@ -18332,7 +18838,7 @@
           userCharId: userCharId,
           partnerCharId: partnerCharId,
           name: saved ? saved.name : getDefaultKnockSavedPairName(userCharId, partnerCharId),
-          status: hasHistory ? "已就绪" : "待设定",
+          status: hasHistory ? "有记录" : "暂无消息",
           isActive:
             plot.id === knockPlotId &&
             userCharId === knockUserCharId &&
@@ -18629,7 +19135,10 @@
   function buildKnockSavedPairItemHtml(item) {
     const user = getCharById(item.userCharId);
     const partner = getKnockPartnerCharById(item.partnerCharId);
-    const status = item.contextConfirmed ? "已就绪" : "待设定";
+    const recKey = knockChatStorageKey(item.userCharId, item.partnerCharId, item.plotId);
+    const rec = knockChatData[recKey];
+    const hasMsgs = !!(rec && Array.isArray(rec.messages) && rec.messages.length);
+    const status = hasMsgs ? "有记录" : "暂无消息";
     const active = item.isActive ? " knock-saved-pair--active" : "";
     const userAv = getKnockAvatarUrlForPair(item.userCharId, item.partnerCharId, "user");
     const partnerAv = getKnockAvatarUrlForPair(item.userCharId, item.partnerCharId, "partner");
@@ -18987,6 +19496,10 @@
       "请针对最新评论，让帖主或其他相关角色自然跟评（0～2 条）。",
       "严禁以「" + userName + "」为 author；不要生成点赞。"
     );
+    const plotBlock = buildKnockPlotContextForGenerate(userChar);
+    if (plotBlock) {
+      lines.unshift("", plotBlock, "");
+    }
     return lines.join("\n");
   }
 
@@ -19157,17 +19670,8 @@
     getKnockChatListPartners().forEach(function (item) {
       const c = item.partner;
       if (!c) return;
-      const key = knockChatStorageKey(knockUserCharId, c.id);
-      const ready = isKnockContextReadyForPair(knockUserCharId, c.id, knockPlotId);
       const tag = item.pinned ? "置顶主要角色" : item.generated ? "拓展人物" : "主要角色";
-      lines.push(
-        "- " +
-          (c.name || "未命名") +
-          "（" +
-          tag +
-          "）" +
-          (ready ? "" : "：待设定")
-      );
+      lines.push("- " + (c.name || "未命名") + "（" + tag + "）");
     });
     if (!lines.length) return "（暂无相关角色）";
     return lines.join("\n");
@@ -19176,9 +19680,15 @@
   function buildKnockMomentsPrompt(userChar) {
     const userName = userChar ? String(userChar.name || "").trim() || "未命名" : "未命名";
     const persona = getKnockEffectivePersona(userChar, "user");
+    const plotBlock = buildKnockPlotContextForGenerate(userChar);
     const lines = [
       "请为「敲敲·朋友圈」生成完整 JSON 数据。当前视角：「" + userName + "」正在刷朋友圈（用户主视角，仅旁观）。",
       "",
+    ];
+    if (plotBlock) {
+      lines.push(plotBlock, "");
+    }
+    lines.push(
       "【我的形象人设（仅供理解关系，严禁替其发帖/评论/点赞）】",
       "性格：" + (persona.traits || "—"),
       "外貌：" + (persona.style || "—"),
@@ -19193,8 +19703,8 @@
       "4. 点赞与评论须符合各人物性格与彼此关系；评论可互相回复，口语化像真实朋友圈。",
       "5. 严禁以「" +
         userName +
-        "」（我的形象/用户主视角）为 authorName 发动态；isHolder 一律 false；动态、评论、点赞均不得替用户代发（用户将自行点赞评论）。",
-    ];
+        "」（我的形象/用户主视角）为 authorName 发动态；isHolder 一律 false；动态、评论、点赞均不得替用户代发（用户将自行点赞评论）。"
+    );
     return lines.join("\n");
   }
 
@@ -19202,15 +19712,21 @@
     const userName = userChar ? String(userChar.name || "").trim() || "未命名" : "未命名";
     const posts = existing && existing.posts ? existing.posts : [];
     const recent = posts.slice(0, PHONE_MOMENTS_REF_POST_LIMIT);
+    const plotBlock = buildKnockPlotContextForGenerate(userChar);
     const lines = [
       "请根据已有朋友圈，在「已有朋友圈」基础上增量追加；不要删除或覆盖已有动态，只追加新 post。",
       "当前视角：「" + userName + "」正在刷朋友圈。",
       "",
+    ];
+    if (plotBlock) {
+      lines.push(plotBlock, "");
+    }
+    lines.push(
       "【微信联系人参考】",
       buildKnockMomentsContactsBlock(),
       "",
-      "【已有朋友圈（最近 " + recent.length + " 条，请勿重复）】",
-    ];
+      "【已有朋友圈（最近 " + recent.length + " 条，请勿重复）】"
+    );
     recent.forEach(function (p) {
       lines.push("- " + p.authorName + "：" + truncateCharsWithEllipsis(p.text || "", 60));
     });
@@ -21962,6 +22478,9 @@
     else if (overviewSubView === "collect") renderCollectScreen(els.collectContentSlot());
     else if (overviewSubView === "todo") renderTaskTodoScreen(els.todoContentSlot());
     else if (overviewSubView === "radio") renderRadioScreen(els.radioContentSlot());
+    else if (overviewSubView === "pass-note") renderPassNoteScreen(els.passNoteContentSlot());
+    else if (overviewSubView === "you-dog") renderYouDogScreen(els.youDogContentSlot());
+    else if (overviewSubView === "grudge-book") renderGrudgeBookScreen(els.grudgeBookContentSlot());
     if (els.modalAssistantProfile() && !els.modalAssistantProfile().hidden) {
       renderAssistantProfileModal();
     }
@@ -23055,6 +23574,18 @@
       openOverviewSubView("radio");
       return;
     }
+    if (id === "pass-note") {
+      openOverviewSubView("pass-note");
+      return;
+    }
+    if (id === "you-dog") {
+      openOverviewSubView("you-dog");
+      return;
+    }
+    if (id === "grudge-book") {
+      openOverviewSubView("grudge-book");
+      return;
+    }
     const labelMap = {
       theme: "题材方向",
       "rewrite-persona": "改写人设",
@@ -23065,6 +23596,9 @@
       collect: "收取",
       todo: "任务ToDo",
       radio: "电台",
+      "pass-note": "传纸条",
+      "you-dog": "你才是狗",
+      "grudge-book": "恩怨本",
     };
     const label = labelMap[id] || "该功能";
     showToast(
@@ -23779,11 +24313,27 @@
               collectPlotId = null;
               collectCharId = null;
             }
+            if (passNotePlotId === id) {
+              passNotePlotId = null;
+              passNoteCharId = null;
+              passNoteActiveSession = null;
+            }
+            if (grudgeBookPlotId === id) {
+              grudgeBookPlotId = null;
+              grudgeBookCharId = null;
+            }
+            youDogPlotIds = youDogPlotIds.filter(function (pid) {
+              return pid !== id;
+            });
+            sanitizeYouDogState();
             if (taskTodoPlotId === id) {
               taskTodoPlotId = null;
               taskTodoCharId = null;
             }
             purgeCollectDataForPlot(id);
+            purgePassNoteDataForPlot(id);
+            purgeGrudgeBookDataForPlot(id);
+            purgeYouDogDataForPlot(id);
             purgeTaskTodoDataForPlot(id);
             purgePhoneWechatDataForPlot(id);
             purgePhoneMomentsDataForPlot(id);
@@ -24531,12 +25081,21 @@
     collectCharId = focusChar.id;
     taskTodoPlotId = plot.id;
     taskTodoCharId = focusChar.id;
+    passNotePlotId = plot.id;
+    passNoteCharId = focusChar.id;
+    grudgeBookPlotId = plot.id;
+    grudgeBookCharId = focusChar.id;
+    if (youDogPlotIds.indexOf(plot.id) < 0) {
+      youDogPlotIds.push(plot.id);
+    }
     fanworkPlotId = plot.id;
     if (fanworkPlotHasCp(plot)) {
       fanworkCpPartnerId = focusChar.id;
     }
     knockPlotId = plot.id;
     knockPartnerCharId = focusChar.id;
+    radioPlotId = plot.id;
+    radioHostCharId = focusChar.id;
     if (plot.protagonistId) {
       const protag = getCharById(plot.protagonistId);
       if (protag && protag.categoryId === CHAR_CATEGORY_SELF_ID) {
@@ -24547,9 +25106,16 @@
     sanitizeCollectState();
     sanitizeKnockPlotState();
     sanitizeTaskTodoState();
+    sanitizePassNoteState();
+    sanitizeGrudgeBookState();
+    sanitizeYouDogState();
     if (opts.persist !== false) schedulePersistNarrative();
     renderOverviewContextBar();
     if (overviewSubView === "todo") renderTaskTodoScreen(els.todoContentSlot());
+    if (overviewSubView === "pass-note") renderPassNoteScreen(els.passNoteContentSlot());
+    if (overviewSubView === "grudge-book") renderGrudgeBookScreen(els.grudgeBookContentSlot());
+    if (overviewSubView === "radio") renderRadioScreen(els.radioContentSlot());
+    if (overviewSubView === "you-dog") renderYouDogScreen(els.youDogContentSlot());
     if (opts.toast !== false) {
       showToast(
         "已切换为《" + (plot.title || "未命名") + "》· " + (focusChar.name || "角色"),
@@ -24715,6 +25281,7 @@
   function syncPhoneHolderModalChrome() {
     const onCharStep = phoneHolderModalStep === "char";
     const isOverview = phoneHolderModalMode === "overview";
+    const isTaskTodo = phoneHolderModalMode === "taskTodo";
     const titleEl = els.phoneHolderTitle();
     const hintEl = els.phoneHolderHint();
     const backBtn = els.phoneHolderStepBack();
@@ -24725,12 +25292,14 @@
     });
     if (titleEl) {
       titleEl.textContent = onCharStep
-        ? isOverview
+        ? isOverview || isTaskTodo
           ? "选择主要角色"
           : "选择持有者"
         : isOverview
           ? "全局剧情上下文"
-          : "选择剧情";
+          : isTaskTodo
+            ? "任务 ToDo 剧情"
+            : "选择剧情";
     }
     if (hintEl) {
       if (onCharStep) {
@@ -24741,8 +25310,10 @@
             "》· " +
             (isOverview
               ? "点选一名主要角色（将同步到敲敲、查手机、收取、小狗饭）"
-              : "点选一名参与角色（不含「我的形象」）")
-          : isOverview
+              : isTaskTodo
+                ? "点选一名主要角色（仅切换任务 ToDo 绑定）"
+                : "点选一名参与角色（不含「我的形象」）")
+          : isOverview || isTaskTodo
             ? "点选主要角色"
             : "点选参与角色（不含「我的形象」）";
       } else {
@@ -24776,6 +25347,8 @@
     const listEl = els.phoneHolderPlotList();
     if (!listEl) return;
     const isOverview = phoneHolderModalMode === "overview";
+    const isTaskTodo = phoneHolderModalMode === "taskTodo";
+    const currentPlotId = isOverview ? overviewPlotId : isTaskTodo ? taskTodoPlotId : phoneHolderPlotId;
     listEl.innerHTML = "";
     if (!plots.length) {
       const ph = document.createElement("p");
@@ -24785,15 +25358,15 @@
       return;
     }
     plots.forEach(function (p) {
-      const candidates = isOverview
+      const candidates = isOverview || isTaskTodo
         ? getKnockPartnerCandidatesForPlot(p.id)
         : getPhoneHolderCandidatesForPlot(p.id);
-      const isCurrent = (isOverview ? overviewPlotId : phoneHolderPlotId) === p.id;
+      const isCurrent = currentPlotId === p.id;
       const btn = buildPhoneHolderPlotRowBtn(p, isCurrent);
       btn.addEventListener("click", function () {
         if (!candidates.length) {
           showToast(
-            isOverview
+            isOverview || isTaskTodo
               ? "该剧情下没有「主要角色」。"
               : "该剧情下没有除「我的形象」以外的参与角色。",
             "warning"
@@ -24813,14 +25386,16 @@
     if (!pick) return;
     pick.innerHTML = "";
     const isOverview = phoneHolderModalMode === "overview";
-    const list = isOverview
+    const isTaskTodo = phoneHolderModalMode === "taskTodo";
+    const list = isOverview || isTaskTodo
       ? getKnockPartnerCandidatesForPlot(phoneHolderModalPlotId)
       : getPhoneHolderCandidatesForPlot(phoneHolderModalPlotId);
-    const current = isOverview ? getOverviewFocusChar() : getPhoneHolderCharacter();
+    const current = isOverview ? getOverviewFocusChar() : isTaskTodo ? getTaskTodoCharacter() : getPhoneHolderCharacter();
+    const currentPlotId = isOverview ? overviewPlotId : isTaskTodo ? taskTodoPlotId : phoneHolderPlotId;
     if (!list.length) {
       const ph = document.createElement("p");
       ph.className = "field__hint phone-holder-empty";
-      ph.textContent = isOverview
+      ph.textContent = isOverview || isTaskTodo
         ? "该剧情下没有「主要角色」可选取（配角/NPC 不可选）。"
         : "该剧情下没有除「我的形象」以外的参与角色。";
       pick.appendChild(ph);
@@ -24831,11 +25406,7 @@
       b.type = "button";
       b.className =
         "char-pick-avatar" +
-        (current &&
-        c.id === current.id &&
-        (isOverview ? overviewPlotId : phoneHolderPlotId) === phoneHolderModalPlotId
-          ? " is-selected"
-          : "");
+        (current && c.id === current.id && currentPlotId === phoneHolderModalPlotId ? " is-selected" : "");
       b.dataset.id = c.id;
       b.title = c.name || "未命名";
       b.setAttribute("aria-label", c.name || "未命名");
@@ -24848,6 +25419,23 @@
           setOverviewContext(phoneHolderModalPlotId, c.id);
           closePhoneHolderModal();
           renderOverviewContextBar();
+          return;
+        }
+        if (isTaskTodo) {
+          const plot = getPlotById(phoneHolderModalPlotId);
+          taskTodoPlotId = phoneHolderModalPlotId;
+          taskTodoCharId = c.id;
+          sanitizeTaskTodoState();
+          schedulePersistNarrative();
+          closePhoneHolderModal();
+          renderTaskTodoScreen(els.todoContentSlot());
+          showToast(
+            "已切换为《" +
+              (plot ? plot.title || "未命名" : "未命名") +
+              "》· " +
+              (c.name || "角色"),
+            "success"
+          );
           return;
         }
         phoneHolderPlotId = phoneHolderModalPlotId;
@@ -24879,11 +25467,21 @@
   function openPhoneHolderModal() {
     const modal = els.modalPhoneHolder();
     if (!modal) return;
-    if (phoneHolderModalMode !== "overview") phoneHolderModalMode = "phone";
+    if (phoneHolderModalMode !== "overview" && phoneHolderModalMode !== "taskTodo") phoneHolderModalMode = "phone";
     phoneHolderModalStep = "plot";
-    phoneHolderModalPlotId = phoneHolderModalMode === "overview" ? overviewPlotId : phoneHolderPlotId;
+    phoneHolderModalPlotId =
+      phoneHolderModalMode === "overview"
+        ? overviewPlotId
+        : phoneHolderModalMode === "taskTodo"
+          ? taskTodoPlotId
+          : phoneHolderPlotId;
     renderPhoneHolderModal();
     modal.hidden = false;
+  }
+
+  function openTaskTodoHolderModal() {
+    phoneHolderModalMode = "taskTodo";
+    openPhoneHolderModal();
   }
 
   function phoneHolderModalBackToPlot() {
@@ -25348,7 +25946,7 @@
         ctx.protagName +
         '说","mood":"2~4字情绪"},"letter":{"salutation":"称呼","body":"100~220字手写信正文","signOff":"署名"},"greeting":{"headline":"短标题","lines":["2~3条生活化问候句"]},"photo":{"caption":"拍立得底部12字内","sceneText":"60~100字场景描述","backText":"背面手写12~40字，仅两人懂的梗/昵称/承诺","imagePrompt":"English selfie prompt for ' +
         senderName +
-        ': outfit, location, mood, pose and front-camera phone selfie lighting must match the current plot moment"},"memo":{"ambient":"≤40字环境描写（雨声/厨房/站台等）","ambientType":"rain|night|indoor|street|wind|default","mumble":"60~120字对着录音机的碎语","durationHint":"如0:23"},"draft":{"context":"≤8字场景标签","text":"80~150字未发送草稿正文","strikes":["0~2条被删掉的短语"]},"specialDay":{"timing":"past|future","daysOffset":整数,"title":"≤12字","note":"40~80字","whisper":"≤30字"},"dream":{"lines":["3~5条半梦半醒脱口而出的短句"],"sceneText":"60~100字可随手拍到的日常场景","imagePrompt":"English realistic everyday phone snapshot, candid daily life moment, natural lighting, mundane scene"}}\n' +
+        ': outfit, location, mood, pose, background objects and phone portrait lighting must match the current plot moment; front selfie, side profile, or friend-taken candid (他拍) are all allowed—no death angles"},"memo":{"ambient":"≤40字环境描写（雨声/厨房/站台等）","ambientType":"rain|night|indoor|street|wind|default","mumble":"60~120字对着录音机的碎语","durationHint":"如0:23"},"draft":{"context":"≤8字场景标签","text":"80~150字未发送草稿正文","strikes":["0~2条被删掉的短语"]},"specialDay":{"timing":"past|future","daysOffset":整数,"title":"≤12字","note":"40~80字","whisper":"≤30字"},"dream":{"lines":["3~5条半梦半醒脱口而出的短句"],"sceneText":"60~100字可随手拍到的日常场景","imagePrompt":"English realistic everyday phone snapshot, candid daily life moment, natural lighting, mundane scene"}}\n' +
         "3. whisper/letter/greeting/memo/draft/specialDay/dream 用中文；photo.imagePrompt 与 dream.imagePrompt 用英文。\n" +
         "4. memo.ambient/mumble 须引用最近剧情场景与感官细节；draft 须体现欲言又止，strikes 为删改痕迹。\n" +
         "5. specialDay.daysOffset 相对剧情「今天」：负数为过去，正数为未来；timing 须与符号一致，须能从剧情时间线或记忆合理化。\n" +
@@ -25356,9 +25954,9 @@
         "7. photo.backText 须紧扣上文，仅对" +
         ctx.protagName +
         " 有意义；内容精炼但情感到位。\n" +
-        "8. photo.imagePrompt 须为英文前置手机自拍指令：人物必须是发送者「" +
+        "8. photo.imagePrompt 须为英文手机人像指令：人物必须是发送者「" +
         senderName +
-        "」本人正面或半身出镜，镜头与眼睛平齐（禁止俯拍、仰拍等死亡角度）；宽肩窄腰、肩宽腰细的健美体型；脸型、五官、发型、气质第一优先对齐设置中外貌参考图（上传的 1～3 张人脸照片），再写衣着、地点、表情与手机自拍光线。禁止出现「我的形象」/用户主角出镜，禁止出现任何真实明星姓名。"
+        "」本人出镜（正脸/3/4侧脸/纯侧脸/他拍均可，禁止俯拍仰拍等死亡角度）；宽肩窄腰、肩宽腰细的健美体型；脸型、五官、发型、气质第一优先综合对齐设置中外貌参考图全部 1～3 张（逐张参考、勿只看第一张），再详细写具体衣着（面料/颜色/层次/配饰）、地点、背景物件、表情与光线。禁止出现「我的形象」/用户主角出镜，禁止出现任何真实明星姓名。"
     );
     return lines.join("\n");
   }
@@ -25378,10 +25976,10 @@
     prompt += buildMainCharacterPhotoSubjectPrompt(name, protagName);
     prompt += " Polaroid-style keepsake photo of " + name + ".";
     if (imagePrompt) {
-      prompt += " Shot direction (highest priority): " + truncateCharsWithEllipsis(imagePrompt, 420) + ".";
+      prompt += " Shot direction (highest priority for pose, outfit, and environment): " + truncateCharsWithEllipsis(imagePrompt, 420) + ".";
     }
     if (sceneText) {
-      prompt += " Scene description: " + truncateCharsWithEllipsis(sceneText, 320) + ".";
+      prompt += " Scene description (rich background and styling detail): " + truncateCharsWithEllipsis(sceneText, 320) + ".";
     }
     if (backText) {
       prompt +=
@@ -30026,6 +30624,7232 @@
     }
   }
 
+  /* ── 传纸条 Pass Note ── */
+
+  function passNoteStorageKey(plotId, charId) {
+    return String(plotId || "") + "\u001e" + String(charId || "");
+  }
+
+  function normalizePassNoteQuestion(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const text = String(raw.text || "").trim();
+    const skipped = !!raw.skipped;
+    if (!text && !skipped) return null;
+    const id =
+      typeof raw.id === "string" && raw.id.trim()
+        ? raw.id.trim()
+        : "q_" + Math.random().toString(36).slice(2, 8);
+    const charReply =
+      raw.charReply != null
+        ? String(raw.charReply).trim().slice(0, 600)
+        : raw.charAnswer != null
+          ? String(raw.charAnswer).trim().slice(0, 600)
+          : "";
+    return {
+      id: id,
+      text: text.slice(0, 300),
+      userAnswer: raw.userAnswer != null ? String(raw.userAnswer).trim().slice(0, 200) : "",
+      charPreAnswer: raw.charPreAnswer != null ? String(raw.charPreAnswer).trim().slice(0, 600) : "",
+      charReply: charReply,
+      skipped: skipped,
+      favorited: !!raw.favorited,
+    };
+  }
+
+  function normalizePassNoteRecord(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const q = normalizePassNoteQuestion(raw);
+    if (!q) return null;
+    const plotId = typeof raw.plotId === "string" ? raw.plotId.trim() : "";
+    const charId = typeof raw.charId === "string" ? raw.charId.trim() : "";
+    const sessionId = typeof raw.sessionId === "string" ? raw.sessionId.trim() : "";
+    if (!plotId || !charId) return null;
+    const id =
+      typeof raw.id === "string" && raw.id.trim()
+        ? raw.id.trim()
+        : "pnr_" + (sessionId || Date.now()) + "_" + q.id;
+    return {
+      id: id,
+      sessionId: sessionId,
+      plotId: plotId,
+      charId: charId,
+      questionId: q.id,
+      text: q.text,
+      userAnswer: q.userAnswer,
+      charPreAnswer: q.charPreAnswer,
+      charReply: q.charReply,
+      skipped: q.skipped,
+      favorited: q.favorited,
+      completedAt: typeof raw.completedAt === "number" ? raw.completedAt : Date.now(),
+    };
+  }
+
+  function migratePassNoteSessionToRecords(session) {
+    if (!session || session.status !== "completed") return;
+    const key = passNoteStorageKey(session.plotId, session.charId);
+    if (!passNoteRecordsData[key]) passNoteRecordsData[key] = [];
+    (session.questions || []).forEach(function (q, i) {
+      const nq = normalizePassNoteQuestion(q);
+      if (!nq) return;
+      const rec = normalizePassNoteRecord({
+        id: "pnr_" + session.id + "_" + (nq.id || "q" + (i + 1)),
+        sessionId: session.id,
+        plotId: session.plotId,
+        charId: session.charId,
+        text: nq.text,
+        userAnswer: nq.userAnswer,
+        charPreAnswer: nq.charPreAnswer,
+        charReply: nq.charReply,
+        skipped: nq.skipped,
+        favorited: nq.favorited || !!session.favorited,
+        completedAt: session.completedAt || session.createdAt,
+      });
+      if (!rec) return;
+      const exists = passNoteRecordsData[key].some(function (r) {
+        return r.id === rec.id;
+      });
+      if (!exists) passNoteRecordsData[key].unshift(rec);
+    });
+    if (passNoteRecordsData[key].length > PASS_NOTE_SESSIONS_MAX_PER_KEY * 3) {
+      passNoteRecordsData[key] = passNoteRecordsData[key].slice(0, PASS_NOTE_SESSIONS_MAX_PER_KEY * 3);
+    }
+  }
+
+  function normalizePassNoteSession(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const plotId = typeof raw.plotId === "string" ? raw.plotId.trim() : "";
+    const charId = typeof raw.charId === "string" ? raw.charId.trim() : "";
+    if (!plotId || !charId) return null;
+    const questions = Array.isArray(raw.questions)
+      ? raw.questions.map(normalizePassNoteQuestion).filter(Boolean)
+      : [];
+    if (!questions.length && raw.status !== "generating_questions" && raw.status !== "generating_pre_answers" && raw.status !== "composing") return null;
+    const statusRaw = String(raw.status || "answering");
+    const status =
+      statusRaw === "generating_questions" ||
+      statusRaw === "generating_pre_answers" ||
+      statusRaw === "composing" ||
+      statusRaw === "answering" ||
+      statusRaw === "viewing_pre" ||
+      statusRaw === "generating_reply" ||
+      statusRaw === "generating_reveal" ||
+      statusRaw === "completed"
+        ? statusRaw === "generating_reveal"
+          ? "generating_reply"
+          : statusRaw
+        : "answering";
+    const id =
+      typeof raw.id === "string" && raw.id.trim()
+        ? raw.id.trim()
+        : "pn_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+    return {
+      id: id,
+      plotId: plotId,
+      charId: charId,
+      createdAt: typeof raw.createdAt === "number" ? raw.createdAt : Date.now(),
+      completedAt: typeof raw.completedAt === "number" ? raw.completedAt : null,
+      status: status,
+      currentQuestionIdx:
+        typeof raw.currentQuestionIdx === "number"
+          ? Math.max(0, Math.min(2, raw.currentQuestionIdx))
+          : 0,
+      currentComposeIdx:
+        typeof raw.currentComposeIdx === "number"
+          ? Math.max(0, Math.min(2, raw.currentComposeIdx))
+          : 0,
+      questionSource: raw.questionSource === "custom" ? "custom" : "ai",
+      questions: questions,
+    };
+  }
+
+  function sanitizePassNoteState() {
+    if (
+      !passNotePlotId ||
+      !plots.some(function (p) {
+        return p.id === passNotePlotId;
+      })
+    ) {
+      passNotePlotId = null;
+      passNoteCharId = null;
+      if (passNoteActiveSession && passNoteActiveSession.plotId) {
+        passNoteActiveSession = null;
+      }
+      return;
+    }
+    const candidates = getCollectCharacterCandidatesForPlot(passNotePlotId);
+    if (
+      !passNoteCharId ||
+      !candidates.some(function (c) {
+        return c.id === passNoteCharId;
+      })
+    ) {
+      passNoteCharId = null;
+    }
+    if (passNoteActiveSession) {
+      const normalized = normalizePassNoteSession(passNoteActiveSession);
+      if (
+        !normalized ||
+        normalized.plotId !== passNotePlotId ||
+        normalized.charId !== passNoteCharId
+      ) {
+        passNoteActiveSession = null;
+      } else {
+        passNoteActiveSession = normalized;
+      }
+    }
+  }
+
+  function getPassNotePlot() {
+    sanitizePassNoteState();
+    if (!passNotePlotId) return null;
+    return (
+      plots.find(function (p) {
+        return p.id === passNotePlotId;
+      }) || null
+    );
+  }
+
+  function getPassNoteCharacter() {
+    sanitizePassNoteState();
+    if (!passNoteCharId) return null;
+    const c = getCharById(passNoteCharId);
+    if (!c || c.categoryId !== CHAR_CATEGORY_MAIN_ID) return null;
+    return c;
+  }
+
+  function getPassNoteUserChar(plot) {
+    if (!plot || !plot.protagonistId) return null;
+    const c = getCharById(plot.protagonistId);
+    if (!c || c.categoryId !== CHAR_CATEGORY_SELF_ID) return null;
+    return c;
+  }
+
+  function purgePassNoteDataForPlot(plotId) {
+    const pid = String(plotId || "").trim();
+    if (!pid) return;
+    Object.keys(passNoteRecordsData).forEach(function (k) {
+      if (k.indexOf(pid + "\u001e") === 0) delete passNoteRecordsData[k];
+    });
+    if (passNoteActiveSession && passNoteActiveSession.plotId === pid) {
+      passNoteActiveSession = null;
+    }
+  }
+
+  function getPassNoteNav(slot) {
+    const id = slot && slot.id ? slot.id : "pass-note-content-slot";
+    if (!passNoteNavBySlotId[id]) {
+      passNoteNavBySlotId[id] = { screen: "play", archiveFilter: "all", archiveDetailId: null };
+    }
+    return passNoteNavBySlotId[id];
+  }
+
+  function getPassNoteRecordsForCurrent() {
+    const plot = getPassNotePlot();
+    const partner = getPassNoteCharacter();
+    if (!plot || !partner) return [];
+    const key = passNoteStorageKey(plot.id, partner.id);
+    return (passNoteRecordsData[key] || []).slice().sort(function (a, b) {
+      return (b.completedAt || 0) - (a.completedAt || 0);
+    });
+  }
+
+  function archivePassNoteSessionQuestions(session) {
+    if (!session || session.status !== "completed") return;
+    migratePassNoteSessionToRecords(session);
+    schedulePersistNarrative();
+  }
+
+  function upsertPassNoteRecord(record) {
+    const normalized = normalizePassNoteRecord(record);
+    if (!normalized) return;
+    const key = passNoteStorageKey(normalized.plotId, normalized.charId);
+    if (!passNoteRecordsData[key]) passNoteRecordsData[key] = [];
+    const idx = passNoteRecordsData[key].findIndex(function (r) {
+      return r.id === normalized.id;
+    });
+    if (idx >= 0) passNoteRecordsData[key][idx] = normalized;
+    else passNoteRecordsData[key].unshift(normalized);
+    if (passNoteRecordsData[key].length > PASS_NOTE_SESSIONS_MAX_PER_KEY * 3) {
+      passNoteRecordsData[key] = passNoteRecordsData[key].slice(0, PASS_NOTE_SESSIONS_MAX_PER_KEY * 3);
+    }
+    schedulePersistNarrative();
+  }
+
+  function getPassNoteRecentQuestionTexts(limit) {
+    const records = getPassNoteRecordsForCurrent().slice(0, (limit || 3) * 3);
+    return records.map(function (r) {
+      return r.text;
+    }).filter(Boolean);
+  }
+
+  function buildPassNotePlotContextBlock(plot, partnerChar) {
+    if (!plot || !partnerChar) return "";
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, partnerChar);
+    return ctx.lines.join("\n");
+  }
+
+  function buildPassNoteQuestionsPrompt(plot, partnerChar) {
+    const recent = getPassNoteRecentQuestionTexts(3);
+    const avoidBlock =
+      recent.length > 0
+        ? "\n\n请避免与以下近期已出题目重复或过于相似：\n" + recent.map(function (t) { return "- " + t; }).join("\n")
+        : "";
+    return (
+      "请为「传纸条」互动生成 3 道趣味问答题。\n" +
+      "要求：\n" +
+      "- 题目可以完全跳脱剧情与人设，鼓励脑洞、 surreal 假设、无厘头二选一、哲学怪问、日常怪癖等\n" +
+      "- 不必贴合当前剧情，甚至可以问「如果明天地球重力减半你会做什么」这类天马行空的问题\n" +
+      "- 语言轻松有趣，每题 1-2 句，适合私下传纸条聊天\n" +
+      "- 不要出需要专业知识或敏感政治宗教的内容\n" +
+      avoidBlock +
+      "\n\n可选背景（仅作语气参考，题目不必贴合）：\n" +
+      buildPassNotePlotContextBlock(plot, partnerChar) +
+      "\n\n只输出 JSON，不要 markdown 围栏：\n" +
+      '{"questions":[{"id":"q1","text":"...","charPreAnswer":"..."},{"id":"q2","text":"...","charPreAnswer":"..."},{"id":"q3","text":"...","charPreAnswer":"..."}]}\n' +
+      "charPreAnswer 是角色本人对该问题的回答，1-3 句口语化，符合人设但题目可以很跳脱。"
+    );
+  }
+
+  function buildPassNotePreAnswersPrompt(plot, partnerChar, questions) {
+    const qLines = (questions || [])
+      .map(function (q, i) {
+        return "第" + (i + 1) + "题：" + q.text;
+      })
+      .join("\n");
+    return (
+      "角色「" +
+      (partnerChar.name || "TA") +
+      "」将回答以下传纸条问题。请为每题生成角色本人的回答 charPreAnswer（1-3 句口语化，符合人设；题目可以很跳脱，不必贴合剧情）。\n\n" +
+      buildKnockPersonaBlock(partnerChar, "你扮演的角色", "partner", 800) +
+      "\n\n题目：\n" +
+      qLines +
+      "\n\n只输出 JSON：\n" +
+      '{"questions":[{"id":"q1","charPreAnswer":"..."},{"id":"q2","charPreAnswer":"..."},{"id":"q3","charPreAnswer":"..."}]}'
+    );
+  }
+
+  function buildPassNoteUserReplyPrompt(plot, partnerChar, userChar, session) {
+    const qaLines = (session.questions || [])
+      .map(function (q, i) {
+        if (q.skipped) {
+          return "第" + (i + 1) + "题\n问：" + q.text + "\n（用户选择不回答，已将此题丢掉）";
+        }
+        return (
+          "第" +
+          (i + 1) +
+          "题\n问：" +
+          q.text +
+          "\n" +
+          (partnerChar.name || "TA") +
+          "先前对这道题的回答：" +
+          (q.charPreAnswer || "（无）") +
+          "\n" +
+          (userChar ? userChar.name || "我" : "我") +
+          "答：" +
+          (q.userAnswer || "（未答）")
+        );
+      })
+      .join("\n\n");
+    return (
+      "你是互动叙事助手。角色「" +
+      (partnerChar.name || "TA") +
+      "」与用户「" +
+      (userChar ? userChar.name || "用户" : "用户") +
+      "」刚完成一轮传纸条。\n" +
+      "用户已看过角色对每道题的「先行回答」，现在需要角色针对用户的具体回答给出回应（charReply）。\n" +
+      "不要重复 charPreAnswer 的内容，而是对用户答案做出反应、补充、调侃或延伸。\n\n" +
+      buildKnockPersonaBlock(partnerChar, "你扮演的角色", "partner", 800) +
+      "\n\n" +
+      (userChar ? buildKnockPersonaBlock(userChar, "对话对象", "user", 400) + "\n\n" : "") +
+      "问答内容：\n" +
+      qaLines +
+      "\n\n要求：\n" +
+      "- answers 数组 3 项，id 与题目 id 一致\n" +
+      "- 每项 text 为角色对用户回答的回应（charReply），1-3 句\n" +
+      "- 已丢掉的题可写 1 句短评\n" +
+      "- 只输出 JSON：\n" +
+      '{"answers":[{"id":"q1","text":"..."},{"id":"q2","text":"..."},{"id":"q3","text":"..."}]}'
+    );
+  }
+
+  function parsePassNoteQuestionsResponse(raw) {
+    const parsed = parseAssistantJsonObject(raw);
+    if (!parsed || !Array.isArray(parsed.questions)) throw new Error("题目格式不正确");
+    const questions = parsed.questions.map(normalizePassNoteQuestion).filter(Boolean);
+    if (questions.length < 3) throw new Error("需要生成 3 道题目");
+    return questions.slice(0, 3).map(function (q, i) {
+      const item = parsed.questions[i] || q;
+      const pre =
+        item && item.charPreAnswer != null ? String(item.charPreAnswer).trim().slice(0, 600) : "";
+      return {
+        id: "q" + (i + 1),
+        text: q.text,
+        userAnswer: "",
+        charPreAnswer: pre,
+        charReply: "",
+        skipped: false,
+        favorited: false,
+      };
+    });
+  }
+
+  function applyPassNotePreAnswersResponse(raw, session) {
+    const parsed = parseAssistantJsonObject(raw);
+    if (!parsed || !Array.isArray(parsed.questions)) throw new Error("角色回答格式不正确");
+    const preMap = {};
+    parsed.questions.forEach(function (item) {
+      if (!item || typeof item !== "object") return;
+      const id = String(item.id || "").trim();
+      const pre = item.charPreAnswer != null ? String(item.charPreAnswer).trim() : "";
+      if (id && pre) preMap[id] = pre.slice(0, 600);
+    });
+    (session.questions || []).forEach(function (q, i) {
+      const key = q.id || "q" + (i + 1);
+      if (preMap[key]) q.charPreAnswer = preMap[key];
+      else if (preMap["q" + (i + 1)]) q.charPreAnswer = preMap["q" + (i + 1)];
+    });
+  }
+
+  function parsePassNoteUserReplyResponse(raw, session) {
+    const parsed = parseAssistantJsonObject(raw);
+    if (!parsed || !Array.isArray(parsed.answers)) throw new Error("回复格式不正确");
+    const answerMap = {};
+    parsed.answers.forEach(function (a) {
+      if (!a || typeof a !== "object") return;
+      const id = String(a.id || "").trim();
+      const text = String(a.text || "").trim();
+      if (id && text) answerMap[id] = text.slice(0, 600);
+    });
+    (session.questions || []).forEach(function (q, i) {
+      const key = q.id || "q" + (i + 1);
+      if (answerMap[key]) q.charReply = answerMap[key];
+      else if (answerMap["q" + (i + 1)]) q.charReply = answerMap["q" + (i + 1)];
+    });
+    const hasAny = (session.questions || []).some(function (q) {
+      return q.charReply;
+    });
+    if (!hasAny) throw new Error("缺少角色回应");
+  }
+
+  async function startPassNoteSession(slot) {
+    if (passNoteGenerating) return;
+    sanitizePassNoteState();
+    const plot = getPassNotePlot();
+    const partner = getPassNoteCharacter();
+    if (!plot || !partner) {
+      showToast("请先选择剧情与传纸条对象。", "warning");
+      return;
+    }
+    passNoteGenerating = true;
+    const session = {
+      id: "pn_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+      plotId: plot.id,
+      charId: partner.id,
+      createdAt: Date.now(),
+      completedAt: null,
+      favorited: false,
+      status: "generating_questions",
+      currentQuestionIdx: 0,
+      currentComposeIdx: 0,
+      questionSource: "ai",
+      questions: [],
+    };
+    passNoteActiveSession = session;
+    schedulePersistNarrative();
+    if (slot) renderPassNoteScreen(slot);
+    try {
+      showToast("正在准备题目与 TA 的回答…", "info");
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: "你是中文互动叙事助手，擅长设计轻松有趣的传纸条问答题。只输出 JSON。" },
+          { role: "user", content: buildPassNoteQuestionsPrompt(plot, partner) },
+        ],
+        0.88,
+        2048,
+        { apiConfigId: getWorkbenchApiId() }
+      );
+      session.questions = parsePassNoteQuestionsResponse(raw);
+      session.status = "answering";
+      session.currentQuestionIdx = 0;
+      passNoteActiveSession = session;
+      schedulePersistNarrative();
+      if (slot) renderPassNoteScreen(slot);
+      showToast("题目准备好了，开始传纸条吧", "success");
+    } catch (err) {
+      passNoteActiveSession = null;
+      schedulePersistNarrative();
+      if (slot) renderPassNoteScreen(slot);
+      showToast(err && err.message ? err.message : "题目生成失败，请检查 API 配置", "error", 4200);
+    } finally {
+      passNoteGenerating = false;
+      if (slot) renderPassNoteScreen(slot);
+    }
+  }
+
+  function createEmptyPassNoteQuestions() {
+    return [0, 1, 2].map(function (i) {
+      return {
+        id: "q" + (i + 1),
+        text: "",
+        userAnswer: "",
+        charPreAnswer: "",
+        charReply: "",
+        skipped: false,
+        favorited: false,
+      };
+    });
+  }
+
+  function startPassNoteSessionCustom(slot) {
+    if (passNoteGenerating) return;
+    sanitizePassNoteState();
+    const plot = getPassNotePlot();
+    const partner = getPassNoteCharacter();
+    if (!plot || !partner) {
+      showToast("请先选择剧情与传纸条对象。", "warning");
+      return;
+    }
+    passNoteActiveSession = {
+      id: "pn_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+      plotId: plot.id,
+      charId: partner.id,
+      createdAt: Date.now(),
+      completedAt: null,
+      favorited: false,
+      status: "composing",
+      currentQuestionIdx: 0,
+      currentComposeIdx: 0,
+      questionSource: "custom",
+      questions: createEmptyPassNoteQuestions(),
+    };
+    schedulePersistNarrative();
+    if (slot) renderPassNoteScreen(slot);
+    showToast("写下你想问 TA 的 3 道题", "info");
+  }
+
+  function submitPassNoteCustomQuestion(slot, questionText) {
+    const session = passNoteActiveSession;
+    if (!session || session.status !== "composing") return;
+    const idx = session.currentComposeIdx;
+    const text = String(questionText || "").trim();
+    if (!text) {
+      showToast("请先写下题目内容。", "warning");
+      return;
+    }
+    if (!session.questions[idx]) {
+      session.questions[idx] = {
+        id: "q" + (idx + 1),
+        text: "",
+        userAnswer: "",
+        charPreAnswer: "",
+        charReply: "",
+        skipped: false,
+        favorited: false,
+      };
+    }
+    session.questions[idx].text = text.slice(0, 300);
+    if (idx < 2) {
+      session.currentComposeIdx = idx + 1;
+      schedulePersistNarrative();
+      renderPassNoteScreen(slot);
+      return;
+    }
+    session.status = "generating_pre_answers";
+    schedulePersistNarrative();
+    renderPassNoteScreen(slot);
+    void generatePassNotePreAnswers(slot);
+  }
+
+  async function generatePassNotePreAnswers(slot) {
+    if (passNoteGenerating) return;
+    const session = passNoteActiveSession;
+    if (!session || session.status !== "generating_pre_answers") return;
+    const plot = getPassNotePlot();
+    const partner = getPassNoteCharacter();
+    if (!plot || !partner) return;
+    passNoteGenerating = true;
+    if (slot) renderPassNoteScreen(slot);
+    try {
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: "你是中文互动叙事助手。只输出 JSON。" },
+          { role: "user", content: buildPassNotePreAnswersPrompt(plot, partner, session.questions) },
+        ],
+        0.82,
+        2048,
+        { apiConfigId: getWorkbenchApiId() }
+      );
+      applyPassNotePreAnswersResponse(raw, session);
+      session.status = "answering";
+      session.currentQuestionIdx = 0;
+      passNoteActiveSession = session;
+      schedulePersistNarrative();
+      if (slot) renderPassNoteScreen(slot);
+      showToast("题目准备好了，开始写回答吧", "success");
+    } catch (err) {
+      session.status = "composing";
+      session.currentComposeIdx = 2;
+      passNoteActiveSession = session;
+      schedulePersistNarrative();
+      if (slot) renderPassNoteScreen(slot);
+      showToast(err && err.message ? err.message : "生成角色回答失败", "error", 4200);
+    } finally {
+      passNoteGenerating = false;
+      if (slot) renderPassNoteScreen(slot);
+    }
+  }
+
+  function passNoteFinishOrAdvance(session, slot) {
+    const idx = session.currentQuestionIdx;
+    if (idx < 2) {
+      session.currentQuestionIdx = idx + 1;
+      schedulePersistNarrative();
+      renderPassNoteScreen(slot);
+      return;
+    }
+    session.status = "viewing_pre";
+    schedulePersistNarrative();
+    renderPassNoteScreen(slot);
+  }
+
+  function proceedPassNoteToUserReplies(slot) {
+    const session = passNoteActiveSession;
+    if (!session || session.status !== "viewing_pre") return;
+    session.status = "generating_reply";
+    schedulePersistNarrative();
+    renderPassNoteScreen(slot);
+    void generatePassNoteUserReplies(slot);
+  }
+
+  function discardPassNoteQuestion(slot) {
+    if (passNoteTossing) return;
+    const session = passNoteActiveSession;
+    if (!session || session.status !== "answering") return;
+    const idx = session.currentQuestionIdx;
+    const q = session.questions && session.questions[idx];
+    if (!q || q.skipped) return;
+    const slipEl = slot.querySelector(".pass-note-slip--question");
+    const trashEl = slot.querySelector(".pass-note-trash");
+    const finishDiscard = function () {
+      q.skipped = true;
+      q.userAnswer = "";
+      if (trashEl) trashEl.classList.remove("is-catching");
+      passNoteFinishOrAdvance(session, slot);
+      showToast("已丢掉此题", "info", 1800);
+    };
+    if (slipEl) {
+      passNoteTossing = true;
+      slipEl.classList.add("pass-note-slip--tossing");
+      if (trashEl) trashEl.classList.add("is-catching");
+      setTimeout(function () {
+        passNoteTossing = false;
+        finishDiscard();
+      }, 520);
+    } else {
+      finishDiscard();
+    }
+  }
+
+  async function generatePassNoteUserReplies(slot) {
+    if (passNoteGenerating) return;
+    const session = passNoteActiveSession;
+    if (!session || session.status !== "generating_reply") return;
+    const plot = getPassNotePlot();
+    const partner = getPassNoteCharacter();
+    const userChar = getPassNoteUserChar(plot);
+    if (!plot || !partner) return;
+    passNoteGenerating = true;
+    if (slot) renderPassNoteScreen(slot);
+    try {
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: "你是中文互动叙事助手。只输出 JSON，不要 markdown 围栏。" },
+          { role: "user", content: buildPassNoteUserReplyPrompt(plot, partner, userChar, session) },
+        ],
+        0.82,
+        4096,
+        { apiConfigId: getWorkbenchApiId() }
+      );
+      parsePassNoteUserReplyResponse(raw, session);
+      session.status = "completed";
+      session.completedAt = Date.now();
+      passNoteActiveSession = session;
+      archivePassNoteSessionQuestions(session);
+      if (slot) renderPassNoteScreen(slot);
+      showToast("纸条传回来了", "success");
+    } catch (err) {
+      session.status = "viewing_pre";
+      passNoteActiveSession = session;
+      schedulePersistNarrative();
+      if (slot) renderPassNoteScreen(slot);
+      showToast(err && err.message ? err.message : "生成回应失败，请重试", "error", 4200);
+    } finally {
+      passNoteGenerating = false;
+      if (slot) renderPassNoteScreen(slot);
+    }
+  }
+
+  function submitPassNoteAnswer(slot, answerText) {
+    const session = passNoteActiveSession;
+    if (!session || session.status !== "answering") return;
+    const idx = session.currentQuestionIdx;
+    const q = session.questions && session.questions[idx];
+    if (!q || q.skipped) return;
+    const text = String(answerText || "").trim();
+    if (!text) {
+      showToast("请先写下你的回答，或点下方垃圾桶丢掉此题。", "warning");
+      return;
+    }
+    q.userAnswer = text.slice(0, 200);
+    passNoteFinishOrAdvance(session, slot);
+  }
+
+  function passNoteRecordIdForQuestion(session, q) {
+    return "pnr_" + session.id + "_" + (q.id || "q");
+  }
+
+  function togglePassNoteFavorite(recordId) {
+    const plot = getPassNotePlot();
+    const partner = getPassNoteCharacter();
+    if (!plot || !partner) return false;
+    const key = passNoteStorageKey(plot.id, partner.id);
+    const arr = passNoteRecordsData[key] || [];
+    const item = arr.find(function (r) {
+      return r.id === recordId;
+    });
+    if (item) {
+      item.favorited = !item.favorited;
+      schedulePersistNarrative();
+      return true;
+    }
+    const session = passNoteActiveSession;
+    if (session && session.status === "completed") {
+      const q = (session.questions || []).find(function (qq) {
+        return passNoteRecordIdForQuestion(session, qq) === recordId;
+      });
+      if (q) {
+        q.favorited = !q.favorited;
+        upsertPassNoteRecord({
+          id: recordId,
+          sessionId: session.id,
+          plotId: session.plotId,
+          charId: session.charId,
+          text: q.text,
+          userAnswer: q.userAnswer,
+          charPreAnswer: q.charPreAnswer,
+          charReply: q.charReply,
+          skipped: q.skipped,
+          favorited: q.favorited,
+          completedAt: session.completedAt || Date.now(),
+        });
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function deletePassNoteRecord(recordId) {
+    const plot = getPassNotePlot();
+    const partner = getPassNoteCharacter();
+    if (plot && partner) {
+      const key = passNoteStorageKey(plot.id, partner.id);
+      const arr = passNoteRecordsData[key];
+      if (arr) {
+        const next = arr.filter(function (r) {
+          return r.id !== recordId;
+        });
+        if (next.length) passNoteRecordsData[key] = next;
+        else delete passNoteRecordsData[key];
+        schedulePersistNarrative();
+        return true;
+      }
+    }
+    const session = passNoteActiveSession;
+    if (session && session.status === "completed") {
+      const qIdx = (session.questions || []).findIndex(function (qq) {
+        return passNoteRecordIdForQuestion(session, qq) === recordId;
+      });
+      if (qIdx >= 0) {
+        session.questions.splice(qIdx, 1);
+        if (!session.questions.length) passNoteActiveSession = null;
+        schedulePersistNarrative();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function buildPassNoteHeaderHtml(title, showArchive, showSettings) {
+    return (
+      '<header class="pass-note-header">' +
+      '<button type="button" class="icon-btn pass-note-header__back" data-pass-note-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<h1 class="pass-note-header__title">' +
+      escapeHtml(title) +
+      "</h1>" +
+      '<div class="pass-note-header__actions">' +
+      (showArchive
+        ? '<button type="button" class="icon-btn pass-note-header__archive" data-pass-note-archive aria-label="记录">' +
+          '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 6h16M4 10h16M4 14h10"/><rect x="4" y="4" width="16" height="16" rx="2"/></svg>' +
+          "</button>"
+        : "") +
+      (showSettings
+        ? '<button type="button" class="icon-btn pass-note-header__settings" data-pass-note-settings aria-label="切换对象">' +
+          '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>' +
+          "</button>"
+        : '<span class="pass-note-header__spacer"></span>') +
+      "</div></header>"
+    );
+  }
+
+  function buildPassNoteBannerHtml(plot, partner) {
+    const plotTitle = plot ? plot.title || "未命名剧情" : "";
+    const name = partner ? partner.name || "TA" : "";
+    return (
+      '<button type="button" class="pass-note-banner" data-pass-note-change-holder>' +
+      '<div class="pass-note-banner__avatar avatar" data-pass-note-partner-avatar></div>' +
+      '<div class="pass-note-banner__meta">' +
+      '<p class="pass-note-banner__line">与 <strong>' +
+      escapeHtml(name) +
+      "</strong> 传纸条</p>" +
+      '<p class="pass-note-banner__plot">' +
+      escapeHtml(plotTitle) +
+      "</p></div>" +
+      '<span class="pass-note-banner__chev" aria-hidden="true">' +
+      '<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>' +
+      "</span></button>"
+    );
+  }
+
+  function buildPassNoteProgressHtml(session, mode) {
+    const idx = mode === "composing" ? session.currentComposeIdx : session.currentQuestionIdx;
+    const questions = session.questions || [];
+    const dots = [0, 1, 2]
+      .map(function (i) {
+        let cls = "pass-note-progress__dot";
+        const q = questions[i];
+        if (q && q.skipped) cls += " is-skipped";
+        else if (mode === "answering" && i < idx) cls += " is-done";
+        else if (mode === "composing" && i < idx) cls += " is-done";
+        else if (i === idx) cls += " is-active";
+        return '<span class="' + cls + '" aria-hidden="true"></span>';
+      })
+      .join("");
+    const label =
+      mode === "composing"
+        ? "出题 " + (idx + 1) + " / 3"
+        : "答题 " + (idx + 1) + " / 3";
+    return (
+      '<div class="pass-note-progress" aria-label="进度 ' +
+      (idx + 1) +
+      ' / 3">' +
+      dots +
+      '<span class="pass-note-progress__label">' +
+      label +
+      "</span></div>"
+    );
+  }
+
+  function buildPassNoteTrashHtml() {
+    return (
+      '<div class="pass-note-play-footer">' +
+      '<button type="button" class="pass-note-trash" data-pass-note-trash aria-label="不回答，丢掉此题">' +
+      '<span class="pass-note-trash__lid" aria-hidden="true"></span>' +
+      '<span class="pass-note-trash__body" aria-hidden="true">' +
+      '<svg class="pass-note-trash__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">' +
+      '<path d="M4 7h16M7 7V5a1 1 0 011-1h8a1 1 0 011 1v2M6 7l1 12a1 1 0 001 1h8a1 1 0 001-1l1-12"/>' +
+      '<path d="M10 11v5M14 11v5"/>' +
+      "</svg></span>" +
+      '<span class="pass-note-trash__label">丢掉此题</span>' +
+      "</button></div>"
+    );
+  }
+
+  function buildPassNoteComposeSlipHtml(q, idx, draft) {
+    const isLast = idx >= 2;
+    return (
+      '<article class="pass-note-slip pass-note-slip--compose">' +
+      '<div class="pass-note-slip__head">' +
+      '<span class="pass-note-slip__tag">自拟 · ' +
+      String(idx + 1).padStart(2, "0") +
+      "</span></div>" +
+      '<p class="pass-note-slip__compose-hint">写下你想问 TA 的问题，可以非常跳脱，不必贴合剧情。</p>' +
+      '<label class="pass-note-slip__field">' +
+      '<span class="pass-note-slip__field-label">你的题目</span>' +
+      '<textarea class="pass-note-slip__input field__input" data-pass-note-compose rows="3" maxlength="300" placeholder="例：如果可以和任意一种动物交换一天，你选什么？">' +
+      escapeHtml(draft || (q && q.text) || "") +
+      "</textarea>" +
+      '<span class="pass-note-slip__count">' +
+      String((draft || (q && q.text) || "").length) +
+      " / 300</span></label>" +
+      '<button type="button" class="btn btn--primary btn--pill pass-note-slip__submit" data-pass-note-compose-submit>' +
+      (isLast ? "开始答题 →" : "下一题 →") +
+      "</button></article>"
+    );
+  }
+
+  function buildPassNoteQuestionSlipHtml(q, idx, draft) {
+    const isLast = idx >= 2;
+    return (
+      '<article class="pass-note-slip pass-note-slip--question">' +
+      '<div class="pass-note-slip__head">' +
+      '<span class="pass-note-slip__tag">QUESTION · ' +
+      String(idx + 1).padStart(2, "0") +
+      "</span></div>" +
+      '<p class="pass-note-slip__question">' +
+      escapeHtml(q.text) +
+      "</p>" +
+      '<label class="pass-note-slip__field">' +
+      '<span class="pass-note-slip__field-label">你的回答</span>' +
+      '<textarea class="pass-note-slip__input field__input" data-pass-note-answer rows="4" maxlength="200" placeholder="写下你想传的话…">' +
+      escapeHtml(draft || q.userAnswer || "") +
+      "</textarea>" +
+      '<span class="pass-note-slip__count">' +
+      String((draft || q.userAnswer || "").length) +
+      " / 200</span></label>" +
+      '<button type="button" class="btn btn--primary btn--pill pass-note-slip__submit" data-pass-note-submit>' +
+      (isLast ? "折好传出去 ✉" : "下一题 →") +
+      "</button></article>"
+    );
+  }
+
+  function buildPassNoteQuestionActionsHtml(recordId, favorited) {
+    return (
+      '<div class="pass-note-slip__actions">' +
+      '<button type="button" class="pass-note-slip__act' +
+      (favorited ? " is-favorited" : "") +
+      '" data-pass-note-favorite="' +
+      escapeHtml(recordId) +
+      '">' +
+      (favorited ? "★ 已收藏" : "☆ 收藏") +
+      "</button>" +
+      '<button type="button" class="pass-note-slip__act pass-note-slip__act--danger" data-pass-note-delete="' +
+      escapeHtml(recordId) +
+      '">删除</button></div>'
+    );
+  }
+
+  function buildPassNotePreViewSlipHtml(q, idx, partner) {
+    const partnerName = partner ? partner.name || "TA" : "TA";
+    if (q.skipped) {
+      return (
+        '<article class="pass-note-slip pass-note-slip--pre pass-note-slip--skipped pass-note-slip--reveal" style="animation-delay:' +
+        idx * 0.12 +
+        's">' +
+        '<div class="pass-note-slip__head"><span class="pass-note-slip__tag">Q' +
+        (idx + 1) +
+        " · 已丢掉</span></div>" +
+        '<p class="pass-note-slip__question">' +
+        escapeHtml(q.text) +
+        '</p><p class="pass-note-slip__skipped-note">此题未回答</p></article>'
+      );
+    }
+    return (
+      '<article class="pass-note-slip pass-note-slip--pre pass-note-slip--reveal" style="animation-delay:' +
+      idx * 0.12 +
+      's">' +
+      '<div class="pass-note-slip__head"><span class="pass-note-slip__tag">Q' +
+      (idx + 1) +
+      " · TA 的回答</span></div>" +
+      '<p class="pass-note-slip__question">' +
+      escapeHtml(q.text) +
+      "</p>" +
+      '<div class="pass-note-slip__answer pass-note-slip__answer--char">' +
+      '<div class="pass-note-slip__char-row">' +
+      '<div class="pass-note-slip__char-av avatar" data-pass-note-slip-av="' +
+      idx +
+      '"></div>' +
+      '<span class="pass-note-slip__who">' +
+      escapeHtml(partnerName) +
+      " 会这样答</span></div>" +
+      '<p class="pass-note-slip__text">' +
+      escapeHtml(q.charPreAnswer || "（暂无）") +
+      "</p></div></article>"
+    );
+  }
+
+  function buildPassNotePreViewHtml(slot, session) {
+    const plot = getPassNotePlot();
+    const partner = getPassNoteCharacter();
+    const slips = (session.questions || [])
+      .map(function (q, i) {
+        return buildPassNotePreViewSlipHtml(q, i, partner);
+      })
+      .join("");
+    return (
+      '<div class="pass-note-screen pass-note-screen--pre-view">' +
+      buildPassNoteHeaderHtml("TA 的回答", true, true) +
+      buildPassNoteBannerHtml(plot, partner) +
+      '<p class="pass-note-pre-intro">先看看 TA 对这些问题本身怎么答，再揭晓 TA 对你回答的回应。</p>' +
+      '<div class="pass-note-reveal-scroll">' +
+      slips +
+      "</div>" +
+      '<div class="pass-note-actions pass-note-actions--single">' +
+      '<button type="button" class="btn btn--primary btn--pill pass-note-actions__btn" data-pass-note-proceed-reply>继续 · 看 TA 对你的回应 →</button>' +
+      "</div></div>"
+    );
+  }
+
+  function buildPassNoteQaSlipHtml(q, idx, userChar, partner, session, recordIdOverride) {
+    const userName = userChar ? userChar.name || "我" : "我";
+    const partnerName = partner ? partner.name || "TA" : "TA";
+    const recordId =
+      recordIdOverride || (session ? passNoteRecordIdForQuestion(session, q) : "pnr_" + (q.id || idx));
+    if (q.skipped) {
+      return (
+        '<article class="pass-note-slip pass-note-slip--qa pass-note-slip--skipped pass-note-slip--reveal" style="animation-delay:' +
+        idx * 0.12 +
+        's">' +
+        '<div class="pass-note-slip__head">' +
+        '<span class="pass-note-slip__tag">Q' +
+        (idx + 1) +
+        " · 已丢掉</span></div>" +
+        '<p class="pass-note-slip__question">' +
+        escapeHtml(q.text) +
+        "</p>" +
+        '<p class="pass-note-slip__skipped-note">此题未回答，已丢进垃圾桶</p>' +
+        (q.charReply
+          ? '<div class="pass-note-slip__answer pass-note-slip__answer--char">' +
+            '<div class="pass-note-slip__char-row">' +
+            '<div class="pass-note-slip__char-av avatar" data-pass-note-slip-av="' +
+            idx +
+            '"></div>' +
+            '<span class="pass-note-slip__who">' +
+            escapeHtml(partnerName) +
+            "</span></div>" +
+            '<p class="pass-note-slip__text">' +
+            escapeHtml(q.charReply) +
+            "</p></div>"
+          : "") +
+        buildPassNoteQuestionActionsHtml(recordId, q.favorited) +
+        "</article>"
+      );
+    }
+    return (
+      '<article class="pass-note-slip pass-note-slip--qa pass-note-slip--reveal" style="animation-delay:' +
+      idx * 0.12 +
+      's">' +
+      '<div class="pass-note-slip__head">' +
+      '<span class="pass-note-slip__tag">Q' +
+      (idx + 1) +
+      "</span></div>" +
+      '<p class="pass-note-slip__question">' +
+      escapeHtml(q.text) +
+      "</p>" +
+      (q.charPreAnswer
+        ? '<div class="pass-note-slip__answer pass-note-slip__answer--char pass-note-slip__answer--pre">' +
+          '<div class="pass-note-slip__char-row">' +
+          '<div class="pass-note-slip__char-av avatar" data-pass-note-slip-av="' +
+          idx +
+          '"></div>' +
+          '<span class="pass-note-slip__who">' +
+          escapeHtml(partnerName) +
+          " · 对这道题</span></div>" +
+          '<p class="pass-note-slip__text">' +
+          escapeHtml(q.charPreAnswer) +
+          "</p></div>"
+        : "") +
+      '<div class="pass-note-slip__answer pass-note-slip__answer--user">' +
+      '<span class="pass-note-slip__who">' +
+      escapeHtml(userName) +
+      " · 你的回答</span>" +
+      '<p class="pass-note-slip__text">' +
+      escapeHtml(q.userAnswer || "") +
+      "</p></div>" +
+      (q.charReply
+        ? '<div class="pass-note-slip__answer pass-note-slip__answer--char pass-note-slip__answer--reply">' +
+          '<div class="pass-note-slip__char-row">' +
+          '<div class="pass-note-slip__char-av avatar" data-pass-note-slip-av="' +
+          idx +
+          '"></div>' +
+          '<span class="pass-note-slip__who">' +
+          escapeHtml(partnerName) +
+          " · 对你的回应</span></div>" +
+          '<p class="pass-note-slip__text">' +
+          escapeHtml(q.charReply) +
+          "</p></div>"
+        : "") +
+      buildPassNoteQuestionActionsHtml(recordId, q.favorited) +
+      "</article>"
+    );
+  }
+
+  function buildPassNoteRecordSlipHtml(record, idx, userChar, partner) {
+    const q = {
+      id: record.questionId,
+      text: record.text,
+      userAnswer: record.userAnswer,
+      charPreAnswer: record.charPreAnswer,
+      charReply: record.charReply,
+      skipped: record.skipped,
+      favorited: record.favorited,
+    };
+    return buildPassNoteQaSlipHtml(q, idx, userChar, partner, { id: record.sessionId }, record.id);
+  }
+
+  function buildPassNotePlayHtml(slot, session) {
+    const plot = getPassNotePlot();
+    const partner = getPassNoteCharacter();
+    const nav = getPassNoteNav(slot);
+    if (!plot || !partner) {
+      return (
+        '<div class="pass-note-screen pass-note-screen--empty">' +
+        buildPassNoteHeaderHtml("传纸条", false, false) +
+        '<div class="pass-note-empty">' +
+        '<p class="pass-note-empty__title">选一位角色开始传纸条</p>' +
+        '<p class="pass-note-empty__desc">从剧情里挑选主要角色。你可以自己出题，也可以让 AI 随机准备跳脱有趣的问答题。</p>' +
+        '<button type="button" class="btn btn--primary btn--pill" data-pass-note-pick>选择传纸条对象</button>' +
+        "</div></div>"
+      );
+    }
+    if (!session || session.status === "completed") {
+      const hasHistory = getPassNoteRecordsForCurrent().length > 0;
+      return (
+        '<div class="pass-note-screen pass-note-screen--hub">' +
+        buildPassNoteHeaderHtml("传纸条", true, true) +
+        buildPassNoteBannerHtml(plot, partner) +
+        '<div class="pass-note-hub">' +
+        '<p class="pass-note-hub__intro">每轮 3 题。你先作答，再先看 TA 对题目本身的回答，最后收到 TA 对你答案的回应。题目可以很跳脱。</p>' +
+        '<button type="button" class="btn btn--primary btn--pill pass-note-hub__start" data-pass-note-start-custom>自己准备题目</button>' +
+        '<button type="button" class="btn btn--secondary btn--pill pass-note-hub__start" data-pass-note-start-ai' +
+        (passNoteGenerating ? " disabled" : "") +
+        ">" +
+        (passNoteGenerating ? "准备中…" : "AI 随机出题") +
+        "</button>" +
+        (hasHistory
+          ? '<button type="button" class="btn btn--secondary btn--pill" data-pass-note-archive>查看记录</button>'
+          : "") +
+        "</div></div>"
+      );
+    }
+    if (session.status === "composing") {
+      const cidx = session.currentComposeIdx;
+      const cq = session.questions[cidx] || { text: "" };
+      return (
+        '<div class="pass-note-screen pass-note-screen--compose">' +
+        buildPassNoteHeaderHtml("自拟题目", true, true) +
+        buildPassNoteBannerHtml(plot, partner) +
+        buildPassNoteProgressHtml(session, "composing") +
+        '<div class="pass-note-slip-wrap">' +
+        buildPassNoteComposeSlipHtml(cq, cidx, cq.text) +
+        "</div></div>"
+      );
+    }
+    if (session.status === "generating_questions") {
+      return (
+        '<div class="pass-note-screen pass-note-screen--loading">' +
+        buildPassNoteHeaderHtml("传纸条", true, true) +
+        buildPassNoteBannerHtml(plot, partner) +
+        '<div class="pass-note-loading">' +
+        '<div class="pass-note-loading__stack" aria-hidden="true"></div>' +
+        '<p class="pass-note-loading__text">正在准备题目…</p></div></div>'
+      );
+    }
+    if (session.status === "generating_pre_answers") {
+      return (
+        '<div class="pass-note-screen pass-note-screen--loading">' +
+        buildPassNoteHeaderHtml("传纸条", true, true) +
+        buildPassNoteBannerHtml(plot, partner) +
+        '<div class="pass-note-loading">' +
+        '<div class="pass-note-loading__stack" aria-hidden="true"></div>' +
+        '<p class="pass-note-loading__text">正在准备 TA 的回答…</p></div></div>'
+      );
+    }
+    if (session.status === "generating_reply") {
+      return (
+        '<div class="pass-note-screen pass-note-screen--loading">' +
+        buildPassNoteHeaderHtml("传纸条", true, true) +
+        buildPassNoteBannerHtml(plot, partner) +
+        '<div class="pass-note-loading">' +
+        '<div class="pass-note-loading__stack" aria-hidden="true"></div>' +
+        '<p class="pass-note-loading__text">正在写对你的回应…</p></div></div>'
+      );
+    }
+    if (session.status === "generating_reveal") {
+      return (
+        '<div class="pass-note-screen pass-note-screen--loading">' +
+        buildPassNoteHeaderHtml("传纸条", true, true) +
+        buildPassNoteBannerHtml(plot, partner) +
+        '<div class="pass-note-loading">' +
+        '<div class="pass-note-loading__stack" aria-hidden="true"></div>' +
+        '<p class="pass-note-loading__text">正在写对你的回应…</p></div></div>'
+      );
+    }
+    if (session.status === "viewing_pre") {
+      return buildPassNotePreViewHtml(slot, session);
+    }
+    const idx = session.currentQuestionIdx;
+    const q = session.questions[idx];
+    if (!q) {
+      return buildPassNotePlayHtml(slot, null);
+    }
+    return (
+      '<div class="pass-note-screen pass-note-screen--play">' +
+      buildPassNoteHeaderHtml("传纸条", true, true) +
+      buildPassNoteBannerHtml(plot, partner) +
+      buildPassNoteProgressHtml(session, "answering") +
+      '<div class="pass-note-slip-wrap">' +
+      buildPassNoteQuestionSlipHtml(q, idx, q.userAnswer) +
+      "</div>" +
+      buildPassNoteTrashHtml() +
+      "</div>"
+    );
+  }
+
+  function buildPassNoteRevealHtml(slot, session) {
+    const plot = getPassNotePlot();
+    const partner = getPassNoteCharacter();
+    const userChar = getPassNoteUserChar(plot);
+    const qaHtml = (session.questions || [])
+      .map(function (q, i) {
+        return buildPassNoteQaSlipHtml(q, i, userChar, partner, session);
+      })
+      .join("");
+    return (
+      '<div class="pass-note-screen pass-note-screen--reveal">' +
+      buildPassNoteHeaderHtml("完整纸条", true, true) +
+      buildPassNoteBannerHtml(plot, partner) +
+      '<div class="pass-note-reveal-scroll">' +
+      qaHtml +
+      "</div>" +
+      '<div class="pass-note-actions pass-note-actions--single">' +
+      '<button type="button" class="btn btn--primary pass-note-actions__btn" data-pass-note-restart>再来一轮</button>' +
+      "</div></div>"
+    );
+  }
+
+  function buildPassNoteArchiveHtml(slot) {
+    const nav = getPassNoteNav(slot);
+    const plot = getPassNotePlot();
+    const partner = getPassNoteCharacter();
+    const filter = nav.archiveFilter === "favorites" ? "favorites" : "all";
+    let records = getPassNoteRecordsForCurrent();
+    if (filter === "favorites") {
+      records = records.filter(function (r) {
+        return r.favorited;
+      });
+    }
+    if (nav.archiveDetailId) {
+      const detail = records.find(function (r) {
+        return r.id === nav.archiveDetailId;
+      });
+      if (detail) {
+        const userChar = plot ? getPassNoteUserChar(plot) : null;
+        return (
+          '<div class="pass-note-screen pass-note-screen--archive-detail">' +
+          buildPassNoteHeaderHtml("记录详情", false, false) +
+          '<div class="pass-note-reveal-scroll">' +
+          buildPassNoteRecordSlipHtml(detail, 0, userChar, partner) +
+          "</div></div>"
+        );
+      }
+      nav.archiveDetailId = null;
+    }
+    const rowsHtml = records.length
+      ? records
+          .map(function (r) {
+            const preview = String(r.text || "").slice(0, 48);
+            return (
+              '<button type="button" class="pass-note-record-card" data-pass-note-record-open="' +
+              escapeHtml(r.id) +
+              '">' +
+              '<div class="pass-note-record-card__top">' +
+              '<div class="pass-note-record-card__avatar avatar" data-pass-note-record-av="' +
+              escapeHtml(r.id) +
+              '"></div>' +
+              '<div class="pass-note-record-card__meta">' +
+              '<p class="pass-note-record-card__name">' +
+              (r.favorited ? "★ " : "") +
+              escapeHtml(partner ? partner.name || "TA" : "") +
+              " · " +
+              escapeHtml(plot ? plot.title || "剧情" : "") +
+              "</p>" +
+              '<p class="pass-note-record-card__preview">' +
+              escapeHtml(preview) +
+              (preview.length >= 48 ? "…" : "") +
+              "</p>" +
+              '<p class="pass-note-record-card__time">' +
+              escapeHtml(formatMemoryTime(r.completedAt)) +
+              "</p></div></div></button>"
+            );
+          })
+          .join("")
+      : '<div class="pass-note-empty pass-note-empty--compact">' +
+        '<p class="pass-note-empty__title">' +
+        (filter === "favorites" ? "暂无收藏" : "还没有传过纸条") +
+        "</p></div>";
+    return (
+      '<div class="pass-note-screen pass-note-screen--archive">' +
+      buildPassNoteHeaderHtml("传纸条记录", false, false) +
+      '<div class="pass-note-filter">' +
+      '<button type="button" class="pass-note-filter__pill' +
+      (filter === "all" ? " is-active" : "") +
+      '" data-pass-note-filter="all">全部</button>' +
+      '<button type="button" class="pass-note-filter__pill' +
+      (filter === "favorites" ? " is-active" : "") +
+      '" data-pass-note-filter="favorites">收藏</button></div>' +
+      '<div class="pass-note-archive-list">' +
+      rowsHtml +
+      "</div></div>"
+    );
+  }
+
+  function renderPassNoteScreen(slot) {
+    if (!slot) return;
+    sanitizePassNoteState();
+    if (
+      passNoteActiveSession &&
+      passNoteActiveSession.status === "generating_questions" &&
+      !(passNoteActiveSession.questions || []).length &&
+      !passNoteGenerating
+    ) {
+      passNoteActiveSession = null;
+      schedulePersistNarrative();
+    }
+    if (
+      passNoteActiveSession &&
+      passNoteActiveSession.status === "composing" &&
+      !(passNoteActiveSession.questions || []).length
+    ) {
+      passNoteActiveSession.questions = createEmptyPassNoteQuestions();
+    }
+    const nav = getPassNoteNav(slot);
+    let html = "";
+    if (nav.screen === "archive") {
+      html = buildPassNoteArchiveHtml(slot);
+    } else {
+      const session = passNoteActiveSession;
+      if (session && session.status === "viewing_pre") {
+        html = buildPassNotePreViewHtml(slot, session);
+      } else if (session && session.status === "completed") {
+        html = buildPassNoteRevealHtml(slot, session);
+      } else {
+        html = buildPassNotePlayHtml(slot, session);
+      }
+    }
+    slot.innerHTML = html;
+    const partner = getPassNoteCharacter();
+    const plot = getPassNotePlot();
+    slot.querySelectorAll("[data-pass-note-partner-avatar]").forEach(function (av) {
+      if (partner) fillAvatarElement(av, partner);
+    });
+    if (partner) {
+      slot.querySelectorAll("[data-pass-note-slip-av]").forEach(function (av) {
+        fillAvatarElement(av, partner);
+      });
+      slot.querySelectorAll("[data-pass-note-record-av]").forEach(function (av) {
+        fillAvatarElement(av, partner);
+      });
+    }
+    const ta = slot.querySelector("[data-pass-note-answer]");
+    const composeTa = slot.querySelector("[data-pass-note-compose]");
+    const activeTa = ta || composeTa;
+    if (activeTa) {
+      activeTa.focus();
+      const countEl = slot.querySelector(".pass-note-slip__count");
+      activeTa.addEventListener("input", function () {
+        if (countEl) countEl.textContent = String(activeTa.value.length) + " / " + (composeTa ? "300" : "200");
+      });
+    }
+  }
+
+  function closeOverviewPassNoteView() {
+    overviewSubView = null;
+    const slot = els.passNoteContentSlot();
+    if (slot) {
+      const nav = getPassNoteNav(slot);
+      nav.screen = "play";
+      nav.archiveDetailId = null;
+    }
+    if (!location.hash.startsWith("#/story") && location.hash !== "#/tab/overview") {
+      location.hash = "#/tab/overview";
+    }
+    syncOverviewSubViewUi();
+  }
+
+  function syncPassNoteHolderModalChrome() {
+    const onCharStep = passNoteHolderModalStep === "char";
+    const titleEl = els.passNoteHolderTitle();
+    const hintEl = els.passNoteHolderHint();
+    const backBtn = els.passNoteHolderStepBack();
+    const plotList = els.passNoteHolderPlotList();
+    const pick = els.passNoteHolderPick();
+    const plot = plots.find(function (p) {
+      return p.id === passNoteHolderModalPlotId;
+    });
+    if (titleEl) titleEl.textContent = onCharStep ? "选择角色" : "选择剧情";
+    if (hintEl) {
+      if (onCharStep) {
+        hintEl.hidden = false;
+        hintEl.textContent = plot
+          ? "《" + (plot.title || "未命名剧情") + "》· 点选一名主要角色传纸条"
+          : "点选主要角色（不含「我的形象」）";
+      } else {
+        hintEl.hidden = false;
+        hintEl.textContent = "先选择传纸条对象所在的剧情";
+      }
+    }
+    if (backBtn) backBtn.hidden = !onCharStep;
+    if (plotList) plotList.hidden = onCharStep;
+    if (pick) pick.hidden = !onCharStep;
+  }
+
+  function renderPassNoteHolderPlotList() {
+    const listEl = els.passNoteHolderPlotList();
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    if (!plots.length) {
+      const ph = document.createElement("p");
+      ph.className = "field__hint phone-holder-empty";
+      ph.textContent = "暂无剧情，请先在「剧情」中创建。";
+      listEl.appendChild(ph);
+      return;
+    }
+    plots.forEach(function (p) {
+      const candidates = getCollectCharacterCandidatesForPlot(p.id);
+      const btn = buildPhoneHolderPlotRowBtn(p, passNotePlotId === p.id);
+      btn.addEventListener("click", function () {
+        if (!candidates.length) {
+          showToast("该剧情下没有可传纸条的主要角色。", "warning");
+          return;
+        }
+        passNoteHolderModalPlotId = p.id;
+        passNoteHolderModalStep = "char";
+        renderPassNoteHolderModal();
+      });
+      listEl.appendChild(btn);
+    });
+  }
+
+  function finishPassNoteHolderSelection(charId) {
+    const plotId = passNoteHolderModalPlotId;
+    const plot = plots.find(function (p) {
+      return p.id === plotId;
+    });
+    const partner = getCharById(charId);
+    if (!plot || !partner) return;
+    const isFirst = passNoteHolderModalMode === "first";
+    const changed = passNotePlotId !== plotId || passNoteCharId !== charId;
+    passNotePlotId = plotId;
+    passNoteCharId = charId;
+    if (changed) passNoteActiveSession = null;
+    sanitizePassNoteState();
+    schedulePersistNarrative();
+    closePassNoteHolderModal();
+    const slot = els.passNoteContentSlot();
+    if (slot) renderPassNoteScreen(slot);
+    if (isFirst) {
+      showToast("已选择「" + (partner.name || "TA") + "」，可以开始传纸条了", "success");
+    } else {
+      showToast("已切换为「" + (partner.name || "TA") + "」", "success");
+    }
+  }
+
+  function renderPassNoteHolderCharPick() {
+    const pick = els.passNoteHolderPick();
+    if (!pick) return;
+    pick.innerHTML = "";
+    const list = getCollectCharacterCandidatesForPlot(passNoteHolderModalPlotId);
+    if (!list.length) {
+      const ph = document.createElement("p");
+      ph.className = "field__hint phone-holder-empty";
+      ph.textContent = "该剧情下没有「主要角色」可选。";
+      pick.appendChild(ph);
+      return;
+    }
+    list.forEach(function (c) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className =
+        "char-pick-avatar" +
+        (c.id === passNoteCharId && passNotePlotId === passNoteHolderModalPlotId ? " is-selected" : "");
+      b.dataset.id = c.id;
+      b.title = c.name || "未命名";
+      b.setAttribute("aria-label", c.name || "未命名");
+      const av = document.createElement("div");
+      av.className = "avatar";
+      b.appendChild(av);
+      fillAvatarElement(av, c);
+      b.addEventListener("click", function () {
+        finishPassNoteHolderSelection(c.id);
+      });
+      pick.appendChild(b);
+    });
+  }
+
+  function renderPassNoteHolderModal() {
+    syncPassNoteHolderModalChrome();
+    if (passNoteHolderModalStep === "char") {
+      renderPassNoteHolderCharPick();
+      return;
+    }
+    renderPassNoteHolderPlotList();
+  }
+
+  function openPassNoteHolderModal(opts) {
+    opts = opts || {};
+    const modal = els.modalPassNoteHolder();
+    if (!modal) return;
+    passNoteHolderModalMode = opts.mode === "settings" ? "settings" : "first";
+    passNoteHolderModalStep = "plot";
+    passNoteHolderModalPlotId = passNotePlotId;
+    renderPassNoteHolderModal();
+    modal.hidden = false;
+  }
+
+  function passNoteHolderModalBackToPlot() {
+    passNoteHolderModalStep = "plot";
+    renderPassNoteHolderModal();
+  }
+
+  function closePassNoteHolderModal() {
+    const modal = els.modalPassNoteHolder();
+    if (!modal) return;
+    modal.hidden = true;
+    passNoteHolderModalStep = "plot";
+    passNoteHolderModalPlotId = null;
+    if (passNoteHolderModalMode === "first" && (!passNotePlotId || !passNoteCharId)) {
+      closeOverviewPassNoteView();
+    }
+  }
+
+  /* ── 恩怨本 Grudge Book ── */
+
+  function grudgeBookStorageKey(plotId, charId) {
+    return String(plotId || "") + "\u001e" + String(charId || "");
+  }
+
+  function normalizeGrudgeBookPlan(raw, bookType) {
+    if (!raw || typeof raw !== "object") return null;
+    const type = raw.type === "gratitude" ? "gratitude" : "revenge";
+    const statusRaw = String(raw.status || "").trim();
+    let status = "";
+    if (type === "revenge" || bookType === "grudge") {
+      if (statusRaw === "avenged" || statusRaw === "forgiven" || statusRaw === "settled") status = statusRaw;
+    } else {
+      if (statusRaw === "returned" || statusRaw === "acknowledged" || statusRaw === "settled") status = statusRaw;
+    }
+    const method = raw.method != null ? String(raw.method).trim().slice(0, 400) : "";
+    if (!status && !method) return null;
+    return {
+      type: type,
+      status: status,
+      method: method,
+      updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : Date.now(),
+    };
+  }
+
+  function normalizeGrudgeBookEntry(raw, bookType) {
+    if (!raw || typeof raw !== "object") return null;
+    const event = String(raw.event || "").trim();
+    if (!event) return null;
+    const id =
+      typeof raw.id === "string" && raw.id.trim()
+        ? raw.id.trim()
+        : "gb_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+    let intensity = typeof raw.intensity === "number" ? Math.round(raw.intensity) : 3;
+    intensity = Math.max(1, Math.min(5, intensity));
+    const plan = normalizeGrudgeBookPlan(raw.plan, bookType);
+    return {
+      id: id,
+      party: String(raw.party || "").trim().slice(0, 60),
+      relationship: String(raw.relationship || GRUDGE_BOOK_DEFAULT_RELATIONSHIP).trim().slice(0, 40),
+      time: String(raw.time || "").trim().slice(0, 80),
+      place: String(raw.place || "").trim().slice(0, 80),
+      event: event.slice(0, 600),
+      intensity: intensity,
+      plan: plan,
+      charReply: raw.charReply != null ? String(raw.charReply).trim().slice(0, 800) : "",
+      userReply: raw.userReply != null ? String(raw.userReply).trim().slice(0, 800) : "",
+      replyGeneratedAt: typeof raw.replyGeneratedAt === "number" ? raw.replyGeneratedAt : null,
+      createdAt: typeof raw.createdAt === "number" ? raw.createdAt : Date.now(),
+      updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : Date.now(),
+    };
+  }
+
+  function normalizeGrudgeBookSide(raw, bookType) {
+    const side = raw && typeof raw === "object" ? raw : {};
+    const grudges = Array.isArray(side.grudges)
+      ? side.grudges.map(function (e) {
+          return normalizeGrudgeBookEntry(e, "grudge");
+        }).filter(Boolean)
+      : [];
+    const merits = Array.isArray(side.merits)
+      ? side.merits.map(function (e) {
+          return normalizeGrudgeBookEntry(e, "merit");
+        }).filter(Boolean)
+      : [];
+    return { grudges: grudges, merits: merits };
+  }
+
+  function normalizeGrudgeBookBundle(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const user = normalizeGrudgeBookSide(raw.user, "grudge");
+    const character = normalizeGrudgeBookSide(raw.character, "grudge");
+    if (!user.grudges.length && !user.merits.length && !character.grudges.length && !character.merits.length) {
+      return { user: { grudges: [], merits: [] }, character: { grudges: [], merits: [] } };
+    }
+    return { user: user, character: character };
+  }
+
+  function createEmptyGrudgeBookBundle() {
+    return {
+      user: { grudges: [], merits: [] },
+      character: { grudges: [], merits: [] },
+    };
+  }
+
+  function sanitizeGrudgeBookState() {
+    if (
+      !grudgeBookPlotId ||
+      !plots.some(function (p) {
+        return p.id === grudgeBookPlotId;
+      })
+    ) {
+      grudgeBookPlotId = null;
+      grudgeBookCharId = null;
+      return;
+    }
+    const candidates = getCollectCharacterCandidatesForPlot(grudgeBookPlotId);
+    if (
+      !grudgeBookCharId ||
+      !candidates.some(function (c) {
+        return c.id === grudgeBookCharId;
+      })
+    ) {
+      grudgeBookCharId = null;
+    }
+    if (grudgeBookViewPerspective !== "character") grudgeBookViewPerspective = "user";
+    if (grudgeBookActiveBook !== "merit") grudgeBookActiveBook = "grudge";
+  }
+
+  function getGrudgeBookPlot() {
+    sanitizeGrudgeBookState();
+    if (!grudgeBookPlotId) return null;
+    return (
+      plots.find(function (p) {
+        return p.id === grudgeBookPlotId;
+      }) || null
+    );
+  }
+
+  function getGrudgeBookCharacter() {
+    sanitizeGrudgeBookState();
+    if (!grudgeBookCharId) return null;
+    const c = getCharById(grudgeBookCharId);
+    if (!c || c.categoryId !== CHAR_CATEGORY_MAIN_ID) return null;
+    return c;
+  }
+
+  function getGrudgeBookUserChar(plot) {
+    if (!plot || !plot.protagonistId) return null;
+    const c = getCharById(plot.protagonistId);
+    if (!c || c.categoryId !== CHAR_CATEGORY_SELF_ID) return null;
+    return c;
+  }
+
+  function getGrudgeBookBundle() {
+    const plot = getGrudgeBookPlot();
+    const partner = getGrudgeBookCharacter();
+    if (!plot || !partner) return null;
+    const key = grudgeBookStorageKey(plot.id, partner.id);
+    if (!grudgeBookData[key]) grudgeBookData[key] = createEmptyGrudgeBookBundle();
+    return grudgeBookData[key];
+  }
+
+  function purgeGrudgeBookDataForPlot(plotId) {
+    const pid = String(plotId || "").trim();
+    if (!pid) return;
+    Object.keys(grudgeBookData).forEach(function (k) {
+      if (k.indexOf(pid + "\u001e") === 0) delete grudgeBookData[k];
+    });
+  }
+
+  function purgeGrudgeBookDataForChar(charId) {
+    const cid = String(charId || "").trim();
+    if (!cid) return;
+    const suffix = "\u001e" + cid;
+    Object.keys(grudgeBookData).forEach(function (k) {
+      if (k.slice(-suffix.length) === suffix) delete grudgeBookData[k];
+    });
+  }
+
+  function getGrudgeBookNav(slot) {
+    const id = slot && slot.id ? slot.id : "grudge-book-content-slot";
+    if (!grudgeBookNavBySlotId[id]) {
+      grudgeBookNavBySlotId[id] = { screen: "list", detailId: null, composeDraft: null, editingId: null };
+    }
+    return grudgeBookNavBySlotId[id];
+  }
+
+  function grudgeBookSideKey() {
+    return grudgeBookViewPerspective === "character" ? "character" : "user";
+  }
+
+  function grudgeBookListKey() {
+    return grudgeBookActiveBook === "merit" ? "merits" : "grudges";
+  }
+
+  function getGrudgeBookEntries(bundle) {
+    if (!bundle) return [];
+    const side = bundle[grudgeBookSideKey()] || { grudges: [], merits: [] };
+    const list = side[grudgeBookListKey()] || [];
+    return list.slice().sort(function (a, b) {
+      return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
+    });
+  }
+
+  function findGrudgeBookEntry(bundle, entryId) {
+    if (!bundle || !entryId) return null;
+    const sides = ["user", "character"];
+    const lists = ["grudges", "merits"];
+    for (let si = 0; si < sides.length; si++) {
+      const side = bundle[sides[si]];
+      if (!side) continue;
+      for (let li = 0; li < lists.length; li++) {
+        const arr = side[lists[li]] || [];
+        const hit = arr.find(function (e) {
+          return e.id === entryId;
+        });
+        if (hit) return { entry: hit, side: sides[si], list: lists[li] };
+      }
+    }
+    return null;
+  }
+
+  function grudgeBookPlanStatusLabel(plan, bookType) {
+    if (!plan) return "";
+    const bt = bookType === "merit" ? "merit" : "grudge";
+    if (bt === "grudge") {
+      if (plan.status === "avenged") return "已报仇";
+      if (plan.status === "forgiven") return "已赦免";
+      if (plan.status === "settled") return "恩怨两清";
+      return plan.method ? "复仇计划" : "";
+    }
+    if (plan.status === "returned") return "已回报";
+    if (plan.status === "acknowledged") return "心领神会";
+    if (plan.status === "settled") return "两清";
+    return plan.method ? "感恩计划" : "";
+  }
+
+  function buildGrudgeBookIntensityIconsHtml(intensity, bookType, interactive, selected) {
+    const val = Math.max(1, Math.min(5, typeof intensity === "number" ? intensity : 1));
+    const isMerit = bookType === "merit";
+    let html = '<div class="grudge-book-intensity' + (interactive ? " grudge-book-intensity--picker" : "") + '"';
+    if (interactive) html += ' data-grudge-book-intensity-picker="' + val + '"';
+    html += ">";
+    for (let i = 1; i <= 5; i++) {
+      const on = i <= val;
+      const cls =
+        "grudge-book-intensity__icon" +
+        (isMerit ? " grudge-book-intensity__icon--flower" : " grudge-book-intensity__icon--spark") +
+        (on ? " is-on" : "") +
+        (interactive && i === selected ? " is-selected" : "");
+      html +=
+        '<span class="' +
+        cls +
+        '"' +
+        (interactive ? ' data-grudge-book-intensity="' + i + '" role="button" tabindex="0" aria-label="' + i + '级"' : "") +
+        ">" +
+        (isMerit ? "✿" : "✦") +
+        "</span>";
+    }
+    html += "</div>";
+    return html;
+  }
+
+  function defaultGrudgeBookComposeDraft(plot, partner, bookType) {
+    const userChar = plot ? getGrudgeBookUserChar(plot) : null;
+    const defaultParty =
+      grudgeBookViewPerspective === "character"
+        ? userChar
+          ? userChar.name || "我"
+          : "我"
+        : partner
+          ? partner.name || "TA"
+          : "";
+    return {
+      party: defaultParty,
+      relationship: GRUDGE_BOOK_DEFAULT_RELATIONSHIP,
+      time: "",
+      place: "",
+      event: "",
+      intensity: 3,
+      bookType: bookType === "merit" ? "merit" : "grudge",
+    };
+  }
+
+  function buildGrudgeBookHeaderHtml(title, showGenerate, generating) {
+    return (
+      '<header class="grudge-book-header">' +
+      '<button type="button" class="icon-btn grudge-book-header__back" data-grudge-book-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<h1 class="grudge-book-header__title">' +
+      escapeHtml(title) +
+      "</h1>" +
+      '<div class="grudge-book-header__actions">' +
+      (showGenerate
+        ? '<button type="button" class="icon-btn grudge-book-header__generate phone-wechat-gen-btn' +
+          (generating ? " phone-wechat-gen-btn--loading" : "") +
+          '" data-grudge-book-generate aria-label="生成" title="生成"' +
+          (generating ? " disabled" : "") +
+          ">" +
+          buildPhoneWechatStarIconSvg() +
+          "</button>"
+        : "") +
+      '<button type="button" class="icon-btn grudge-book-header__settings" data-grudge-book-settings aria-label="切换对象">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>' +
+      "</button></div></header>"
+    );
+  }
+
+  function buildGrudgeBookBannerHtml(plot, partner) {
+    const plotTitle = plot ? plot.title || "未命名剧情" : "";
+    const name = partner ? partner.name || "TA" : "";
+    return (
+      '<button type="button" class="grudge-book-banner" data-grudge-book-change-holder>' +
+      '<div class="grudge-book-banner__avatar avatar" data-grudge-book-partner-avatar></div>' +
+      '<div class="grudge-book-banner__meta">' +
+      '<p class="grudge-book-banner__line">与 <strong>' +
+      escapeHtml(name) +
+      "</strong> · " +
+      escapeHtml(GRUDGE_BOOK_DEFAULT_RELATIONSHIP) +
+      "</p>" +
+      '<p class="grudge-book-banner__plot">' +
+      escapeHtml(plotTitle) +
+      "</p></div>" +
+      '<span class="grudge-book-banner__chev" aria-hidden="true">' +
+      '<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>' +
+      "</span></button>"
+    );
+  }
+
+  function buildGrudgeBookSegHtml() {
+    const persp = grudgeBookViewPerspective;
+    const book = grudgeBookActiveBook;
+    return (
+      '<div class="grudge-book-seg-row">' +
+      '<div class="grudge-book-seg grudge-book-seg--persp" role="tablist" aria-label="视角">' +
+      '<button type="button" class="grudge-book-seg__btn' +
+      (persp === "user" ? " is-active" : "") +
+      '" data-grudge-book-persp="user" role="tab">我的本</button>' +
+      '<button type="button" class="grudge-book-seg__btn' +
+      (persp === "character" ? " is-active" : "") +
+      '" data-grudge-book-persp="character" role="tab">TA的本</button>' +
+      "</div>" +
+      '<div class="grudge-book-seg grudge-book-seg--book" role="tablist" aria-label="本子">' +
+      '<button type="button" class="grudge-book-seg__btn grudge-book-seg__btn--grudge' +
+      (book === "grudge" ? " is-active" : "") +
+      '" data-grudge-book-book="grudge" role="tab">记仇本</button>' +
+      '<button type="button" class="grudge-book-seg__btn grudge-book-seg__btn--merit' +
+      (book === "merit" ? " is-active" : "") +
+      '" data-grudge-book-book="merit" role="tab">积德本</button>' +
+      "</div></div>"
+    );
+  }
+
+  function buildGrudgeBookEntryCardHtml(entry, bookType) {
+    const planBadge = entry.plan ? grudgeBookPlanStatusLabel(entry.plan, bookType) : "";
+    const replyHint =
+      grudgeBookViewPerspective === "user"
+        ? entry.charReply
+          ? " · 已回复"
+          : ""
+        : entry.userReply
+          ? " · 已回复"
+          : "";
+    return (
+      '<button type="button" class="grudge-book-entry-card" data-grudge-book-open="' +
+      escapeHtml(entry.id) +
+      '">' +
+      '<div class="grudge-book-entry-card__top">' +
+      '<span class="grudge-book-entry-card__party">' +
+      escapeHtml(entry.party || "—") +
+      "</span>" +
+      buildGrudgeBookIntensityIconsHtml(entry.intensity, bookType, false) +
+      "</div>" +
+      '<p class="grudge-book-entry-card__event">' +
+      escapeHtml(entry.event) +
+      "</p>" +
+      '<div class="grudge-book-entry-card__meta">' +
+      (entry.time ? "<span>" + escapeHtml(entry.time) + "</span>" : "") +
+      (entry.place ? "<span>" + escapeHtml(entry.place) + "</span>" : "") +
+      (planBadge ? '<span class="grudge-book-entry-card__badge">' + escapeHtml(planBadge) + "</span>" : "") +
+      (replyHint ? '<span class="grudge-book-entry-card__reply">' + escapeHtml(replyHint.replace(/^ · /, "")) + "</span>" : "") +
+      "</div></button>"
+    );
+  }
+
+  function buildGrudgeBookListHtml(slot, bundle, plot, partner) {
+    const bookType = grudgeBookActiveBook;
+    const entries = getGrudgeBookEntries(bundle);
+    const isMerit = bookType === "merit";
+    const addLabel = isMerit ? "积一份德" : "记一笔仇";
+    const emptyHint =
+      grudgeBookViewPerspective === "character"
+        ? isMerit
+          ? "TA 的积德本还是空的。点右上角生成，让 TA 写下对你的感恩。"
+          : "TA 的记仇本还是空的。点右上角生成，看看 TA 对你记了哪些仇。"
+        : isMerit
+          ? "积德本空空如也。记下对方曾给你的温暖吧。"
+          : "记仇本干干净净。若有委屈，可以悄悄记下一笔。";
+    const rows =
+      entries.length > 0
+        ? entries.map(function (e) {
+            return buildGrudgeBookEntryCardHtml(e, bookType);
+          }).join("")
+        : '<p class="grudge-book-empty">' + escapeHtml(emptyHint) + "</p>";
+    const themeCls = isMerit ? "grudge-book-screen--merit" : "grudge-book-screen--grudge";
+    const notebookLabel = isMerit ? "积德本" : "记仇本";
+    const perspLabel = grudgeBookViewPerspective === "character" ? "TA的本" : "我的本";
+    return (
+      '<div class="grudge-book-screen ' +
+      themeCls +
+      '">' +
+      buildGrudgeBookHeaderHtml("恩怨本", true, grudgeBookGenerating) +
+      (plot && partner ? buildGrudgeBookBannerHtml(plot, partner) : "") +
+      buildGrudgeBookSegHtml() +
+      '<div class="grudge-book-notebook">' +
+      '<div class="grudge-book-notebook__spine" aria-hidden="true"></div>' +
+      '<div class="grudge-book-notebook__page">' +
+      '<div class="grudge-book-notebook__label">' +
+      escapeHtml(perspLabel + " · " + notebookLabel) +
+      "</div>" +
+      '<div class="grudge-book-list">' +
+      rows +
+      "</div>" +
+      (grudgeBookViewPerspective === "user"
+        ? '<button type="button" class="btn btn--primary btn--pill grudge-book-add" data-grudge-book-compose-new>' +
+          escapeHtml(addLabel) +
+          "</button>"
+        : "") +
+      "</div></div></div>"
+    );
+  }
+
+  function buildGrudgeBookFieldHtml(label, name, value, multiline, placeholder) {
+    if (multiline) {
+      return (
+        '<label class="grudge-book-field">' +
+        '<span class="grudge-book-field__label">' +
+        escapeHtml(label) +
+        "</span>" +
+        '<textarea class="grudge-book-field__input field__input" data-grudge-book-field="' +
+        name +
+        '" rows="4" maxlength="600" placeholder="' +
+        escapeHtml(placeholder || "") +
+        '">' +
+        escapeHtml(value || "") +
+        "</textarea></label>"
+      );
+    }
+    return (
+      '<label class="grudge-book-field">' +
+      '<span class="grudge-book-field__label">' +
+      escapeHtml(label) +
+      "</span>" +
+      '<input type="text" class="grudge-book-field__input field__input" data-grudge-book-field="' +
+      name +
+      '" maxlength="80" value="' +
+      escapeHtml(value || "") +
+      '" placeholder="' +
+      escapeHtml(placeholder || "") +
+      '"></label>'
+    );
+  }
+
+  function buildGrudgeBookComposeHtml(slot, draft, editingId) {
+    const bookType = draft.bookType === "merit" ? "merit" : "grudge";
+    const isMerit = bookType === "merit";
+    const themeCls = isMerit ? "grudge-book-screen--merit" : "grudge-book-screen--grudge";
+    const title = editingId ? (isMerit ? "编辑积德" : "编辑记仇") : isMerit ? "积一份德" : "记一笔仇";
+    const intensityLabel = isMerit ? "感恩程度" : "记仇程度";
+    return (
+      '<div class="grudge-book-screen ' +
+      themeCls +
+      ' grudge-book-screen--compose">' +
+      buildGrudgeBookHeaderHtml(title, false, false) +
+      '<div class="grudge-book-compose">' +
+      buildGrudgeBookFieldHtml("当事人", "party", draft.party, false, "谁做的事") +
+      buildGrudgeBookFieldHtml("关系", "relationship", draft.relationship, false, "与对方的关系") +
+      buildGrudgeBookFieldHtml("时间", "time", draft.time, false, "何时发生") +
+      buildGrudgeBookFieldHtml("地点", "place", draft.place, false, "在哪里") +
+      buildGrudgeBookFieldHtml("具体事件", "event", draft.event, true, "写下经过…") +
+      '<div class="grudge-book-field">' +
+      '<span class="grudge-book-field__label">' +
+      escapeHtml(intensityLabel) +
+      "</span>" +
+      buildGrudgeBookIntensityIconsHtml(draft.intensity, bookType, true, draft.intensity) +
+      "</div>" +
+      '<div class="grudge-book-compose__actions">' +
+      '<button type="button" class="btn btn--secondary btn--pill" data-grudge-book-compose-cancel>取消</button>' +
+      '<button type="button" class="btn btn--primary btn--pill" data-grudge-book-compose-save>保存</button>' +
+      "</div></div></div>"
+    );
+  }
+
+  function buildGrudgeBookDetailHtml(slot, entry, bookType, partner, userChar) {
+    const isMerit = bookType === "merit";
+    const themeCls = isMerit ? "grudge-book-screen--merit" : "grudge-book-screen--grudge";
+    const isUserSide = grudgeBookViewPerspective === "user";
+    const intensityLabel = isMerit ? "感恩程度" : "记仇程度";
+    let planHtml = "";
+    if (entry.plan) {
+      const planTitle = isMerit ? "感恩计划" : "复仇计划";
+      const statusLabel = grudgeBookPlanStatusLabel(entry.plan, bookType);
+      planHtml =
+        '<section class="grudge-book-detail__section grudge-book-detail__plan">' +
+        "<h3>" +
+        escapeHtml(planTitle) +
+        "</h3>" +
+        (statusLabel ? '<p class="grudge-book-detail__plan-status">' + escapeHtml(statusLabel) + "</p>" : "") +
+        (entry.plan.method
+          ? '<p class="grudge-book-detail__plan-method">' + escapeHtml(entry.plan.method) + "</p>"
+          : "") +
+        "</section>";
+    } else if (isUserSide) {
+      planHtml =
+        '<button type="button" class="btn btn--secondary btn--pill grudge-book-detail__add-plan" data-grudge-book-add-plan>' +
+        escapeHtml(isMerit ? "追加感恩计划" : "追加复仇计划") +
+        "</button>";
+    }
+    let replyHtml = "";
+    if (isUserSide && entry.charReply) {
+      replyHtml =
+        '<section class="grudge-book-detail__section grudge-book-reply grudge-book-reply--char">' +
+        '<div class="grudge-book-reply__head">' +
+        '<div class="grudge-book-reply__av avatar" data-grudge-book-reply-av="partner"></div>' +
+        "<span>" +
+        escapeHtml(partner ? partner.name || "TA" : "TA") +
+        " 的回复</span></div>" +
+        '<p class="grudge-book-reply__text">' +
+        escapeHtml(entry.charReply) +
+        "</p></section>";
+    } else if (!isUserSide) {
+      replyHtml =
+        '<section class="grudge-book-detail__section grudge-book-reply grudge-book-reply--char">' +
+        '<div class="grudge-book-reply__head">' +
+        '<div class="grudge-book-reply__av avatar" data-grudge-book-reply-av="partner"></div>' +
+        "<span>" +
+        escapeHtml(partner ? partner.name || "TA" : "TA") +
+        " 的记录</span></div></section>";
+      if (entry.userReply) {
+        replyHtml +=
+          '<section class="grudge-book-detail__section grudge-book-reply grudge-book-reply--user">' +
+          '<div class="grudge-book-reply__head">' +
+          '<div class="grudge-book-reply__av avatar" data-grudge-book-reply-av="user"></div>' +
+          "<span>你的回复</span></div>" +
+          '<p class="grudge-book-reply__text">' +
+          escapeHtml(entry.userReply) +
+          "</p></section>";
+      }
+      replyHtml +=
+        '<section class="grudge-book-detail__section grudge-book-user-reply-form">' +
+        '<label class="grudge-book-field">' +
+        '<span class="grudge-book-field__label">回复 TA</span>' +
+        '<textarea class="grudge-book-field__input field__input" data-grudge-book-user-reply rows="3" maxlength="800" placeholder="写下你想对 TA 说的话…">' +
+        escapeHtml(entry.userReply || "") +
+        "</textarea></label>" +
+        '<button type="button" class="btn btn--primary btn--pill" data-grudge-book-save-user-reply>保存回复</button>' +
+        "</section>";
+    } else if (isUserSide && !entry.charReply) {
+      replyHtml =
+        '<p class="grudge-book-detail__hint">保存后可点右上角「生成」，获取 ' +
+        escapeHtml(partner ? partner.name || "TA" : "TA") +
+        " 的回复。</p>";
+    }
+    return (
+      '<div class="grudge-book-screen ' +
+      themeCls +
+      ' grudge-book-screen--detail">' +
+      buildGrudgeBookHeaderHtml(isMerit ? "积德详情" : "记仇详情", isUserSide, grudgeBookGenerating) +
+      '<div class="grudge-book-detail">' +
+      '<div class="grudge-book-detail__fields">' +
+      '<p><span class="grudge-book-detail__key">当事人</span>' +
+      escapeHtml(entry.party || "—") +
+      "</p>" +
+      '<p><span class="grudge-book-detail__key">关系</span>' +
+      escapeHtml(entry.relationship || GRUDGE_BOOK_DEFAULT_RELATIONSHIP) +
+      "</p>" +
+      (entry.time ? '<p><span class="grudge-book-detail__key">时间</span>' + escapeHtml(entry.time) + "</p>" : "") +
+      (entry.place ? '<p><span class="grudge-book-detail__key">地点</span>' + escapeHtml(entry.place) + "</p>" : "") +
+      '<p><span class="grudge-book-detail__key">' +
+      escapeHtml(intensityLabel) +
+      "</span>" +
+      buildGrudgeBookIntensityIconsHtml(entry.intensity, bookType, false) +
+      "</p>" +
+      '<p class="grudge-book-detail__event"><span class="grudge-book-detail__key">事件</span>' +
+      escapeHtml(entry.event) +
+      "</p></div>" +
+      planHtml +
+      replyHtml +
+      (isUserSide
+        ? '<div class="grudge-book-detail__actions">' +
+          '<button type="button" class="btn btn--secondary btn--pill" data-grudge-book-edit>编辑</button>' +
+          '<button type="button" class="btn btn--danger btn--pill" data-grudge-book-delete>删除</button>' +
+          "</div>"
+        : "") +
+      "</div></div>"
+    );
+  }
+
+  function buildGrudgeBookPlanFormHtml(entry, bookType) {
+    const isMerit = bookType === "merit";
+    const themeCls = isMerit ? "grudge-book-screen--merit" : "grudge-book-screen--grudge";
+    const plan = entry.plan || {};
+    const status = plan.status || "";
+    function statusBtn(val, label) {
+      return (
+        '<button type="button" class="grudge-book-plan-status' +
+        (status === val ? " is-active" : "") +
+        '" data-grudge-book-plan-status="' +
+        val +
+        '">' +
+        escapeHtml(label) +
+        "</button>"
+      );
+    }
+    let statusRow = "";
+    if (isMerit) {
+      statusRow =
+        statusBtn("returned", "已回报") +
+        statusBtn("acknowledged", "心领神会") +
+        statusBtn("settled", "两清");
+    } else {
+      statusRow =
+        statusBtn("avenged", "已报仇") +
+        statusBtn("forgiven", "已赦免") +
+        statusBtn("settled", "恩怨两清");
+    }
+    const methodLabel = isMerit ? "感恩方式" : "报仇方式";
+    return (
+      '<div class="grudge-book-screen ' +
+      themeCls +
+      ' grudge-book-screen--plan">' +
+      buildGrudgeBookHeaderHtml(isMerit ? "感恩计划" : "复仇计划", false, false) +
+      '<div class="grudge-book-plan-form">' +
+      '<p class="grudge-book-plan-form__hint">为「' +
+      escapeHtml(entry.event.slice(0, 40)) +
+      (entry.event.length > 40 ? "…" : "") +
+      "」追加计划</p>" +
+      '<div class="grudge-book-plan-form__status">' +
+      statusRow +
+      "</div>" +
+      buildGrudgeBookFieldHtml(methodLabel, "method", plan.method || "", true, isMerit ? "如何表达感谢…" : "打算如何报仇…") +
+      '<div class="grudge-book-compose__actions">' +
+      '<button type="button" class="btn btn--secondary btn--pill" data-grudge-book-plan-cancel>取消</button>' +
+      '<button type="button" class="btn btn--primary btn--pill" data-grudge-book-plan-save>保存计划</button>' +
+      "</div></div></div>"
+    );
+  }
+
+  function buildGrudgeBookPickHtml() {
+    return (
+      '<div class="grudge-book-screen grudge-book-screen--grudge">' +
+      buildGrudgeBookHeaderHtml("恩怨本", false, false) +
+      '<div class="grudge-book-hub">' +
+      '<p class="grudge-book-hub__hint">选择一段剧情里的角色，在记仇本与积德本中记录你们的恩怨与温情。</p>' +
+      '<button type="button" class="btn btn--primary btn--pill" data-grudge-book-pick>选择对象</button>' +
+      "</div></div>"
+    );
+  }
+
+  function readGrudgeBookComposeDraftFromDom(slot) {
+    const nav = getGrudgeBookNav(slot);
+    const draft = Object.assign({}, nav.composeDraft || {});
+    slot.querySelectorAll("[data-grudge-book-field]").forEach(function (el) {
+      const key = el.getAttribute("data-grudge-book-field");
+      if (key) draft[key] = String(el.value || "").trim();
+    });
+    const picker = slot.querySelector("[data-grudge-book-intensity-picker]");
+    if (picker) {
+      const sel = picker.getAttribute("data-grudge-book-intensity-picker");
+      draft.intensity = Math.max(1, Math.min(5, parseInt(sel, 10) || 3));
+    }
+    return draft;
+  }
+
+  function saveGrudgeBookEntryFromDraft(slot, draft, editingId) {
+    const bundle = getGrudgeBookBundle();
+    if (!bundle) return false;
+    const event = String(draft.event || "").trim();
+    if (!event) {
+      showToast("请填写具体事件。", "info");
+      return false;
+    }
+    const bookType = draft.bookType === "merit" ? "merit" : "grudge";
+    const listKey = bookType === "merit" ? "merits" : "grudges";
+    const side = bundle.user;
+    const now = Date.now();
+    let intensity = typeof draft.intensity === "number" ? draft.intensity : 3;
+    intensity = Math.max(1, Math.min(5, intensity));
+    if (editingId) {
+      const hit = findGrudgeBookEntry(bundle, editingId);
+      if (!hit || hit.side !== "user") return false;
+      hit.entry.party = String(draft.party || "").trim().slice(0, 60);
+      hit.entry.relationship = String(draft.relationship || GRUDGE_BOOK_DEFAULT_RELATIONSHIP).trim().slice(0, 40);
+      hit.entry.time = String(draft.time || "").trim().slice(0, 80);
+      hit.entry.place = String(draft.place || "").trim().slice(0, 80);
+      hit.entry.event = event.slice(0, 600);
+      hit.entry.intensity = intensity;
+      hit.entry.updatedAt = now;
+      hit.entry.charReply = "";
+      hit.entry.replyGeneratedAt = null;
+    } else {
+      const arr = side[listKey] || [];
+      if (arr.length >= GRUDGE_BOOK_ENTRIES_MAX) {
+        showToast("已达上限（最多 " + GRUDGE_BOOK_ENTRIES_MAX + " 条），请先删除旧记录。", "info");
+        return false;
+      }
+      const entry = normalizeGrudgeBookEntry(
+        {
+          id: uid("gb"),
+          party: draft.party,
+          relationship: draft.relationship,
+          time: draft.time,
+          place: draft.place,
+          event: event,
+          intensity: intensity,
+          createdAt: now,
+          updatedAt: now,
+        },
+        bookType
+      );
+      if (!entry) return false;
+      if (!side[listKey]) side[listKey] = [];
+      side[listKey].unshift(entry);
+    }
+    schedulePersistNarrative();
+    return true;
+  }
+
+  function deleteGrudgeBookEntry(entryId) {
+    const bundle = getGrudgeBookBundle();
+    if (!bundle || !entryId) return false;
+    const hit = findGrudgeBookEntry(bundle, entryId);
+    if (!hit || hit.side !== "user") return false;
+    const arr = bundle.user[hit.list];
+    bundle.user[hit.list] = arr.filter(function (e) {
+      return e.id !== entryId;
+    });
+    schedulePersistNarrative();
+    return true;
+  }
+
+  function saveGrudgeBookPlanFromDom(slot, entryId) {
+    const bundle = getGrudgeBookBundle();
+    if (!bundle || !entryId) return false;
+    const hit = findGrudgeBookEntry(bundle, entryId);
+    if (!hit || hit.side !== "user") return false;
+    const bookType = hit.list === "merits" ? "merit" : "grudge";
+    const activeStatusBtn = slot.querySelector(".grudge-book-plan-status.is-active");
+    const status = activeStatusBtn ? activeStatusBtn.getAttribute("data-grudge-book-plan-status") : "";
+    const methodEl = slot.querySelector('[data-grudge-book-field="method"]');
+    const method = methodEl ? String(methodEl.value || "").trim().slice(0, 400) : "";
+    if (!status && !method) {
+      showToast("请选择状态或填写方式。", "info");
+      return false;
+    }
+    hit.entry.plan = {
+      type: bookType === "merit" ? "gratitude" : "revenge",
+      status: status,
+      method: method,
+      updatedAt: Date.now(),
+    };
+    hit.entry.updatedAt = Date.now();
+    schedulePersistNarrative();
+    return true;
+  }
+
+  function saveGrudgeBookUserReplyFromDom(slot, entryId) {
+    const bundle = getGrudgeBookBundle();
+    if (!bundle || !entryId) return false;
+    const hit = findGrudgeBookEntry(bundle, entryId);
+    if (!hit || hit.side !== "character") return false;
+    const ta = slot.querySelector("[data-grudge-book-user-reply]");
+    const text = ta ? String(ta.value || "").trim().slice(0, 800) : "";
+    if (!text) {
+      showToast("回复不能为空。", "info");
+      return false;
+    }
+    hit.entry.userReply = text;
+    hit.entry.updatedAt = Date.now();
+    schedulePersistNarrative();
+    return true;
+  }
+
+  function buildGrudgeBookPlotContextBlock(plot, partnerChar) {
+    if (!plot || !partnerChar) return "";
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, partnerChar);
+    return ctx.lines.join("\n");
+  }
+
+  function buildGrudgeBookReplyPrompt(plot, partnerChar, userChar, entry, bookType) {
+    const isMerit = bookType === "merit";
+    const bookLabel = isMerit ? "积德" : "记仇";
+    return (
+      "你是互动叙事助手。用户「" +
+      (userChar ? userChar.name || "我" : "我") +
+      "」在" +
+      bookLabel +
+      "中记录了一条内容，请扮演主要角色「" +
+      (partnerChar.name || "TA") +
+      "」给出 1～3 句回应。\n\n" +
+      buildKnockPersonaBlock(partnerChar, "你扮演的角色", "partner", 800) +
+      "\n\n" +
+      (userChar ? buildKnockPersonaBlock(userChar, "记录者", "user", 400) + "\n\n" : "") +
+      buildGrudgeBookPlotContextBlock(plot, partnerChar) +
+      "\n\n记录内容：\n" +
+      "- 当事人：" +
+      (entry.party || "—") +
+      "\n- 关系：" +
+      (entry.relationship || GRUDGE_BOOK_DEFAULT_RELATIONSHIP) +
+      "\n- 时间：" +
+      (entry.time || "未注明") +
+      "\n- 地点：" +
+      (entry.place || "未注明") +
+      "\n- 事件：" +
+      entry.event +
+      "\n- " +
+      (isMerit ? "感恩" : "记仇") +
+      "程度：" +
+      entry.intensity +
+      "/5\n\n" +
+      "要求：口吻符合角色人设，针对具体事件回应；" +
+      (isMerit ? "可害羞、别扭或真诚感谢" : "可辩解、哄人、认栽或嘴硬") +
+      "。只输出 JSON：\n" +
+      '{"reply":"..."}'
+    );
+  }
+
+  function buildGrudgeBookCharEntriesPrompt(plot, partnerChar, userChar, bookType, existingEntries) {
+    const isMerit = bookType === "merit";
+    const bookLabel = isMerit ? "积德本" : "记仇本";
+    const existingLines = (existingEntries || [])
+      .slice(0, 8)
+      .map(function (e, i) {
+        return (i + 1) + ". " + (e.event || "").slice(0, 80);
+      })
+      .join("\n");
+    return (
+      "你是互动叙事助手。请扮演主要角色「" +
+      (partnerChar.name || "TA") +
+      "」，从第一人称视角为「" +
+      bookLabel +
+      "」批量生成 2～4 条新记录——记录" +
+      (userChar ? "用户角色「" + (userChar.name || "我") + "」" : "对方") +
+      (isMerit ? "曾让你感激的事" : "曾让你介意/记仇的事") +
+      "。\n\n" +
+      buildKnockPersonaBlock(partnerChar, "你扮演的角色", "partner", 800) +
+      "\n\n" +
+      (userChar ? buildKnockPersonaBlock(userChar, "对方", "user", 400) + "\n\n" : "") +
+      buildGrudgeBookPlotContextBlock(plot, partnerChar) +
+      "\n\n默认双方为情侣关系，当事人可写对方名字或第三方。\n" +
+      (existingLines ? "已有记录（勿重复）：\n" + existingLines + "\n\n" : "") +
+      "只输出 JSON：\n" +
+      '{"entries":[{"party":"...","relationship":"情侣","time":"...","place":"...","event":"...","intensity":3}]}'
+    );
+  }
+
+  async function generateGrudgeBookReply(slot, entryId) {
+    if (grudgeBookGenerating) return;
+    const plot = getGrudgeBookPlot();
+    const partner = getGrudgeBookCharacter();
+    const bundle = getGrudgeBookBundle();
+    if (!plot || !partner || !bundle || !entryId) return;
+    const hit = findGrudgeBookEntry(bundle, entryId);
+    if (!hit || hit.side !== "user") {
+      showToast("仅「我的本」中的记录可生成角色回复。", "info");
+      return;
+    }
+    const bookType = hit.list === "merits" ? "merit" : "grudge";
+    const userChar = getGrudgeBookUserChar(plot);
+    grudgeBookGenerating = true;
+    renderGrudgeBookScreen(slot);
+    try {
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: "你是互动叙事助手，只能输出 JSON。" },
+          {
+            role: "user",
+            content: buildGrudgeBookReplyPrompt(plot, partner, userChar, hit.entry, bookType),
+          },
+        ],
+        0.85,
+        600
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const reply = parsed && parsed.reply != null ? String(parsed.reply).trim().slice(0, 800) : "";
+      if (!reply) throw new Error("回复为空");
+      hit.entry.charReply = reply;
+      hit.entry.replyGeneratedAt = Date.now();
+      hit.entry.updatedAt = Date.now();
+      schedulePersistNarrative();
+      showToast((partner.name || "TA") + " 已回复", "success");
+    } catch (err) {
+      showToast("生成回复失败：" + (err && err.message ? err.message : "请稍后重试"), "warning");
+    } finally {
+      grudgeBookGenerating = false;
+      renderGrudgeBookScreen(slot);
+    }
+  }
+
+  async function generateGrudgeBookCharEntries(slot) {
+    if (grudgeBookGenerating) return;
+    if (grudgeBookViewPerspective !== "character") {
+      showToast("请切换到「TA的本」再生成。", "info");
+      return;
+    }
+    const plot = getGrudgeBookPlot();
+    const partner = getGrudgeBookCharacter();
+    const bundle = getGrudgeBookBundle();
+    if (!plot || !partner || !bundle) return;
+    const bookType = grudgeBookActiveBook;
+    const listKey = bookType === "merit" ? "merits" : "grudges";
+    const side = bundle.character;
+    const existing = side[listKey] || [];
+    if (existing.length >= GRUDGE_BOOK_ENTRIES_MAX) {
+      showToast("TA 的本已满，请先删除部分记录。", "info");
+      return;
+    }
+    const userChar = getGrudgeBookUserChar(plot);
+    grudgeBookGenerating = true;
+    renderGrudgeBookScreen(slot);
+    try {
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: "你是互动叙事助手，只能输出 JSON。" },
+          {
+            role: "user",
+            content: buildGrudgeBookCharEntriesPrompt(plot, partner, userChar, bookType, existing),
+          },
+        ],
+        0.9,
+        1200
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      if (!parsed || !Array.isArray(parsed.entries)) throw new Error("格式不正确");
+      const now = Date.now();
+      let added = 0;
+      parsed.entries.forEach(function (item) {
+        if (existing.length + added >= GRUDGE_BOOK_ENTRIES_MAX) return;
+        const entry = normalizeGrudgeBookEntry(
+          {
+            id: uid("gbc"),
+            party: item.party || (userChar ? userChar.name : "我"),
+            relationship: item.relationship || GRUDGE_BOOK_DEFAULT_RELATIONSHIP,
+            time: item.time,
+            place: item.place,
+            event: item.event,
+            intensity: item.intensity,
+            createdAt: now,
+            updatedAt: now,
+          },
+          bookType
+        );
+        if (!entry) return;
+        if (!side[listKey]) side[listKey] = [];
+        side[listKey].unshift(entry);
+        added++;
+      });
+      if (!added) throw new Error("未生成有效条目");
+      schedulePersistNarrative();
+      showToast("已为 TA 的本新增 " + added + " 条记录", "success");
+    } catch (err) {
+      showToast("生成失败：" + (err && err.message ? err.message : "请稍后重试"), "warning");
+    } finally {
+      grudgeBookGenerating = false;
+      renderGrudgeBookScreen(slot);
+    }
+  }
+
+  async function handleGrudgeBookGenerate(slot) {
+    const nav = getGrudgeBookNav(slot);
+    if (grudgeBookViewPerspective === "character") {
+      await generateGrudgeBookCharEntries(slot);
+      return;
+    }
+    if (nav.screen === "detail" && nav.detailId) {
+      await generateGrudgeBookReply(slot, nav.detailId);
+      return;
+    }
+    const bundle = getGrudgeBookBundle();
+    if (!bundle) return;
+    const entries = getGrudgeBookEntries(bundle);
+    const pending = entries.find(function (e) {
+      return !e.charReply;
+    });
+    if (pending) {
+      nav.detailId = pending.id;
+      nav.screen = "detail";
+      renderGrudgeBookScreen(slot);
+      await generateGrudgeBookReply(slot, pending.id);
+      return;
+    }
+    showToast("暂无待回复的记录。请先记一笔，或在详情页生成。", "info");
+  }
+
+  function renderGrudgeBookScreen(slot) {
+    if (!slot) return;
+    slot.classList.remove("story-placeholder");
+    sanitizeGrudgeBookState();
+    const plot = getGrudgeBookPlot();
+    const partner = getGrudgeBookCharacter();
+    const bundle = plot && partner ? getGrudgeBookBundle() : null;
+    const nav = getGrudgeBookNav(slot);
+    let html = "";
+    if (!plot || !partner) {
+      html = buildGrudgeBookPickHtml();
+    } else if (nav.screen === "compose") {
+      const draft =
+        nav.composeDraft ||
+        defaultGrudgeBookComposeDraft(plot, partner, grudgeBookActiveBook);
+      html = buildGrudgeBookComposeHtml(slot, draft, nav.editingId);
+    } else if (nav.screen === "plan" && nav.detailId && bundle) {
+      const hit = findGrudgeBookEntry(bundle, nav.detailId);
+      if (hit) {
+        html = buildGrudgeBookPlanFormHtml(hit.entry, hit.list === "merits" ? "merit" : "grudge");
+      } else {
+        nav.screen = "list";
+        nav.detailId = null;
+        html = buildGrudgeBookListHtml(slot, bundle, plot, partner);
+      }
+    } else if (nav.screen === "detail" && nav.detailId && bundle) {
+      const hit = findGrudgeBookEntry(bundle, nav.detailId);
+      if (hit) {
+        const userChar = getGrudgeBookUserChar(plot);
+        html = buildGrudgeBookDetailHtml(
+          slot,
+          hit.entry,
+          hit.list === "merits" ? "merit" : "grudge",
+          partner,
+          userChar
+        );
+      } else {
+        nav.screen = "list";
+        nav.detailId = null;
+        html = buildGrudgeBookListHtml(slot, bundle, plot, partner);
+      }
+    } else {
+      nav.screen = "list";
+      html = buildGrudgeBookListHtml(slot, bundle, plot, partner);
+    }
+    slot.innerHTML = html;
+    if (partner) {
+      slot.querySelectorAll("[data-grudge-book-partner-avatar]").forEach(function (av) {
+        fillAvatarElement(av, partner);
+      });
+      slot.querySelectorAll('[data-grudge-book-reply-av="partner"]').forEach(function (av) {
+        fillAvatarElement(av, partner);
+      });
+    }
+    const userChar = plot ? getGrudgeBookUserChar(plot) : null;
+    if (userChar) {
+      slot.querySelectorAll('[data-grudge-book-reply-av="user"]').forEach(function (av) {
+        fillAvatarElement(av, userChar);
+      });
+    }
+  }
+
+  function closeOverviewGrudgeBookView() {
+    overviewSubView = null;
+    if (!location.hash.startsWith("#/story") && location.hash !== "#/tab/overview") {
+      location.hash = "#/tab/overview";
+    }
+    syncOverviewSubViewUi();
+  }
+
+  function syncGrudgeBookHolderModalChrome() {
+    const onCharStep = grudgeBookHolderModalStep === "char";
+    const titleEl = els.grudgeBookHolderTitle();
+    const hintEl = els.grudgeBookHolderHint();
+    const backBtn = els.grudgeBookHolderStepBack();
+    const plotList = els.grudgeBookHolderPlotList();
+    const pick = els.grudgeBookHolderPick();
+    const plot = plots.find(function (p) {
+      return p.id === grudgeBookHolderModalPlotId;
+    });
+    if (titleEl) titleEl.textContent = onCharStep ? "选择角色" : "选择剧情";
+    if (hintEl) {
+      if (onCharStep) {
+        hintEl.hidden = false;
+        hintEl.textContent = plot
+          ? "《" + (plot.title || "未命名剧情") + "》· 点选一名主要角色"
+          : "点选主要角色（不含「我的形象」）";
+      } else {
+        hintEl.hidden = false;
+        hintEl.textContent = "先选择恩怨本对象所在的剧情";
+      }
+    }
+    if (backBtn) backBtn.hidden = !onCharStep;
+    if (plotList) plotList.hidden = onCharStep;
+    if (pick) pick.hidden = !onCharStep;
+  }
+
+  function renderGrudgeBookHolderPlotList() {
+    const listEl = els.grudgeBookHolderPlotList();
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    if (!plots.length) {
+      const ph = document.createElement("p");
+      ph.className = "field__hint phone-holder-empty";
+      ph.textContent = "暂无剧情，请先在「剧情」中创建。";
+      listEl.appendChild(ph);
+      return;
+    }
+    plots.forEach(function (p) {
+      const candidates = getCollectCharacterCandidatesForPlot(p.id);
+      if (!candidates.length) return;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "phone-holder-plot-item";
+      btn.innerHTML =
+        '<span class="phone-holder-plot-item__title">' +
+        escapeHtml(p.title || "未命名剧情") +
+        "</span>" +
+        '<span class="phone-holder-plot-item__meta">' +
+        candidates.length +
+        " 名主要角色</span>";
+      btn.addEventListener("click", function () {
+        if (!p.protagonistId) {
+          showToast("该剧情未设置「我的形象」，无法使用恩怨本。", "warning");
+          return;
+        }
+        grudgeBookHolderModalPlotId = p.id;
+        grudgeBookHolderModalStep = "char";
+        renderGrudgeBookHolderModal();
+      });
+      listEl.appendChild(btn);
+    });
+  }
+
+  function finishGrudgeBookHolderSelection(charId) {
+    const plotId = grudgeBookHolderModalPlotId;
+    const plot = plots.find(function (p) {
+      return p.id === plotId;
+    });
+    const partner = getCharById(charId);
+    if (!plot || !partner) return;
+    const isFirst = grudgeBookHolderModalMode === "first";
+    grudgeBookPlotId = plotId;
+    grudgeBookCharId = charId;
+    sanitizeGrudgeBookState();
+    schedulePersistNarrative();
+    closeGrudgeBookHolderModal();
+    const slot = els.grudgeBookContentSlot();
+    if (slot) renderGrudgeBookScreen(slot);
+    if (isFirst) {
+      showToast("已选择「" + (partner.name || "TA") + "」，可以打开恩怨本了", "success");
+    } else {
+      showToast("已切换为「" + (partner.name || "TA") + "」", "success");
+    }
+  }
+
+  function renderGrudgeBookHolderCharPick() {
+    const pick = els.grudgeBookHolderPick();
+    if (!pick) return;
+    pick.innerHTML = "";
+    const list = getCollectCharacterCandidatesForPlot(grudgeBookHolderModalPlotId);
+    if (!list.length) {
+      const ph = document.createElement("p");
+      ph.className = "field__hint phone-holder-empty";
+      ph.textContent = "该剧情下没有「主要角色」可选。";
+      pick.appendChild(ph);
+      return;
+    }
+    list.forEach(function (c) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className =
+        "char-pick-avatar" +
+        (c.id === grudgeBookCharId && grudgeBookPlotId === grudgeBookHolderModalPlotId ? " is-selected" : "");
+      b.dataset.id = c.id;
+      b.title = c.name || "未命名";
+      b.setAttribute("aria-label", c.name || "未命名");
+      const av = document.createElement("div");
+      av.className = "avatar";
+      b.appendChild(av);
+      fillAvatarElement(av, c);
+      b.addEventListener("click", function () {
+        finishGrudgeBookHolderSelection(c.id);
+      });
+      pick.appendChild(b);
+    });
+  }
+
+  function renderGrudgeBookHolderModal() {
+    syncGrudgeBookHolderModalChrome();
+    if (grudgeBookHolderModalStep === "char") {
+      renderGrudgeBookHolderCharPick();
+      return;
+    }
+    renderGrudgeBookHolderPlotList();
+  }
+
+  function openGrudgeBookHolderModal(opts) {
+    opts = opts || {};
+    const modal = els.modalGrudgeBookHolder();
+    if (!modal) return;
+    grudgeBookHolderModalMode = opts.mode === "settings" ? "settings" : "first";
+    grudgeBookHolderModalStep = "plot";
+    grudgeBookHolderModalPlotId = grudgeBookPlotId;
+    renderGrudgeBookHolderModal();
+    modal.hidden = false;
+  }
+
+  function grudgeBookHolderModalBackToPlot() {
+    grudgeBookHolderModalStep = "plot";
+    renderGrudgeBookHolderModal();
+  }
+
+  function closeGrudgeBookHolderModal() {
+    const modal = els.modalGrudgeBookHolder();
+    if (!modal) return;
+    modal.hidden = true;
+    grudgeBookHolderModalStep = "plot";
+    grudgeBookHolderModalPlotId = null;
+    if (grudgeBookHolderModalMode === "first" && (!grudgeBookPlotId || !grudgeBookCharId)) {
+      closeOverviewGrudgeBookView();
+    }
+  }
+
+  /* ── 你才是狗 · 匿名推特 ── */
+
+  function cloneYouDogSection(section) {
+    return {
+      id: String((section && section.id) || "").trim(),
+      name: String((section && section.name) || "").trim(),
+      description: String((section && section.description) || "").trim(),
+    };
+  }
+
+  function cloneYouDogDefaultSections() {
+    return YOU_DOG_DEFAULT_SECTIONS.map(cloneYouDogSection);
+  }
+
+  function getYouDogDefaultSectionMeta(sectionId) {
+    return YOU_DOG_DEFAULT_SECTIONS.find(function (s) {
+      return s.id === sectionId;
+    });
+  }
+
+  function mergeYouDogSectionDescriptions(sections) {
+    return (Array.isArray(sections) ? sections : []).map(function (s) {
+      const sec = cloneYouDogSection(s);
+      if (!sec.id) return null;
+      const def = getYouDogDefaultSectionMeta(sec.id);
+      if (!sec.description && def) sec.description = def.description;
+      if (!sec.name && def) sec.name = def.name;
+      return sec.name ? sec : null;
+    }).filter(Boolean);
+  }
+
+  function getYouDogSections() {
+    if (Array.isArray(youDogSections) && youDogSections.length) {
+      return mergeYouDogSectionDescriptions(youDogSections);
+    }
+    return cloneYouDogDefaultSections();
+  }
+
+  function setYouDogSections(sections) {
+    youDogSections = mergeYouDogSectionDescriptions(sections).map(cloneYouDogSection);
+    sanitizeYouDogFeedTag();
+    schedulePersistNarrative();
+  }
+
+  function findYouDogSection(sectionId) {
+    const id = String(sectionId || "").trim();
+    return (
+      getYouDogSections().find(function (s) {
+        return s && s.id === id;
+      }) || null
+    );
+  }
+
+  function sanitizeYouDogFeedTag() {
+    const tag = String(youDogFeedTag || "all");
+    if (tag === "all" || tag === "hot") return;
+    if (!findYouDogSection(tag)) youDogFeedTag = "all";
+  }
+
+  function sanitizeYouDogSectionsState() {
+    if (!Array.isArray(youDogSections)) youDogSections = [];
+    youDogSections = mergeYouDogSectionDescriptions(youDogSections).map(cloneYouDogSection);
+    if (!youDogSections.length) youDogSections = cloneYouDogDefaultSections();
+    sanitizeYouDogFeedTag();
+  }
+
+  function resolveYouDogSectionId(raw) {
+    const val = String(raw || "").trim();
+    if (!val) return getYouDogSections()[0] ? getYouDogSections()[0].id : "tree";
+    const sections = getYouDogSections();
+    const byId = sections.find(function (s) {
+      return s && s.id === val;
+    });
+    if (byId) return byId.id;
+    const lower = val.toLowerCase();
+    const legacyMap = { tree: "tree", sweet: "sweet", gossip: "gossip", 树洞: "tree", 狗粮: "sweet", 吃瓜: "gossip" };
+    if (legacyMap[lower]) {
+      const hit = sections.find(function (s) {
+        return s && s.id === legacyMap[lower];
+      });
+      if (hit) return hit.id;
+    }
+    const byName = sections.find(function (s) {
+      return s && s.name === val;
+    });
+    if (byName) return byName.id;
+    return sections[0] ? sections[0].id : val;
+  }
+
+  function getYouDogSectionLabel(sectionId) {
+    const sec = findYouDogSection(sectionId);
+    return sec ? sec.name : "树洞";
+  }
+
+  function buildYouDogSectionsPromptBlock() {
+    return getYouDogSections()
+      .map(function (sec) {
+        return (
+          "- tag=\"" +
+          sec.id +
+          "\"（" +
+          sec.name +
+          "）：" +
+          (sec.description || "（无简介）")
+        );
+      })
+      .join("\n");
+  }
+
+  function purgeYouDogPostsForSection(sectionId) {
+    const sid = String(sectionId || "").trim();
+    if (!sid) return;
+    Object.keys(youDogTwitterData).forEach(function (key) {
+      const bundle = youDogTwitterData[key];
+      if (!bundle || !Array.isArray(bundle.posts)) return;
+      bundle.posts = bundle.posts.filter(function (p) {
+        return p && resolveYouDogSectionId(p.tag) !== sid;
+      });
+    });
+  }
+
+  function youDogStorageKey(plotId) {
+    return String(plotId || "").trim();
+  }
+
+  function getYouDogParticipantCandidatesForPlot(plotId) {
+    return getPhoneHolderCandidatesForPlot(plotId);
+  }
+
+  function defaultYouDogParticipantIdsForPlot(plotId) {
+    return getYouDogParticipantCandidatesForPlot(plotId).map(function (c) {
+      return c.id;
+    });
+  }
+
+  function getYouDogAllCharIdsForPlot(plotId) {
+    return defaultYouDogParticipantIdsForPlot(plotId);
+  }
+
+  function getYouDogPlotPersonaChar() {
+    if (!youDogPlotIds.length) return null;
+    for (let i = 0; i < youDogPlotIds.length; i++) {
+      const plot = plots.find(function (p) {
+        return p.id === youDogPlotIds[i];
+      });
+      if (!plot || !plot.protagonistId) continue;
+      const ch = getCharById(plot.protagonistId);
+      if (ch && ch.categoryId === CHAR_CATEGORY_SELF_ID) return ch;
+    }
+    return null;
+  }
+
+  function getYouDogUserPersonaChar() {
+    if (!youDogUserCharId) return null;
+    const ch = getCharById(youDogUserCharId);
+    if (!ch || ch.categoryId !== CHAR_CATEGORY_SELF_ID) return null;
+    return ch;
+  }
+
+  function getAllYouDogSelfPersonaOptions() {
+    const seen = new Set();
+    const out = [];
+    plots.forEach(function (plot) {
+      if (!plot || !plot.protagonistId) return;
+      const ch = getCharById(plot.protagonistId);
+      if (!ch || ch.categoryId !== CHAR_CATEGORY_SELF_ID) return;
+      if (seen.has(ch.id)) return;
+      seen.add(ch.id);
+      out.push({
+        charId: ch.id,
+        char: ch,
+        plotId: plot.id,
+        plotTitle: plot.title || "未命名剧情",
+        avatarUrl: getYouDogPlotPersonaAvatarUrl(plot, ch),
+      });
+    });
+    return out;
+  }
+
+  function getYouDogUserPersonaAvatarUrl(char) {
+    if (!char) return "";
+    const plot = plots.find(function (p) {
+      return p && p.protagonistId === char.id;
+    });
+    if (plot) return getYouDogPlotPersonaAvatarUrl(plot, char);
+    return char.avatarUrl ? String(char.avatarUrl).trim() : "";
+  }
+
+  function normalizeYouDogAnonAlias(raw) {
+    let s = String(raw || "").trim().replace(/^@+/, "");
+    s = s.replace(/\s+/g, "");
+    if (!s) return "";
+    return ("@" + s).slice(0, 28);
+  }
+
+  function ensureYouDogGlobalAnonAlias() {
+    const existing = normalizeYouDogAnonAlias(youDogUserAnonAlias);
+    if (existing) {
+      youDogUserAnonAlias = existing;
+      return existing;
+    }
+    const suffix = Math.floor(Math.random() * 9000 + 1000);
+    youDogUserAnonAlias = "@嗅友" + suffix;
+    return youDogUserAnonAlias;
+  }
+
+  function saveYouDogGlobalAnonAlias(raw) {
+    const normalized = normalizeYouDogAnonAlias(raw);
+    if (!normalized || normalized.replace(/^@/, "").length < 2) {
+      showToast("马甲名至少 2 个字符。", "warning");
+      return false;
+    }
+    youDogUserAnonAlias = normalized;
+    schedulePersistNarrative();
+    return true;
+  }
+
+  function getYouDogPlotPersonaAvatarUrl(plot, char) {
+    if (!plot || !char) return "";
+    const view = getPlotCharacterView(plot, char.id);
+    if (view && view.avatarUrl) return String(view.avatarUrl).trim();
+    return char.avatarUrl ? String(char.avatarUrl).trim() : "";
+  }
+
+  function buildYouDogSwitchInputHtml(opts) {
+    opts = opts && typeof opts === "object" ? opts : {};
+    const id = String(opts.id || "");
+    const checked = !!opts.checked;
+    const dataAttr = String(opts.dataAttr || "data-you-dog-toggle-participant");
+    const inputId = String(opts.inputId || "you-dog-sw-" + id.replace(/[^a-zA-Z0-9_-]/g, ""));
+    return (
+      '<span class="you-dog-switch">' +
+      '<input type="checkbox" class="you-dog-switch__input" id="' +
+      escapeHtml(inputId) +
+      '" ' +
+      dataAttr +
+      '="' +
+      escapeHtml(id) +
+      '"' +
+      (checked ? " checked" : "") +
+      " />" +
+      '<span class="you-dog-switch__slider" aria-hidden="true"></span></span>'
+    );
+  }
+
+  function buildYouDogChatTagPillHtml(cat) {
+    if (!cat) return "";
+    return (
+      '<span class="you-dog-chat-tag you-dog-chat-tag--inline" style="--ydc-tag:' +
+      escapeHtml(cat.color) +
+      '">' +
+      escapeHtml(cat.name) +
+      "</span>"
+    );
+  }
+
+  function buildYouDogChatMemberMetaHtml(cand, memberRef) {
+    const fallback = getYouDogChatMemberDisplayName(memberRef);
+    const parts = String(fallback || "").split(" · ");
+    const charName = cand ? cand.charName : parts[0] || "未命名";
+    const plotTitle = cand ? cand.plotTitle : parts[1] || "";
+    return (
+      '<span class="you-dog-chat-member-meta">' +
+      '<span class="you-dog-chat-member-meta__name">' +
+      escapeHtml(charName) +
+      "</span>" +
+      (plotTitle
+        ? '<span class="you-dog-chat-member-meta__plot">《' + escapeHtml(plotTitle) + "》</span>"
+        : "") +
+      "</span>"
+    );
+  }
+
+  function buildYouDogChatMemberAvatarHtml(memberRef, cls) {
+    const avatarUrl = getYouDogChatMemberAvatarUrl(memberRef);
+    const displayName = getYouDogChatMemberDisplayName(memberRef);
+    const initial = displayName ? Array.from(String(displayName).split(" · ")[0])[0] : "?";
+    const avCls = (cls || "avatar you-dog-chat-member__av") + (avatarUrl ? " avatar--has-image" : "");
+    const avInner = avatarUrl
+      ? '<img src="' + escapeHtml(avatarUrl) + '" alt="" />'
+      : escapeHtml(initial);
+    return '<span class="' + avCls + '">' + avInner + "</span>";
+  }
+
+  function buildYouDogBarSwitchHtml(opts) {
+    opts = opts && typeof opts === "object" ? opts : {};
+    const id = String(opts.id || "");
+    const inputId = String(opts.inputId || "you-dog-sw-" + id.replace(/[^a-zA-Z0-9_-]/g, ""));
+    const nameBlock =
+      opts.nameHtml != null
+        ? String(opts.nameHtml)
+        : escapeHtml(String(opts.name || "未命名"));
+    return (
+      '<label class="you-dog-bar-switch" for="' +
+      escapeHtml(inputId) +
+      '">' +
+      '<span class="you-dog-bar-switch__name">' +
+      nameBlock +
+      "</span>" +
+      buildYouDogSwitchInputHtml({
+        id: id,
+        checked: !!opts.checked,
+        dataAttr: opts.dataAttr,
+        inputId: inputId,
+      }) +
+      "</label>"
+    );
+  }
+
+  function buildYouDogSwitchHtml(opts) {
+    opts = opts && typeof opts === "object" ? opts : {};
+    const id = String(opts.id || "");
+    const inputId = "you-dog-sw-" + id.replace(/[^a-zA-Z0-9_-]/g, "");
+    return (
+      '<label class="you-dog-switch-row" for="' +
+      escapeHtml(inputId) +
+      '">' +
+      '<span class="you-dog-switch-row__info">' +
+      (opts.avatarHtml || "") +
+      '<span class="you-dog-switch-row__text">' +
+      '<span class="you-dog-switch-row__name">' +
+      escapeHtml(String(opts.name || "未命名")) +
+      "</span>" +
+      (opts.sub ? '<span class="you-dog-switch-row__sub">' + escapeHtml(opts.sub) + "</span>" : "") +
+      "</span></span>" +
+      buildYouDogSwitchInputHtml({
+        id: id,
+        checked: !!opts.checked,
+        dataAttr: opts.dataAttr,
+        inputId: inputId,
+      }) +
+      "</label>"
+    );
+  }
+
+  function buildYouDogBellIconSvg() {
+    return (
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>' +
+      '<path d="M13.73 21a2 2 0 01-3.46 0"/>' +
+      "</svg>"
+    );
+  }
+
+  function getYouDogActivePlots() {
+    sanitizeYouDogState();
+    return youDogPlotIds
+      .map(function (pid) {
+        return plots.find(function (p) {
+          return p.id === pid;
+        });
+      })
+      .filter(Boolean);
+  }
+
+  function getYouDogAllParticipantIds() {
+    const seen = new Set();
+    const out = [];
+    youDogPlotIds.forEach(function (pid) {
+      getYouDogParticipantCandidatesForPlot(pid).forEach(function (c) {
+        if (!c || seen.has(c.id)) return;
+        seen.add(c.id);
+        out.push(c.id);
+      });
+    });
+    return out;
+  }
+
+  /** 嗅闻博客 Feed：按剧情区分的参与角色 ref（plotId:charId，同一角色项在不同剧情中各自独立） */
+  function getYouDogAllFeedSpeakerRefs() {
+    const out = [];
+    youDogPlotIds.forEach(function (pid) {
+      getYouDogParticipantCandidatesForPlot(pid).forEach(function (c) {
+        if (!c || !c.id) return;
+        out.push(makeYouDogChatMemberRef(pid, c.id));
+      });
+    });
+    return out;
+  }
+
+  /** 嗅闻博客 Feed 生成弹窗：各剧情全部主要角色 ref（plotId:charId，含未开启的剧情） */
+  function getYouDogAllFeedSpeakerCandidateRefs() {
+    return getAllYouDogChatMemberCandidates().map(function (c) {
+      return c.memberRef;
+    });
+  }
+
+  function defaultYouDogGenPickDraft(refs, cap) {
+    const list = Array.isArray(refs) ? refs.filter(Boolean) : [];
+    const limit = Math.max(1, Number(cap) || 1);
+    if (list.length <= limit) return list.slice();
+    return list.slice(0, limit);
+  }
+
+  function ensureYouDogPlotsForSpeakerRefs(refs) {
+    (Array.isArray(refs) ? refs : []).forEach(function (ref) {
+      const parsed = parseYouDogChatMemberRef(ref);
+      if (!parsed || !parsed.plotId) return;
+      if (youDogPlotIds.indexOf(parsed.plotId) >= 0) return;
+      toggleYouDogPlot(parsed.plotId, true);
+    });
+  }
+
+  function formatYouDogFeedSpeakerRefLabel(ref) {
+    const parsed = parseYouDogChatMemberRef(ref);
+    if (!parsed) return String(ref || "");
+    const ch = getCharById(parsed.charId);
+    const plot = plots.find(function (p) {
+      return p.id === parsed.plotId;
+    });
+    return (
+      "《" +
+      (plot && plot.title ? plot.title : "未命名剧情") +
+      "》" +
+      (ch && ch.name ? ch.name : "未命名")
+    );
+  }
+
+  function getCharIdsFromFeedSpeakerRefs(refs) {
+    return (Array.isArray(refs) ? refs : [])
+      .map(function (ref) {
+        const parsed = parseYouDogChatMemberRef(ref);
+        return parsed ? parsed.charId : String(ref || "").trim();
+      })
+      .filter(Boolean);
+  }
+
+  function getCharIdsForPlotFromFeedSpeakerRefs(refs, plotId) {
+    const pid = String(plotId || "").trim();
+    return (Array.isArray(refs) ? refs : [])
+      .map(function (ref) {
+        const parsed = parseYouDogChatMemberRef(ref);
+        if (!parsed || parsed.plotId !== pid) return null;
+        return parsed.charId;
+      })
+      .filter(Boolean);
+  }
+
+  function normalizeYouDogFeedSpeakerRefFromRaw(rawSpeakerRef, rawPlotId) {
+    const refStr = String(rawSpeakerRef || "").trim();
+    const parsed = parseYouDogChatMemberRef(refStr);
+    if (parsed) {
+      return { plotId: parsed.plotId, charId: parsed.charId, batchRef: refStr };
+    }
+    const charId = refStr;
+    let plotId = String(rawPlotId || "").trim();
+    if (!plotId) plotId = resolveYouDogPlotIdForChar(charId) || "";
+    if (!plotId || !charId) return null;
+    return { plotId: plotId, charId: charId, batchRef: makeYouDogChatMemberRef(plotId, charId) };
+  }
+
+  function resolveYouDogPlotIdForChar(charId) {
+    const id = String(charId || "").trim();
+    if (!id) return null;
+    for (let i = 0; i < youDogPlotIds.length; i++) {
+      const pid = youDogPlotIds[i];
+      if (
+        getYouDogParticipantCandidatesForPlot(pid).some(function (c) {
+          return c.id === id;
+        })
+      ) {
+        return pid;
+      }
+    }
+    return null;
+  }
+
+  function findYouDogPostContext(postId) {
+    const id = String(postId || "").trim();
+    if (!id) return null;
+    for (let i = 0; i < youDogPlotIds.length; i++) {
+      const plotId = youDogPlotIds[i];
+      const bundle = ensureYouDogTwitterBundle(plotId);
+      if (!bundle || !Array.isArray(bundle.posts)) continue;
+      const post = bundle.posts.find(function (p) {
+        return p && p.id === id;
+      });
+      if (post) {
+        const plot = plots.find(function (p) {
+          return p.id === plotId;
+        });
+        return { post: post, bundle: bundle, plotId: plotId, plot: plot || null };
+      }
+    }
+    return null;
+  }
+
+  function getYouDogMergedPosts() {
+    const merged = [];
+    youDogPlotIds.forEach(function (plotId, plotIdx) {
+      const bundle = ensureYouDogTwitterBundle(plotId);
+      if (!bundle || !Array.isArray(bundle.posts)) return;
+      bundle.posts.forEach(function (post, idx) {
+        if (!post) return;
+        merged.push({
+          post: post,
+          sortKey: plotIdx * 100000 + idx,
+        });
+      });
+    });
+    merged.sort(function (a, b) {
+      return b.sortKey - a.sortKey;
+    });
+    return merged.map(function (row) {
+      return row.post;
+    });
+  }
+
+  function toggleYouDogPlot(plotId, enabled) {
+    const pid = String(plotId || "").trim();
+    if (!pid) return false;
+    const plot = plots.find(function (p) {
+      return p.id === pid;
+    });
+    if (!plot) return false;
+    const candidates = getYouDogParticipantCandidatesForPlot(pid);
+    if (enabled && !candidates.length) {
+      showToast("该剧情下没有可参与的角色。", "warning");
+      return false;
+    }
+    if (enabled) {
+      if (youDogPlotIds.indexOf(pid) < 0) youDogPlotIds.push(pid);
+    } else {
+      youDogPlotIds = youDogPlotIds.filter(function (id) {
+        return id !== pid;
+      });
+    }
+    sanitizeYouDogState();
+    schedulePersistNarrative();
+    return true;
+  }
+
+  function sanitizeYouDogState() {
+    youDogPlotIds = youDogPlotIds.filter(function (pid) {
+      if (
+        !plots.some(function (p) {
+          return p.id === pid;
+        })
+      ) {
+        return false;
+      }
+      return getYouDogParticipantCandidatesForPlot(pid).length > 0;
+    });
+    if (!youDogPlotIds.length) {
+      youDogNextGenCharId = null;
+      youDogParticipantIds = [];
+      sanitizeYouDogChatState();
+      return;
+    }
+    const allIds = getYouDogAllParticipantIds();
+    const candidateSet = new Set(allIds);
+    youDogParticipantIds = allIds.slice();
+    if (!youDogNextGenCharId || !candidateSet.has(youDogNextGenCharId)) {
+      youDogNextGenCharId = youDogParticipantIds.length ? youDogParticipantIds[0] : null;
+    }
+    if (youDogUserCharId) {
+      const u = getCharById(youDogUserCharId);
+      if (!u || u.categoryId !== CHAR_CATEGORY_SELF_ID) youDogUserCharId = null;
+    }
+    if (!youDogUserCharId) {
+      const personaOptions = getAllYouDogSelfPersonaOptions();
+      if (personaOptions.length) youDogUserCharId = personaOptions[0].charId;
+    }
+    ensureYouDogGlobalAnonAlias();
+    sanitizeYouDogSectionsState();
+    sanitizeYouDogChatState();
+  }
+
+  function getYouDogPlot() {
+    const active = getYouDogActivePlots();
+    return active.length ? active[0] : null;
+  }
+
+  function purgeYouDogDataForPlot(plotId) {
+    const pid = String(plotId || "").trim();
+    if (!pid) return;
+    delete youDogTwitterData[pid];
+    youDogPlotIds = youDogPlotIds.filter(function (id) {
+      return id !== pid;
+    });
+    sanitizeYouDogState();
+  }
+
+  function ensureYouDogTwitterBundle(plotId) {
+    const key = youDogStorageKey(plotId);
+    if (!key) return null;
+    if (!youDogTwitterData[key]) {
+      youDogTwitterData[key] = { posts: [], anonIdMap: {}, userPersonaMap: {} };
+    }
+    const bundle = youDogTwitterData[key];
+    if (!Array.isArray(bundle.posts)) bundle.posts = [];
+    if (!bundle.anonIdMap || typeof bundle.anonIdMap !== "object") bundle.anonIdMap = {};
+    if (!bundle.userPersonaMap || typeof bundle.userPersonaMap !== "object") bundle.userPersonaMap = {};
+    return bundle;
+  }
+
+  function getYouDogTwitterBundle(plotId) {
+    const pid = plotId || (youDogPlotIds.length ? youDogPlotIds[0] : null);
+    if (!pid) return null;
+    return ensureYouDogTwitterBundle(pid);
+  }
+
+  function persistYouDogTwitterBundle(bundle, plotId) {
+    const key = youDogStorageKey(plotId || (youDogPlotIds.length ? youDogPlotIds[0] : null));
+    if (!key || !bundle) return;
+    youDogTwitterData[key] = bundle;
+    schedulePersistNarrative();
+  }
+
+  function shuffleYouDogArray(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = a[i];
+      a[i] = a[j];
+      a[j] = t;
+    }
+    return a;
+  }
+
+  function pickYouDogBatchSpeakers(participantIds) {
+    const ids = Array.isArray(participantIds) ? participantIds.filter(Boolean) : [];
+    if (!ids.length) return [];
+    const cap = YOU_DOG_SPEAKERS_PER_BATCH;
+    if (ids.length <= cap) return ids.slice();
+    return shuffleYouDogArray(ids).slice(0, cap);
+  }
+
+  function pickYouDogChatBatchSpeakers(memberRefs) {
+    const refs = Array.isArray(memberRefs) ? memberRefs.filter(Boolean) : [];
+    if (!refs.length) return [];
+    const cap = YOU_DOG_CHAT_SPEAKERS_PER_BATCH;
+    if (refs.length <= cap) return refs.slice();
+    return shuffleYouDogArray(refs).slice(0, cap);
+  }
+
+  function getYouDogAllChatMemberRefs() {
+    if (!isYouDogChatReady()) return [];
+    return (ensureYouDogChatData().members || [])
+      .map(function (m) {
+        return m && m.memberRef;
+      })
+      .filter(Boolean);
+  }
+
+  function getYouDogCharAvatarUrl(charId, plotId) {
+    const cid = String(charId || "").trim();
+    if (!cid) return "";
+    const ch = getCharById(cid);
+    const tryPlot = function (pid) {
+      const plot = plots.find(function (p) {
+        return p.id === pid;
+      });
+      if (!plot) return "";
+      const view = getPlotCharacterView(plot, cid);
+      if (view && view.avatarUrl) return String(view.avatarUrl).trim();
+      return "";
+    };
+    if (plotId) {
+      const fromPlot = tryPlot(plotId);
+      if (fromPlot) return fromPlot;
+    }
+    for (let i = 0; i < youDogPlotIds.length; i++) {
+      const fromPlot = tryPlot(youDogPlotIds[i]);
+      if (fromPlot) return fromPlot;
+    }
+    return ch && ch.avatarUrl ? String(ch.avatarUrl).trim() : "";
+  }
+
+  function buildYouDogPostAvatarHtml(post, opts) {
+    opts = opts || {};
+    const speakerRef = String((post && post.speakerRef) || "").trim();
+    const plotId = (post && post.plotId) || resolveYouDogPlotIdForChar(speakerRef);
+    const avatarUrl = speakerRef ? getYouDogCharAvatarUrl(speakerRef, plotId) : "";
+    let inner = "";
+    if (avatarUrl) {
+      inner =
+        '<span class="you-dog-post__avatar you-dog-post__avatar--image">' +
+        '<img src="' +
+        escapeHtml(avatarUrl) +
+        '" alt="" /></span>';
+    } else {
+      inner =
+        '<span class="you-dog-post__avatar" aria-hidden="true">' +
+        escapeHtml(buildYouDogAnonInitial(post && post.anonId)) +
+        "</span>";
+    }
+    if (opts.clickable && speakerRef) {
+      return (
+        '<button type="button" class="you-dog-post__avatar-btn" data-you-dog-open-profile="' +
+        escapeHtml(speakerRef) +
+        '" aria-label="查看主页">' +
+        inner +
+        "</button>"
+      );
+    }
+    return inner;
+  }
+
+  function getYouDogPostsBySpeaker(speakerRef) {
+    const ref = String(speakerRef || "").trim();
+    if (!ref) return [];
+    return getYouDogMergedPosts().filter(function (p) {
+      return p && String(p.speakerRef || "").trim() === ref;
+    });
+  }
+
+  function getYouDogSpeakerProfile(speakerRef) {
+    const ref = String(speakerRef || "").trim();
+    const posts = getYouDogPostsBySpeaker(ref);
+    const plotId = (posts[0] && posts[0].plotId) || resolveYouDogPlotIdForChar(ref);
+    const ch = getCharById(ref);
+    let charName = "匿名";
+    if (ch && ch.name) charName = String(ch.name).trim();
+    else if (ref.indexOf("npc:") === 0) charName = ref.slice(4) || "NPC";
+    else if (ref.indexOf("web:") === 0) charName = "路人网友";
+    else if (ref.indexOf("user:") === 0) charName = "我";
+    const anonId =
+      (posts[0] && posts[0].anonId) ||
+      (ref.indexOf("user:") === 0 ? getYouDogCurrentUserAnonId() : "@匿名");
+    const avatarUrl =
+      ref && ref.indexOf("web:") !== 0 && ref.indexOf("npc:") !== 0 && ref.indexOf("user:") !== 0
+        ? getYouDogCharAvatarUrl(ref, plotId)
+        : ref.indexOf("user:") === 0 && youDogUserCharId
+          ? getYouDogUserPersonaAvatarUrl(getYouDogUserPersonaChar())
+          : "";
+    return {
+      speakerRef: ref,
+      charName: charName,
+      anonId: anonId,
+      avatarUrl: avatarUrl,
+      posts: posts,
+      postCount: posts.length,
+    };
+  }
+
+  function openYouDogPostDetail(slot, postId, fromScreen) {
+    const id = String(postId || "").trim();
+    if (!id || !findYouDogPostContext(id)) {
+      showToast("帖子不存在", "warning");
+      return;
+    }
+    youDogScreen = "post";
+    youDogDetailPostId = id;
+    youDogNavFrom = fromScreen === "profile" ? "profile" : "feed";
+    youDogPostMenuPostId = null;
+    renderYouDogScreen(slot || els.youDogContentSlot());
+  }
+
+  function openYouDogProfile(slot, speakerRef) {
+    const ref = String(speakerRef || "").trim();
+    if (!ref) return;
+    youDogScreen = "profile";
+    youDogProfileSpeakerRef = ref;
+    youDogDetailPostId = null;
+    youDogPostMenuPostId = null;
+    renderYouDogScreen(slot || els.youDogContentSlot());
+  }
+
+  function handleYouDogBack(slot) {
+    if (youDogChatSubScreen === "chat") {
+      youDogChatSubScreen = "feed";
+      youDogChatParticipantPanelOpen = false;
+      youDogChatSelectMode = false;
+      youDogChatSelectedMsgIds = [];
+      youDogChatSettingsOpen = false;
+      youDogChatMoreOpen = false;
+      youDogChatQuoteDraft = null;
+      hideYouDogChatMsgActionBubble();
+      renderYouDogScreen(slot);
+      return;
+    }
+    if (youDogScreen === "post") {
+      youDogScreen = youDogNavFrom === "profile" ? "profile" : "feed";
+      youDogDetailPostId = null;
+      renderYouDogScreen(slot);
+      return;
+    }
+    if (youDogScreen === "profile") {
+      youDogScreen = "feed";
+      youDogProfileSpeakerRef = null;
+      renderYouDogScreen(slot);
+      return;
+    }
+    closeOverviewYouDogView();
+  }
+
+  function buildYouDogPlotRecentHistoryText(plot) {
+    const allTurns = plot.playTurns || [];
+    const startIdx = Math.max(0, allTurns.length - YOU_DOG_PLOT_REF_TURN_LIMIT);
+    const recentTurns = allTurns.slice(startIdx);
+    const lastIdx = recentTurns.length - 1;
+    let history = compactStoryPlayHistoryForApi(
+      recentTurns
+        .map(function (turn, ti) {
+          return buildStoryPlayTurnHistoryForApi(plot, turn, startIdx + ti, ti === lastIdx);
+        })
+        .filter(Boolean)
+        .join("\n\n")
+    );
+    if (!String(history || "").trim() && plotHasRecordedInteractivePlay(plot)) {
+      const flat = flattenPlotLines(plot);
+      const lineCap = Math.max(8, YOU_DOG_PLOT_REF_TURN_LIMIT * 4);
+      history = compactStoryPlayHistoryForApi(
+        flat
+          .slice(-lineCap)
+          .map(function (row) {
+            return formatSummaryLineForPrompt(plot, row);
+          })
+          .join("\n")
+      );
+    }
+    return history;
+  }
+
+  function stripYouDogBracketEmoji(text) {
+    return String(text || "")
+      .replace(/\[[\u4e00-\u9fff]{1,10}\]/g, "")
+      .replace(/[ \t]{2,}/g, " ")
+      .trim();
+  }
+
+  function buildYouDogLatestMemoriesBlock(plot) {
+    ensurePlotExtendedState(plot);
+    return (plot.memories || [])
+      .slice()
+      .sort(function (a, b) {
+        return (b.updatedAt || 0) - (a.updatedAt || 0);
+      })
+      .slice(0, YOU_DOG_PLOT_MEMORY_REF_LIMIT)
+      .map(function (it) {
+        return "- " + truncateCharsWithEllipsis(it && it.content, YOU_DOG_PROMPT_MEMORY_ITEM_MAX_CHARS);
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  function buildYouDogParticipantProfilesBlock(plot, participantIds) {
+    const ids = Array.isArray(participantIds) ? participantIds : [];
+    const lines = ids
+      .map(function (cid) {
+        const ch = getCharById(cid);
+        const name = ch && ch.name ? String(ch.name).trim() : "角色";
+        const profile = truncateCharsWithEllipsis(
+          buildCharacterProfileFromPlot(plot, cid) || "（无额外设定）",
+          YOU_DOG_PROMPT_PROFILE_MAX_CHARS
+        );
+        return name + "（speakerRef=" + cid + "）：" + profile;
+      })
+      .filter(Boolean);
+    return lines.join("\n");
+  }
+
+  function buildYouDogSummariesPromptBlock(plot) {
+    const block = buildPlotSummariesPromptBlockForPlay(plot);
+    if (!block) return "";
+    return truncateCharsWithEllipsis(block, YOU_DOG_PROMPT_SUMMARY_MAX_CHARS);
+  }
+
+  function buildYouDogPlotContextBlocks(plot, participantIds) {
+    const identityBlocks = getEffectiveIdentityBlocks(plot);
+    const history = buildYouDogPlotRecentHistoryText(plot);
+    const summaryBlock = buildYouDogSummariesPromptBlock(plot);
+    const memoryBlock = buildYouDogLatestMemoriesBlock(plot);
+    const protagonist = getCharById(plot.protagonistId);
+    const protagName = protagonist && protagonist.name ? protagonist.name : "主角";
+    const identitySelf = truncateCharsWithEllipsis(
+      identityBlocks.identitySelfBlock || "未设定",
+      YOU_DOG_PROMPT_IDENTITY_MAX_CHARS
+    );
+    const identityOthers = truncateCharsWithEllipsis(
+      identityBlocks.identityOthersBlock || "未设定",
+      YOU_DOG_PROMPT_IDENTITY_MAX_CHARS
+    );
+    const lines = [];
+    lines.push("【所在剧情 · 我的形象（主视角主角）真名：" + protagName + "】");
+    lines.push(identitySelf);
+    lines.push("");
+    lines.push("【剧情 · 其他角色设定摘要】");
+    lines.push(identityOthers);
+    lines.push("");
+    lines.push("【本批可发言角色（剧情人设，按 speakerRef 对应）】");
+    lines.push(buildYouDogParticipantProfilesBlock(plot, participantIds) || "（无）");
+    if (summaryBlock) {
+      lines.push("");
+      lines.push("【阶段总结】");
+      lines.push(summaryBlock);
+    }
+    if (memoryBlock) {
+      lines.push("");
+      lines.push("【相关记忆（最近 " + YOU_DOG_PLOT_MEMORY_REF_LIMIT + " 条）】");
+      lines.push(memoryBlock);
+    }
+    lines.push("");
+    lines.push("【最近 " + YOU_DOG_PLOT_REF_TURN_LIMIT + " 轮剧情（末轮全文，更早轮为摘录）】");
+    lines.push(history || "故事刚开始。");
+    return { lines: lines, protagName: protagName };
+  }
+
+  function getYouDogRecentPostsSummary(bundle) {
+    const posts = (bundle && bundle.posts) || [];
+    return posts.slice(-YOU_DOG_HISTORY_POST_LIMIT).map(function (p) {
+      return "- " + String(p.anonId || "@?") + "：" + truncateCharsWithEllipsis(p.text || "", YOU_DOG_PROMPT_HISTORY_POST_CHARS);
+    });
+  }
+
+  function resolveYouDogSpeakerName(speakerRef) {
+    const ref = String(speakerRef || "").trim();
+    if (!ref) return "";
+    if (ref.indexOf("npc:") === 0 || ref.indexOf("web:") === 0) return ref;
+    const ch = getCharById(ref);
+    return ch && ch.name ? String(ch.name).trim() : ref;
+  }
+
+  function getYouDogCurrentUserAnonId() {
+    return ensureYouDogGlobalAnonAlias();
+  }
+
+  function normalizeYouDogComment(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const text = stripYouDogBracketEmoji(String(raw.text || "").trim());
+    if (!text) return null;
+    return {
+      id: String(raw.id || uid("ydc")).trim(),
+      anonId: String(raw.anonId || "@匿名").trim(),
+      text: text.slice(0, YOU_DOG_COMMENT_TEXT_MAX),
+      replyTo: raw.replyTo != null && String(raw.replyTo).trim() ? String(raw.replyTo).trim() : null,
+      speakerRef: String(raw.speakerRef || "web:rando").trim(),
+    };
+  }
+
+  function normalizeYouDogPost(raw, bundle) {
+    if (!raw || typeof raw !== "object") return null;
+    const text = stripYouDogBracketEmoji(String(raw.text || "").trim());
+    if (!text) return null;
+    const speakerRef = String(raw.speakerRef || "").trim();
+    let anonId = String(raw.anonId || "").trim();
+    if (speakerRef && bundle && bundle.anonIdMap) {
+      if (bundle.anonIdMap[speakerRef]) {
+        anonId = bundle.anonIdMap[speakerRef];
+      } else if (anonId) {
+        bundle.anonIdMap[speakerRef] = anonId;
+      }
+    }
+    if (!anonId) anonId = "@匿名" + Math.floor(Math.random() * 9999);
+    const comments = Array.isArray(raw.comments)
+      ? raw.comments.map(normalizeYouDogComment).filter(Boolean)
+      : [];
+    const likes = Array.isArray(raw.likes)
+      ? raw.likes.map(function (x) {
+          return String(x || "").trim();
+        }).filter(Boolean)
+      : [];
+    return {
+      id: String(raw.id || uid("ydp")).trim(),
+      anonId: anonId,
+      speakerRef: speakerRef,
+      plotId: String(raw.plotId || "").trim() || null,
+      text: text.slice(0, YOU_DOG_POST_TEXT_MAX),
+      time: String(raw.time || "刚刚").trim(),
+      tag: resolveYouDogSectionId(raw.tag),
+      likes: likes,
+      comments: comments,
+      userSavedLike: !!raw.userSavedLike,
+      userSavedBookmark: !!raw.userSavedBookmark,
+    };
+  }
+
+  function filterYouDogPostsByTag(posts, tagId) {
+    const list = Array.isArray(posts) ? posts.slice() : [];
+    const tag = String(tagId || "all");
+    if (tag === "all") return list;
+    if (tag === "hot") {
+      return list.slice().sort(function (a, b) {
+        const sa = (a && a.likes ? a.likes.length : 0) + (a && a.comments ? a.comments.length : 0);
+        const sb = (b && b.likes ? b.likes.length : 0) + (b && b.comments ? b.comments.length : 0);
+        return sb - sa;
+      });
+    }
+    return list.filter(function (p) {
+      return p && resolveYouDogSectionId(p.tag) === tag;
+    });
+  }
+
+  function mergeYouDogFeedIncrement(bundle, parsed, batchSpeakerIds, plotId) {
+    const existing =
+      bundle && Array.isArray(bundle.posts)
+        ? bundle
+        : ensureYouDogTwitterBundle(plotId || resolveYouDogPlotIdForChar(batchSpeakerIds[0]));
+    const newPosts = parsed && Array.isArray(parsed.newPosts) ? parsed.newPosts : parsed && Array.isArray(parsed.posts) ? parsed.posts : [];
+    newPosts.forEach(function (raw) {
+      const post = normalizeYouDogPost(raw, existing);
+      if (post) existing.posts.push(post);
+    });
+    if (batchSpeakerIds && existing.anonIdMap) {
+      batchSpeakerIds.forEach(function (cid) {
+        if (!existing.anonIdMap[cid]) {
+          const ch = getCharById(cid);
+          const name = ch && ch.name ? String(ch.name).trim() : "某";
+          existing.anonIdMap[cid] = "@" + name.replace(/\s/g, "") + "的树洞" + Math.floor(Math.random() * 99);
+        }
+      });
+    }
+    return existing;
+  }
+
+  function buildYouDogMultiPlotFeedPrompt(activePlots, participantRefs, batchSpeakerRefs) {
+    const lines = [
+      "请为「你才是狗·匿名推特」生成一批新推文 JSON。",
+      "以下有多条剧情世界观并行；角色用小号/匿名 ID 发帖，像真实树洞/论坛碎碎念。",
+      YOU_DOG_ANON_TONE_RULE,
+      "狗味要浓：暗戳戳秀恩爱、较劲、炫耀、和各自剧情相关的小心思。",
+      "严禁暴露角色真名；anonId 是界面显示的匿名网名。",
+      "speakerRef 必须使用 plotId:charId 格式（见本批列表），以区分不同剧情中的同一人物设定。",
+      "不同剧情的角色可在同一时间线互动，但发帖内容须符合各自剧情设定。",
+      "",
+    ];
+    const protagNames = [];
+    activePlots.forEach(function (plot) {
+      const plotBatch = getCharIdsForPlotFromFeedSpeakerRefs(batchSpeakerRefs, plot.id);
+      if (!plotBatch.length) return;
+      const bundle = ensureYouDogTwitterBundle(plot.id);
+      const ctx = buildYouDogPlotContextBlocks(plot, plotBatch);
+      protagNames.push(ctx.protagName);
+      lines.push("════ 剧情《" + (plot.title || "未命名") + "》════");
+      lines.push.apply(lines, ctx.lines);
+      const anonMapLines = Object.keys(bundle.anonIdMap || {})
+        .map(function (ref) {
+          return "- " + resolveYouDogSpeakerName(ref) + " → " + bundle.anonIdMap[ref];
+        })
+        .filter(Boolean);
+      if (anonMapLines.length) {
+        lines.push("");
+        lines.push("【该剧情已有匿名 ID 映射（跨帖须保持一致）】");
+        lines.push(anonMapLines.join("\n"));
+      }
+      const existingSummary = getYouDogRecentPostsSummary(bundle);
+      if (existingSummary.length) {
+        lines.push("");
+        lines.push("【该剧情已有推文（请勿重复，最近 " + existingSummary.length + " 条）】");
+        lines.push(existingSummary.join("\n"));
+      }
+      lines.push("");
+    });
+    if (protagNames.length) {
+      lines.push("严禁替以下主视角主角发帖：" + protagNames.join("、"));
+      lines.push("");
+    }
+    const batchNames = batchSpeakerRefs
+      .map(function (ref) {
+        const label = formatYouDogFeedSpeakerRefLabel(ref);
+        return label ? label + "（speakerRef=" + ref + "）" : "";
+      })
+      .filter(Boolean);
+    const postCount = batchSpeakerRefs.length;
+    lines.push("【本批须发言的角色（每人恰好 1 帖，不得遗漏或重复）】");
+    lines.push(batchNames.length ? batchNames.join("\n") : "（无）");
+    lines.push("");
+    lines.push("【可选分区（tag 字段须用 sectionId；简介供生成参考）】");
+    lines.push(buildYouDogSectionsPromptBlock());
+    lines.push("");
+    lines.push(
+      "必须恰好生成 " +
+        postCount +
+        " 条推文，每条对应上方列表中一个 speakerRef（plotId:charId），每个 speakerRef 只能出现 1 次。" +
+        '只输出 JSON：{"posts":[{"id":"唯一英文id","anonId":"@匿名网名","speakerRef":"plotId:charId","text":"碎碎念","time":"相对时间如3小时前","tag":"sectionId","likes":[],"comments":[]}]}。' +
+        "tag 须为上列 sectionId 之一，根据内容选最贴切分区；本批内尽量覆盖不同分区。anonId 不可重复；" +
+        YOU_DOG_ANON_TONE_RULE +
+        " " +
+        YOU_DOG_EMOJI_STYLE_RULE +
+        "；须与对应角色所在剧情一致。"
+    );
+    return lines.join("\n");
+  }
+
+  function buildYouDogMultiPlotFeedRegeneratePrompt(activePlots, participantRefs, batchSpeakerRefs) {
+    return (
+      "请根据最新剧情，在已有推文基础上增量追加；不要删除或覆盖已有帖子，只追加新 post。\n\n" +
+      buildYouDogMultiPlotFeedPrompt(activePlots, participantRefs, batchSpeakerRefs)
+    );
+  }
+
+  function distributeYouDogFeedPosts(parsed, batchSpeakerRefs) {
+    const newPosts =
+      parsed && Array.isArray(parsed.newPosts)
+        ? parsed.newPosts
+        : parsed && Array.isArray(parsed.posts)
+          ? parsed.posts
+          : [];
+    const touchedPlotIds = new Set();
+    const seenSpeakers = new Set();
+    newPosts.forEach(function (raw) {
+      const normalized = normalizeYouDogFeedSpeakerRefFromRaw(raw && raw.speakerRef, raw && raw.plotId);
+      if (!normalized) return;
+      if (seenSpeakers.has(normalized.batchRef)) return;
+      if (batchSpeakerRefs.indexOf(normalized.batchRef) < 0) return;
+      seenSpeakers.add(normalized.batchRef);
+      const bundle = ensureYouDogTwitterBundle(normalized.plotId);
+      const post = normalizeYouDogPost(
+        Object.assign({}, raw, { speakerRef: normalized.charId, plotId: normalized.plotId }),
+        bundle
+      );
+      if (post) {
+        post.plotId = normalized.plotId;
+        bundle.posts.push(post);
+        touchedPlotIds.add(normalized.plotId);
+      }
+    });
+    batchSpeakerRefs.forEach(function (ref) {
+      const parsed = parseYouDogChatMemberRef(ref);
+      if (!parsed) return;
+      const plotId = parsed.plotId;
+      const cid = parsed.charId;
+      const bundle = ensureYouDogTwitterBundle(plotId);
+      if (!bundle.anonIdMap[cid]) {
+        const ch = getCharById(cid);
+        const name = ch && ch.name ? String(ch.name).trim() : "某";
+        bundle.anonIdMap[cid] = "@" + name.replace(/\s/g, "") + "的树洞" + Math.floor(Math.random() * 99);
+      }
+      touchedPlotIds.add(plotId);
+    });
+    touchedPlotIds.forEach(function (plotId) {
+      persistYouDogTwitterBundle(ensureYouDogTwitterBundle(plotId), plotId);
+    });
+    return { added: seenSpeakers.size, expected: batchSpeakerRefs.length };
+  }
+
+  function buildYouDogFeedPrompt(plot, participantIds, bundle, batchSpeakerIds) {
+    const ctx = buildYouDogPlotContextBlocks(plot, batchSpeakerIds);
+    const existingSummary = getYouDogRecentPostsSummary(bundle);
+    const anonMapLines = Object.keys(bundle.anonIdMap || {})
+      .map(function (ref) {
+        return "- " + resolveYouDogSpeakerName(ref) + " → " + bundle.anonIdMap[ref];
+      })
+      .filter(Boolean);
+    const batchNames = batchSpeakerIds
+      .map(function (id) {
+        const ch = getCharById(id);
+        return ch && ch.name ? ch.name + "（speakerRef=" + id + "）" : "";
+      })
+      .filter(Boolean);
+    const postCount = batchSpeakerIds.length;
+    const lines = [
+      "请为「你才是狗·匿名推特」生成一批新推文 JSON。",
+      "这是角色用小号/匿名 ID 发的碎碎念，像真实树洞/论坛发帖。",
+      YOU_DOG_ANON_TONE_RULE,
+      "狗味要浓：暗戳戳秀恩爱、较劲、炫耀、和剧情相关的小心思。",
+      "严禁暴露角色真名；anonId 是界面显示的匿名网名；speakerRef 供系统内部映射（用角色 id 或 npc:名称）。",
+      "严禁替「我的形象」主角「" + ctx.protagName + "」发帖。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    if (anonMapLines.length) {
+      lines.push("【已有匿名 ID 映射（跨帖须保持一致）】");
+      lines.push(anonMapLines.join("\n"));
+      lines.push("");
+    }
+    if (existingSummary.length) {
+      lines.push("【已有推文（请勿重复，最近 " + existingSummary.length + " 条）】");
+      lines.push(existingSummary.join("\n"));
+      lines.push("");
+    }
+    lines.push("【本批须发言的角色（每人恰好 1 帖，不得遗漏或重复）】");
+    lines.push(batchNames.length ? batchNames.join("\n") : "（无）");
+    lines.push("");
+    lines.push("【可选分区（tag 字段须用 sectionId；简介供生成参考）】");
+    lines.push(buildYouDogSectionsPromptBlock());
+    lines.push("");
+    lines.push(
+      "必须恰好生成 " +
+        postCount +
+        " 条推文，每条对应上方列表中一个 speakerRef，每个 speakerRef 只能出现 1 次。" +
+        '只输出 JSON：{"posts":[{"id":"唯一英文id","anonId":"@匿名网名","speakerRef":"角色id或npc:名","text":"碎碎念","time":"相对时间如3小时前","tag":"sectionId","likes":[],"comments":[]}]}。' +
+        "tag 须为上列 sectionId 之一。anonId 不可重复；" +
+        YOU_DOG_ANON_TONE_RULE +
+        " " +
+        YOU_DOG_EMOJI_STYLE_RULE +
+        "；须与剧情一致。"
+    );
+    return lines.join("\n");
+  }
+
+  function buildYouDogFeedRegeneratePrompt(plot, participantIds, bundle, batchSpeakerIds) {
+    const base = buildYouDogFeedPrompt(plot, participantIds, bundle, batchSpeakerIds);
+    return (
+      "请根据最新剧情，在已有推文基础上增量追加；不要删除或覆盖已有帖子，只追加新 post。\n\n" + base
+    );
+  }
+
+  function buildYouDogRepliesPrompt(plot, post, bundle, participantIds) {
+    const ctx = buildYouDogPlotContextBlocks(plot, participantIds);
+    const comments = (post && post.comments) || [];
+    const commentLines = comments.map(function (c) {
+      const rt = c.replyTo ? " 回复" + c.replyTo : "";
+      return "- " + c.anonId + rt + "：" + truncateCharsWithEllipsis(c.text || "", 100);
+    });
+    const userAnon = getYouDogCurrentUserAnonId();
+    const batchIds = shuffleYouDogArray(participantIds).slice(0, Math.min(3, participantIds.length));
+    const batchNames = batchIds
+      .map(function (id) {
+        const ch = getCharById(id);
+        return ch && ch.name ? ch.name + "（" + id + "）" : "";
+      })
+      .filter(Boolean);
+    const lines = [
+      "请为以下匿名推文生成互动回复 JSON（点赞 + 评论）。",
+      "发帖人 anonId：" + (post.anonId || "@?") + "；正文：" + (post.text || ""),
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    if (commentLines.length) {
+      lines.push("【已有回复（勿重复）】");
+      lines.push(commentLines.join("\n"));
+      lines.push("");
+    }
+    if (userAnon) {
+      lines.push("【用户匿名马甲（可回复 TA）】" + userAnon);
+      lines.push("");
+    }
+    lines.push("【优先参与回复的剧情角色】");
+    lines.push(batchNames.length ? batchNames.join("\n") : "（无）");
+    lines.push("");
+    lines.push(
+      "还可加入：剧情 otherRoles 中未建档 NPC（speakerRef 用 npc:名称）、无关路人/吃瓜网友（speakerRef 用 web:随机）。\n" +
+        "约 20~40% 为路人。可回复楼主（replyTo=\"op\"）、回复用户马甲（replyTo=\"@" +
+        userAnon.replace(/^@/, "") +
+        "\" 或完整 anonId）、楼中楼互怼。\n" +
+        "只输出 JSON：{\"likes\":[\"@anon\"],\"comments\":[{\"id\":\"c_xxx\",\"anonId\":\"@...\",\"text\":\"...\",\"replyTo\":\"op|@某马甲|null\",\"speakerRef\":\"charId|npc:...|web:...\"}]}\n" +
+        YOU_DOG_EMOJI_STYLE_RULE
+    );
+    return lines.join("\n");
+  }
+
+  async function generateYouDogFeed(slot, opts) {
+    opts = opts && typeof opts === "object" ? opts : {};
+    if (youDogFeedGenerating || youDogRepliesGenerating) return;
+    sanitizeYouDogState();
+    const activePlots = getYouDogActivePlots();
+    if (!activePlots.length) {
+      showToast("请先选择至少一条剧情。", "warning");
+      openYouDogHolderModal({ mode: "first" });
+      return;
+    }
+    const poolRefs =
+      Array.isArray(opts.participantIds) && opts.participantIds.length
+        ? opts.participantIds.filter(Boolean)
+        : getYouDogAllFeedSpeakerRefs();
+    const batchSpeakerRefs = pickYouDogBatchSpeakers(poolRefs);
+    if (!batchSpeakerRefs.length) {
+      showToast("请至少勾选一个参与发帖的角色。", "warning");
+      return;
+    }
+    const isRegenerate = activePlots.some(function (plot) {
+      const bundle = ensureYouDogTwitterBundle(plot.id);
+      return bundle && bundle.posts && bundle.posts.length;
+    });
+    youDogFeedGenerating = true;
+    renderYouDogScreen(slot || els.youDogContentSlot());
+    try {
+      showToast(isRegenerate ? "正在追加推文…" : "正在生成推文…", "info");
+      const _genCtx = beginGenCall("you-dog-feed", { slot: slot });
+      const systemPrompt =
+        "你是中文互动叙事助手。生成「你才是狗·匿名推特」JSON。\n" +
+        "角色以匿名小号发帖，狗味浓，暗搓搓秀恩爱/较劲；禁止暴露真名；禁止替用户主角发帖。\n" +
+        YOU_DOG_ANON_TONE_RULE +
+        "\n可能有多条并行剧情，speakerRef 须用 plotId:charId 格式以区分不同剧情中的同一人物。\n" +
+        "本批每个 speakerRef 必须恰好对应 1 条 post，不得遗漏、不得重复、不得一人多篇。\n" +
+        YOU_DOG_EMOJI_STYLE_RULE + "\n" +
+        "只输出一个 JSON 对象，不要用 markdown 代码围栏。\n" +
+        '格式：{"posts":[{"id":"...","anonId":"@...","speakerRef":"plotId:charId","text":"...","time":"...","tag":"sectionId","likes":[],"comments":[]}]}';
+      const userPrompt = isRegenerate
+        ? buildYouDogMultiPlotFeedRegeneratePrompt(activePlots, poolRefs, batchSpeakerRefs)
+        : buildYouDogMultiPlotFeedPrompt(activePlots, poolRefs, batchSpeakerRefs);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.82,
+        Math.min(8192, 2048 + batchSpeakerRefs.length * 520),
+        chatApiOptsFromGen(_genCtx)
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const feedResult = distributeYouDogFeedPosts(parsed, batchSpeakerRefs);
+      if (!feedResult.added) throw new Error("未能解析有效的推文内容");
+      if (feedResult.added < feedResult.expected) {
+        showToast(
+          "已生成 " + feedResult.added + " / " + feedResult.expected + " 条（部分角色未返回，可再点一次 ✦）",
+          feedResult.added >= YOU_DOG_TARGET_SPEAKERS_PER_BATCH ? "success" : "warning"
+        );
+      } else {
+        showToast(isRegenerate ? "已追加 " + feedResult.added + " 条推文" : "已生成 " + feedResult.added + " 条推文", "success");
+      }
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      youDogFeedGenerating = false;
+      renderYouDogScreen(slot || els.youDogContentSlot());
+    }
+  }
+
+  async function generateYouDogReplies(slot, postId) {
+    if (youDogRepliesGenerating || youDogFeedGenerating) return;
+    const ctx = findYouDogPostContext(postId);
+    if (!ctx || !ctx.plot || !ctx.bundle || !ctx.post) return;
+    const plot = ctx.plot;
+    const bundle = ctx.bundle;
+    const post = ctx.post;
+    const id = String(postId || "").trim();
+    youDogRepliesGenerating = true;
+    youDogRepliesGeneratingPostId = id;
+    renderYouDogScreen(slot || els.youDogContentSlot());
+    try {
+      showToast("正在生成新回复…", "info");
+      const _genCtx = beginGenCall("you-dog-replies", { slot: slot, postId: id });
+      const systemPrompt =
+        "你是中文互动叙事助手。为匿名推特帖子生成点赞与评论 JSON。\n" +
+        "身份多元：剧情角色、NPC、路人网友；互不知真实身份。\n" +
+        YOU_DOG_EMOJI_STYLE_RULE + "\n" +
+        "只输出 JSON：{\"likes\":[\"@anon\"],\"comments\":[{\"id\":\"...\",\"anonId\":\"@...\",\"text\":\"...\",\"replyTo\":\"op|null|@马甲\",\"speakerRef\":\"...\"}]}";
+      const allParticipantIds = getYouDogAllParticipantIds();
+      const userPrompt = buildYouDogRepliesPrompt(plot, post, bundle, allParticipantIds);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.82,
+        2048,
+        chatApiOptsFromGen(_genCtx)
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      if (parsed && Array.isArray(parsed.likes)) {
+        parsed.likes.forEach(function (like) {
+          const l = String(like || "").trim();
+          if (l && post.likes.indexOf(l) < 0) post.likes.push(l);
+        });
+      }
+      if (parsed && Array.isArray(parsed.comments)) {
+        parsed.comments.forEach(function (c) {
+          const norm = normalizeYouDogComment(c);
+          if (norm) post.comments.push(norm);
+        });
+      }
+      persistYouDogTwitterBundle(bundle, ctx.plotId);
+      showToast("已生成新回复", "success");
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成回复失败", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      youDogRepliesGenerating = false;
+      youDogRepliesGeneratingPostId = null;
+      renderYouDogScreen(slot || els.youDogContentSlot());
+    }
+  }
+
+  function youDogUserHasLikedPost(post) {
+    const anon = getYouDogCurrentUserAnonId();
+    if (!anon || !post || !Array.isArray(post.likes)) return false;
+    return post.likes.indexOf(anon) >= 0;
+  }
+
+  function toggleYouDogPostLike(postId) {
+    if (!youDogUserCharId) {
+      showToast("请先在设置中选择「我的形象」。", "warning");
+      openYouDogPersonaModal();
+      return false;
+    }
+    const ctx = findYouDogPostContext(postId);
+    if (!ctx) return false;
+    const post = ctx.post;
+    const anon = getYouDogCurrentUserAnonId();
+    if (!Array.isArray(post.likes)) post.likes = [];
+    const idx = post.likes.indexOf(anon);
+    if (idx >= 0) post.likes.splice(idx, 1);
+    else post.likes.push(anon);
+    persistYouDogTwitterBundle(ctx.bundle, ctx.plotId);
+    return true;
+  }
+
+  function submitYouDogComment(postId, text) {
+    if (!youDogUserCharId) {
+      showToast("请先在设置中选择「我的形象」。", "warning");
+      return false;
+    }
+    const ctx = findYouDogPostContext(postId);
+    if (!ctx) return false;
+    const post = ctx.post;
+    const trimmed = String(text || "").trim();
+    if (!trimmed) return false;
+    const anon = getYouDogCurrentUserAnonId();
+    if (!Array.isArray(post.comments)) post.comments = [];
+    post.comments.push({
+      id: uid("ydc"),
+      anonId: anon,
+      text: trimmed.slice(0, YOU_DOG_COMMENT_TEXT_MAX),
+      replyTo: null,
+      speakerRef: "user:" + youDogUserCharId,
+    });
+    persistYouDogTwitterBundle(ctx.bundle, ctx.plotId);
+    return true;
+  }
+
+  function deleteYouDogPost(postId) {
+    const ctx = findYouDogPostContext(postId);
+    if (!ctx) return false;
+    const id = String(postId || "").trim();
+    ctx.bundle.posts = ctx.bundle.posts.filter(function (p) {
+      return p && p.id !== id;
+    });
+    persistYouDogTwitterBundle(ctx.bundle, ctx.plotId);
+    return true;
+  }
+
+  function toggleYouDogPostSavedLike(postId) {
+    const ctx = findYouDogPostContext(postId);
+    if (!ctx) return false;
+    ctx.post.userSavedLike = !ctx.post.userSavedLike;
+    persistYouDogTwitterBundle(ctx.bundle, ctx.plotId);
+    return true;
+  }
+
+  function toggleYouDogPostSavedBookmark(postId) {
+    const ctx = findYouDogPostContext(postId);
+    if (!ctx) return false;
+    ctx.post.userSavedBookmark = !ctx.post.userSavedBookmark;
+    persistYouDogTwitterBundle(ctx.bundle, ctx.plotId);
+    return true;
+  }
+
+  function buildYouDogAnonInitial(anonId) {
+    const s = String(anonId || "@?").replace(/^@/, "").trim();
+    return s ? Array.from(s)[0] : "?";
+  }
+
+  function buildYouDogPostMenuHtml(post) {
+    const postId = escapeHtml(String(post.id || ""));
+    const liked = post.userSavedLike;
+    const bookmarked = post.userSavedBookmark;
+    if (youDogPostMenuPostId !== post.id) return "";
+    return (
+      '<div class="you-dog-post__menu" role="menu">' +
+      '<button type="button" class="you-dog-post__menu-item you-dog-post__menu-item--danger" data-you-dog-delete="' +
+      postId +
+      '">删除</button>' +
+      '<button type="button" class="you-dog-post__menu-item" data-you-dog-save-like="' +
+      postId +
+      '">' +
+      (liked ? "取消喜欢" : "喜欢") +
+      "</button>" +
+      '<button type="button" class="you-dog-post__menu-item" data-you-dog-save-bookmark="' +
+      postId +
+      '">' +
+      (bookmarked ? "取消收藏" : "收藏") +
+      "</button></div>"
+    );
+  }
+
+  function buildYouDogPostSocialHtml(post, opts) {
+    opts = opts || {};
+    const previewLimit = typeof opts.previewLimit === "number" ? opts.previewLimit : 0;
+    const likes = post && Array.isArray(post.likes) ? post.likes : [];
+    let comments = post && Array.isArray(post.comments) ? post.comments : [];
+    const generating = youDogRepliesGenerating && youDogRepliesGeneratingPostId === post.id;
+    if (previewLimit > 0 && comments.length > previewLimit) {
+      comments = comments.slice(0, previewLimit);
+    }
+    if (!likes.length && !comments.length && !generating) return "";
+    let html = '<div class="you-dog-post__social">';
+    if (likes.length) {
+      html += '<div class="you-dog-post__likes">♥ ' + escapeHtml(likes.join("，")) + "</div>";
+    }
+    if (comments.length || generating) {
+      html += comments
+        .map(function (c) {
+          const anon = escapeHtml(String(c.anonId || "@?"));
+          const text = escapeHtml(String(c.text || ""));
+          const rt = c.replyTo && c.replyTo !== "op" ? String(c.replyTo) : c.replyTo === "op" ? post.anonId : "";
+          if (rt) {
+            return (
+              '<div class="you-dog-post__comment">' +
+              '<span class="you-dog-post__comment-author">' +
+              anon +
+              "</span> 回复 " +
+              '<span class="you-dog-post__comment-author">' +
+              escapeHtml(rt) +
+              "</span>：" +
+              text +
+              "</div>"
+            );
+          }
+          return (
+            '<div class="you-dog-post__comment">' +
+            '<span class="you-dog-post__comment-author">' +
+            anon +
+            "</span>：" +
+            text +
+            "</div>"
+          );
+        })
+        .join("");
+      if (generating) {
+        html += '<div class="you-dog-post__comment">…正在生成新回复</div>';
+      }
+    }
+    html += "</div>";
+    return html;
+  }
+
+  function buildYouDogDetailCommentHtml(comment, post) {
+    if (!comment) return "";
+    const anon = escapeHtml(String(comment.anonId || "@?"));
+    const text = escapeHtml(String(comment.text || ""));
+    const rt =
+      comment.replyTo && comment.replyTo !== "op"
+        ? String(comment.replyTo)
+        : comment.replyTo === "op"
+          ? post.anonId
+          : "";
+    const speakerRef = String(comment.speakerRef || "").trim();
+    const pseudoPost = { speakerRef: speakerRef, anonId: comment.anonId, plotId: post.plotId };
+    const bodyText = rt
+      ? anon + " 回复 " + escapeHtml(rt) + "：" + text
+      : anon + "：" + text;
+    return (
+      '<article class="you-dog-detail__reply">' +
+      buildYouDogPostAvatarHtml(pseudoPost, { clickable: !!speakerRef }) +
+      '<div class="you-dog-detail__reply-body">' +
+      '<p class="you-dog-detail__reply-text">' +
+      bodyText +
+      "</p></div></article>"
+    );
+  }
+
+  function buildYouDogPostDetailHtml(postId) {
+    const ctx = findYouDogPostContext(postId);
+    if (!ctx || !ctx.post) {
+      return (
+        '<div class="you-dog-empty">' +
+        '<p class="you-dog-empty__title">帖子不存在</p>' +
+        '<p>可能已被删除</p></div>'
+      );
+    }
+    const post = ctx.post;
+    const userLiked = youDogUserHasLikedPost(post);
+    const postIdEsc = escapeHtml(String(post.id || ""));
+    const tagId = resolveYouDogSectionId(post.tag);
+    const tagLabel = getYouDogSectionLabel(tagId);
+    const generating = youDogRepliesGenerating && youDogRepliesGeneratingPostId === post.id;
+    const comments = post.comments || [];
+    let repliesHtml = "";
+    if (comments.length) {
+      repliesHtml = comments
+        .map(function (c) {
+          return buildYouDogDetailCommentHtml(c, post);
+        })
+        .join("");
+    } else if (!generating) {
+      repliesHtml =
+        '<div class="you-dog-detail__empty">' +
+        '<span class="you-dog-detail__empty-icon" aria-hidden="true">💬</span>' +
+        "<p>还没有回复</p></div>";
+    }
+    if (generating) {
+      repliesHtml += '<div class="you-dog-detail__generating">正在生成新回复…</div>';
+    }
+    const genBtnHtml =
+      '<button type="button" class="you-dog-detail__replies-gen' +
+      (generating ? " you-dog-detail__replies-gen--loading" : "") +
+      '" data-you-dog-gen-replies="' +
+      postIdEsc +
+      '"' +
+      (generating || youDogFeedGenerating ? " disabled" : "") +
+      ">" +
+      (generating ? "生成中…" : "生成讨论") +
+      "</button>";
+    return (
+      '<div class="you-dog-detail">' +
+      '<article class="you-dog-detail__op">' +
+      buildYouDogPostAvatarHtml(post, { clickable: true }) +
+      '<div class="you-dog-detail__op-body">' +
+      '<div class="you-dog-post__meta-line">' +
+      '<span class="you-dog-post__anon">' +
+      escapeHtml(String(post.anonId || "@匿名")) +
+      '</span><span class="you-dog-post__tag you-dog-post__tag--' +
+      escapeHtml(tagId) +
+      '">' +
+      escapeHtml(tagLabel) +
+      "</span></div>" +
+      '<span class="you-dog-post__time">' +
+      escapeHtml(String(post.time || "")) +
+      "</span>" +
+      '<p class="you-dog-detail__op-text">' +
+      escapeHtml(String(post.text || "")) +
+      "</p>" +
+      (post.likes.length
+        ? '<div class="you-dog-post__likes">♥ ' + escapeHtml(post.likes.join("，")) + "</div>"
+        : "") +
+      '<div class="you-dog-detail__op-actions">' +
+      '<button type="button" class="you-dog-detail__op-action' +
+      (userLiked ? " you-dog-detail__op-action--liked" : "") +
+      '" data-you-dog-like="' +
+      postIdEsc +
+      '" aria-label="赞">' +
+      '<svg width="15" height="15" viewBox="0 0 24 24" fill="' +
+      (userLiked ? "currentColor" : "none") +
+      '" stroke="currentColor" stroke-width="1.85"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>' +
+      "<span>" +
+      (post.likes.length || "赞") +
+      "</span></button>" +
+      '<button type="button" class="you-dog-detail__op-action" data-you-dog-comment-open="' +
+      postIdEsc +
+      '" aria-label="评论">' +
+      '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>' +
+      "<span>" +
+      (post.comments.length || "评论") +
+      "</span></button></div>" +
+      "</div></article>" +
+      '<section class="you-dog-detail__replies" aria-label="回复">' +
+      '<div class="you-dog-detail__replies-head">' +
+      '<h3 class="you-dog-detail__replies-title">全部回复 · ' +
+      comments.length +
+      "</h3>" +
+      genBtnHtml +
+      "</div>" +
+      repliesHtml +
+      "</section></div>"
+    );
+  }
+
+  function buildYouDogCharProfileHtml(speakerRef) {
+    const profile = getYouDogSpeakerProfile(speakerRef);
+    if (!profile.speakerRef) {
+      return (
+        '<div class="you-dog-empty">' +
+        '<p class="you-dog-empty__title">用户不存在</p></div>'
+      );
+    }
+    const avInner = profile.avatarUrl
+      ? '<img src="' + escapeHtml(profile.avatarUrl) + '" alt="" />'
+      : escapeHtml(buildYouDogAnonInitial(profile.anonId));
+    const avCls = "you-dog-char-profile__avatar" + (profile.avatarUrl ? " you-dog-char-profile__avatar--image" : "");
+    let postsHtml = "";
+    if (!profile.posts.length) {
+      postsHtml = '<p class="you-dog-empty">还没有发过帖</p>';
+    } else {
+      postsHtml = profile.posts
+        .map(function (p) {
+          const pid = escapeHtml(String(p.id || ""));
+          const commentCount = p.comments ? p.comments.length : 0;
+          const likeCount = p.likes ? p.likes.length : 0;
+          return (
+            '<button type="button" class="you-dog-char-profile__post" data-you-dog-open-post="' +
+            pid +
+            '">' +
+            '<div class="you-dog-char-profile__post-meta">' +
+            '<span class="you-dog-post__tag you-dog-post__tag--' +
+            escapeHtml(resolveYouDogSectionId(p.tag)) +
+            '">' +
+            escapeHtml(getYouDogSectionLabel(resolveYouDogSectionId(p.tag))) +
+            "</span>" +
+            '<span class="you-dog-post__time">' +
+            escapeHtml(String(p.time || "")) +
+            "</span></div>" +
+            '<p class="you-dog-char-profile__post-text">' +
+            escapeHtml(String(p.text || "")) +
+            "</p>" +
+            '<div class="you-dog-char-profile__post-stats">' +
+            "<span>♥ " +
+            likeCount +
+            "</span><span>💬 " +
+            commentCount +
+            "</span></div></button>"
+          );
+        })
+        .join("");
+    }
+    return (
+      '<div class="you-dog-char-profile">' +
+      '<header class="you-dog-char-profile__hero">' +
+      '<div class="' +
+      avCls +
+      '">' +
+      avInner +
+      "</div>" +
+      '<div class="you-dog-char-profile__info">' +
+      '<p class="you-dog-char-profile__anon">' +
+      escapeHtml(String(profile.anonId || "@匿名")) +
+      "</p>" +
+      '<p class="you-dog-char-profile__sub">' +
+      escapeHtml(profile.charName) +
+      " · " +
+      profile.postCount +
+      " 篇帖子</p></div></header>" +
+      '<section class="you-dog-char-profile__posts" aria-label="TA的帖子">' +
+      '<h3 class="you-dog-char-profile__heading">全部帖子</h3>' +
+      postsHtml +
+      "</section></div>"
+    );
+  }
+
+  function buildYouDogPostDetailHeaderActionsHtml() {
+    return '<div class="you-dog-app__actions">' + buildYouDogPersonaHeaderHtml() + "</div>";
+  }
+
+  function buildYouDogProfileHeaderActionsHtml() {
+    return '<div class="you-dog-app__actions">' + buildYouDogPersonaHeaderHtml() + "</div>";
+  }
+
+  function buildYouDogPostHtml(post, placeholder) {
+    if (placeholder) {
+      return (
+        '<article class="you-dog-post you-dog-post--placeholder">' +
+        '<div class="you-dog-post__head">' +
+        '<span class="you-dog-post__avatar">…</span>' +
+        '<div class="you-dog-post__meta"><span class="you-dog-post__anon">…</span></div></div>' +
+        '<p class="you-dog-post__text">…</p></article>'
+      );
+    }
+    const userLiked = youDogUserHasLikedPost(post);
+    const postId = escapeHtml(String(post.id || ""));
+    const tagId = resolveYouDogSectionId(post.tag);
+    const tagLabel = getYouDogSectionLabel(tagId);
+    return (
+      '<article class="you-dog-post" data-you-dog-post-id="' +
+      postId +
+      '">' +
+      '<div class="you-dog-post__head">' +
+      buildYouDogPostAvatarHtml(post, { clickable: true }) +
+      '<div class="you-dog-post__meta">' +
+      '<div class="you-dog-post__meta-line">' +
+      '<span class="you-dog-post__anon">' +
+      escapeHtml(String(post.anonId || "@匿名")) +
+      '</span><span class="you-dog-post__tag you-dog-post__tag--' +
+      escapeHtml(tagId) +
+      '">' +
+      escapeHtml(tagLabel) +
+      "</span></div>" +
+      '<span class="you-dog-post__time">' +
+      escapeHtml(String(post.time || "")) +
+      "</span></div>" +
+      '<div class="you-dog-post__menu-wrap">' +
+      '<button type="button" class="you-dog-post__menu-btn" data-you-dog-menu="' +
+      postId +
+      '" aria-label="更多">⋮</button>' +
+      buildYouDogPostMenuHtml(post) +
+      "</div></div>" +
+      '<button type="button" class="you-dog-post__open" data-you-dog-open-post="' +
+      postId +
+      '">' +
+      '<p class="you-dog-post__text">' +
+      escapeHtml(String(post.text || "")) +
+      "</p>" +
+      (post.likes.length || post.comments.length
+        ? '<div class="you-dog-post__stats"><span>♥ ' +
+          post.likes.length +
+          "</span><span>💬 " +
+          post.comments.length +
+          "</span></div>"
+        : "") +
+      buildYouDogPostSocialHtml(post, { previewLimit: 2 }) +
+      "</button>" +
+      '<div class="you-dog-post__actions">' +
+      '<button type="button" class="you-dog-post__action you-dog-post__action--icon' +
+      (userLiked ? " you-dog-post__action--liked" : "") +
+      '" data-you-dog-like="' +
+      postId +
+      '" aria-label="赞">' +
+      '<svg width="16" height="16" viewBox="0 0 24 24" fill="' +
+      (userLiked ? "currentColor" : "none") +
+      '" stroke="currentColor" stroke-width="1.85"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>' +
+      "<span>" +
+      (post.likes.length || "") +
+      "</span></button>" +
+      '<button type="button" class="you-dog-post__action you-dog-post__action--icon" data-you-dog-comment-open="' +
+      postId +
+      '" aria-label="评论">' +
+      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>' +
+      "<span>" +
+      (post.comments.length || "") +
+      "</span></button>" +
+      '<button type="button" class="you-dog-post__action you-dog-post__action--icon you-dog-post__action--danger" data-you-dog-delete="' +
+      postId +
+      '" aria-label="删除">' +
+      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>' +
+      "</button>" +
+      '<button type="button" class="you-dog-post__action you-dog-post__action--gen" data-you-dog-gen-replies="' +
+      postId +
+      '">生成回复</button></div></article>'
+    );
+  }
+
+  function buildYouDogTagBarHtml() {
+    const sections = getYouDogSections();
+    const fixedTabs = [
+      { id: "all", label: "全部" },
+      { id: "hot", label: "热门" },
+    ];
+    const tabs = fixedTabs
+      .map(function (t) {
+        const on = youDogFeedTag === t.id;
+        return (
+          '<button type="button" class="filter-pill you-dog-feed__pill' +
+          (on ? " is-active" : "") +
+          '" data-you-dog-feed-tag="' +
+          escapeHtml(t.id) +
+          '">' +
+          escapeHtml(t.label) +
+          "</button>"
+        );
+      })
+      .concat(
+        sections.map(function (sec) {
+          const on = youDogFeedTag === sec.id;
+          return (
+            '<button type="button" class="filter-pill you-dog-feed__pill' +
+            (on ? " is-active" : "") +
+            '" data-you-dog-feed-tag="' +
+            escapeHtml(sec.id) +
+            '">' +
+            escapeHtml(sec.name) +
+            "</button>"
+          );
+        })
+      )
+      .join("");
+    return (
+      '<div class="pill-row-wrap you-dog-feed__pill-wrap" aria-label="分区">' +
+      '<div class="you-dog-feed__pill-row you-dog-feed__pill-row--with-actions">' +
+      '<div class="pill-row you-dog-feed__pill-scroll">' +
+      tabs +
+      "</div>" +
+      '<div class="you-dog-feed__pill-actions">' +
+      '<button type="button" class="filter-pill filter-pill--manage you-dog-feed__pill-manage" data-you-dog-section-manage-open>管理分类</button>' +
+      "</div></div></div>"
+    );
+  }
+
+  function buildYouDogSectionManageListHtml() {
+    const sections = getYouDogSections();
+    const rows = sections
+      .map(function (sec) {
+        const desc = String(sec.description || "").trim();
+        const descHtml = desc
+          ? escapeHtml(truncateCharsWithEllipsis(desc, 48))
+          : '<span class="phone-forum-manage__desc-placeholder">…</span>';
+        return (
+          '<div class="phone-forum-manage__row">' +
+          '<div class="phone-forum-manage__info">' +
+          '<span class="phone-forum-manage__name">' +
+          escapeHtml(sec.name) +
+          "</span>" +
+          '<span class="phone-forum-manage__desc">' +
+          descHtml +
+          "</span></div>" +
+          '<div class="phone-forum-manage__actions">' +
+          '<button type="button" class="phone-forum-manage__action" data-you-dog-section-edit="' +
+          escapeHtml(sec.id) +
+          '" aria-label="编辑分区">编辑</button>' +
+          '<button type="button" class="phone-forum-manage__action phone-forum-manage__action--danger" data-you-dog-section-delete="' +
+          escapeHtml(sec.id) +
+          '" aria-label="删除分区">删除</button>' +
+          "</div></div>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="phone-forum-manage__panel">' +
+      '<div class="phone-forum-manage__head">' +
+      '<h3 class="phone-forum-manage__title">管理分区</h3>' +
+      '<button type="button" class="phone-forum-manage__close" data-you-dog-section-manage-close aria-label="关闭">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      "</button></div>" +
+      '<p class="phone-forum-manage__hint">分区简介将作为后续 AI 生成该分类推文的规则。</p>' +
+      '<div class="phone-forum-manage__list">' +
+      rows +
+      "</div>" +
+      '<button type="button" class="btn btn--secondary btn--pill phone-forum-manage__add" data-you-dog-section-add>添加分区</button>' +
+      "</div>"
+    );
+  }
+
+  function buildYouDogSectionFormHtml() {
+    const formId = String(youDogSectionFormId || "").trim();
+    if (!formId) return "";
+    const isNew = formId === "new";
+    let nameVal = "";
+    let descVal = "";
+    if (!isNew) {
+      const sec = findYouDogSection(formId);
+      if (sec) {
+        nameVal = sec.name;
+        descVal = sec.description;
+      }
+    }
+    return (
+      '<div class="phone-forum-manage__panel phone-forum-manage__panel--form">' +
+      '<div class="phone-forum-manage__head">' +
+      '<h3 class="phone-forum-manage__title">' +
+      (isNew ? "添加分区" : "编辑分区") +
+      "</h3>" +
+      '<button type="button" class="phone-forum-manage__close" data-you-dog-section-form-cancel aria-label="取消">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      "</button></div>" +
+      '<label class="phone-forum-manage__field">' +
+      '<span class="phone-forum-manage__label">分区名称</span>' +
+      '<input type="text" class="phone-forum-manage__input" data-you-dog-section-name-input maxlength="' +
+      YOU_DOG_SECTION_NAME_MAX +
+      '" value="' +
+      escapeHtml(nameVal) +
+      '" placeholder="最多' +
+      YOU_DOG_SECTION_NAME_MAX +
+      '字" />' +
+      "</label>" +
+      '<label class="phone-forum-manage__field">' +
+      '<span class="phone-forum-manage__label">分区简介（生成规则）</span>' +
+      '<textarea class="phone-forum-manage__textarea" data-you-dog-section-desc-input maxlength="' +
+      YOU_DOG_SECTION_DESC_MAX +
+      '" rows="4" placeholder="描述该分区的发帖风格与内容方向，供 AI 生成时使用">' +
+      escapeHtml(descVal) +
+      "</textarea></label>" +
+      '<button type="button" class="btn btn--primary btn--pill phone-forum-manage__save" data-you-dog-section-save>保存</button>' +
+      "</div>"
+    );
+  }
+
+  function buildYouDogSectionManageOverlayHtml() {
+    if (!youDogSectionManageOpen) return "";
+    const formHtml = youDogSectionFormId ? buildYouDogSectionFormHtml() : buildYouDogSectionManageListHtml();
+    return (
+      '<div class="phone-forum-manage you-dog-section-manage" role="dialog" aria-modal="true" aria-label="管理嗅闻博客分区">' +
+      '<button type="button" class="phone-forum-manage__backdrop" data-you-dog-section-manage-close aria-label="关闭"></button>' +
+      formHtml +
+      "</div>"
+    );
+  }
+
+  function buildYouDogGenPickChatRowHtml(m, cand, cat, activeSet) {
+    const inputId = "you-dog-gen-pick-sw-" + m.memberRef.replace(/[^a-zA-Z0-9_-]/g, "");
+    return (
+      '<label class="you-dog-gen-pick-row" for="' +
+      escapeHtml(inputId) +
+      '">' +
+      buildYouDogChatMemberAvatarHtml(m.memberRef, "avatar you-dog-gen-pick-row__av") +
+      '<span class="you-dog-gen-pick-row__body">' +
+      '<span class="you-dog-gen-pick-row__top">' +
+      buildYouDogChatTagPillHtml(cat) +
+      buildYouDogChatMemberMetaHtml(cand, m.memberRef) +
+      "</span></span>" +
+      buildYouDogSwitchInputHtml({
+        id: m.memberRef,
+        checked: activeSet.has(m.memberRef),
+        dataAttr: "data-you-dog-gen-pick-toggle",
+        inputId: inputId,
+      }) +
+      "</label>"
+    );
+  }
+
+  function buildYouDogGenPickListHtml() {
+    const activeSet = new Set(youDogGenPickDraft);
+    if (youDogGenPickMode === "chat") {
+      const data = ensureYouDogChatData();
+      return (data.members || [])
+        .map(function (m) {
+          const cand = getAllYouDogChatMemberCandidates().find(function (c) {
+            return c.memberRef === m.memberRef;
+          });
+          const cat = getYouDogChatCategory(m.categoryId, data);
+          return buildYouDogGenPickChatRowHtml(m, cand, cat, activeSet);
+        })
+        .join("");
+    }
+    const rows = [];
+    plots.forEach(function (plot) {
+      if (!plot || !plot.id) return;
+      const candidates = getCollectCharacterCandidatesForPlot(plot.id);
+      if (!candidates.length) return;
+      rows.push(
+        '<div class="you-dog-participant-group">' +
+          '<p class="you-dog-participant-group__title">' +
+          escapeHtml(plot.title || "未命名剧情") +
+          "</p>" +
+          '<div class="you-dog-participant-group__list you-dog-bar-switch-list">'
+      );
+      candidates.forEach(function (c) {
+        const ref = makeYouDogChatMemberRef(plot.id, c.id);
+        rows.push(
+          buildYouDogBarSwitchHtml({
+            id: ref,
+            inputId:
+              "you-dog-gen-pick-sw-" +
+              plot.id.replace(/[^a-zA-Z0-9_-]/g, "") +
+              "-" +
+              String(c.id || "").replace(/[^a-zA-Z0-9_-]/g, ""),
+            name: c.name || "未命名",
+            checked: activeSet.has(ref),
+            dataAttr: "data-you-dog-gen-pick-toggle",
+          })
+        );
+      });
+      rows.push("</div></div>");
+    });
+    return rows.join("");
+  }
+
+  function buildYouDogGenPickOverlayHtml() {
+    if (!youDogGenPickOpen) return "";
+    const isChat = youDogGenPickMode === "chat";
+    const batchCap = isChat ? YOU_DOG_CHAT_SPEAKERS_PER_BATCH : YOU_DOG_SPEAKERS_PER_BATCH;
+    const title = isChat ? "选择本批发言角色" : "选择本批发帖角色";
+    const pickedCount = youDogGenPickDraft.length;
+    const hint = isChat
+      ? "列出群聊成员；同一人物在不同剧情中视为不同角色。请勾选最多 " +
+        batchCap +
+        " 位参与本批生成（已选 " +
+        pickedCount +
+        " / " +
+        batchCap +
+        "）"
+      : "列出各剧情主要角色；同一人物在不同剧情中视为不同角色。请勾选最多 " +
+        batchCap +
+        " 位参与本批生成（已选 " +
+        pickedCount +
+        " / " +
+        batchCap +
+        "）";
+    return (
+      '<div class="phone-forum-manage you-dog-gen-pick" role="dialog" aria-modal="true" aria-label="' +
+      escapeHtml(title) +
+      '">' +
+      '<button type="button" class="phone-forum-manage__backdrop" data-you-dog-gen-pick-close aria-label="关闭"></button>' +
+      '<div class="phone-forum-manage__panel">' +
+      '<div class="phone-forum-manage__head">' +
+      '<h3 class="phone-forum-manage__title">' +
+      escapeHtml(title) +
+      '</h3><button type="button" class="phone-forum-manage__close" data-you-dog-gen-pick-close aria-label="关闭">×</button></div>' +
+      '<p class="phone-forum-manage__hint">' +
+      escapeHtml(hint) +
+      '</p><div class="you-dog-participant-panel__list you-dog-bar-switch-list">' +
+      buildYouDogGenPickListHtml() +
+      '</div><div class="phone-forum-manage__footer">' +
+      '<button type="button" class="btn btn--secondary btn--pill" data-you-dog-gen-pick-close>取消</button>' +
+      '<button type="button" class="btn btn--primary btn--pill" data-you-dog-gen-pick-confirm>开始生成</button>' +
+      "</div></div></div>"
+    );
+  }
+
+  function openYouDogGenPick(mode, slot, chatOpts) {
+    youDogGenPickMode = mode === "chat" ? "chat" : "feed";
+    if (youDogGenPickMode === "feed") {
+      sanitizeYouDogState();
+      const refs = getYouDogAllFeedSpeakerCandidateRefs();
+      if (!refs.length) {
+        showToast("暂无剧情主要角色，请先在剧情中添加主要角色。", "warning");
+        return;
+      }
+      youDogGenPickDraft = defaultYouDogGenPickDraft(refs, YOU_DOG_SPEAKERS_PER_BATCH);
+      youDogGenPickPendingChat = null;
+    } else {
+      if (!isYouDogChatReady()) {
+        openYouDogChatSetupModal();
+        return;
+      }
+      sanitizeYouDogChatState();
+      const refs = getYouDogAllChatMemberRefs();
+      if (!refs.length) {
+        showToast("群聊还没有成员。", "warning");
+        return;
+      }
+      youDogGenPickDraft = defaultYouDogGenPickDraft(refs, YOU_DOG_CHAT_SPEAKERS_PER_BATCH);
+      youDogGenPickPendingChat = chatOpts && typeof chatOpts === "object" ? chatOpts : {};
+    }
+    youDogGenPickOpen = true;
+    renderYouDogScreen(slot || els.youDogContentSlot());
+  }
+
+  function closeYouDogGenPick() {
+    youDogGenPickOpen = false;
+    youDogGenPickDraft = [];
+    youDogGenPickPendingChat = null;
+  }
+
+  function toggleYouDogGenPickDraft(id, enabled) {
+    const key = String(id || "").trim();
+    if (!key) return false;
+    const set = new Set(youDogGenPickDraft);
+    const batchCap =
+      youDogGenPickMode === "chat" ? YOU_DOG_CHAT_SPEAKERS_PER_BATCH : YOU_DOG_SPEAKERS_PER_BATCH;
+    if (enabled) {
+      if (set.has(key)) return true;
+      if (set.size >= batchCap) {
+        showToast("本批最多选择 " + batchCap + " 位角色。", "warning");
+        return false;
+      }
+      set.add(key);
+    } else {
+      if (set.size <= 1) {
+        showToast("至少保留一个参与生成的角色。", "warning");
+        return false;
+      }
+      set.delete(key);
+    }
+    youDogGenPickDraft = Array.from(set);
+    return true;
+  }
+
+  function confirmYouDogGenPick(slot) {
+    if (!youDogGenPickDraft.length) {
+      showToast("请至少勾选一个参与生成的角色。", "warning");
+      return;
+    }
+    const batchCap =
+      youDogGenPickMode === "chat" ? YOU_DOG_CHAT_SPEAKERS_PER_BATCH : YOU_DOG_SPEAKERS_PER_BATCH;
+    if (youDogGenPickDraft.length > batchCap) {
+      showToast("本批最多选择 " + batchCap + " 位角色。", "warning");
+      return;
+    }
+    const draft = youDogGenPickDraft.slice();
+    const mode = youDogGenPickMode;
+    const chatOpts = youDogGenPickPendingChat || {};
+    closeYouDogGenPick();
+    if (mode === "feed") {
+      ensureYouDogPlotsForSpeakerRefs(draft);
+    }
+    renderYouDogScreen(slot || els.youDogContentSlot());
+    if (mode === "chat") {
+      void generateYouDogChat(slot, Object.assign({}, chatOpts, { participantIds: draft }));
+    } else {
+      void generateYouDogFeed(slot, { participantIds: draft });
+    }
+  }
+
+  function openYouDogSectionManage() {
+    youDogSectionManageOpen = true;
+    youDogSectionFormId = null;
+    renderYouDogScreen(els.youDogContentSlot());
+  }
+
+  function closeYouDogSectionManage() {
+    youDogSectionManageOpen = false;
+    youDogSectionFormId = null;
+    renderYouDogScreen(els.youDogContentSlot());
+  }
+
+  function openYouDogSectionForm(sectionIdOrNew) {
+    youDogSectionManageOpen = true;
+    youDogSectionFormId = String(sectionIdOrNew || "new");
+    renderYouDogScreen(els.youDogContentSlot());
+    const input = document.querySelector("[data-you-dog-section-name-input]");
+    if (input) input.focus();
+  }
+
+  function cancelYouDogSectionForm() {
+    youDogSectionFormId = null;
+    renderYouDogScreen(els.youDogContentSlot());
+  }
+
+  function saveYouDogSectionForm() {
+    const nameInput = document.querySelector("[data-you-dog-section-name-input]");
+    const descInput = document.querySelector("[data-you-dog-section-desc-input]");
+    const name = truncateCharsWithEllipsis(String((nameInput && nameInput.value) || "").trim(), YOU_DOG_SECTION_NAME_MAX);
+    const description = truncateCharsWithEllipsis(
+      String((descInput && descInput.value) || "").trim(),
+      YOU_DOG_SECTION_DESC_MAX
+    );
+    if (!name) {
+      showToast("分区名称不能为空", "warning");
+      return;
+    }
+    const sections = getYouDogSections().map(cloneYouDogSection);
+    const formId = String(youDogSectionFormId || "").trim();
+    if (formId === "new") {
+      sections.push({ id: uid("yd-sec"), name: name, description: description });
+    } else {
+      const sec = sections.find(function (s) {
+        return s && s.id === formId;
+      });
+      if (!sec) {
+        showToast("分区不存在", "error");
+        return;
+      }
+      sec.name = name;
+      sec.description = description;
+    }
+    setYouDogSections(sections);
+    youDogSectionFormId = null;
+    showToast("已保存分区", "success");
+    renderYouDogScreen(els.youDogContentSlot());
+  }
+
+  async function handleYouDogSectionDelete(sectionId) {
+    const id = String(sectionId || "").trim();
+    const sec = findYouDogSection(id);
+    if (!sec) return;
+    const ok = await showConfirm("确定删除分区「" + sec.name + "」吗？该分区下的推文也会从时间线移除。", "删除分区");
+    if (!ok) return;
+    const sections = getYouDogSections().filter(function (s) {
+      return s && s.id !== id;
+    });
+    if (!sections.length) {
+      showToast("至少保留一个分区。", "warning");
+      return;
+    }
+    purgeYouDogPostsForSection(id);
+    setYouDogSections(sections);
+    if (youDogFeedTag === id) youDogFeedTag = "all";
+    youDogSectionFormId = null;
+    if (!sections.length) youDogSectionManageOpen = false;
+    showToast("已删除分区", "success");
+    renderYouDogScreen(els.youDogContentSlot());
+  }
+
+  function buildYouDogPersonaHeaderHtml() {
+    const persona = getYouDogUserPersonaChar();
+    if (!persona) {
+      return (
+        '<button type="button" class="you-dog-app__avatar-btn you-dog-app__avatar-btn--empty" data-you-dog-persona-open aria-label="选择身份">' +
+        '<span class="avatar">?</span></button>'
+      );
+    }
+    const avatarUrl = getYouDogUserPersonaAvatarUrl(persona);
+    const avInner = avatarUrl
+      ? '<img src="' + escapeHtml(avatarUrl) + '" alt="" />'
+      : escapeHtml(String(persona.name || "?").slice(0, 1));
+    const avCls = "avatar" + (avatarUrl ? " avatar--has-image" : "");
+    return (
+      '<button type="button" class="you-dog-app__avatar-btn" data-you-dog-persona-open aria-label="切换身份：' +
+      escapeHtml(persona.name || "我的形象") +
+      '">' +
+      '<span class="' +
+      avCls +
+      '">' +
+      avInner +
+      "</span></button>"
+    );
+  }
+
+  function buildYouDogHeaderActionsHtml() {
+    if (youDogChatSubScreen === "chat") {
+      return buildYouDogChatHeaderActionsHtml();
+    }
+    const genLoading = youDogFeedGenerating ? " you-dog-app__action-btn--loading" : "";
+    const genDisabled =
+      youDogFeedGenerating || youDogRepliesGenerating || !youDogPlotIds.length ? " disabled" : "";
+    const chatOnCls = youDogChatSubScreen === "chat" ? " you-dog-app__action-btn--on" : "";
+    return (
+      '<div class="you-dog-app__actions">' +
+      '<button type="button" class="you-dog-app__action-btn' +
+      chatOnCls +
+      '" data-you-dog-chat-toggle aria-label="群聊" title="群聊">' +
+      buildYouDogBellIconSvg() +
+      "</button>" +
+      '<button type="button" class="you-dog-app__action-btn you-dog-app__action-btn--accent' +
+      genLoading +
+      '" data-you-dog-generate aria-label="生成推文"' +
+      genDisabled +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>" +
+      buildYouDogPersonaHeaderHtml() +
+      "</div>"
+    );
+  }
+
+  function buildYouDogParticipantListHtml() {
+    const activeSet = new Set(youDogParticipantIds);
+    const rows = [];
+    youDogPlotIds.forEach(function (pid) {
+      const plot = plots.find(function (p) {
+        return p.id === pid;
+      });
+      if (!plot) return;
+      const plotPrefix = "《" + (plot.title || "未命名剧情") + "》";
+      getYouDogParticipantCandidatesForPlot(pid).forEach(function (c) {
+        rows.push(
+          buildYouDogBarSwitchHtml({
+            id: c.id,
+            inputId: "you-dog-sw-" + pid.replace(/[^a-zA-Z0-9_-]/g, "") + "-" + String(c.id || "").replace(/[^a-zA-Z0-9_-]/g, ""),
+            name: plotPrefix + (c.name || "未命名"),
+            checked: activeSet.has(c.id),
+            dataAttr: "data-you-dog-toggle-participant",
+          })
+        );
+      });
+    });
+    return rows.join("");
+  }
+
+  function buildYouDogFeedHtml() {
+    const activePlots = getYouDogActivePlots();
+    if (!activePlots.length) {
+      return (
+        '<div class="you-dog-empty">' +
+        '<p class="you-dog-empty__title">还没有选择剧情</p>' +
+        '<p>可同时开启多条剧情，发帖与互动会合并显示</p>' +
+        '<button type="button" class="btn btn--primary btn--pill" data-you-dog-pick-plot>选择剧情</button></div>'
+      );
+    }
+    const allParticipantIds = getYouDogAllParticipantIds();
+    if (!allParticipantIds.length) {
+      return (
+        '<div class="you-dog-empty">' +
+        '<p class="you-dog-empty__title">所选剧情没有可发帖角色</p>' +
+        '<p>请先在剧情中添加主要角色</p>' +
+        '<button type="button" class="btn btn--primary btn--pill" data-you-dog-pick-plot>管理剧情</button></div>'
+      );
+    }
+    const allPosts = getYouDogMergedPosts();
+    const posts = filterYouDogPostsByTag(allPosts, youDogFeedTag);
+    let html = buildYouDogTagBarHtml();
+    if (youDogFeedGenerating) {
+      html += buildYouDogPostHtml(null, true);
+    }
+    if (!posts.length && !youDogFeedGenerating) {
+      const emptyHint =
+        youDogFeedTag === "all"
+          ? "点右上角 ✦ 生成第一批匿名推文"
+          : "该分区暂无内容，试试切换分区或生成新推文";
+      html +=
+        '<div class="you-dog-empty">' +
+        '<p class="you-dog-empty__title">' +
+        (youDogFeedTag === "all" ? "时间线还是空的" : "这个分区还没有帖") +
+        "</p>" +
+        "<p>" +
+        escapeHtml(emptyHint) +
+        "</p></div>";
+    } else {
+      html += posts
+        .map(function (p) {
+          return buildYouDogPostHtml(p, false);
+        })
+        .join("");
+    }
+    return '<div class="you-dog-feed">' + html + "</div>";
+  }
+
+  function buildYouDogParticipantPanelHtml() {
+    const activeCount = youDogParticipantIds.length;
+    const batchCap = Math.min(YOU_DOG_SPEAKERS_PER_BATCH, activeCount);
+    const batchHint =
+      activeCount >= YOU_DOG_TARGET_SPEAKERS_PER_BATCH
+        ? "每次生成已选角色各发 1 帖（最多 " + batchCap + " 人）"
+        : "每次生成已选 " + activeCount + " 人各发 1 帖";
+    return (
+      '<section class="you-dog-participant-panel">' +
+      '<div class="you-dog-participant-panel__head">' +
+      '<div><p class="you-dog-participant-panel__title">参与发帖的角色</p>' +
+      '<p class="you-dog-participant-panel__hint">' +
+      batchHint +
+      " · 已选 " +
+      activeCount +
+      " 人</p></div>" +
+      '<button type="button" class="you-dog-participant-panel__edit" data-you-dog-pick-plot>管理剧情</button></div>' +
+      '<div class="you-dog-participant-panel__list you-dog-bar-switch-list">' +
+      buildYouDogParticipantListHtml() +
+      "</div></section>"
+    );
+  }
+
+  function buildYouDogProfileHtml() {
+    const posts = getYouDogMergedPosts();
+    const liked = posts.filter(function (p) {
+      return p && p.userSavedLike;
+    });
+    const bookmarked = posts.filter(function (p) {
+      return p && p.userSavedBookmark;
+    });
+    const userChar = getYouDogUserPersonaChar();
+    const personaLabel = userChar ? userChar.name || "我的形象" : "未选择";
+    const userAnon = getYouDogCurrentUserAnonId();
+    function cards(list, emptyText) {
+      if (!list.length) return '<p class="you-dog-empty">' + escapeHtml(emptyText) + "</p>";
+      return list
+        .map(function (p) {
+          return (
+            '<button type="button" class="you-dog-profile__card" data-you-dog-goto-post="' +
+            escapeHtml(p.id) +
+            '">' +
+            '<div class="you-dog-profile__card-anon">' +
+            escapeHtml(String(p.anonId || "")) +
+            "</div>" +
+            '<div class="you-dog-profile__card-text">' +
+            escapeHtml(String(p.text || "")) +
+            "</div></button>"
+          );
+        })
+        .join("");
+    }
+    return (
+      '<div class="you-dog-profile">' +
+      '<div class="you-dog-profile__section">' +
+      '<p class="you-dog-profile__heading">当前身份 · ' +
+      escapeHtml(personaLabel) +
+      (userAnon ? "（" + escapeHtml(userAnon) + "）" : "") +
+      '</p><button type="button" class="btn btn--secondary btn--pill" data-you-dog-persona-open>查看身份详情</button></div>' +
+      '<div class="you-dog-profile__section"><h3 class="you-dog-profile__heading">喜欢</h3>' +
+      cards(liked, "还没有喜欢的帖子") +
+      "</div>" +
+      '<div class="you-dog-profile__section"><h3 class="you-dog-profile__heading">收藏</h3>' +
+      cards(bookmarked, "还没有收藏的帖子") +
+      "</div></div>"
+    );
+  }
+
+  function buildYouDogChatStubHtml() {
+    return buildYouDogChatHtml();
+  }
+
+  /* ── 嗅闻博客 · 群聊 ── */
+
+  function makeYouDogChatMemberRef(plotId, charId) {
+    return String(plotId || "").trim() + ":" + String(charId || "").trim();
+  }
+
+  function parseYouDogChatMemberRef(memberRef) {
+    const ref = String(memberRef || "").trim();
+    const idx = ref.indexOf(":");
+    if (idx <= 0) return null;
+    const plotId = ref.slice(0, idx).trim();
+    const charId = ref.slice(idx + 1).trim();
+    if (!plotId || !charId) return null;
+    return { plotId: plotId, charId: charId, memberRef: ref };
+  }
+
+  function normalizeYouDogChatCategory(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const name = truncateCharsWithEllipsis(String(raw.name || "").trim(), YOU_DOG_CHAT_CATEGORY_NAME_MAX);
+    const color = String(raw.color || "").trim();
+    if (!name || !/^#[0-9A-Fa-f]{6}$/.test(color)) return null;
+    return {
+      id: String(raw.id || uid("ydc-cat")).trim(),
+      name: name,
+      color: color,
+    };
+  }
+
+  function randomYouDogChatTagColor() {
+    const palette = [
+      "#FF6B6B",
+      "#FFB347",
+      "#4ECDC4",
+      "#95A5A6",
+      "#A29BFE",
+      "#FD79A8",
+      "#6C5CE7",
+      "#00B894",
+    ];
+    return palette[Math.floor(Math.random() * palette.length)];
+  }
+
+  function youDogChatTagColorForPreview(name) {
+    const palette = ["#FF6B6B", "#FFB347", "#4ECDC4", "#95A5A6", "#A29BFE", "#FD79A8", "#6C5CE7", "#00B894"];
+    const s = String(name || "").trim();
+    if (!s) return palette[0];
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h + s.charCodeAt(i) * (i + 3)) % palette.length;
+    return palette[h];
+  }
+
+  function buildYouDogChatCategoriesFromMemberTagNames(memberTagNames, existingCategories) {
+    const categories = [];
+    const tagNameToCategoryId = {};
+    const existingByName = {};
+    (existingCategories || []).forEach(function (c) {
+      if (c && c.name) existingByName[c.name] = c;
+    });
+    Object.keys(memberTagNames || {}).forEach(function (ref) {
+      const name = truncateCharsWithEllipsis(String(memberTagNames[ref] || "").trim(), YOU_DOG_CHAT_CATEGORY_NAME_MAX);
+      if (!name || tagNameToCategoryId[name]) return;
+      const prev = existingByName[name];
+      tagNameToCategoryId[name] = prev ? prev.id : uid("ydc-cat");
+      categories.push({
+        id: tagNameToCategoryId[name],
+        name: name,
+        color: prev ? prev.color : randomYouDogChatTagColor(),
+      });
+    });
+    return { categories: categories, tagNameToCategoryId: tagNameToCategoryId };
+  }
+
+  function normalizeYouDogChatMember(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const plotId = String(raw.plotId || "").trim();
+    const charId = String(raw.charId || "").trim();
+    const memberRef = String(raw.memberRef || makeYouDogChatMemberRef(plotId, charId)).trim();
+    const categoryId = String(raw.categoryId || "").trim();
+    if (!plotId || !charId || !memberRef || !categoryId) return null;
+    return {
+      memberRef: memberRef,
+      plotId: plotId,
+      charId: charId,
+      categoryId: categoryId,
+      isAdmin: !!raw.isAdmin,
+    };
+  }
+
+  function normalizeYouDogChatMessage(raw, data) {
+    if (!raw || typeof raw !== "object") return null;
+    const kind = String(raw.kind || "chat").trim();
+    if (kind === "system") {
+      const text = String(raw.text || "").trim();
+      if (!text) return null;
+      return {
+        id: String(raw.id || uid("ydcm")).trim(),
+        kind: "system",
+        batchId: null,
+        memberRef: "",
+        text: text.slice(0, YOU_DOG_CHAT_TEXT_MAX),
+        time: String(raw.time || "刚刚").trim(),
+        tagName: "",
+        tagColor: "",
+        mentions: [],
+      };
+    }
+    const text = String(raw.text || "").trim();
+    if (!text) return null;
+    const memberRef = String(raw.memberRef || "").trim();
+    if (!memberRef) return null;
+    let tagName = String(raw.tagName || "").trim();
+    let tagColor = String(raw.tagColor || "").trim();
+    if (!tagName && memberRef.indexOf("user:") !== 0 && data) {
+      const rec = getYouDogChatMemberRecord(memberRef, data);
+      if (rec) {
+        const cat = getYouDogChatCategory(rec.categoryId, data);
+        if (cat) {
+          tagName = cat.name;
+          tagColor = cat.color;
+        }
+      }
+    }
+    const mentions = Array.isArray(raw.mentions)
+      ? raw.mentions
+          .map(function (m) {
+            return String(m || "").trim();
+          })
+          .filter(Boolean)
+      : [];
+    const quoteRaw = raw.quote && typeof raw.quote === "object" ? raw.quote : null;
+    const quoteText = quoteRaw ? String(quoteRaw.text || "").trim() : "";
+    const quote = quoteText
+      ? {
+          text: quoteText.slice(0, 120),
+          authorName: truncateCharsWithEllipsis(String(quoteRaw.authorName || "").trim(), 24),
+        }
+      : null;
+    return {
+      id: String(raw.id || uid("ydcm")).trim(),
+      kind: "chat",
+      batchId: String(raw.batchId || "").trim() || null,
+      memberRef: memberRef,
+      text: text.slice(0, YOU_DOG_CHAT_TEXT_MAX),
+      time: String(raw.time || "刚刚").trim(),
+      tagName: tagName,
+      tagColor: tagColor,
+      mentions: mentions,
+      quote: quote,
+    };
+  }
+
+  function normalizeYouDogChatData(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const categories = Array.isArray(raw.categories)
+      ? raw.categories.map(normalizeYouDogChatCategory).filter(Boolean)
+      : [];
+    const members = Array.isArray(raw.members) ? raw.members.map(normalizeYouDogChatMember).filter(Boolean) : [];
+    const phaseRaw = String(raw.phase || "opening").trim();
+    const phase = phaseRaw === "discovery" || phaseRaw === "free" ? phaseRaw : "opening";
+    const draft = {
+      setupComplete: !!raw.setupComplete,
+      groupName: truncateCharsWithEllipsis(String(raw.groupName || "").trim(), YOU_DOG_CHAT_GROUP_NAME_MAX),
+      categories: categories.length ? categories : YOU_DOG_CHAT_DEFAULT_CATEGORIES.map(function (c) {
+        return { id: c.id, name: c.name, color: c.color };
+      }),
+      members: members,
+      kickedRefs: Array.isArray(raw.kickedRefs)
+        ? raw.kickedRefs
+            .map(function (r) {
+              return String(r || "").trim();
+            })
+            .filter(Boolean)
+        : [],
+      messages: [],
+      phase: phase,
+      lastBatchId: raw.lastBatchId != null && String(raw.lastBatchId).trim() ? String(raw.lastBatchId).trim() : null,
+    };
+    draft.messages = Array.isArray(raw.messages)
+      ? raw.messages
+          .map(function (m) {
+            return normalizeYouDogChatMessage(m, draft);
+          })
+          .filter(Boolean)
+      : [];
+    return draft;
+  }
+
+  function ensureYouDogChatData() {
+    if (!youDogChatData || typeof youDogChatData !== "object") {
+      youDogChatData = normalizeYouDogChatData({});
+    }
+    if (!Array.isArray(youDogChatData.categories) || !youDogChatData.categories.length) {
+      youDogChatData.categories = YOU_DOG_CHAT_DEFAULT_CATEGORIES.map(function (c) {
+        return { id: c.id, name: c.name, color: c.color };
+      });
+    }
+    if (!Array.isArray(youDogChatData.members)) youDogChatData.members = [];
+    if (!Array.isArray(youDogChatData.kickedRefs)) youDogChatData.kickedRefs = [];
+    if (!Array.isArray(youDogChatData.messages)) youDogChatData.messages = [];
+    if (!youDogChatData.phase) youDogChatData.phase = "opening";
+    return youDogChatData;
+  }
+
+  function getAllYouDogChatMemberCandidates() {
+    const out = [];
+    plots.forEach(function (plot) {
+      if (!plot || !plot.id) return;
+      getCollectCharacterCandidatesForPlot(plot.id).forEach(function (ch) {
+        if (!ch || !ch.id) return;
+        const memberRef = makeYouDogChatMemberRef(plot.id, ch.id);
+        const view = getPlotCharacterView(plot, ch.id);
+        out.push({
+          memberRef: memberRef,
+          plotId: plot.id,
+          charId: ch.id,
+          plotTitle: plot.title || "未命名剧情",
+          charName: ch.name || "未命名",
+          avatarUrl: view && view.avatarUrl ? String(view.avatarUrl).trim() : ch.avatarUrl ? String(ch.avatarUrl).trim() : "",
+        });
+      });
+    });
+    return out;
+  }
+
+  function getYouDogChatMemberRecord(memberRef, data) {
+    const dataObj = data || ensureYouDogChatData();
+    const ref = String(memberRef || "").trim();
+    return (dataObj.members || []).find(function (m) {
+      return m && m.memberRef === ref;
+    });
+  }
+
+  function getYouDogChatCategory(categoryId, data) {
+    const dataObj = data || ensureYouDogChatData();
+    return (dataObj.categories || []).find(function (c) {
+      return c && c.id === categoryId;
+    });
+  }
+
+  function getYouDogChatMemberDisplayName(memberRef) {
+    const parsed = parseYouDogChatMemberRef(memberRef);
+    if (!parsed) {
+      if (String(memberRef || "").indexOf("user:") === 0) {
+        const uid2 = String(memberRef).slice(5);
+        const ch = getCharById(uid2);
+        return ch && ch.name ? String(ch.name).trim() : "我";
+      }
+      return "未知";
+    }
+    const plot = plots.find(function (p) {
+      return p.id === parsed.plotId;
+    });
+    const ch = getCharById(parsed.charId);
+    const charName = ch && ch.name ? String(ch.name).trim() : "未命名";
+    const plotTitle = plot && plot.title ? String(plot.title).trim() : "未命名剧情";
+    return charName + " · " + plotTitle;
+  }
+
+  function getYouDogChatMemberAvatarUrl(memberRef) {
+    const parsed = parseYouDogChatMemberRef(memberRef);
+    if (!parsed) {
+      if (String(memberRef || "").indexOf("user:") === 0) {
+        const uid2 = String(memberRef).slice(5);
+        const ch = getCharById(uid2);
+        if (ch) {
+          const plot = plots.find(function (p) {
+            return p && p.protagonistId === uid2;
+          });
+          if (plot) return getYouDogPlotPersonaAvatarUrl(plot, ch);
+          return ch.avatarUrl ? String(ch.avatarUrl).trim() : "";
+        }
+      }
+      return "";
+    }
+    const plot = plots.find(function (p) {
+      return p.id === parsed.plotId;
+    });
+    if (!plot) return "";
+    const view = getPlotCharacterView(plot, parsed.charId);
+    if (view && view.avatarUrl) return String(view.avatarUrl).trim();
+    const ch = getCharById(parsed.charId);
+    return ch && ch.avatarUrl ? String(ch.avatarUrl).trim() : "";
+  }
+
+  function getYouDogChatMemberTag(memberRef, data) {
+    const dataObj = data || ensureYouDogChatData();
+    const rec = getYouDogChatMemberRecord(memberRef, dataObj);
+    if (!rec) return { name: "", color: "" };
+    const cat = getYouDogChatCategory(rec.categoryId, dataObj);
+    return cat ? { name: cat.name, color: cat.color } : { name: "", color: "" };
+  }
+
+  function getAllYouDogChatSelfPersonaOptions() {
+    return getSelfCharacters().map(function (ch) {
+      const plot = plots.find(function (p) {
+        return p && p.protagonistId === ch.id;
+      });
+      return {
+        charId: ch.id,
+        char: ch,
+        plotTitle: plot ? plot.title || "未命名剧情" : "",
+        avatarUrl: plot ? getYouDogPlotPersonaAvatarUrl(plot, ch) : ch.avatarUrl ? String(ch.avatarUrl).trim() : "",
+      };
+    });
+  }
+
+  function getYouDogChatUserPersonaChar() {
+    if (!youDogChatUserCharId) return null;
+    const ch = getCharById(youDogChatUserCharId);
+    if (!ch || ch.categoryId !== CHAR_CATEGORY_SELF_ID) return null;
+    return ch;
+  }
+
+  function sanitizeYouDogChatState() {
+    const candidates = getAllYouDogChatMemberCandidates();
+    const candidateSet = new Set(candidates.map(function (c) {
+      return c.memberRef;
+    }));
+    if (!youDogChatData || !youDogChatData.setupComplete) {
+      youDogChatParticipantIds = [];
+      if (youDogChatUserCharId) {
+        const u = getCharById(youDogChatUserCharId);
+        if (!u || u.categoryId !== CHAR_CATEGORY_SELF_ID) youDogChatUserCharId = null;
+      }
+      if (!youDogChatUserCharId) {
+        const opts = getAllYouDogChatSelfPersonaOptions();
+        if (opts.length) youDogChatUserCharId = opts[0].charId;
+      }
+      return;
+    }
+    ensureYouDogChatData();
+    const kickedSet = new Set(
+      (youDogChatData.kickedRefs || []).map(function (r) {
+        return String(r || "").trim();
+      }).filter(Boolean)
+    );
+    youDogChatData.members = (youDogChatData.members || []).filter(function (m) {
+      return m && candidateSet.has(m.memberRef) && !kickedSet.has(m.memberRef);
+    });
+    const memberSet = new Set(
+      youDogChatData.members.map(function (m) {
+        return m.memberRef;
+      })
+    );
+    candidates.forEach(function (c) {
+      if (memberSet.has(c.memberRef) || kickedSet.has(c.memberRef)) return;
+      const defaultCat = youDogChatData.categories[0];
+      youDogChatData.members.push({
+        memberRef: c.memberRef,
+        plotId: c.plotId,
+        charId: c.charId,
+        categoryId: defaultCat ? defaultCat.id : "ydc-cat-slacker",
+        isAdmin: false,
+      });
+    });
+    youDogChatParticipantIds = youDogChatData.members.map(function (m) {
+      return m.memberRef;
+    });
+    if (youDogChatUserCharId) {
+      const u = getCharById(youDogChatUserCharId);
+      if (!u || u.categoryId !== CHAR_CATEGORY_SELF_ID) youDogChatUserCharId = null;
+    }
+    if (!youDogChatUserCharId) {
+      const opts = getAllYouDogChatSelfPersonaOptions();
+      if (opts.length) youDogChatUserCharId = opts[0].charId;
+    }
+    youDogChatData.messages = (youDogChatData.messages || [])
+      .map(function (m) {
+        return normalizeYouDogChatMessage(m, youDogChatData);
+      })
+      .filter(Boolean);
+    updateYouDogChatPhase(false);
+  }
+
+  function isYouDogChatReady() {
+    return !!(youDogChatData && youDogChatData.setupComplete);
+  }
+
+  function toggleYouDogChatParticipant(memberRef, enabled) {
+    const ref = String(memberRef || "").trim();
+    if (!ref || !isYouDogChatReady()) return false;
+    const set = new Set(youDogChatParticipantIds);
+    if (enabled) {
+      if (set.size >= YOU_DOG_CHAT_ACTIVE_LIMIT && !set.has(ref)) {
+        showToast("群聊一次最多选择 " + YOU_DOG_CHAT_ACTIVE_LIMIT + " 个角色参与生成。", "warning");
+        return false;
+      }
+      set.add(ref);
+    } else {
+      set.delete(ref);
+    }
+    youDogChatParticipantIds = Array.from(set);
+    schedulePersistNarrative();
+    return true;
+  }
+
+  function buildYouDogChatPlotContextBlock(plot, charId) {
+    if (!plot) return "（剧情不可用）";
+    ensurePlotSummaryState(plot);
+    const profile = truncateCharsWithEllipsis(
+      buildCharacterProfileFromPlot(plot, charId) || "未设定",
+      YOU_DOG_CHAT_PROFILE_MAX_CHARS
+    );
+    let summaryBlock = "";
+    const items = (plot.summaries || [])
+      .slice()
+      .sort(function (a, b) {
+        return (b.createdAt || 0) - (a.createdAt || 0);
+      })
+      .slice(0, YOU_DOG_CHAT_SUMMARY_LIMIT);
+    if (items.length) {
+      summaryBlock = truncateTailCharsWithEllipsis(String(items[0].content || "").trim(), YOU_DOG_CHAT_SUMMARY_MAX_CHARS);
+    } else if (String(plot.mainlineSummary || "").trim()) {
+      summaryBlock = truncateTailCharsWithEllipsis(String(plot.mainlineSummary || "").trim(), YOU_DOG_CHAT_SUMMARY_MAX_CHARS);
+    }
+    const allTurns = plot.playTurns || [];
+    const startIdx = Math.max(0, allTurns.length - YOU_DOG_CHAT_PLOT_TURN_LIMIT);
+    const recentTurns = allTurns.slice(startIdx);
+    const lastIdx = recentTurns.length - 1;
+    let history = compactStoryPlayHistoryForApi(
+      recentTurns
+        .map(function (turn, ti) {
+          return buildStoryPlayTurnHistoryForApi(plot, turn, startIdx + ti, ti === lastIdx);
+        })
+        .filter(Boolean)
+        .join("\n\n")
+    );
+    if (!String(history || "").trim() && plotHasRecordedInteractivePlay(plot)) {
+      const flat = flattenPlotLines(plot);
+      history = compactStoryPlayHistoryForApi(
+        flat
+          .slice(-YOU_DOG_CHAT_PLOT_TURN_LIMIT * 4)
+          .map(function (row) {
+            return formatSummaryLineForPrompt(plot, row);
+          })
+          .join("\n")
+      );
+    }
+    const lines = [
+      "【人设】",
+      profile,
+      "",
+      "【阶段总结（最近 " + YOU_DOG_CHAT_SUMMARY_LIMIT + " 条）】",
+      summaryBlock || "尚无总结。",
+      "",
+      "【最近 " + YOU_DOG_CHAT_PLOT_TURN_LIMIT + " 轮剧情】",
+      history || "剧情尚未开始。",
+    ];
+    return lines.join("\n");
+  }
+
+  function buildYouDogChatMembersTagBlock(data) {
+    const dataObj = data || ensureYouDogChatData();
+    return (dataObj.members || [])
+      .map(function (m) {
+        const cat = getYouDogChatCategory(m.categoryId, dataObj);
+        const ch = getCharById(m.charId);
+        const plot = plots.find(function (p) {
+          return p.id === m.plotId;
+        });
+        return (
+          "- memberRef=" +
+          m.memberRef +
+          " | 标签「" +
+          (cat ? cat.name : "?") +
+          "」| 真名仅供你理解勿写出：" +
+          (ch && ch.name ? ch.name : "?") +
+          " | 剧情《" +
+          (plot && plot.title ? plot.title : "未命名") +
+          "》"
+        );
+      })
+      .join("\n");
+  }
+
+  function buildYouDogChatHistoryBlock(data, limit) {
+    const dataObj = data || ensureYouDogChatData();
+    const cap = typeof limit === "number" ? limit : YOU_DOG_CHAT_HISTORY_MSG_LIMIT;
+    return (dataObj.messages || [])
+      .filter(function (m) {
+        return m && m.kind !== "system";
+      })
+      .slice(-cap)
+      .map(function (m) {
+        const tag = m.tagName ? "「" + m.tagName + "」" : "";
+        const who =
+          String(m.memberRef || "").indexOf("user:") === 0
+            ? "用户"
+            : getYouDogChatMemberDisplayName(m.memberRef);
+        return "- " + who + tag + "：" + truncateCharsWithEllipsis(m.text || "", 120);
+      })
+      .join("\n");
+  }
+
+  function getYouDogChatUserDisplayName() {
+    const ch = getYouDogChatUserPersonaChar();
+    return ch && ch.name ? String(ch.name).trim() : "用户";
+  }
+
+  function getYouDogTwitterPersonaRealName() {
+    const ch = getYouDogUserPersonaChar();
+    return ch && ch.name ? String(ch.name).trim() : getYouDogChatUserDisplayName();
+  }
+
+  function updateYouDogChatPhase(persist) {
+    if (!youDogChatData || !youDogChatData.setupComplete) return;
+    const count = (youDogChatData.messages || []).filter(function (m) {
+      return m && m.kind !== "system" && String(m.memberRef || "").indexOf("user:") !== 0;
+    }).length;
+    let next = youDogChatData.phase || "opening";
+    if (count >= YOU_DOG_CHAT_DISCOVERY_MSG_THRESHOLD) next = "free";
+    else if (count >= YOU_DOG_CHAT_OPENING_MSG_THRESHOLD) next = "discovery";
+    else next = "opening";
+    if (next !== youDogChatData.phase) {
+      youDogChatData.phase = next;
+      if (persist !== false) schedulePersistNarrative();
+    }
+  }
+
+  function buildYouDogChatPhaseInstruction(data) {
+    const dataObj = data || ensureYouDogChatData();
+    const phase = dataObj.phase || "opening";
+    const twitterName = getYouDogTwitterPersonaRealName();
+    const userName = getYouDogChatUserDisplayName();
+    if (phase === "opening") {
+      return (
+        "【本批剧本 · 破冰阶段】\n" +
+        "角色互不认识，只能看到对方头顶的彩色标签；禁止直呼真名，用标签称呼。\n" +
+        "本批须逐步对标签表示困惑，轮流 @用户（群昵称：" +
+        userName +
+        "）。\n" +
+        "若历史里尚未出现，本批须安排：某角色质疑「是不是 " +
+        twitterName +
+        " 在胡闹」，其他角色回应「你怎么也认识 " +
+        twitterName +
+        "？」。\n" +
+        "语气像被拉进陌生群，2～4 人发言即可，不要全员同时爆发。\n" +
+        "每条消息 20～120 字，本批共 " +
+        YOU_DOG_CHAT_MSGS_PER_BATCH_MIN +
+        "～" +
+        YOU_DOG_CHAT_MSGS_PER_BATCH_MAX +
+        " 条。"
+      );
+    }
+    if (phase === "discovery") {
+      return (
+        "【本批剧本 · 平行世界觉醒】\n" +
+        "角色开始怀疑彼此是平行世界的同类，用标签互怼、互嘲、较劲，像大学男生宿舍群。\n" +
+        "可聊剧情内外话题；仍用标签称呼，偶尔 @用户。\n" +
+        "每条 20～120 字，本批 " +
+        YOU_DOG_CHAT_MSGS_PER_BATCH_MIN +
+        "～" +
+        YOU_DOG_CHAT_MSGS_PER_BATCH_MAX +
+        " 条。"
+      );
+    }
+    return (
+      "【本批剧本 · 自由群聊】\n" +
+      "平行世界自觉已建立；标签互称、互损、较劲，话题不限。\n" +
+      "每条 20～120 字，本批尽量多聊，目标 " +
+      YOU_DOG_CHAT_MSGS_PER_BATCH_MIN +
+      "～" +
+      YOU_DOG_CHAT_MSGS_PER_BATCH_MAX +
+      " 条。"
+    );
+  }
+
+  function buildYouDogChatUserPrompt(opts) {
+    opts = opts && typeof opts === "object" ? opts : {};
+    const data = ensureYouDogChatData();
+    const activeRefs =
+      Array.isArray(opts.activeRefs) && opts.activeRefs.length
+        ? opts.activeRefs.slice()
+        : getYouDogAllChatMemberRefs();
+    const lines = [
+      "请为群聊「" + (data.groupName || "未命名群") + "」生成一批新消息 JSON。",
+      "",
+      "【群成员与标签（角色只见标签，不见真名）】",
+      buildYouDogChatMembersTagBlock(data),
+      "",
+      "【本批可发言 memberRef（仅以下成员可输出消息）】",
+      activeRefs.join("、"),
+      "",
+      buildYouDogChatPhaseInstruction(data),
+      "",
+    ];
+    activeRefs.forEach(function (memberRef) {
+      const parsed = parseYouDogChatMemberRef(memberRef);
+      if (!parsed) return;
+      const plot = plots.find(function (p) {
+        return p.id === parsed.plotId;
+      });
+      if (!plot) return;
+      lines.push("════ " + getYouDogChatMemberDisplayName(memberRef) + " · 上下文 ════");
+      lines.push(buildYouDogChatPlotContextBlock(plot, parsed.charId));
+      lines.push("");
+    });
+    const history = buildYouDogChatHistoryBlock(data);
+    if (history) {
+      lines.push("【群聊最近记录（须衔接，勿重复）】");
+      lines.push(history);
+      lines.push("");
+    }
+    if (opts.userText) {
+      lines.push("【用户刚发送】");
+      lines.push(getYouDogChatUserDisplayName() + "：" + String(opts.userText).trim());
+      lines.push("");
+    }
+    lines.push(
+      "只输出 JSON：{\"messages\":[{\"memberRef\":\"plotId:charId\",\"text\":\"...\",\"mentions\":[\"@" +
+        getYouDogChatUserDisplayName() +
+        '"]}]}'
+    );
+    return lines.join("\n");
+  }
+
+  function appendYouDogChatMessages(parsed, batchId, data, allowedRefs) {
+    const dataObj = data || ensureYouDogChatData();
+    const allowed = new Set(
+      Array.isArray(allowedRefs) && allowedRefs.length ? allowedRefs : getYouDogAllChatMemberRefs()
+    );
+    const list = parsed && Array.isArray(parsed.messages) ? parsed.messages : [];
+    let added = 0;
+    list.forEach(function (raw) {
+      const memberRef = String((raw && raw.memberRef) || "").trim();
+      if (!allowed.has(memberRef)) return;
+      const tag = getYouDogChatMemberTag(memberRef, dataObj);
+      const msg = normalizeYouDogChatMessage(
+        {
+          id: raw.id,
+          batchId: batchId,
+          memberRef: memberRef,
+          text: raw.text,
+          time: raw.time || "刚刚",
+          tagName: tag.name,
+          tagColor: tag.color,
+          mentions: raw.mentions,
+        },
+        dataObj
+      );
+      if (msg) {
+        dataObj.messages.push(msg);
+        added++;
+      }
+    });
+    dataObj.lastBatchId = batchId;
+    updateYouDogChatPhase(false);
+    schedulePersistNarrative();
+    return added;
+  }
+
+  function appendYouDogChatUserMessage(text, quoteDraft) {
+    const data = ensureYouDogChatData();
+    if (!youDogChatUserCharId) return false;
+    const trimmed = String(text || "").trim();
+    if (!trimmed) return false;
+    const quoteSrc = quoteDraft || youDogChatQuoteDraft;
+    const payload = {
+      id: uid("ydcm"),
+      batchId: null,
+      memberRef: "user:" + youDogChatUserCharId,
+      text: trimmed.slice(0, YOU_DOG_CHAT_TEXT_MAX),
+      time: "刚刚",
+      tagName: "",
+      tagColor: "",
+      mentions: [],
+    };
+    if (quoteSrc && String(quoteSrc.text || "").trim()) {
+      payload.quote = {
+        text: String(quoteSrc.text || "").trim().slice(0, 120),
+        authorName: String(quoteSrc.authorName || "").trim(),
+      };
+    }
+    const msg = normalizeYouDogChatMessage(payload, data);
+    if (!msg) return false;
+    data.messages.push(msg);
+    schedulePersistNarrative();
+    return true;
+  }
+
+  function deleteYouDogChatLastBatch() {
+    const data = ensureYouDogChatData();
+    const batchId = data.lastBatchId;
+    if (!batchId) return 0;
+    const before = data.messages.length;
+    data.messages = data.messages.filter(function (m) {
+      return m && m.batchId !== batchId;
+    });
+    data.lastBatchId = null;
+    const lastWithBatch = data.messages.slice().reverse().find(function (m) {
+      return m && m.batchId;
+    });
+    data.lastBatchId = lastWithBatch ? lastWithBatch.batchId : null;
+    updateYouDogChatPhase(false);
+    schedulePersistNarrative();
+    return before - data.messages.length;
+  }
+
+  function deleteYouDogChatMessagesByIds(ids) {
+    const data = ensureYouDogChatData();
+    const set = new Set(
+      (ids || []).map(function (id) {
+        return String(id || "").trim();
+      })
+    );
+    if (!set.size) return 0;
+    const before = data.messages.length;
+    data.messages = data.messages.filter(function (m) {
+      return m && !set.has(m.id);
+    });
+    updateYouDogChatPhase(false);
+    schedulePersistNarrative();
+    return before - data.messages.length;
+  }
+
+  function getYouDogChatMemberBriefLabel(memberRef) {
+    const ref = String(memberRef || "").trim();
+    const cand = getAllYouDogChatMemberCandidates().find(function (c) {
+      return c.memberRef === ref;
+    });
+    if (cand) {
+      return cand.charName + "（《" + cand.plotTitle + "》）";
+    }
+    return getYouDogChatMemberDisplayName(ref);
+  }
+
+  function appendYouDogChatSystemNotice(text) {
+    const data = ensureYouDogChatData();
+    const msg = normalizeYouDogChatMessage(
+      {
+        id: uid("ydcm"),
+        kind: "system",
+        text: String(text || "").trim(),
+        time: "刚刚",
+      },
+      data
+    );
+    if (!msg) return false;
+    data.messages.push(msg);
+    schedulePersistNarrative();
+    return true;
+  }
+
+  function kickYouDogChatMember(memberRef) {
+    const ref = String(memberRef || "").trim();
+    if (!ref || !isYouDogChatReady()) return false;
+    const data = ensureYouDogChatData();
+    const rec = getYouDogChatMemberRecord(ref, data);
+    if (!rec) return false;
+    const label = getYouDogChatMemberBriefLabel(ref);
+    if (!data.kickedRefs) data.kickedRefs = [];
+    if (data.kickedRefs.indexOf(ref) < 0) data.kickedRefs.push(ref);
+    data.members = (data.members || []).filter(function (m) {
+      return m && m.memberRef !== ref;
+    });
+    youDogChatParticipantIds = youDogChatParticipantIds.filter(function (r) {
+      return r !== ref;
+    });
+    deleteYouDogChatMessagesByMember(ref);
+    appendYouDogChatSystemNotice("你已将 " + label + " 移出群聊");
+    schedulePersistNarrative();
+    return true;
+  }
+
+  function setYouDogChatMemberAdmin(memberRef, makeAdmin) {
+    const ref = String(memberRef || "").trim();
+    if (!ref || !isYouDogChatReady()) return false;
+    const data = ensureYouDogChatData();
+    const rec = getYouDogChatMemberRecord(ref, data);
+    if (!rec) return false;
+    const label = getYouDogChatMemberBriefLabel(ref);
+    const nextAdmin = !!makeAdmin;
+    if (!!rec.isAdmin === nextAdmin) return false;
+    rec.isAdmin = nextAdmin;
+    appendYouDogChatSystemNotice(
+      nextAdmin ? "你已将 " + label + " 设为管理员" : "你已将 " + label + " 取消管理员"
+    );
+    schedulePersistNarrative();
+    return true;
+  }
+
+  function getYouDogChatMessageById(msgId) {
+    const id = String(msgId || "").trim();
+    if (!id) return null;
+    const data = ensureYouDogChatData();
+    return (data.messages || []).find(function (m) {
+      return m && m.id === id;
+    });
+  }
+
+  function getYouDogChatMessageAuthorName(msg) {
+    if (!msg || msg.kind === "system") return "";
+    if (String(msg.memberRef || "").indexOf("user:") === 0) return "我";
+    const displayName = getYouDogChatMemberDisplayName(msg.memberRef);
+    return String(displayName || "").split(" · ")[0] || "未知";
+  }
+
+  function clearYouDogChatLongPress() {
+    if (youDogChatLongPressTimer) {
+      clearTimeout(youDogChatLongPressTimer);
+      youDogChatLongPressTimer = null;
+    }
+    youDogChatLongPressStart = null;
+  }
+
+  function ensureYouDogChatMsgActionBubbleUi() {
+    const mount = document.getElementById("app-shell") || document.body;
+    let bubble = document.getElementById("you-dog-chat-msg-action-bubble");
+    if (!bubble) {
+      bubble = document.createElement("div");
+      bubble.id = "you-dog-chat-msg-action-bubble";
+      bubble.className = "story-selection-bubble you-dog-chat-msg-action-bubble";
+      bubble.hidden = true;
+      bubble.innerHTML =
+        '<button type="button" data-you-dog-chat-msg-action="quote">' +
+        '<svg class="icon-linear story-selection-bubble__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10h10a4 4 0 014 4v7"/><path d="M3 10l4-4"/><path d="M7 6L3 10l4 4"/></svg>' +
+        '<span class="story-selection-bubble__label">引用</span>' +
+        "</button>" +
+        '<button type="button" data-you-dog-chat-msg-action="delete">' +
+        '<svg class="icon-linear story-selection-bubble__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>' +
+        '<span class="story-selection-bubble__label">删除</span>' +
+        "</button>";
+      mount.appendChild(bubble);
+    } else if (bubble.parentElement !== mount) {
+      mount.appendChild(bubble);
+    }
+    return bubble;
+  }
+
+  function hideYouDogChatMsgActionBubble() {
+    const bubble = document.getElementById("you-dog-chat-msg-action-bubble");
+    if (bubble) bubble.hidden = true;
+    youDogChatMsgActionContext = null;
+  }
+
+  function getYouDogChatActionBubbleBounds() {
+    const slot = els.youDogContentSlot();
+    return slot ? slot.getBoundingClientRect() : { left: 8, top: 0, right: window.innerWidth - 8, bottom: window.innerHeight };
+  }
+
+  function showYouDogChatMsgActionBubble(anchorEl, msgId) {
+    const msg = getYouDogChatMessageById(msgId);
+    if (!msg || msg.kind === "system" || !anchorEl) return;
+    const bubble = ensureYouDogChatMsgActionBubbleUi();
+    youDogChatMsgActionContext = { msgId: msg.id, anchorEl: anchorEl };
+    const rect = anchorEl.getBoundingClientRect();
+    const shellRect = getYouDogChatActionBubbleBounds();
+    bubble.hidden = false;
+    const w = bubble.offsetWidth || 120;
+    const h = bubble.offsetHeight || 44;
+    const margin = 8;
+    let left = rect.left + rect.width / 2 - w / 2;
+    left = Math.max(shellRect.left + margin, Math.min(left, shellRect.right - w - margin));
+    let top = rect.top - h - 10;
+    if (top < shellRect.top + margin) {
+      top = Math.min(rect.bottom + 10, shellRect.bottom - h - margin);
+    }
+    bubble.style.left = Math.round(left) + "px";
+    bubble.style.top = Math.round(top) + "px";
+  }
+
+  function setYouDogChatQuoteFromMessage(msgId) {
+    const msg = getYouDogChatMessageById(msgId);
+    if (!msg || msg.kind === "system") return;
+    youDogChatQuoteDraft = {
+      msgId: msg.id,
+      text: String(msg.text || "").trim().slice(0, 120),
+      authorName: getYouDogChatMessageAuthorName(msg),
+    };
+    youDogChatMoreOpen = false;
+    youDogChatSettingsOpen = false;
+    renderYouDogScreen(els.youDogContentSlot());
+    const slot = els.youDogContentSlot();
+    const input = slot && slot.querySelector("[data-you-dog-chat-input]");
+    if (input) {
+      try {
+        input.focus({ preventScroll: true });
+      } catch (_eFocus) {
+        input.focus();
+      }
+    }
+  }
+
+  function clearYouDogChatQuoteDraft() {
+    youDogChatQuoteDraft = null;
+  }
+
+  function bindYouDogChatLongPressHandlers() {
+    if (document.documentElement.dataset.youDogChatLongPressBound) return;
+    document.documentElement.dataset.youDogChatLongPressBound = "1";
+
+    function inYouDogChatBubbleTarget(el) {
+      if (!el || !el.closest) return null;
+      const slot = el.closest("#you-dog-content-slot");
+      if (!slot || youDogChatSubScreen !== "chat" || youDogChatSelectMode) return null;
+      const bubble = el.closest("[data-you-dog-chat-bubble]");
+      if (!bubble || !slot.contains(bubble)) return null;
+      const msgEl = bubble.closest("[data-you-dog-chat-msg-id]");
+      if (!msgEl) return null;
+      const msgId = msgEl.getAttribute("data-you-dog-chat-msg-id");
+      const msg = getYouDogChatMessageById(msgId);
+      if (!msg || msg.kind === "system") return null;
+      return { bubble: bubble, msgId: msgId };
+    }
+
+    document.addEventListener(
+      "pointerdown",
+      function (e) {
+        if (e.button != null && e.button !== 0) return;
+        const hit = inYouDogChatBubbleTarget(e.target);
+        clearYouDogChatLongPress();
+        if (!hit) return;
+        youDogChatLongPressStart = { x: e.clientX, y: e.clientY, msgId: hit.msgId, anchor: hit.bubble };
+        youDogChatLongPressTimer = setTimeout(function () {
+          youDogChatLongPressTimer = null;
+          if (!youDogChatLongPressStart) return;
+          showYouDogChatMsgActionBubble(youDogChatLongPressStart.anchor, youDogChatLongPressStart.msgId);
+          youDogChatLongPressStart = null;
+        }, YOU_DOG_CHAT_LONG_PRESS_MS);
+      },
+      { passive: true }
+    );
+
+    document.addEventListener(
+      "pointermove",
+      function (e) {
+        if (!youDogChatLongPressStart) return;
+        const dx = e.clientX - youDogChatLongPressStart.x;
+        const dy = e.clientY - youDogChatLongPressStart.y;
+        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) clearYouDogChatLongPress();
+      },
+      { passive: true }
+    );
+
+    document.addEventListener("pointerup", clearYouDogChatLongPress);
+    document.addEventListener("pointercancel", clearYouDogChatLongPress);
+
+    document.addEventListener("contextmenu", function (e) {
+      const hit = inYouDogChatBubbleTarget(e.target);
+      if (!hit) return;
+      e.preventDefault();
+      clearYouDogChatLongPress();
+      showYouDogChatMsgActionBubble(hit.bubble, hit.msgId);
+    });
+
+    document.addEventListener("click", function (e) {
+      const actionBtn = e.target.closest("[data-you-dog-chat-msg-action]");
+      if (actionBtn) {
+        const ctx = youDogChatMsgActionContext;
+        const action = actionBtn.getAttribute("data-you-dog-chat-msg-action");
+        if (ctx && ctx.msgId) {
+          if (action === "quote") setYouDogChatQuoteFromMessage(ctx.msgId);
+          else if (action === "delete") {
+            void showConfirm("确定删除这条消息？", "删除消息").then(function (ok) {
+              if (!ok) return;
+              deleteYouDogChatMessagesByIds([ctx.msgId]);
+              renderYouDogScreen(els.youDogContentSlot());
+              showToast("已删除", "success");
+            });
+          }
+        }
+        hideYouDogChatMsgActionBubble();
+        return;
+      }
+      if (e.target.closest("#you-dog-chat-msg-action-bubble")) return;
+      if (e.target.closest("[data-you-dog-chat-bubble]")) return;
+      hideYouDogChatMsgActionBubble();
+    });
+  }
+
+  function deleteYouDogChatMessagesByMember(memberRef) {
+    const ref = String(memberRef || "").trim();
+    if (!ref) return 0;
+    const data = ensureYouDogChatData();
+    const before = data.messages.length;
+    data.messages = data.messages.filter(function (m) {
+      return m && m.memberRef !== ref;
+    });
+    updateYouDogChatPhase(false);
+    schedulePersistNarrative();
+    return before - data.messages.length;
+  }
+
+  async function generateYouDogChat(slot, opts) {
+    opts = opts && typeof opts === "object" ? opts : {};
+    if (youDogChatGenerating) return;
+    if (!isYouDogChatReady()) {
+      openYouDogChatSetupModal();
+      return;
+    }
+    sanitizeYouDogChatState();
+    if (!youDogChatParticipantIds.length) {
+      showToast("请至少开启一名参与角色。", "warning");
+      return;
+    }
+    const data = ensureYouDogChatData();
+    if (opts.regenerateBatch) {
+      deleteYouDogChatLastBatch();
+    }
+    youDogChatGenerating = true;
+    renderYouDogScreen(slot || els.youDogContentSlot());
+    try {
+      showToast(opts.regenerateBatch ? "正在重生成上一轮…" : "正在生成群聊…", "info");
+      const _genCtx = beginGenCall("you-dog-chat", { slot: slot });
+      const systemPrompt =
+        "你是中文互动叙事助手。生成「嗅闻博客·平行世界群聊」JSON。\n" +
+        "角色互不认识，只见头顶标签；禁止输出角色真名（标签名可以）。\n" +
+        "memberRef 格式为 plotId:charId；仅输出本批允许发言的 memberRef。\n" +
+        "群聊口语化、宿舍男生互损感；可 @用户。\n" +
+        "只输出一个 JSON 对象，不要用 markdown 代码围栏。";
+      const userPrompt = buildYouDogChatUserPrompt({ userText: opts.userText });
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.86,
+        7168,
+        chatApiOptsFromGen(_genCtx)
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const batchId = uid("ydcb");
+      const added = appendYouDogChatMessages(parsed, batchId, data);
+      if (!added) throw new Error("未能解析有效的群聊内容");
+      showToast("已生成 " + added + " 条群聊", "success");
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "群聊生成失败，请检查 API 配置", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      youDogChatGenerating = false;
+      renderYouDogScreen(slot || els.youDogContentSlot());
+      scrollYouDogChatThreadToEnd(slot || els.youDogContentSlot());
+    }
+  }
+
+  function scrollYouDogChatThreadToEnd(slot) {
+    const thread = slot && slot.querySelector("[data-you-dog-chat-thread]");
+    if (thread) thread.scrollTop = thread.scrollHeight;
+  }
+
+  function saveYouDogChatThreadScroll(slot) {
+    const thread = slot && slot.querySelector("[data-you-dog-chat-thread]");
+    return thread ? thread.scrollTop : 0;
+  }
+
+  function restoreYouDogChatThreadScroll(slot, scrollTop) {
+    const thread = slot && slot.querySelector("[data-you-dog-chat-thread]");
+    if (thread && typeof scrollTop === "number") thread.scrollTop = scrollTop;
+  }
+
+  function buildYouDogChatMessageHtml(msg) {
+    if (!msg) return "";
+    if (msg.kind === "system") {
+      return (
+        '<div class="you-dog-chat-sys" data-you-dog-chat-msg-id="' +
+        escapeHtml(msg.id) +
+        '"><span class="you-dog-chat-sys__text">' +
+        escapeHtml(String(msg.text || "")) +
+        "</span></div>"
+      );
+    }
+    const isUser = String(msg.memberRef || "").indexOf("user:") === 0;
+    const selected = youDogChatSelectMode && youDogChatSelectedMsgIds.indexOf(msg.id) >= 0;
+    const avatarUrl = getYouDogChatMemberAvatarUrl(msg.memberRef);
+    const displayName = isUser ? getYouDogChatUserDisplayName() : getYouDogChatMemberDisplayName(msg.memberRef);
+    const nameParts = isUser ? { charName: "我", plotTitle: "" } : String(displayName || "").split(" · ");
+    const charName = isUser ? "我" : nameParts[0] || "未命名";
+    const plotTitle = isUser ? "" : nameParts[1] || "";
+    const initial = charName ? Array.from(charName)[0] : "?";
+    const avInner = avatarUrl
+      ? '<img src="' + escapeHtml(avatarUrl) + '" alt="" />'
+      : escapeHtml(initial);
+    const avCls = "avatar you-dog-chat-msg__av" + (avatarUrl ? " avatar--has-image" : "");
+    const tagHtml =
+      !isUser && msg.tagName
+        ? '<span class="you-dog-chat-tag you-dog-chat-tag--name" style="--ydc-tag:' +
+          escapeHtml(msg.tagColor || "#95A5A6") +
+          '">' +
+          escapeHtml(msg.tagName) +
+          "</span>"
+        : "";
+    let adminBadgeHtml = "";
+    if (!isUser) {
+      const rec = getYouDogChatMemberRecord(msg.memberRef, ensureYouDogChatData());
+      if (rec && rec.isAdmin) {
+        adminBadgeHtml = '<span class="you-dog-chat-tag you-dog-chat-tag--admin">管理员</span>';
+      }
+    }
+    let textHtml = escapeHtml(String(msg.text || ""));
+    textHtml = textHtml.replace(/@([^\s@，。！？]+)/g, '<span class="you-dog-chat-mention">@$1</span>');
+    let quoteHtml = "";
+    if (msg.quote && String(msg.quote.text || "").trim()) {
+      quoteHtml =
+        '<div class="you-dog-chat-msg__quote">' +
+        '<span class="you-dog-chat-msg__quote-author">' +
+        escapeHtml(String(msg.quote.authorName || "").trim() || "引用") +
+        "</span>" +
+        '<span class="you-dog-chat-msg__quote-text">' +
+        escapeHtml(String(msg.quote.text || "").trim()) +
+        "</span></div>";
+    }
+    const selectBtn = youDogChatSelectMode
+      ? '<button type="button" class="you-dog-chat-msg__select' +
+        (selected ? " is-selected" : "") +
+        '" data-you-dog-chat-select-msg="' +
+        escapeHtml(msg.id) +
+        '" aria-label="选择消息"></button>'
+      : "";
+    const nameRowHtml =
+      '<div class="you-dog-chat-msg__name-row">' +
+      '<span class="you-dog-chat-msg__name">' +
+      escapeHtml(charName) +
+      "</span>" +
+      tagHtml +
+      adminBadgeHtml +
+      "</div>" +
+      (!isUser && plotTitle
+        ? '<div class="you-dog-chat-msg__plot">《' + escapeHtml(plotTitle) + "》</div>"
+        : "");
+    return (
+      '<div class="you-dog-chat-msg' +
+      (isUser ? " you-dog-chat-msg--user" : "") +
+      (selected ? " you-dog-chat-msg--selected" : "") +
+      '" data-you-dog-chat-msg-id="' +
+      escapeHtml(msg.id) +
+      '">' +
+      selectBtn +
+      '<div class="you-dog-chat-msg__side">' +
+      '<span class="' +
+      avCls +
+      '">' +
+      avInner +
+      "</span></div>" +
+      '<div class="you-dog-chat-msg__body">' +
+      nameRowHtml +
+      '<div class="you-dog-chat-msg__bubble" data-you-dog-chat-bubble>' +
+      quoteHtml +
+      textHtml +
+      "</div></div></div>"
+    );
+  }
+
+  function buildYouDogChatParticipantPanelHtml() {
+    const data = ensureYouDogChatData();
+    const activeSet = new Set(youDogChatParticipantIds);
+    const rows = (data.members || [])
+      .map(function (m) {
+        const cand = getAllYouDogChatMemberCandidates().find(function (c) {
+          return c.memberRef === m.memberRef;
+        });
+        const cat = getYouDogChatCategory(m.categoryId, data);
+        const tagPill = cat
+          ? '<span class="you-dog-chat-tag you-dog-chat-tag--inline" style="--ydc-tag:' +
+            escapeHtml(cat.color) +
+            '">' +
+            escapeHtml(cat.name) +
+            "</span>"
+          : "";
+        return (
+          '<div class="you-dog-bar-switch you-dog-chat-participant-row">' +
+          buildYouDogBarSwitchHtml({
+            id: m.memberRef,
+            inputId: "you-dog-chat-sw-" + m.memberRef.replace(/[^a-zA-Z0-9_-]/g, ""),
+            name: tagPill + escapeHtml(cand ? cand.charName + " · " + cand.plotTitle : getYouDogChatMemberDisplayName(m.memberRef)),
+            checked: activeSet.has(m.memberRef),
+            dataAttr: "data-you-dog-chat-toggle-participant",
+          }) +
+          '<button type="button" class="you-dog-chat-participant-row__del" data-you-dog-chat-delete-member="' +
+          escapeHtml(m.memberRef) +
+          '" title="删除该角色全部发言">删</button></div>'
+        );
+      })
+      .join("");
+    return (
+      '<div class="you-dog-chat-participant-panel">' +
+      '<div class="you-dog-participant-panel__head">' +
+      "<span>参与生成（最多 " +
+      YOU_DOG_CHAT_ACTIVE_LIMIT +
+      " 人，已选 " +
+      youDogChatParticipantIds.length +
+      "）</span>" +
+      '<button type="button" class="you-dog-participant-panel__edit" data-you-dog-chat-settings-open>群设置</button>' +
+      "</div>" +
+      '<div class="you-dog-participant-panel__list">' +
+      rows +
+      "</div></div>"
+    );
+  }
+
+  function buildYouDogChatSettingsOverlayHtml() {
+    if (!youDogChatSettingsOpen || !isYouDogChatReady()) return "";
+    const data = ensureYouDogChatData();
+    const persona = getYouDogChatUserPersonaChar();
+    const personaName = persona ? persona.name || "我的形象" : "未选择";
+    const memberRows = (data.members || [])
+      .map(function (m) {
+        const cand = getAllYouDogChatMemberCandidates().find(function (c) {
+          return c.memberRef === m.memberRef;
+        });
+        const cat = getYouDogChatCategory(m.categoryId, data);
+        const adminBadge = m.isAdmin
+          ? '<span class="you-dog-chat-settings__admin-badge">管理员</span>'
+          : "";
+        const adminBtn = m.isAdmin
+          ? '<button type="button" class="you-dog-chat-settings__admin is-on" data-you-dog-chat-set-admin="' +
+            escapeHtml(m.memberRef) +
+            '" data-admin="0">取消管理</button>'
+          : '<button type="button" class="you-dog-chat-settings__admin" data-you-dog-chat-set-admin="' +
+            escapeHtml(m.memberRef) +
+            '" data-admin="1">设为管理</button>';
+        return (
+          '<div class="you-dog-chat-settings__member-row">' +
+          buildYouDogChatMemberAvatarHtml(m.memberRef, "avatar you-dog-chat-settings__member-av") +
+          '<div class="you-dog-chat-settings__member-info">' +
+          adminBadge +
+          buildYouDogChatTagPillHtml(cat) +
+          buildYouDogChatMemberMetaHtml(cand, m.memberRef) +
+          "</div>" +
+          '<div class="you-dog-chat-settings__member-actions">' +
+          adminBtn +
+          '<button type="button" class="you-dog-chat-settings__kick" data-you-dog-chat-delete-member="' +
+          escapeHtml(m.memberRef) +
+          '" title="踢出群聊并删除全部发言">踢出</button></div></div>'
+        );
+      })
+      .join("");
+    return (
+      '<div class="you-dog-chat-settings" role="dialog" aria-modal="true" aria-label="群聊设置">' +
+      '<button type="button" class="you-dog-chat-settings__backdrop" data-you-dog-chat-settings-close aria-label="关闭"></button>' +
+      '<div class="you-dog-chat-settings__sheet">' +
+      '<div class="you-dog-chat-settings__head">' +
+      "<h3>群聊设置</h3>" +
+      '<button type="button" class="you-dog-chat-settings__close" data-you-dog-chat-settings-close aria-label="关闭">×</button>' +
+      "</div>" +
+      '<div class="you-dog-chat-settings__scroll">' +
+      '<label class="you-dog-chat-settings__field"><span>群名称</span>' +
+      '<input type="text" class="field__input" data-you-dog-chat-group-name value="' +
+      escapeHtml(data.groupName || "") +
+      '" maxlength="' +
+      YOU_DOG_CHAT_GROUP_NAME_MAX +
+      '" /></label>' +
+      '<button type="button" class="btn btn--secondary btn--pill you-dog-chat-settings__persona-btn" data-you-dog-chat-persona-open>切换群聊形象（当前：' +
+      escapeHtml(personaName) +
+      "）</button>" +
+      '<div class="you-dog-chat-settings__members"><p class="you-dog-chat-settings__members-title">群成员 · 踢出后将删除其全部发言</p>' +
+      '<div class="you-dog-chat-settings__members-list">' +
+      memberRows +
+      "</div></div>" +
+      '<button type="button" class="btn btn--secondary btn--pill" data-you-dog-chat-setup-reopen>重新打标签 / 建群</button>' +
+      "</div>" +
+      '<div class="you-dog-chat-settings__footer">' +
+      '<button type="button" class="btn btn--primary btn--pill" data-you-dog-chat-settings-save>保存</button>' +
+      "</div></div></div>"
+    );
+  }
+
+  function buildYouDogChatMoreSheetHtml() {
+    if (!youDogChatMoreOpen || !isYouDogChatReady()) return "";
+    const genDisabled = youDogChatGenerating;
+    const regenDisabled = youDogChatGenerating || !(youDogChatData && youDogChatData.lastBatchId);
+    const selectLabel =
+      youDogChatSelectMode && youDogChatSelectedMsgIds.length
+        ? "删除已选(" + youDogChatSelectedMsgIds.length + ")"
+        : "选择消息";
+    const persona = getYouDogChatUserPersonaChar();
+    const personaName = persona ? persona.name || "我的形象" : "未选择";
+    return (
+      '<div class="you-dog-chat-more" role="dialog" aria-modal="true" aria-label="群聊更多">' +
+      '<button type="button" class="you-dog-chat-more__backdrop" data-you-dog-chat-more-close aria-label="关闭"></button>' +
+      '<div class="you-dog-chat-more__sheet">' +
+      '<div class="you-dog-chat-more__head">' +
+      "<h3>群聊操作</h3>" +
+      '<button type="button" class="you-dog-chat-more__close" data-you-dog-chat-more-close aria-label="关闭">×</button>' +
+      "</div>" +
+      '<button type="button" class="you-dog-chat-more__item you-dog-chat-more__item--accent' +
+      (genDisabled ? " is-disabled" : "") +
+      '" data-you-dog-chat-generate' +
+      (genDisabled ? " disabled" : "") +
+      ">" +
+      '<span class="you-dog-chat-more__item-icon" aria-hidden="true">✦</span>' +
+      "<span>继续生成</span></button>" +
+      '<button type="button" class="you-dog-chat-more__item"' +
+      (regenDisabled ? " disabled" : "") +
+      ' data-you-dog-chat-regenerate>' +
+      "<span>重生成上一轮</span></button>" +
+      '<button type="button" class="you-dog-chat-more__item" data-you-dog-chat-select-toggle>' +
+      escapeHtml(selectLabel) +
+      "</button>" +
+      '<button type="button" class="you-dog-chat-more__item" data-you-dog-chat-persona-open>' +
+      "群聊形象（" +
+      escapeHtml(personaName) +
+      "）</button>" +
+      "</div></div>"
+    );
+  }
+
+  function buildYouDogChatHeaderActionsHtml() {
+    return (
+      '<div class="you-dog-app__actions you-dog-app__actions--chat">' +
+      '<button type="button" class="you-dog-app__action-btn you-dog-app__action-btn--text" data-you-dog-chat-toggle aria-label="返回动态" title="返回动态">动态</button>' +
+      '<button type="button" class="you-dog-app__action-btn" data-you-dog-chat-settings-open aria-label="群设置" title="群设置">' +
+      '<svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>' +
+      "</button>" +
+      '<button type="button" class="you-dog-app__action-btn you-dog-app__action-btn--more" data-you-dog-chat-more-toggle aria-label="更多" title="更多">' +
+      '<svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.75"/><circle cx="12" cy="12" r="1.75"/><circle cx="19" cy="12" r="1.75"/></svg>' +
+      "</button></div>"
+    );
+  }
+
+  function buildYouDogChatHtml() {
+    if (!isYouDogChatReady()) {
+      return (
+        '<div class="you-dog-chat-stub">' +
+        '<div class="you-dog-chat-stub__icon" aria-hidden="true">💬</div>' +
+        "<p>还没有建立群聊</p>" +
+        '<p class="field__hint">点击右上角铃铛，为全部剧情的主要角色打标签并建群</p>' +
+        '<button type="button" class="btn btn--primary btn--pill" data-you-dog-chat-setup-open>开始建群</button></div>'
+      );
+    }
+    const data = ensureYouDogChatData();
+    const msgs = data.messages || [];
+    let threadHtml = "";
+    if (msgs.length) {
+      threadHtml = msgs
+        .map(function (m) {
+          return buildYouDogChatMessageHtml(m);
+        })
+        .join("");
+    } else {
+      threadHtml =
+        '<div class="you-dog-chat__empty"><p>群「' +
+        escapeHtml(data.groupName || "未命名") +
+        '」</p><p class="field__hint">点 ✦ 生成第一批聊天，或在下方发言</p></div>';
+    }
+    if (youDogChatGenerating) {
+      threadHtml += '<div class="you-dog-chat__generating">正在生成群聊…</div>';
+    }
+    const composerDisabled = youDogChatGenerating || youDogChatSelectMode;
+    const silentChecked = youDogChatSilentMode ? " checked" : "";
+    const quoteBarHtml = youDogChatQuoteDraft
+      ? '<div class="you-dog-chat__quote" data-you-dog-chat-quote-bar>' +
+        '<span class="you-dog-chat__quote-body">' +
+        '<span class="you-dog-chat__quote-author">' +
+        escapeHtml(youDogChatQuoteDraft.authorName || "引用") +
+        "</span>" +
+        '<span class="you-dog-chat__quote-text">' +
+        escapeHtml(youDogChatQuoteDraft.text || "") +
+        "</span></span>" +
+        '<button type="button" class="you-dog-chat__quote-clear" data-you-dog-chat-quote-clear aria-label="取消引用">×</button></div>'
+      : "";
+    return (
+      '<div class="you-dog-chat">' +
+      '<div class="you-dog-chat__thread" data-you-dog-chat-thread>' +
+      threadHtml +
+      "</div>" +
+      '<div class="you-dog-chat__composer">' +
+      quoteBarHtml +
+      '<label class="you-dog-chat__silent">' +
+      '<input type="checkbox" data-you-dog-chat-silent-toggle' +
+      silentChecked +
+      (composerDisabled ? " disabled" : "") +
+      " />沉默旁观</label>" +
+      '<div class="you-dog-chat__composer-row">' +
+      '<textarea class="you-dog-chat__input" data-you-dog-chat-input rows="1" placeholder="发言…"' +
+      (composerDisabled ? " disabled" : "") +
+      "></textarea>" +
+      '<button type="button" class="you-dog-chat__send" data-you-dog-chat-send aria-label="发送"' +
+      (composerDisabled ? " disabled" : "") +
+      ">发送</button></div></div>" +
+      "</div>"
+    );
+  }
+
+  function initYouDogChatSetupDraft() {
+    const candidates = getAllYouDogChatMemberCandidates();
+    if (!candidates.length) return null;
+    const existing = youDogChatData && youDogChatData.setupComplete ? youDogChatData : null;
+    const memberTagNames = {};
+    candidates.forEach(function (c) {
+      const hit = existing
+        ? (existing.members || []).find(function (m) {
+            return m.memberRef === c.memberRef;
+          })
+        : null;
+      if (hit) {
+        const cat = (existing.categories || []).find(function (x) {
+          return x.id === hit.categoryId;
+        });
+        memberTagNames[c.memberRef] = cat ? cat.name : "";
+      } else {
+        memberTagNames[c.memberRef] = "";
+      }
+    });
+    const personaOpts = getAllYouDogChatSelfPersonaOptions();
+    youDogChatSetupDraft = {
+      memberTagNames: memberTagNames,
+      groupName: existing ? existing.groupName || "" : "",
+      userCharId: youDogChatUserCharId || (personaOpts.length ? personaOpts[0].charId : null),
+      isReopen: !!existing,
+    };
+    youDogChatSetupStep = "tag";
+    return youDogChatSetupDraft;
+  }
+
+  function renderYouDogChatSetupModal() {
+    const body = els.youDogChatSetupBody();
+    const titleEl = els.youDogChatSetupTitle();
+    const hintEl = els.youDogChatSetupHint();
+    const backBtn = els.youDogChatSetupBack();
+    const confirmBtn = els.youDogChatSetupConfirm();
+    if (!body || !youDogChatSetupDraft) return;
+    const step = youDogChatSetupStep;
+    if (titleEl) {
+      titleEl.textContent = step === "tag" ? "打标签" : "群名称与形象";
+    }
+    if (hintEl) {
+      hintEl.textContent =
+        step === "tag"
+          ? "在每位角色后面输入标签名即可，颜色会自动分配"
+          : "输入群聊名称，并选择你在群里的形象（全部角色默认入群）";
+    }
+    if (backBtn) backBtn.hidden = step === "tag";
+    if (confirmBtn) {
+      confirmBtn.textContent = step === "name" ? (youDogChatSetupDraft.isReopen ? "保存" : "建群") : "下一步";
+    }
+    let html = "";
+    if (step === "tag") {
+      html += '<div class="you-dog-chat-setup-members">';
+      getAllYouDogChatMemberCandidates().forEach(function (c) {
+        const tagName = youDogChatSetupDraft.memberTagNames[c.memberRef] || "";
+        html +=
+          '<div class="you-dog-chat-setup-member">' +
+          '<span class="you-dog-chat-setup-member__name">' +
+          escapeHtml(c.charName + " · " + c.plotTitle) +
+          "</span>" +
+          '<input type="text" class="field__input you-dog-chat-setup-member__tag" data-you-dog-chat-setup-tag-name="' +
+          escapeHtml(c.memberRef) +
+          '" value="' +
+          escapeHtml(tagName) +
+          '" maxlength="' +
+          YOU_DOG_CHAT_CATEGORY_NAME_MAX +
+          '" placeholder="标签名，如群主、划水" /></div>';
+      });
+      html += "</div>";
+    } else if (step === "name") {
+      html =
+        '<label class="you-dog-chat-setup-name"><span>群名称</span>' +
+        '<input type="text" class="field__input" data-you-dog-chat-setup-group-name value="' +
+        escapeHtml(youDogChatSetupDraft.groupName || "") +
+        '" maxlength="' +
+        YOU_DOG_CHAT_GROUP_NAME_MAX +
+        '" placeholder="例如：平行世界宿舍" /></label>';
+      const personaOpts = getAllYouDogChatSelfPersonaOptions();
+      html += '<p class="field__hint">群聊形象（与推特互动身份独立）</p><div class="you-dog-persona-options">';
+      personaOpts.forEach(function (opt) {
+        const on = youDogChatSetupDraft.userCharId === opt.charId;
+        html +=
+          '<button type="button" class="you-dog-persona-option' +
+          (on ? " is-active" : "") +
+          '" data-you-dog-chat-setup-persona="' +
+          escapeHtml(opt.charId) +
+          '">' +
+          '<span class="you-dog-persona-option__name-row">' +
+          escapeHtml(opt.char.name || "我的形象") +
+          (opt.plotTitle
+            ? '<span class="you-dog-persona-option__plot-source"> · 《' + escapeHtml(opt.plotTitle) + "》</span>"
+            : "") +
+          "</span></button>";
+      });
+      html += "</div>";
+    }
+    body.innerHTML = html;
+  }
+
+  function syncYouDogChatSetupDraftFromDom() {
+    if (!youDogChatSetupDraft) return;
+    if (!youDogChatSetupDraft.memberTagNames) youDogChatSetupDraft.memberTagNames = {};
+    document.querySelectorAll("[data-you-dog-chat-setup-tag-name]").forEach(function (el) {
+      const ref = el.getAttribute("data-you-dog-chat-setup-tag-name");
+      if (!ref) return;
+      youDogChatSetupDraft.memberTagNames[ref] = truncateCharsWithEllipsis(
+        String(el.value || "").trim(),
+        YOU_DOG_CHAT_CATEGORY_NAME_MAX
+      );
+    });
+    const nameEl = document.querySelector("[data-you-dog-chat-setup-group-name]");
+    if (nameEl) youDogChatSetupDraft.groupName = String(nameEl.value || "").trim();
+  }
+
+  function openYouDogChatSetupModal() {
+    const candidates = getAllYouDogChatMemberCandidates();
+    if (!candidates.length) {
+      showToast("请先在剧情中添加主要角色。", "warning");
+      return;
+    }
+    if (!initYouDogChatSetupDraft()) return;
+    const modal = els.modalYouDogChatSetup();
+    if (!modal) {
+      showToast("群聊向导加载失败，请刷新页面后重试。", "error");
+      return;
+    }
+    try {
+      renderYouDogChatSetupModal();
+      modal.hidden = false;
+      youDogChatSetupOpen = true;
+    } catch (err) {
+      console.error(err);
+      showToast("打开群聊向导失败，请刷新后重试。", "error", 4200);
+    }
+  }
+
+  function closeYouDogChatSetupModal() {
+    const modal = els.modalYouDogChatSetup();
+    if (modal) modal.hidden = true;
+    youDogChatSetupOpen = false;
+  }
+
+  function advanceYouDogChatSetupStep() {
+    if (!youDogChatSetupDraft) return;
+    syncYouDogChatSetupDraftFromDom();
+    if (youDogChatSetupStep === "tag") {
+      const missing = getAllYouDogChatMemberCandidates().some(function (c) {
+        return !String(youDogChatSetupDraft.memberTagNames[c.memberRef] || "").trim();
+      });
+      if (missing) {
+        showToast("请为每位角色填写标签名。", "warning");
+        return;
+      }
+      youDogChatSetupStep = "name";
+      renderYouDogChatSetupModal();
+      return;
+    }
+    if (youDogChatSetupStep === "name") {
+      const name = truncateCharsWithEllipsis(String(youDogChatSetupDraft.groupName || "").trim(), YOU_DOG_CHAT_GROUP_NAME_MAX);
+      if (!name) {
+        showToast("请输入群名称。", "warning");
+        return;
+      }
+      youDogChatSetupDraft.groupName = name;
+      if (!youDogChatSetupDraft.userCharId) {
+        showToast("请选择群聊形象。", "warning");
+        return;
+      }
+    } else {
+      return;
+    }
+    const existingCategories =
+      youDogChatSetupDraft.isReopen && youDogChatData ? youDogChatData.categories || [] : [];
+    const built = buildYouDogChatCategoriesFromMemberTagNames(
+      youDogChatSetupDraft.memberTagNames,
+      existingCategories
+    );
+    const prevKicked =
+      youDogChatSetupDraft.isReopen && youDogChatData ? youDogChatData.kickedRefs || [] : [];
+    const prevAdminByRef = {};
+    if (youDogChatSetupDraft.isReopen && youDogChatData) {
+      (youDogChatData.members || []).forEach(function (m) {
+        if (m && m.isAdmin) prevAdminByRef[m.memberRef] = true;
+      });
+    }
+    const members = getAllYouDogChatMemberCandidates()
+      .filter(function (c) {
+        return prevKicked.indexOf(c.memberRef) < 0;
+      })
+      .map(function (c) {
+        const tagName = truncateCharsWithEllipsis(
+          String(youDogChatSetupDraft.memberTagNames[c.memberRef] || "").trim(),
+          YOU_DOG_CHAT_CATEGORY_NAME_MAX
+        );
+        return {
+          memberRef: c.memberRef,
+          plotId: c.plotId,
+          charId: c.charId,
+          categoryId: built.tagNameToCategoryId[tagName] || built.categories[0].id,
+          isAdmin: !!prevAdminByRef[c.memberRef],
+        };
+      });
+    const prevMessages = youDogChatSetupDraft.isReopen && youDogChatData ? youDogChatData.messages || [] : [];
+    const prevPhase = youDogChatSetupDraft.isReopen && youDogChatData ? youDogChatData.phase : "opening";
+    const prevBatch = youDogChatSetupDraft.isReopen && youDogChatData ? youDogChatData.lastBatchId : null;
+    const isReopen = youDogChatSetupDraft.isReopen;
+    youDogChatData = normalizeYouDogChatData({
+      setupComplete: true,
+      groupName: youDogChatSetupDraft.groupName,
+      categories: built.categories,
+      members: members,
+      kickedRefs: prevKicked,
+      messages: prevMessages,
+      phase: prevPhase,
+      lastBatchId: prevBatch,
+    });
+    youDogChatUserCharId = youDogChatSetupDraft.userCharId;
+    youDogChatSubScreen = "chat";
+    sanitizeYouDogChatState();
+    schedulePersistNarrative();
+    closeYouDogChatSetupModal();
+    renderYouDogScreen(els.youDogContentSlot());
+    showToast(isReopen ? "群设置已更新" : "群聊已建立", "success");
+    if (!isReopen) {
+      openYouDogGenPick("chat", els.youDogContentSlot(), { silent: true });
+    }
+    youDogChatSetupDraft = null;
+  }
+
+  function retreatYouDogChatSetupStep() {
+    syncYouDogChatSetupDraftFromDom();
+    if (youDogChatSetupStep === "name") youDogChatSetupStep = "tag";
+    renderYouDogChatSetupModal();
+  }
+
+  function renderYouDogChatPersonaModal() {
+    const pick = els.youDogChatPersonaPick();
+    if (!pick) return;
+    const options = getAllYouDogChatSelfPersonaOptions();
+    if (!options.length) {
+      pick.innerHTML = '<p class="you-dog-persona-empty">还没有「我的形象」。</p>';
+      return;
+    }
+    pick.innerHTML = options
+      .map(function (opt) {
+        const on = youDogChatUserCharId === opt.charId;
+        return (
+          '<button type="button" class="you-dog-persona-option' +
+          (on ? " is-active" : "") +
+          '" data-you-dog-chat-persona-select="' +
+          escapeHtml(opt.charId) +
+          '">' +
+          '<span class="you-dog-persona-option__name-row">' +
+          escapeHtml(opt.char.name || "我的形象") +
+          (opt.plotTitle
+            ? '<span class="you-dog-persona-option__plot-source"> · 《' + escapeHtml(opt.plotTitle) + "》</span>"
+            : "") +
+          "</span></button>"
+        );
+      })
+      .join("");
+  }
+
+  function openYouDogChatPersonaModal() {
+    const modal = els.modalYouDogChatPersona();
+    if (!modal) return;
+    renderYouDogChatPersonaModal();
+    modal.hidden = false;
+  }
+
+  function closeYouDogChatPersonaModal() {
+    const modal = els.modalYouDogChatPersona();
+    if (modal) modal.hidden = true;
+  }
+
+  function saveYouDogChatSettingsFromDom() {
+    const data = ensureYouDogChatData();
+    const nameEl = document.querySelector("[data-you-dog-chat-group-name]");
+    if (nameEl) {
+      const name = truncateCharsWithEllipsis(String(nameEl.value || "").trim(), YOU_DOG_CHAT_GROUP_NAME_MAX);
+      if (name) data.groupName = name;
+    }
+    youDogChatSettingsOpen = false;
+    youDogChatMoreOpen = false;
+    schedulePersistNarrative();
+    renderYouDogScreen(els.youDogContentSlot());
+    showToast("已保存群设置", "success");
+  }
+
+  function handleYouDogChatToggle() {
+    try {
+      if (!isYouDogChatReady()) {
+        openYouDogChatSetupModal();
+        return;
+      }
+      youDogScreen = "feed";
+      youDogDetailPostId = null;
+      youDogProfileSpeakerRef = null;
+      youDogChatSubScreen = youDogChatSubScreen === "chat" ? "feed" : "chat";
+      youDogChatParticipantPanelOpen = false;
+      youDogChatSelectMode = false;
+      youDogChatSelectedMsgIds = [];
+      youDogChatSettingsOpen = false;
+      youDogChatMoreOpen = false;
+      youDogChatQuoteDraft = null;
+      hideYouDogChatMsgActionBubble();
+      renderYouDogScreen(els.youDogContentSlot());
+      if (youDogChatSubScreen === "chat") {
+        scrollYouDogChatThreadToEnd(els.youDogContentSlot());
+      }
+    } catch (err) {
+      console.error(err);
+      showToast("进入群聊失败，请刷新后重试。", "error", 4200);
+    }
+  }
+
+  function toggleYouDogChatSelectMode(slot) {
+    youDogChatSelectMode = !youDogChatSelectMode;
+    youDogChatSelectedMsgIds = [];
+    renderYouDogScreen(slot || els.youDogContentSlot());
+  }
+
+  async function handleYouDogChatSelectDelete(slot) {
+    if (!youDogChatSelectMode) {
+      toggleYouDogChatSelectMode(slot);
+      return;
+    }
+    if (!youDogChatSelectedMsgIds.length) {
+      toggleYouDogChatSelectMode(slot);
+      return;
+    }
+    const ok = await showConfirm("确定删除选中的 " + youDogChatSelectedMsgIds.length + " 条消息？");
+    if (!ok) return;
+    deleteYouDogChatMessagesByIds(youDogChatSelectedMsgIds);
+    youDogChatSelectMode = false;
+    youDogChatSelectedMsgIds = [];
+    renderYouDogScreen(slot || els.youDogContentSlot());
+    showToast("已删除选中消息", "success");
+  }
+
+  function sendYouDogChatMessage(slot) {
+    const root = slot || els.youDogContentSlot();
+    const input = root && root.querySelector("[data-you-dog-chat-input]");
+    const text = input ? String(input.value || "").trim() : "";
+    if (!text) return;
+    if (!youDogChatUserCharId) {
+      showToast("请先选择群聊形象。", "warning");
+      openYouDogChatPersonaModal();
+      return;
+    }
+    appendYouDogChatUserMessage(text);
+    youDogChatQuoteDraft = null;
+    if (input) input.value = "";
+    if (youDogChatSilentMode) {
+      renderYouDogScreen(root);
+      scrollYouDogChatThreadToEnd(root);
+      return;
+    }
+    renderYouDogScreen(root);
+    scrollYouDogChatThreadToEnd(root);
+    openYouDogGenPick("chat", root, { userText: text });
+  }
+
+  function buildYouDogTabsHtml() {
+    const tabs = [
+      { id: "feed", label: "时间线", stub: false },
+      { id: "profile", label: "我的", stub: false },
+      { id: "chat", label: "群聊", stub: false },
+    ];
+    return (
+      '<nav class="you-dog-tabs" aria-label="你才是狗导航">' +
+      tabs
+        .map(function (t) {
+          const on = youDogMainTab === t.id;
+          let cls = "you-dog-tabs__item";
+          if (on) cls += " you-dog-tabs__item--on";
+          if (t.stub) cls += " you-dog-tabs__item--stub";
+          return (
+            '<button type="button" class="' +
+            cls +
+            '" data-you-dog-tab="' +
+            escapeHtml(t.id) +
+            '" aria-current="' +
+            (on ? "page" : "false") +
+            (t.stub ? ' data-you-dog-tab-stub="true"' : "") +
+            ">" +
+            escapeHtml(t.label) +
+            "</button>"
+          );
+        })
+        .join("") +
+      "</nav>"
+    );
+  }
+
+  function buildYouDogShellHtml() {
+    let bodyHtml = buildYouDogFeedHtml();
+    let barTitle = "嗅闻博客";
+    let headerActions = buildYouDogHeaderActionsHtml();
+    let barSubHtml = "";
+    if (youDogChatSubScreen === "chat") {
+      bodyHtml = buildYouDogChatHtml();
+      barTitle = isYouDogChatReady() ? ensureYouDogChatData().groupName || "群聊" : "群聊";
+      if (isYouDogChatReady()) {
+        const memberCount = (ensureYouDogChatData().members || []).length + 1;
+        barSubHtml =
+          '<span class="you-dog-app__bar-sub">' + memberCount + " 位成员</span>";
+      }
+    } else if (youDogScreen === "post" && youDogDetailPostId) {
+      bodyHtml = buildYouDogPostDetailHtml(youDogDetailPostId);
+      barTitle = "帖子";
+      headerActions = buildYouDogPostDetailHeaderActionsHtml(youDogDetailPostId);
+    } else if (youDogScreen === "profile" && youDogProfileSpeakerRef) {
+      bodyHtml = buildYouDogCharProfileHtml(youDogProfileSpeakerRef);
+      barTitle = "主页";
+      headerActions = buildYouDogProfileHeaderActionsHtml();
+    }
+    return (
+      '<div class="you-dog-app' +
+      (youDogChatSubScreen === "chat" && (youDogChatSettingsOpen || youDogChatMoreOpen)
+        ? " you-dog-app--chat-modal"
+        : "") +
+      '" aria-label="你才是狗">' +
+      '<header class="you-dog-app__header' +
+      (youDogChatSubScreen === "chat" ? " you-dog-app__header--chat" : "") +
+      '">' +
+      '<div class="you-dog-app__bar">' +
+      '<button type="button" class="you-dog-app__back" data-you-dog-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<div class="you-dog-app__brand">' +
+      '<span class="you-dog-app__bar-title you-dog-app__bar-title-text">' +
+      escapeHtml(barTitle) +
+      "</span>" +
+      barSubHtml +
+      "</div>" +
+      headerActions +
+      "</div></header>" +
+      '<div class="you-dog-app__body">' +
+      bodyHtml +
+      "</div>" +
+      buildYouDogSectionManageOverlayHtml() +
+      buildYouDogGenPickOverlayHtml() +
+      (youDogChatSubScreen === "chat"
+        ? buildYouDogChatMoreSheetHtml() + buildYouDogChatSettingsOverlayHtml()
+        : "") +
+      "</div>"
+    );
+  }
+
+  function renderYouDogScreen(slot) {
+    if (!slot) return;
+    sanitizeYouDogState();
+    slot.innerHTML = buildYouDogShellHtml();
+  }
+
+  function switchYouDogMainTab(tab) {
+    const next = tab === "profile" || tab === "chat" ? tab : "feed";
+    if (next === youDogMainTab) return;
+    youDogMainTab = next;
+    youDogPostMenuPostId = null;
+    renderYouDogScreen(els.youDogContentSlot());
+  }
+
+  function setYouDogNextGenChar(charId) {
+    const id = String(charId || "").trim();
+    if (!id) return;
+    if (
+      !getYouDogAllParticipantIds().some(function (cid) {
+        return cid === id;
+      })
+    ) {
+      return;
+    }
+    youDogNextGenCharId = id;
+    schedulePersistNarrative();
+  }
+
+  function toggleYouDogParticipant(charId, enabled) {
+    const id = String(charId || "").trim();
+    if (!id) return false;
+    const allOrdered = getYouDogAllParticipantIds();
+    if (
+      !allOrdered.some(function (cid) {
+        return cid === id;
+      })
+    ) {
+      return false;
+    }
+    const set = new Set(youDogParticipantIds);
+    if (enabled) {
+      set.add(id);
+    } else {
+      if (set.size <= 1) {
+        showToast("至少保留一个参与发帖的角色。", "warning");
+        return false;
+      }
+      set.delete(id);
+    }
+    youDogParticipantIds = allOrdered.filter(function (cid) {
+      return set.has(cid);
+    });
+    if (!youDogParticipantIds.length) {
+      youDogParticipantIds = [id];
+    }
+    if (!youDogNextGenCharId || youDogParticipantIds.indexOf(youDogNextGenCharId) < 0) {
+      youDogNextGenCharId = youDogParticipantIds[0];
+    }
+    schedulePersistNarrative();
+    return true;
+  }
+
+  function closeOverviewYouDogView() {
+    overviewSubView = null;
+    youDogPostMenuPostId = null;
+    youDogParticipantPanelOpen = false;
+    youDogChatSubScreen = "feed";
+    youDogChatParticipantPanelOpen = false;
+    closeYouDogGenPick();
+    youDogChatSelectMode = false;
+    youDogChatSelectedMsgIds = [];
+    youDogChatSettingsOpen = false;
+    youDogChatMoreOpen = false;
+    youDogScreen = "feed";
+    youDogDetailPostId = null;
+    youDogProfileSpeakerRef = null;
+    youDogNavFrom = "feed";
+    if (!location.hash.startsWith("#/story") && location.hash !== "#/tab/overview") {
+      location.hash = "#/tab/overview";
+    }
+    syncOverviewSubViewUi();
+  }
+
+  function syncYouDogHolderModalChrome() {
+    const titleEl = els.youDogHolderTitle();
+    const hintEl = els.youDogHolderHint();
+    const backBtn = els.youDogHolderStepBack();
+    const pick = els.youDogHolderPick();
+    const actions = els.youDogHolderActions();
+    if (titleEl) titleEl.textContent = "选择剧情";
+    if (hintEl) hintEl.textContent = "可同时开启多条剧情，发帖与互动合并显示";
+    if (backBtn) backBtn.hidden = true;
+    if (pick) pick.hidden = true;
+    if (actions) actions.hidden = true;
+  }
+
+  function buildYouDogPlotRowWithSwitch(plot, isActive) {
+    const row = document.createElement("div");
+    row.className = "you-dog-plot-row" + (isActive ? " is-active" : "");
+    const inputId = "you-dog-plot-sw-" + String(plot.id || "").replace(/[^a-zA-Z0-9_-]/g, "");
+    row.innerHTML =
+      '<span class="you-dog-plot-row__title">' +
+      escapeHtml(plot.title || "未命名剧情") +
+      "</span>" +
+      '<label class="you-dog-switch" for="' +
+      escapeHtml(inputId) +
+      '">' +
+      '<input type="checkbox" class="you-dog-switch__input" id="' +
+      escapeHtml(inputId) +
+      '" data-you-dog-holder-plot="' +
+      escapeHtml(plot.id) +
+      '"' +
+      (isActive ? " checked" : "") +
+      " />" +
+      '<span class="you-dog-switch__slider" aria-hidden="true"></span></label>';
+    return row;
+  }
+
+  function renderYouDogHolderPlotList() {
+    const listEl = els.youDogHolderPlotList();
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    if (!plots.length) {
+      const ph = document.createElement("p");
+      ph.className = "field__hint phone-holder-empty";
+      ph.textContent = "暂无剧情，请先在「剧情」中创建。";
+      listEl.appendChild(ph);
+      return;
+    }
+    plots.forEach(function (p) {
+      const candidates = getYouDogParticipantCandidatesForPlot(p.id);
+      const row = buildYouDogPlotRowWithSwitch(p, youDogPlotIds.indexOf(p.id) >= 0);
+      const input = row.querySelector("[data-you-dog-holder-plot]");
+      if (input) {
+        input.addEventListener("change", function () {
+          const plotId = String(input.getAttribute("data-you-dog-holder-plot") || "").trim();
+          if (input.checked) {
+            if (!candidates.length) {
+              input.checked = false;
+              showToast("该剧情下没有可参与的角色。", "warning");
+              return;
+            }
+            if (toggleYouDogPlot(plotId, true)) {
+              renderYouDogHolderPlotList();
+              renderYouDogScreen(els.youDogContentSlot());
+              const plot = plots.find(function (pl) {
+                return pl.id === plotId;
+              });
+              showToast("已加入《" + ((plot && plot.title) || "剧情") + "》", "success");
+            } else {
+              input.checked = false;
+            }
+          } else {
+            if (youDogPlotIds.length <= 1) {
+              input.checked = true;
+              showToast("至少保留一条已开启的剧情。", "warning");
+              return;
+            }
+            if (toggleYouDogPlot(plotId, false)) {
+              renderYouDogHolderPlotList();
+              renderYouDogScreen(els.youDogContentSlot());
+            } else {
+              input.checked = true;
+            }
+          }
+        });
+        if (!candidates.length) {
+          input.disabled = true;
+          row.classList.add("is-disabled");
+        }
+      }
+      listEl.appendChild(row);
+    });
+  }
+
+  function renderYouDogHolderModal() {
+    syncYouDogHolderModalChrome();
+    renderYouDogHolderPlotList();
+  }
+
+  function openYouDogHolderModal(opts) {
+    opts = opts || {};
+    const modal = els.modalYouDogHolder();
+    if (!modal) return;
+    youDogHolderModalMode = opts.mode === "settings" ? "settings" : "first";
+    youDogHolderModalStep = "plot";
+    youDogHolderModalPlotId = youDogPlotIds.length ? youDogPlotIds[0] : null;
+    renderYouDogHolderModal();
+    modal.hidden = false;
+  }
+
+  function youDogHolderModalBackToPlot() {
+    youDogHolderModalStep = "plot";
+    renderYouDogHolderModal();
+  }
+
+  function closeYouDogHolderModal() {
+    const modal = els.modalYouDogHolder();
+    if (!modal) return;
+    modal.hidden = true;
+    youDogHolderModalStep = "plot";
+    youDogHolderModalPlotId = null;
+    if (youDogHolderModalMode === "first" && !youDogPlotIds.length) {
+      closeOverviewYouDogView();
+    }
+  }
+
+  function renderYouDogPersonaModal() {
+    const pick = els.youDogPersonaPick();
+    if (!pick) return;
+    pick.innerHTML = "";
+    const options = getAllYouDogSelfPersonaOptions();
+    if (!options.length) {
+      pick.innerHTML =
+        '<p class="you-dog-persona-empty">还没有「我的形象」，请先在剧情中设定主角。</p>';
+      return;
+    }
+    const alias = ensureYouDogGlobalAnonAlias();
+    const aliasInput = alias.replace(/^@/, "");
+    const optionsHtml = options
+      .map(function (opt) {
+        const on = youDogUserCharId === opt.charId;
+        const avInner = opt.avatarUrl
+          ? '<img src="' + escapeHtml(opt.avatarUrl) + '" alt="" />'
+          : escapeHtml(String(opt.char.name || "?").slice(0, 1));
+        const avCls = "you-dog-persona-option__av avatar" + (opt.avatarUrl ? " avatar--has-image" : "");
+        return (
+          '<button type="button" class="you-dog-persona-option' +
+          (on ? " is-active" : "") +
+          '" data-you-dog-persona-select="' +
+          escapeHtml(opt.charId) +
+          '">' +
+          '<span class="' +
+          avCls +
+          '">' +
+          avInner +
+          "</span>" +
+          '<span class="you-dog-persona-option__meta">' +
+          '<span class="you-dog-persona-option__name">' +
+          escapeHtml(opt.char.name || "我的形象") +
+          "</span>" +
+          '<span class="you-dog-persona-option__plot">《' +
+          escapeHtml(opt.plotTitle) +
+          "》</span></span>" +
+          (on
+            ? '<span class="you-dog-persona-option__badge" aria-hidden="true">当前</span>'
+            : "") +
+          "</button>"
+        );
+      })
+      .join("");
+    pick.innerHTML =
+      '<div class="you-dog-persona-alias">' +
+      '<label class="you-dog-persona-alias__label" for="you-dog-persona-alias-input">匿名马甲（全部剧情共用）</label>' +
+      '<div class="you-dog-persona-alias__row">' +
+      '<span class="you-dog-persona-alias__at" aria-hidden="true">@</span>' +
+      '<input type="text" id="you-dog-persona-alias-input" class="field__input you-dog-persona-alias__input" value="' +
+      escapeHtml(aliasInput) +
+      '" maxlength="24" placeholder="嗅友3847" autocomplete="off" />' +
+      '<button type="button" class="btn btn--secondary btn--pill you-dog-persona-alias__save" data-you-dog-persona-alias-save>保存</button>' +
+      "</div></div>" +
+      '<p class="you-dog-persona-sheet__hint you-dog-persona-sheet__hint--top">选择与发帖角色无关的互动身份；马甲名对所有「我的形象」生效。</p>' +
+      '<div class="you-dog-persona-options">' +
+      optionsHtml +
+      "</div>";
+  }
+
+  function openYouDogPersonaModal() {
+    const modal = els.modalYouDogPersona();
+    if (!modal) return;
+    renderYouDogPersonaModal();
+    modal.hidden = false;
+  }
+
+  function closeYouDogPersonaModal() {
+    const modal = els.modalYouDogPersona();
+    if (modal) modal.hidden = true;
+  }
+
+  function openYouDogCommentModal(postId) {
+    youDogCommentPostId = String(postId || "").trim();
+    youDogCommentDraft = "";
+    const modal = els.modalYouDogComment();
+    const input = els.youDogCommentInput();
+    if (input) input.value = "";
+    if (modal) modal.hidden = false;
+  }
+
+  function closeYouDogCommentModal() {
+    const modal = els.modalYouDogComment();
+    if (modal) modal.hidden = true;
+    youDogCommentPostId = null;
+    youDogCommentDraft = "";
+  }
+
   function getPhoneWallpaperUrlForChar(charId) {
     if (!charId) return "";
     return String(phoneWallpapers[charId] || "").trim();
@@ -30257,18 +38081,20 @@
       const raw = sourceObj[plotId];
       const arr = phoneSharedSectionEntrySections(raw);
       if (!Array.isArray(arr) || !arr.length) return;
-      phoneSharedSectionStoreSetSections(
-        targetStore,
-        plotId,
-        arr.map(function (s) {
-          return {
-            id: String((s && s.id) || ""),
-            name: String((s && s.name) || ""),
-            description: String((s && s.description) || ""),
-          };
-        }),
-        phoneSharedSectionEntryUpdatedAt(raw) || Date.now()
-      );
+      const sections = arr.map(function (s) {
+        return {
+          id: String((s && s.id) || ""),
+          name: String((s && s.name) || ""),
+          description: String((s && s.description) || ""),
+        };
+      });
+      const updatedAt = phoneSharedSectionEntryUpdatedAt(raw) || Date.now();
+      const userEdited = !!(raw && !Array.isArray(raw) && raw.userEdited);
+      if (userEdited) {
+        targetStore[plotId] = { categories: sections, userEdited: true, updatedAt: updatedAt };
+      } else {
+        phoneSharedSectionStoreSetSections(targetStore, plotId, sections, updatedAt);
+      }
     });
   }
 
@@ -47686,7 +55512,8 @@
       k.indexOf("phone") === 0 ||
       k.indexOf("fanwork") === 0 ||
       k.indexOf("radio") === 0 ||
-      k.indexOf("todo") === 0
+      k.indexOf("todo") === 0 ||
+      k.indexOf("you-dog") === 0
     );
   }
 
@@ -51323,7 +59150,7 @@
       "\n\n" +
       "【篇幅】约 " +
       wlim2 +
-      " 汉字；多用对话与小动作推进，少用纯景物长描与重复上一轮信息；篇幅内可分摊给多名角色各写一小段，不必一人包揽。\n\n" +
+      " 汉字；多用对话与小动作推进，少用纯景物长描与重复上一轮、记忆、总结中已写过的信息；篇幅内可分摊给多名角色各写一小段，不必一人包揽。\n\n" +
       "【戏份】" +
       "侧重：" +
       (dominantRoster || "无") +
@@ -51413,13 +59240,13 @@
       (memoryBlock
         ? "\n\n【必读·记忆】（最多 " +
           PLOT_MEMORY_PROMPT_MAX +
-          " 条；须长期遵守并在本轮呼应，不得遗漏或违背）：\n" +
+          " 条；均为已发生要点，须长期遵守并在本轮呼应其后果，勿复述重演；不得遗漏或违背）：\n" +
           memoryBlock
         : "") +
       (summaryBlock
-        ? "\n\n【必读·阶段总结】（主线滚动摘要，或已保存最近 " +
+        ? "\n\n【必读·阶段总结】（均为已发生过去式；主线滚动摘要，或已保存最近 " +
           STORY_PLAY_SUMMARY_REF_LIMIT +
-          " 条；补充更早回合背景，须延续核心事实与关系；细节冲突时以「最近剧情」为准）：\n" +
+          " 条；补充更早背景，勿复述已有情节，须在其基础上向前推进；细节冲突时以「最近剧情」为准）：\n" +
           summaryBlock
         : hasPriorPlay
           ? "\n\n【必读·阶段总结】（暂无总结；请严格依据上方「最近剧情」承接，勿与已写正文矛盾。）"
@@ -52700,7 +60527,10 @@
       else if (overviewSubView === "knock") renderKnockScreen(els.knockContentSlot(), { scrollToEnd: true });
       else if (overviewSubView === "collect") renderCollectScreen(els.collectContentSlot());
       else if (overviewSubView === "todo") renderTaskTodoScreen(els.todoContentSlot());
-    else if (overviewSubView === "radio") renderRadioScreen(els.radioContentSlot());
+      else if (overviewSubView === "radio") renderRadioScreen(els.radioContentSlot());
+      else if (overviewSubView === "pass-note") renderPassNoteScreen(els.passNoteContentSlot());
+      else if (overviewSubView === "you-dog") renderYouDogScreen(els.youDogContentSlot());
+      else if (overviewSubView === "grudge-book") renderGrudgeBookScreen(els.grudgeBookContentSlot());
     }
     if (els.modalAssistantProfile() && !els.modalAssistantProfile().hidden) {
       renderAssistantProfileModal();
@@ -54590,6 +62420,763 @@
       if (e.target.id === "modal-radio-end-call") closeRadioEndCallModal();
     });
   }
+  if (els.passNoteHolderClose()) {
+    els.passNoteHolderClose().addEventListener("click", closePassNoteHolderModal);
+  }
+  if (els.passNoteHolderStepBack()) {
+    els.passNoteHolderStepBack().addEventListener("click", passNoteHolderModalBackToPlot);
+  }
+  if (els.modalPassNoteHolder()) {
+    els.modalPassNoteHolder().addEventListener("click", function (e) {
+      if (e.target.id === "modal-pass-note-holder") closePassNoteHolderModal();
+    });
+  }
+  if (els.grudgeBookHolderClose()) {
+    els.grudgeBookHolderClose().addEventListener("click", closeGrudgeBookHolderModal);
+  }
+  if (els.grudgeBookHolderStepBack()) {
+    els.grudgeBookHolderStepBack().addEventListener("click", grudgeBookHolderModalBackToPlot);
+  }
+  if (els.modalGrudgeBookHolder()) {
+    els.modalGrudgeBookHolder().addEventListener("click", function (e) {
+      if (e.target.id === "modal-grudge-book-holder") closeGrudgeBookHolderModal();
+    });
+  }
+  if (els.youDogHolderClose()) {
+    els.youDogHolderClose().addEventListener("click", closeYouDogHolderModal);
+  }
+  if (els.youDogHolderStepBack()) {
+    els.youDogHolderStepBack().addEventListener("click", youDogHolderModalBackToPlot);
+  }
+  if (els.modalYouDogHolder()) {
+    els.modalYouDogHolder().addEventListener("click", function (e) {
+      if (e.target.id === "modal-you-dog-holder") closeYouDogHolderModal();
+    });
+  }
+  if (els.youDogPersonaClose()) {
+    els.youDogPersonaClose().addEventListener("click", closeYouDogPersonaModal);
+  }
+  if (els.modalYouDogPersona()) {
+    els.modalYouDogPersona().addEventListener("click", function (e) {
+      if (e.target.id === "modal-you-dog-persona") closeYouDogPersonaModal();
+      const selectBtn = e.target.closest("[data-you-dog-persona-select]");
+      if (selectBtn) {
+        youDogUserCharId = String(selectBtn.getAttribute("data-you-dog-persona-select") || "").trim() || null;
+        schedulePersistNarrative();
+        renderYouDogPersonaModal();
+        renderYouDogScreen(els.youDogContentSlot());
+        return;
+      }
+      if (e.target.closest("[data-you-dog-persona-alias-save]")) {
+        const input = document.getElementById("you-dog-persona-alias-input");
+        if (input && saveYouDogGlobalAnonAlias(input.value)) {
+          showToast("马甲已更新", "success");
+          renderYouDogPersonaModal();
+          renderYouDogScreen(els.youDogContentSlot());
+        }
+      }
+    });
+  }
+  if (els.youDogCommentClose()) {
+    els.youDogCommentClose().addEventListener("click", closeYouDogCommentModal);
+  }
+  if (els.youDogCommentSubmit()) {
+    els.youDogCommentSubmit().addEventListener("click", function () {
+      const input = els.youDogCommentInput();
+      const text = input ? input.value : "";
+      if (youDogCommentPostId && submitYouDogComment(youDogCommentPostId, text)) {
+        closeYouDogCommentModal();
+        renderYouDogScreen(els.youDogContentSlot());
+        showToast("评论已发送", "success");
+      }
+    });
+  }
+  if (els.modalYouDogComment()) {
+    els.modalYouDogComment().addEventListener("click", function (e) {
+      if (e.target.id === "modal-you-dog-comment") closeYouDogCommentModal();
+    });
+  }
+  if (els.youDogChatSetupClose()) {
+    els.youDogChatSetupClose().addEventListener("click", closeYouDogChatSetupModal);
+  }
+  if (els.youDogChatSetupBack()) {
+    els.youDogChatSetupBack().addEventListener("click", retreatYouDogChatSetupStep);
+  }
+  if (els.youDogChatSetupConfirm()) {
+    els.youDogChatSetupConfirm().addEventListener("click", advanceYouDogChatSetupStep);
+  }
+  if (els.modalYouDogChatSetup()) {
+    els.modalYouDogChatSetup().addEventListener("click", function (e) {
+      if (e.target.id === "modal-you-dog-chat-setup") closeYouDogChatSetupModal();
+      const personaBtn = e.target.closest("[data-you-dog-chat-setup-persona]");
+      if (personaBtn && youDogChatSetupDraft) {
+        youDogChatSetupDraft.userCharId =
+          String(personaBtn.getAttribute("data-you-dog-chat-setup-persona") || "").trim() || null;
+        renderYouDogChatSetupModal();
+      }
+    });
+  }
+  if (els.youDogChatPersonaClose()) {
+    els.youDogChatPersonaClose().addEventListener("click", closeYouDogChatPersonaModal);
+  }
+  if (els.modalYouDogChatPersona()) {
+    els.modalYouDogChatPersona().addEventListener("click", function (e) {
+      if (e.target.id === "modal-you-dog-chat-persona") closeYouDogChatPersonaModal();
+      const selectBtn = e.target.closest("[data-you-dog-chat-persona-select]");
+      if (selectBtn) {
+        youDogChatUserCharId = String(selectBtn.getAttribute("data-you-dog-chat-persona-select") || "").trim() || null;
+        schedulePersistNarrative();
+        renderYouDogChatPersonaModal();
+        renderYouDogScreen(els.youDogContentSlot());
+      }
+    });
+  }
+  document.addEventListener("change", function (e) {
+    const silentToggle = e.target.closest("[data-you-dog-chat-silent-toggle]");
+    if (silentToggle) {
+      youDogChatSilentMode = !!silentToggle.checked;
+    }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" || e.isComposing || e.shiftKey) return;
+    const input = e.target.closest("[data-you-dog-chat-input]");
+    if (!input || !input.closest("#you-dog-content-slot")) return;
+    e.preventDefault();
+    sendYouDogChatMessage(els.youDogContentSlot());
+  });
+  document.addEventListener("click", function (e) {
+    const slot = e.target.closest("#you-dog-content-slot");
+    if (!slot || !slot.contains(e.target)) return;
+
+    if (e.target.closest("[data-you-dog-back]")) {
+      handleYouDogBack(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-pick-plot]")) {
+      openYouDogHolderModal({ mode: youDogPlotIds.length ? "settings" : "first" });
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-persona-open]")) {
+      openYouDogPersonaModal();
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-chat-toggle]")) {
+      handleYouDogChatToggle();
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-chat-setup-open]")) {
+      openYouDogChatSetupModal();
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-chat-more-toggle]")) {
+      youDogChatSettingsOpen = false;
+      youDogChatMoreOpen = !youDogChatMoreOpen;
+      renderYouDogScreen(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-chat-more-close]")) {
+      youDogChatMoreOpen = false;
+      renderYouDogScreen(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-chat-generate]")) {
+      youDogChatMoreOpen = false;
+      openYouDogGenPick("chat", slot, { silent: youDogChatSilentMode });
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-chat-regenerate]")) {
+      youDogChatMoreOpen = false;
+      openYouDogGenPick("chat", slot, { silent: youDogChatSilentMode, regenerateBatch: true });
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-chat-select-toggle]")) {
+      youDogChatMoreOpen = false;
+      void handleYouDogChatSelectDelete(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-chat-send]")) {
+      sendYouDogChatMessage(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-chat-quote-clear]")) {
+      clearYouDogChatQuoteDraft();
+      renderYouDogScreen(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-chat-persona-open]")) {
+      youDogChatMoreOpen = false;
+      openYouDogChatPersonaModal();
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-chat-settings-open]")) {
+      youDogChatMoreOpen = false;
+      youDogChatSettingsOpen = true;
+      renderYouDogScreen(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-chat-settings-close]")) {
+      youDogChatSettingsOpen = false;
+      renderYouDogScreen(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-chat-settings-save]")) {
+      saveYouDogChatSettingsFromDom();
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-chat-setup-reopen]")) {
+      youDogChatSettingsOpen = false;
+      openYouDogChatSetupModal();
+      return;
+    }
+
+    const chatSelectMsg = e.target.closest("[data-you-dog-chat-select-msg]");
+    if (chatSelectMsg && youDogChatSelectMode) {
+      const mid = chatSelectMsg.getAttribute("data-you-dog-chat-select-msg");
+      const idx = youDogChatSelectedMsgIds.indexOf(mid);
+      if (idx >= 0) youDogChatSelectedMsgIds.splice(idx, 1);
+      else youDogChatSelectedMsgIds.push(mid);
+      renderYouDogScreen(slot);
+      return;
+    }
+
+    const chatToggle = e.target.closest("[data-you-dog-chat-toggle-participant]");
+    if (chatToggle) {
+      const ref = chatToggle.getAttribute("data-you-dog-chat-toggle-participant");
+      if (toggleYouDogChatParticipant(ref, chatToggle.checked)) renderYouDogScreen(slot);
+      else chatToggle.checked = !chatToggle.checked;
+      return;
+    }
+
+    const chatDelMember = e.target.closest("[data-you-dog-chat-delete-member]");
+    if (chatDelMember) {
+      const ref = chatDelMember.getAttribute("data-you-dog-chat-delete-member");
+      showConfirm("确定将该成员踢出群聊并删除其全部发言？", "踢出成员").then(function (ok) {
+        if (!ok) return;
+        if (kickYouDogChatMember(ref)) {
+          renderYouDogScreen(slot);
+          scrollYouDogChatThreadToEnd(slot);
+          showToast("已移出群聊", "success");
+        }
+      });
+      return;
+    }
+
+    const chatSetAdmin = e.target.closest("[data-you-dog-chat-set-admin]");
+    if (chatSetAdmin) {
+      const ref = chatSetAdmin.getAttribute("data-you-dog-chat-set-admin");
+      const makeAdmin = chatSetAdmin.getAttribute("data-admin") === "1";
+      if (setYouDogChatMemberAdmin(ref, makeAdmin)) {
+        renderYouDogScreen(slot);
+        scrollYouDogChatThreadToEnd(slot);
+      }
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-generate]")) {
+      openYouDogGenPick("feed", slot);
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-gen-pick-close]")) {
+      closeYouDogGenPick();
+      renderYouDogScreen(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-gen-pick-confirm]")) {
+      confirmYouDogGenPick(slot);
+      return;
+    }
+
+    const tabBtn = e.target.closest("[data-you-dog-tab]");
+    if (tabBtn) {
+      switchYouDogMainTab(tabBtn.getAttribute("data-you-dog-tab"));
+      return;
+    }
+
+    const tagBtn = e.target.closest("[data-you-dog-feed-tag]");
+    if (tagBtn) {
+      youDogFeedTag = tagBtn.getAttribute("data-you-dog-feed-tag") || "all";
+      renderYouDogScreen(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-section-manage-open]")) {
+      openYouDogSectionManage();
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-section-manage-close]")) {
+      closeYouDogSectionManage();
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-section-add]")) {
+      openYouDogSectionForm("new");
+      return;
+    }
+
+    const sectionEditBtn = e.target.closest("[data-you-dog-section-edit]");
+    if (sectionEditBtn) {
+      openYouDogSectionForm(sectionEditBtn.getAttribute("data-you-dog-section-edit"));
+      return;
+    }
+
+    const sectionDeleteBtn = e.target.closest("[data-you-dog-section-delete]");
+    if (sectionDeleteBtn) {
+      void handleYouDogSectionDelete(sectionDeleteBtn.getAttribute("data-you-dog-section-delete"));
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-section-form-cancel]")) {
+      cancelYouDogSectionForm();
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-section-save]")) {
+      saveYouDogSectionForm();
+      return;
+    }
+
+    const menuBtn = e.target.closest("[data-you-dog-menu]");
+    if (menuBtn) {
+      const pid = menuBtn.getAttribute("data-you-dog-menu");
+      youDogPostMenuPostId = youDogPostMenuPostId === pid ? null : pid;
+      renderYouDogScreen(slot);
+      return;
+    }
+
+    const delBtn = e.target.closest("[data-you-dog-delete]");
+    if (delBtn) {
+      const pid = delBtn.getAttribute("data-you-dog-delete");
+      youDogPostMenuPostId = null;
+      showConfirm("确定从时间线删除这条推文吗？", "删除推文").then(function (ok) {
+        if (!ok) return;
+        if (deleteYouDogPost(pid)) {
+          if (youDogScreen === "post" && youDogDetailPostId === pid) {
+            youDogScreen = youDogNavFrom === "profile" ? "profile" : "feed";
+            youDogDetailPostId = null;
+          }
+          renderYouDogScreen(slot);
+          showToast("已删除", "success");
+        }
+      });
+      return;
+    }
+
+    const saveLikeBtn = e.target.closest("[data-you-dog-save-like]");
+    if (saveLikeBtn) {
+      toggleYouDogPostSavedLike(saveLikeBtn.getAttribute("data-you-dog-save-like"));
+      youDogPostMenuPostId = null;
+      renderYouDogScreen(slot);
+      return;
+    }
+
+    const saveBookmarkBtn = e.target.closest("[data-you-dog-save-bookmark]");
+    if (saveBookmarkBtn) {
+      toggleYouDogPostSavedBookmark(saveBookmarkBtn.getAttribute("data-you-dog-save-bookmark"));
+      youDogPostMenuPostId = null;
+      renderYouDogScreen(slot);
+      return;
+    }
+
+    const likeBtn = e.target.closest("[data-you-dog-like]");
+    if (likeBtn) {
+      if (toggleYouDogPostLike(likeBtn.getAttribute("data-you-dog-like"))) {
+        renderYouDogScreen(slot);
+      }
+      return;
+    }
+
+    const commentOpen = e.target.closest("[data-you-dog-comment-open]");
+    if (commentOpen) {
+      openYouDogCommentModal(commentOpen.getAttribute("data-you-dog-comment-open"));
+      return;
+    }
+
+    const genReplies = e.target.closest("[data-you-dog-gen-replies]");
+    if (genReplies) {
+      void generateYouDogReplies(slot, genReplies.getAttribute("data-you-dog-gen-replies"));
+      return;
+    }
+
+    const openPostBtn = e.target.closest("[data-you-dog-open-post]");
+    if (openPostBtn) {
+      openYouDogPostDetail(
+        slot,
+        openPostBtn.getAttribute("data-you-dog-open-post"),
+        youDogScreen === "profile" ? "profile" : "feed"
+      );
+      return;
+    }
+
+    const profileBtn = e.target.closest("[data-you-dog-open-profile]");
+    if (profileBtn) {
+      const ref = profileBtn.getAttribute("data-you-dog-open-profile");
+      if (ref) openYouDogProfile(slot, ref);
+      return;
+    }
+
+    const gotoPost = e.target.closest("[data-you-dog-goto-post]");
+    if (gotoPost) {
+      openYouDogPostDetail(slot, gotoPost.getAttribute("data-you-dog-goto-post"), "feed");
+      return;
+    }
+  });
+  document.addEventListener("change", function (e) {
+    const target = e.target;
+    if (!target || !target.matches) return;
+
+    if (target.matches("[data-you-dog-gen-pick-toggle]")) {
+      const slot = els.youDogContentSlot();
+      const id = target.getAttribute("data-you-dog-gen-pick-toggle");
+      const ok = toggleYouDogGenPickDraft(id, target.checked);
+      if (!ok) {
+        target.checked = !target.checked;
+        return;
+      }
+      if (slot) renderYouDogScreen(slot);
+      return;
+    }
+
+    if (target.matches("[data-you-dog-toggle-participant]")) {
+      const slot = els.youDogContentSlot();
+      const charId = target.getAttribute("data-you-dog-toggle-participant");
+      const ok = toggleYouDogParticipant(charId, target.checked);
+      if (!ok) {
+        target.checked = !target.checked;
+        return;
+      }
+      if (slot) renderYouDogScreen(slot);
+      return;
+    }
+  });
+  document.addEventListener("click", function (e) {
+    const slot = e.target.closest("#pass-note-content-slot");
+    if (!slot || !slot.contains(e.target)) return;
+    const nav = getPassNoteNav(slot);
+
+    if (e.target.closest("[data-pass-note-back]")) {
+      if (nav.screen === "archive") {
+        if (nav.archiveDetailId) {
+          nav.archiveDetailId = null;
+          renderPassNoteScreen(slot);
+        } else {
+          nav.screen = "play";
+          renderPassNoteScreen(slot);
+        }
+      } else {
+        closeOverviewPassNoteView();
+      }
+      return;
+    }
+
+    if (e.target.closest("[data-pass-note-settings]") || e.target.closest("[data-pass-note-change-holder]")) {
+      openPassNoteHolderModal({ mode: "settings" });
+      return;
+    }
+
+    if (e.target.closest("[data-pass-note-pick]")) {
+      openPassNoteHolderModal({ mode: "first" });
+      return;
+    }
+
+    if (e.target.closest("[data-pass-note-archive]")) {
+      nav.screen = "archive";
+      nav.archiveDetailId = null;
+      renderPassNoteScreen(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-pass-note-start-ai]")) {
+      void startPassNoteSession(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-pass-note-start-custom]")) {
+      startPassNoteSessionCustom(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-pass-note-compose-submit]")) {
+      const session = passNoteActiveSession;
+      if (!session || session.status !== "composing") return;
+      const ta = slot.querySelector("[data-pass-note-compose]");
+      submitPassNoteCustomQuestion(slot, ta ? ta.value : "");
+      return;
+    }
+
+    if (e.target.closest("[data-pass-note-trash]")) {
+      discardPassNoteQuestion(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-pass-note-proceed-reply]")) {
+      proceedPassNoteToUserReplies(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-pass-note-submit]")) {
+      const session = passNoteActiveSession;
+      if (!session || session.status !== "answering") return;
+      const ta = slot.querySelector("[data-pass-note-answer]");
+      submitPassNoteAnswer(slot, ta ? ta.value : "");
+      return;
+    }
+
+    if (e.target.closest("[data-pass-note-restart]")) {
+      const source =
+        passNoteActiveSession && passNoteActiveSession.questionSource === "custom" ? "custom" : "ai";
+      passNoteActiveSession = null;
+      schedulePersistNarrative();
+      if (source === "custom") startPassNoteSessionCustom(slot);
+      else void startPassNoteSession(slot);
+      return;
+    }
+
+    const favBtn = e.target.closest("[data-pass-note-favorite]");
+    if (favBtn) {
+      const sid = favBtn.getAttribute("data-pass-note-favorite");
+      if (sid) {
+        togglePassNoteFavorite(sid);
+        renderPassNoteScreen(slot);
+      }
+      return;
+    }
+
+    const delBtn = e.target.closest("[data-pass-note-delete]");
+    if (delBtn) {
+      const sid = delBtn.getAttribute("data-pass-note-delete");
+      if (!sid) return;
+      showConfirm("确认删除这条题目记录？", "删除记录").then(function (ok) {
+        if (!ok) return;
+        if (nav.archiveDetailId === sid) nav.archiveDetailId = null;
+        deletePassNoteRecord(sid);
+        renderPassNoteScreen(slot);
+      });
+      return;
+    }
+
+    const filterBtn = e.target.closest("[data-pass-note-filter]");
+    if (filterBtn) {
+      nav.archiveFilter = filterBtn.getAttribute("data-pass-note-filter") === "favorites" ? "favorites" : "all";
+      nav.archiveDetailId = null;
+      renderPassNoteScreen(slot);
+      return;
+    }
+
+    const openRecord = e.target.closest("[data-pass-note-record-open]");
+    if (openRecord) {
+      nav.archiveDetailId = openRecord.getAttribute("data-pass-note-record-open");
+      renderPassNoteScreen(slot);
+      return;
+    }
+  });
+  document.addEventListener("click", function (e) {
+    const slot = e.target.closest("#grudge-book-content-slot");
+    if (!slot || !slot.contains(e.target)) return;
+    const nav = getGrudgeBookNav(slot);
+
+    if (e.target.closest("[data-grudge-book-back]")) {
+      if (nav.screen === "plan") {
+        nav.screen = "detail";
+        renderGrudgeBookScreen(slot);
+      } else if (nav.screen === "compose") {
+        nav.screen = "list";
+        nav.composeDraft = null;
+        nav.editingId = null;
+        renderGrudgeBookScreen(slot);
+      } else if (nav.screen === "detail") {
+        nav.screen = "list";
+        nav.detailId = null;
+        renderGrudgeBookScreen(slot);
+      } else {
+        closeOverviewGrudgeBookView();
+      }
+      return;
+    }
+
+    if (e.target.closest("[data-grudge-book-settings]") || e.target.closest("[data-grudge-book-change-holder]")) {
+      openGrudgeBookHolderModal({ mode: "settings" });
+      return;
+    }
+
+    if (e.target.closest("[data-grudge-book-pick]")) {
+      openGrudgeBookHolderModal({ mode: "first" });
+      return;
+    }
+
+    if (e.target.closest("[data-grudge-book-generate]")) {
+      void handleGrudgeBookGenerate(slot);
+      return;
+    }
+
+    const perspBtn = e.target.closest("[data-grudge-book-persp]");
+    if (perspBtn) {
+      const val = perspBtn.getAttribute("data-grudge-book-persp");
+      if (val === "user" || val === "character") {
+        grudgeBookViewPerspective = val;
+        nav.screen = "list";
+        nav.detailId = null;
+        schedulePersistNarrative();
+        renderGrudgeBookScreen(slot);
+      }
+      return;
+    }
+
+    const bookBtn = e.target.closest("[data-grudge-book-book]");
+    if (bookBtn) {
+      const val = bookBtn.getAttribute("data-grudge-book-book");
+      if (val === "grudge" || val === "merit") {
+        grudgeBookActiveBook = val;
+        nav.screen = "list";
+        nav.detailId = null;
+        schedulePersistNarrative();
+        renderGrudgeBookScreen(slot);
+      }
+      return;
+    }
+
+    const openBtn = e.target.closest("[data-grudge-book-open]");
+    if (openBtn) {
+      nav.detailId = openBtn.getAttribute("data-grudge-book-open");
+      nav.screen = "detail";
+      renderGrudgeBookScreen(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-grudge-book-compose-new]")) {
+      const plot = getGrudgeBookPlot();
+      const partner = getGrudgeBookCharacter();
+      nav.screen = "compose";
+      nav.editingId = null;
+      nav.composeDraft = defaultGrudgeBookComposeDraft(plot, partner, grudgeBookActiveBook);
+      renderGrudgeBookScreen(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-grudge-book-compose-cancel]")) {
+      nav.screen = nav.editingId ? "detail" : "list";
+      nav.composeDraft = null;
+      nav.editingId = null;
+      renderGrudgeBookScreen(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-grudge-book-compose-save]")) {
+      const draft = readGrudgeBookComposeDraftFromDom(slot);
+      nav.composeDraft = draft;
+      const editingId = nav.editingId;
+      if (saveGrudgeBookEntryFromDraft(slot, draft, editingId)) {
+        nav.screen = "list";
+        nav.composeDraft = null;
+        nav.editingId = null;
+        nav.detailId = editingId || null;
+        if (nav.detailId) nav.screen = "detail";
+        renderGrudgeBookScreen(slot);
+      }
+      return;
+    }
+
+    const intBtn = e.target.closest("[data-grudge-book-intensity]");
+    if (intBtn) {
+      const level = intBtn.getAttribute("data-grudge-book-intensity");
+      const picker = slot.querySelector("[data-grudge-book-intensity-picker]");
+      if (picker && level) {
+        nav.composeDraft = readGrudgeBookComposeDraftFromDom(slot);
+        nav.composeDraft.intensity = Math.max(1, Math.min(5, parseInt(level, 10) || 3));
+        renderGrudgeBookScreen(slot);
+      }
+      return;
+    }
+
+    if (e.target.closest("[data-grudge-book-edit]")) {
+      const bundle = getGrudgeBookBundle();
+      const hit = bundle && nav.detailId ? findGrudgeBookEntry(bundle, nav.detailId) : null;
+      if (hit && hit.side === "user") {
+        nav.editingId = hit.entry.id;
+        nav.composeDraft = {
+          party: hit.entry.party,
+          relationship: hit.entry.relationship,
+          time: hit.entry.time,
+          place: hit.entry.place,
+          event: hit.entry.event,
+          intensity: hit.entry.intensity,
+          bookType: hit.list === "merits" ? "merit" : "grudge",
+        };
+        nav.screen = "compose";
+        renderGrudgeBookScreen(slot);
+      }
+      return;
+    }
+
+    const delBtn = e.target.closest("[data-grudge-book-delete]");
+    if (delBtn) {
+      const entryId = nav.detailId;
+      if (!entryId) return;
+      showConfirm("确认删除这条记录？", "删除记录").then(function (ok) {
+        if (!ok) return;
+        if (deleteGrudgeBookEntry(entryId)) {
+          nav.screen = "list";
+          nav.detailId = null;
+          renderGrudgeBookScreen(slot);
+        }
+      });
+      return;
+    }
+
+    if (e.target.closest("[data-grudge-book-add-plan]")) {
+      nav.screen = "plan";
+      renderGrudgeBookScreen(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-grudge-book-plan-cancel]")) {
+      nav.screen = "detail";
+      renderGrudgeBookScreen(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-grudge-book-plan-save]")) {
+      if (saveGrudgeBookPlanFromDom(slot, nav.detailId)) {
+        nav.screen = "detail";
+        renderGrudgeBookScreen(slot);
+      }
+      return;
+    }
+
+    const statusBtn = e.target.closest("[data-grudge-book-plan-status]");
+    if (statusBtn) {
+      slot.querySelectorAll(".grudge-book-plan-status").forEach(function (btn) {
+        btn.classList.remove("is-active");
+      });
+      statusBtn.classList.add("is-active");
+      return;
+    }
+
+    if (e.target.closest("[data-grudge-book-save-user-reply]")) {
+      if (saveGrudgeBookUserReplyFromDom(slot, nav.detailId)) {
+        renderGrudgeBookScreen(slot);
+      }
+      return;
+    }
+  });
   document.addEventListener("click", function (e) {
     const slot = e.target.closest("#radio-content-slot");
     if (!slot || !slot.contains(e.target)) return;
@@ -54629,7 +63216,7 @@
     }
 
     if (e.target.closest("[data-todo-context]")) {
-      openOverviewContextModal();
+      openTaskTodoHolderModal();
       return;
     }
 
@@ -56569,6 +65156,7 @@
   initStatusBar();
   bindBackupFileInput();
   bindHorizontalScrollAxisLock();
+  bindYouDogChatLongPressHandlers();
   bindSettingsDelegation();
   bindNav();
   bindOverviewWorkbenchActions();
