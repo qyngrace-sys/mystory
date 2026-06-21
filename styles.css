@@ -604,6 +604,11 @@ html[data-theme="dark"] .main-scroll.main-scroll--assistant.main-scroll--gallery
   padding-bottom: 0;
 }
 
+#fanwork-content-slot .phone-jjwxc--with-discard-footer .phone-jjwxc__scroll,
+#story-fanwork-slot .phone-jjwxc--with-discard-footer .phone-jjwxc__scroll {
+  padding-bottom: 8px;
+}
+
 #fanwork-content-slot .phone-jjwxc--detail .phone-jjwxc__scroll,
 #fanwork-content-slot .phone-jjwxc--chapter .phone-jjwxc__reader,
 #story-fanwork-slot .phone-jjwxc--detail .phone-jjwxc__scroll,
@@ -20457,6 +20462,47 @@ html[data-theme="dark"] .backup-action-btn {
   }
 }
 
+/* API 爱心悬浮球（点击打开 API 设置，长按拖动） */
+.api-heart-float {
+  position: absolute;
+  right: 16px;
+  bottom: calc(var(--nav-safe, 72px) + 12px);
+  z-index: 130;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--accent);
+  cursor: pointer;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.api-heart-float:active:not(.api-heart-float--dragging) {
+  transform: scale(0.94);
+}
+
+.api-heart-float--dragging {
+  cursor: grabbing;
+  opacity: 0.88;
+  transition: none;
+}
+
+.api-heart-float__icon {
+  display: block;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  fill: currentColor;
+  stroke: none;
+  pointer-events: none;
+}
+
 /* Toast 提示（位于 .phone-screen 内，顶端对齐手机屏幕安全区下方） */
 .gen-ready-banner {
   position: absolute;
@@ -21877,6 +21923,79 @@ html[data-theme="dark"] .phone-jjwxc__card-del:active {
   font-size: 0.76rem;
   color: #888;
   line-height: 1.5;
+}
+
+.fanwork-jjwxc__discard-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 8px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg) 88%, transparent) 0%,
+    color-mix(in srgb, var(--bg) 96%, var(--accent) 4%) 100%
+  );
+  border-top: 1px solid color-mix(in srgb, var(--accent) 12%, var(--border));
+}
+
+.fanwork-jjwxc__discard-btn,
+.fanwork-jjwxc__discard-undo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px dashed color-mix(in srgb, var(--muted2) 45%, var(--border));
+  background: color-mix(in srgb, var(--surface) 96%, var(--muted2) 4%);
+  color: var(--muted2);
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease, opacity 0.2s ease;
+}
+
+.fanwork-jjwxc__discard-btn svg,
+.fanwork-jjwxc__discard-undo-icon {
+  flex-shrink: 0;
+  opacity: 0.78;
+}
+
+.fanwork-jjwxc__discard-btn:active:not(:disabled) {
+  color: #e54d42;
+  border-color: color-mix(in srgb, #e54d42 42%, var(--border));
+  background: color-mix(in srgb, #e54d42 10%, var(--surface));
+}
+
+.fanwork-jjwxc__discard-undo:active:not(:disabled) {
+  color: color-mix(in srgb, var(--accent) 82%, var(--text));
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+.fanwork-jjwxc__discard-undo.is-disabled,
+.fanwork-jjwxc__discard-undo:disabled {
+  opacity: 0.42;
+  cursor: default;
+  pointer-events: none;
+}
+
+html[data-theme="dark"] .fanwork-jjwxc__discard-footer {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg) 90%, transparent) 0%,
+    color-mix(in srgb, var(--bg) 94%, var(--accent) 6%) 100%
+  );
+}
+
+html[data-theme="dark"] .fanwork-jjwxc__discard-btn:active:not(:disabled) {
+  color: #ff6b63;
+  border-color: color-mix(in srgb, #ff6b63 45%, var(--border));
+  background: color-mix(in srgb, #ff6b63 12%, var(--surface));
 }
 
 .fanwork-jjwxc__detail-actions {
@@ -28637,18 +28756,24 @@ html[data-theme="dark"] .pass-note-archive-subtitle {
   color: var(--text);
 }
 
-.you-dog-app__action-btn:disabled,
-.you-dog-app__action-btn--loading {
+.you-dog-app__action-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.you-dog-app__action-btn--loading svg {
-  animation: you-dog-spin 0.9s linear infinite;
+.you-dog-app__action-btn--loading {
+  cursor: wait;
+  animation: you-dog-blink 0.85s ease-in-out infinite;
 }
 
-@keyframes you-dog-spin {
-  to { transform: rotate(360deg); }
+@keyframes you-dog-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.22;
+  }
 }
 
 .you-dog-app__avatar-btn .avatar {
@@ -29167,6 +29292,29 @@ html[data-theme="dark"] .you-dog-post__menu-item {
   line-height: 1.4;
 }
 
+.you-dog-post__comment-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 2px;
+  font-size: 0.62rem;
+  line-height: 1.3;
+  color: color-mix(in srgb, var(--text) 58%, transparent);
+}
+
+.you-dog-post__comment-reply-to {
+  font-size: 0.58rem;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--text) 48%, transparent);
+}
+
+.you-dog-post__comment-text {
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--text) 88%, transparent);
+}
+
 .you-dog-post__comment-author {
   font-weight: 700;
   color: color-mix(in srgb, var(--accent) 75%, var(--text));
@@ -29231,12 +29379,8 @@ html[data-theme="dark"] .you-dog-post__menu-item {
 }
 
 .you-dog-post__action--loading {
-  opacity: 0.55;
   cursor: wait;
-}
-
-.you-dog-post__action--loading svg {
-  animation: you-dog-spin 0.9s linear infinite;
+  animation: you-dog-blink 0.85s ease-in-out infinite;
 }
 
 /* 帖子详情（参考查手机论坛） */
@@ -29351,14 +29495,14 @@ html[data-theme="dark"] .you-dog-post__menu-item {
   opacity: 0.82;
 }
 
-.you-dog-detail__replies-gen:disabled,
-.you-dog-detail__replies-gen--loading {
+.you-dog-detail__replies-gen:disabled {
   opacity: 0.55;
-  cursor: wait;
+  cursor: not-allowed;
 }
 
-.you-dog-detail__replies-gen--loading svg {
-  animation: you-dog-spin 0.9s linear infinite;
+.you-dog-detail__replies-gen--loading {
+  cursor: wait;
+  animation: you-dog-blink 0.85s ease-in-out infinite;
 }
 
 .you-dog-detail__reply {
@@ -29368,6 +29512,49 @@ html[data-theme="dark"] .you-dog-post__menu-item {
   padding: 10px 14px;
   background: var(--surface);
   border-bottom: 1px solid color-mix(in srgb, var(--accent) 6%, var(--border));
+}
+
+.you-dog-detail__reply-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 4px;
+  font-size: 0.62rem;
+  line-height: 1.3;
+  color: color-mix(in srgb, var(--text) 58%, transparent);
+}
+
+.you-dog-detail__reply-author {
+  font-weight: 700;
+  color: color-mix(in srgb, var(--accent) 75%, var(--text));
+}
+
+.you-dog-detail__reply-target {
+  font-size: 0.58rem;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--text) 48%, transparent);
+}
+
+.you-dog-detail__reply-delete {
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 2px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 38%, transparent);
+  font-size: 0.72rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.you-dog-detail__reply-delete:hover {
+  background: color-mix(in srgb, var(--danger, #c44) 10%, transparent);
+  color: var(--danger, #c44);
 }
 
 .you-dog-detail__reply .you-dog-post__avatar {
@@ -29919,6 +30106,80 @@ html[data-theme="dark"] .you-dog-post__menu-item {
   font-weight: 700;
   color: var(--accent-contrast, #fff);
   background: color-mix(in srgb, var(--accent) 88%, var(--surface));
+}
+
+.you-dog-feed-speaker-pool {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 10%, var(--border));
+}
+
+.you-dog-feed-speaker-pool__title {
+  margin: 0 0 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.you-dog-feed-speaker-pool__hint {
+  margin: 0 0 12px;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--muted2);
+}
+
+.you-dog-feed-speaker-pool__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.you-dog-feed-speaker-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 12%, var(--border));
+  border-radius: 14px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.you-dog-feed-speaker-row.is-active {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+.you-dog-feed-speaker-row__av {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  font-size: 1rem;
+}
+
+.you-dog-feed-speaker-row__meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.you-dog-feed-speaker-row__name {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.you-dog-feed-speaker-row__plot {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.74rem;
+  color: var(--muted2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .you-dog-persona-card {
