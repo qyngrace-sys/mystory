@@ -575,8 +575,8 @@ html[data-theme="dark"] .main-scroll.main-scroll--assistant.main-scroll--gallery
 
 #fanwork-content-slot .phone-jjwxc__pill-wrap,
 #story-fanwork-slot .phone-jjwxc__pill-wrap {
-  padding-left: 12px;
-  padding-right: 10px;
+  padding-left: 0;
+  padding-right: 0;
   padding-top: 4px;
   padding-bottom: 4px;
 }
@@ -2884,6 +2884,322 @@ html[data-theme="dark"] .workbench-glyph {
   display: none !important;
 }
 
+/* 点星各应用顶栏：生成 / 设置等为无底色、统一尺寸的线性图标 */
+.overview-subview {
+  --star-head-icon: 22px;
+  --star-head-hit: 36px;
+}
+
+.overview-subview .collect-header__settings,
+.overview-subview .collect-printer__top .collect-printer__icon-btn:last-child,
+.overview-subview .pass-note-header__actions .icon-btn,
+.overview-subview .grudge-book-header__actions .icon-btn,
+.overview-subview .grudge-book-header__generate,
+.overview-subview .radio-shell__bar > .icon-btn:last-child,
+.overview-subview .task-todo__calendar,
+.overview-subview .task-todo__gen,
+.overview-subview .you-dog-app__actions .you-dog-app__action-btn:not(.you-dog-app__action-btn--text),
+.overview-subview .you-dog-app__actions .you-dog-app__avatar-btn,
+.overview-subview .you-dog-app__actions--chat .phone-app__bar-action,
+.overview-subview .you-dog-app__actions--chat .phone-wechat-chat-action,
+.overview-subview .knock-wechat-app__actions .phone-app__bar-action,
+#overview-sub-knock .knock-chat__actions .phone-app__bar-action,
+#overview-sub-knock .knock-chat__actions .phone-wechat-chat-action,
+#overview-sub-phone .phone-app__bar-actions .phone-app__bar-action,
+#overview-sub-phone .phone-app__bar > .phone-app__bar-action,
+#overview-sub-fanwork .phone-jjwxc__bar-trail .phone-app__bar-action,
+#overview-sub-fanwork .phone-app__bar > .phone-app__bar-action {
+  width: var(--star-head-hit);
+  height: var(--star-head-hit);
+  min-width: var(--star-head-hit);
+  min-height: var(--star-head-hit);
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.overview-subview .collect-header__settings:active:not(:disabled),
+.overview-subview .collect-printer__top .collect-printer__icon-btn:last-child:active,
+.overview-subview .pass-note-header__actions .icon-btn:active:not(:disabled),
+.overview-subview .grudge-book-header__actions .icon-btn:active:not(:disabled),
+.overview-subview .grudge-book-header__generate:active:not(:disabled),
+.overview-subview .radio-shell__bar > .icon-btn:last-child:active,
+.overview-subview .task-todo__calendar:active:not(:disabled),
+.overview-subview .task-todo__gen:active:not(:disabled),
+.overview-subview .you-dog-app__actions .you-dog-app__action-btn:not(.you-dog-app__action-btn--text):active:not(:disabled),
+.overview-subview .you-dog-app__actions .you-dog-app__avatar-btn:active,
+.overview-subview .you-dog-app__actions--chat .phone-app__bar-action:active:not(:disabled),
+.overview-subview .you-dog-app__actions--chat .phone-wechat-chat-action:active:not(:disabled),
+.overview-subview .knock-wechat-app__actions .phone-app__bar-action:active:not(:disabled),
+#overview-sub-knock .knock-chat__actions .phone-app__bar-action:active:not(:disabled),
+#overview-sub-knock .knock-chat__actions .phone-wechat-chat-action:active:not(:disabled),
+#overview-sub-phone .phone-app__bar-actions .phone-app__bar-action:active:not(:disabled),
+#overview-sub-phone .phone-app__bar > .phone-app__bar-action:active:not(:disabled),
+#overview-sub-fanwork .phone-jjwxc__bar-trail .phone-app__bar-action:active:not(:disabled),
+#overview-sub-fanwork .phone-app__bar > .phone-app__bar-action:active:not(:disabled) {
+  background: transparent;
+  opacity: 0.55;
+}
+
+.overview-subview .collect-header__settings svg,
+.overview-subview .collect-printer__top .collect-printer__icon-btn:last-child svg,
+.overview-subview .pass-note-header__actions .icon-btn svg,
+.overview-subview .grudge-book-header__actions .icon-btn svg,
+.overview-subview .grudge-book-header__generate svg,
+.overview-subview .radio-shell__bar > .icon-btn:last-child svg,
+.overview-subview .task-todo__calendar svg,
+.overview-subview .task-todo__gen svg,
+.overview-subview .you-dog-app__actions .you-dog-app__action-btn:not(.you-dog-app__action-btn--text) svg,
+.overview-subview .you-dog-app__actions--chat .phone-app__bar-action svg,
+.overview-subview .you-dog-app__actions--chat .phone-wechat-chat-action svg,
+.overview-subview .you-dog-app__actions--chat .phone-wechat-gen-btn svg,
+#overview-sub-knock .knock-wechat-app__actions .phone-app__bar-action svg,
+#overview-sub-knock .knock-chat__actions .phone-app__bar-action svg,
+#overview-sub-knock .knock-chat__actions .phone-wechat-chat-action svg,
+#overview-sub-knock .knock-chat__actions .phone-wechat-gen-btn svg,
+#overview-sub-phone .phone-app__bar-actions .phone-app__bar-action svg,
+#overview-sub-phone .phone-app__bar > .phone-app__bar-action svg,
+#overview-sub-fanwork .phone-jjwxc__bar-trail .phone-app__bar-action svg,
+#overview-sub-fanwork .phone-app__bar > .phone-app__bar-action svg {
+  width: var(--star-head-icon);
+  height: var(--star-head-icon);
+  display: block;
+}
+
+.overview-subview .you-dog-app__header--chat .you-dog-app__actions--chat .phone-app__bar-action,
+.overview-subview .you-dog-app__header--chat .you-dog-app__actions--chat .phone-wechat-chat-action,
+.overview-subview .you-dog-app__header--chat .you-dog-app__actions--chat .you-dog-app__avatar-btn {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+}
+
+.overview-subview .you-dog-app__header--chat .you-dog-app__actions--chat .phone-app__bar-action svg,
+.overview-subview .you-dog-app__header--chat .you-dog-app__actions--chat .phone-wechat-chat-action svg,
+.overview-subview .you-dog-app__header--chat .you-dog-app__actions--chat .phone-wechat-gen-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+.overview-subview .you-dog-app__actions .you-dog-app__action-btn--accent {
+  background: transparent;
+  color: var(--text);
+}
+
+.overview-subview .you-dog-app__actions .you-dog-app__action-btn--on {
+  background: transparent;
+  color: var(--accent);
+}
+
+.overview-subview .you-dog-app__actions .you-dog-app__avatar-btn {
+  background: transparent;
+  border-radius: 0;
+}
+
+.overview-subview .you-dog-app__actions .you-dog-app__avatar-btn .avatar {
+  width: 28px;
+  height: 28px;
+}
+
+/* 点星统一顶栏：[返回][标题] ··· [操作按钮] */
+.overview-subview {
+  --star-head-height: 48px;
+  --star-head-pad-x: 10px;
+  --star-head-pad-y: 6px;
+  --star-head-title-size: 1.05rem;
+  --star-head-title-weight: 650;
+  --star-head-lead-gap: 0;
+}
+
+.star-header,
+.overview-subview .phone-app__bar,
+.overview-subview .collect-header,
+.overview-subview .pass-note-header,
+.overview-subview .grudge-book-header,
+.overview-subview .radio-shell__bar,
+.overview-subview .radio-history__bar,
+.overview-subview .task-todo__bar-row,
+.overview-subview .you-dog-app__bar,
+.overview-subview .collect-printer__top {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-height: var(--star-head-height);
+  box-sizing: border-box;
+}
+
+.star-header {
+  flex-shrink: 0;
+  padding: var(--star-head-pad-y) var(--star-head-pad-x);
+  padding-top: max(var(--star-head-pad-y), env(safe-area-inset-top, 0px));
+}
+
+.star-header__lead,
+.overview-subview .phone-wechat-chat-bar__lead,
+.overview-subview .you-dog-app__brand,
+.overview-subview .task-todo__bar-lead {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--star-head-lead-gap);
+}
+
+.star-header__title,
+.overview-subview .collect-header__title,
+.overview-subview .pass-note-header__title,
+.overview-subview .grudge-book-header__title,
+.overview-subview .radio-shell__title,
+.overview-subview .radio-history__title,
+.overview-subview .phone-app__title,
+.overview-subview .phone-app__title--left,
+.overview-subview .phone-app__title--chat,
+.overview-subview .knock-wechat-app__title-center,
+.overview-subview .you-dog-app__bar-title-text,
+.overview-subview .collect-printer__brand {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--star-head-title-size);
+  font-weight: var(--star-head-title-weight);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.star-header__actions,
+.overview-subview .pass-note-header__actions,
+.overview-subview .grudge-book-header__actions,
+.overview-subview .task-todo__bar-actions,
+.overview-subview .phone-app__bar-actions,
+.overview-subview .knock-wechat-app__actions,
+.overview-subview .you-dog-app__actions {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.overview-subview .star-header__back,
+.overview-subview .phone-app__back,
+.overview-subview .collect-header__back,
+.overview-subview .pass-note-header__back,
+.overview-subview .grudge-book-header__back,
+.overview-subview .task-todo__back,
+.overview-subview .you-dog-app__back,
+.overview-subview .radio-shell__bar > .icon-btn:first-child,
+.overview-subview .radio-history__bar > .icon-btn:first-child,
+.overview-subview .collect-printer__top > .collect-printer__icon-btn:first-child {
+  flex-shrink: 0;
+  width: var(--star-head-hit);
+  height: var(--star-head-hit);
+  min-width: var(--star-head-hit);
+  min-height: var(--star-head-hit);
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.overview-subview .star-header__back:active,
+.overview-subview .phone-app__back:active,
+.overview-subview .collect-header__back:active,
+.overview-subview .pass-note-header__back:active,
+.overview-subview .grudge-book-header__back:active,
+.overview-subview .task-todo__back:active,
+.overview-subview .you-dog-app__back:active,
+.overview-subview .radio-shell__bar > .icon-btn:first-child:active,
+.overview-subview .radio-history__bar > .icon-btn:first-child:active,
+.overview-subview .collect-printer__top > .collect-printer__icon-btn:first-child:active {
+  opacity: 0.55;
+  background: transparent;
+}
+
+.overview-subview .phone-app__bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  grid-template-columns: unset;
+  min-height: var(--star-head-height);
+  padding: var(--star-head-pad-y) var(--star-head-pad-x);
+}
+
+.overview-subview .phone-app__bar--wechat-list,
+.overview-subview .phone-app__bar--wechat-chat {
+  padding: var(--star-head-pad-y) var(--star-head-pad-x);
+}
+
+.overview-subview .phone-app__bar--wechat-chat .phone-app__back {
+  width: var(--star-head-hit);
+  height: var(--star-head-hit);
+  min-width: var(--star-head-hit);
+}
+
+.overview-subview .collect-header,
+.overview-subview .pass-note-header,
+.overview-subview .grudge-book-header {
+  padding: var(--star-head-pad-y) var(--star-head-pad-x);
+}
+
+.overview-subview .radio-shell__bar {
+  padding: var(--star-head-pad-y) var(--star-head-pad-x);
+  grid-template-columns: unset;
+}
+
+.overview-subview .collect-printer__top {
+  grid-template-columns: unset;
+  padding: 0;
+  gap: 0;
+}
+
+.overview-subview .collect-printer__brand {
+  letter-spacing: 0.08em;
+  font-size: 0.82rem;
+}
+
+.overview-subview .task-todo__back,
+.overview-subview .you-dog-app__back {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.overview-subview .task-todo__context {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.overview-subview .you-dog-app__bar {
+  padding: var(--star-head-pad-y) 14px;
+  gap: 0;
+}
+
+.overview-subview .you-dog-app__brand {
+  flex: 1;
+  min-width: 0;
+}
+
 /* 敲敲 / 查手机 / 小狗饭等：全屏沉浸，隐藏底栏导航 */
 .app-shell--feature-fullscreen .bottom-nav {
   display: none;
@@ -2983,7 +3299,7 @@ html[data-theme="dark"] .workbench-glyph {
 }
 
 #overview-sub-fanwork #fanwork-content-slot {
-  padding: 8px 10px 6px;
+  padding: 8px 0 6px;
   box-sizing: border-box;
 }
 
@@ -2993,12 +3309,20 @@ html[data-theme="dark"] .workbench-glyph {
   flex-shrink: 0;
 }
 
-#overview-sub-fanwork #fanwork-content-slot .phone-jjwxc__bar--with-cp {
-  padding-left: 12px;
-  padding-right: 6px;
+#fanwork-content-slot .phone-jjwxc--fanwork .phone-jjwxc__top .star-header,
+#story-fanwork-slot .phone-jjwxc--fanwork .phone-jjwxc__top .star-header {
+  padding-left: max(0px, env(safe-area-inset-left, 0px));
+  padding-right: max(0px, env(safe-area-inset-right, 0px));
 }
 
-#overview-sub-fanwork #fanwork-content-slot .phone-jjwxc__seg {
+#fanwork-content-slot .phone-jjwxc--fanwork .phone-jjwxc__bar--with-cp,
+#story-fanwork-slot .phone-jjwxc--fanwork .phone-jjwxc__bar--with-cp {
+  padding-left: max(0px, env(safe-area-inset-left, 0px));
+  padding-right: max(0px, env(safe-area-inset-right, 0px));
+}
+
+#fanwork-content-slot .phone-jjwxc--fanwork .phone-jjwxc__seg,
+#story-fanwork-slot .phone-jjwxc--fanwork .phone-jjwxc__seg {
   padding-left: 0;
   padding-right: 0;
 }
@@ -3038,48 +3362,6 @@ html[data-theme="dark"] .workbench-glyph {
   flex-shrink: 0;
   background: color-mix(in srgb, var(--surface) 90%, var(--bg));
   border-bottom: 1px solid var(--border);
-}
-
-.knock-wechat-app__bar.phone-app__bar--wechat-list.knock-wechat-app__bar--centered {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  padding: 6px 2px;
-  column-gap: 0;
-}
-
-.knock-wechat-app__bar--centered .phone-app__back {
-  grid-column: 1;
-  grid-row: 1;
-  justify-self: start;
-  position: relative;
-  z-index: 1;
-}
-
-.knock-wechat-app__title-center {
-  grid-column: 2;
-  grid-row: 1;
-  justify-self: center;
-  margin: 0;
-  padding: 0;
-  font-size: 1.05rem;
-  font-weight: 600;
-  line-height: 1.25;
-  text-align: center;
-  pointer-events: none;
-  white-space: nowrap;
-}
-
-.knock-wechat-app__bar--centered .knock-wechat-app__actions,
-.knock-wechat-app__bar--centered .phone-app__bar-actions {
-  grid-column: 3;
-  grid-row: 1;
-  justify-self: end;
-  margin: 0;
-  padding: 0;
-  gap: 0;
-  position: relative;
-  z-index: 1;
 }
 
 .knock-wechat-app__bar .phone-app__title--left {
@@ -13739,7 +14021,8 @@ html[data-theme="dark"] .phone-album-detail__edit:focus {
   width: 100%;
   padding: 10px 12px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%);
+  border: 1px solid color-mix(in srgb, var(--border) 85%, var(--accent) 15%);
+  background: var(--surface);
   cursor: pointer;
 }
 
@@ -14033,42 +14316,42 @@ html[data-theme="dark"] .phone-album-detail__edit:focus {
 }
 
 html[data-theme="dark"] .you-dog-chat {
-  background: #1a1a1a;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
 }
 
 html[data-theme="dark"] .you-dog-chat__composer {
-  background: #242424;
-  border-color: rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 12%, var(--border));
 }
 
 html[data-theme="dark"] .you-dog-chat__input {
-  background: #2c2c2c;
-  border-color: rgba(255, 255, 255, 0.08);
-  color: #f0f0f0;
+  background: var(--surface);
+  border-color: color-mix(in srgb, var(--accent) 14%, var(--border));
+  color: var(--text);
 }
 
 html[data-theme="dark"] .you-dog-chat-msg:not(.you-dog-chat-msg--user) .you-dog-chat-msg__bubble {
-  background: #2c2c2c;
-  border-color: rgba(255, 255, 255, 0.06);
-  color: #f0f0f0;
+  background: var(--surface);
+  border-color: color-mix(in srgb, var(--accent) 10%, var(--border));
+  color: var(--text);
 }
 
 html[data-theme="dark"] .you-dog-chat-msg--user .you-dog-chat-msg__bubble {
-  background: #3a6b35;
-  color: #f0f0f0;
+  background: color-mix(in srgb, var(--accent) 28%, var(--surface));
+  color: var(--text);
 }
 
 html[data-theme="dark"] .you-dog-chat-msg__name {
-  color: #888;
+  color: var(--muted2);
 }
 
 html[data-theme="dark"] .you-dog-chat-msg__plot {
-  color: #999;
+  color: var(--muted2);
 }
 
 html[data-theme="dark"] .you-dog-app__header--chat {
-  background: #242424;
-  border-bottom-color: rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--accent) 12%, var(--border));
 }
 
 html[data-theme="dark"] .you-dog-app__bar-sub {
@@ -16785,33 +17068,55 @@ html[data-theme="dark"] .phone-weread__progress {
 }
 
 .phone-holder-header {
-  display: grid;
-  grid-template-columns: 40px 1fr 40px;
+  display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 0;
+  min-height: 48px;
   margin-bottom: 0;
   padding-bottom: 2px;
 }
 
-.phone-holder-header .modal-title {
-  text-align: center;
+.phone-holder-header__lead {
+  flex: 1;
   min-width: 0;
-  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.phone-holder-header .modal-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .phone-holder-header__back {
-  justify-self: start;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  margin: 0;
+}
+
+.phone-holder-header__back[hidden] {
+  display: none;
 }
 
 .phone-holder-header__spacer {
-  display: block;
-  width: 40px;
-  height: 40px;
-  justify-self: start;
+  display: none;
 }
 
 .phone-holder-header .icon-btn:last-child {
-  justify-self: end;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .phone-holder-body {
@@ -16840,8 +17145,6 @@ html[data-theme="dark"] .phone-weread__progress {
 }
 
 .phone-holder-plot-row {
-  --wb-raise: color-mix(in srgb, white 78%, transparent);
-  --wb-sink: color-mix(in srgb, var(--accent) 11%, transparent);
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -16849,37 +17152,27 @@ html[data-theme="dark"] .phone-weread__progress {
   gap: 10px;
   width: 100%;
   padding: 12px 14px;
-  border: none;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%);
+  border: 1px solid color-mix(in srgb, var(--border) 85%, var(--accent) 15%);
+  border-radius: 12px;
+  background: var(--surface);
   text-align: left;
   cursor: pointer;
   font: inherit;
   color: inherit;
   -webkit-tap-highlight-color: transparent;
-  box-shadow:
-    3px 3px 9px var(--wb-sink),
-    -2px -2px 7px var(--wb-raise),
-    inset 0 1px 0 color-mix(in srgb, white 55%, transparent);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  box-shadow: none;
+  transition: transform 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
 }
 
 .phone-holder-plot-row.is-current {
-  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
-  box-shadow:
-    3px 3px 9px var(--wb-sink),
-    -2px -2px 7px var(--wb-raise),
-    inset 0 0 0 2px color-mix(in srgb, var(--accent) 38%, transparent),
-    inset 0 1px 0 color-mix(in srgb, white 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  box-shadow: none;
 }
 
 .phone-holder-plot-row:active {
   transform: scale(0.985);
-  opacity: 0.9;
-  box-shadow:
-    2px 2px 6px var(--wb-sink),
-    -1px -1px 5px var(--wb-raise),
-    inset 0 1px 0 color-mix(in srgb, white 40%, transparent);
+  opacity: 0.92;
 }
 
 .phone-holder-plot-row__title {
@@ -16916,13 +17209,13 @@ html[data-theme="dark"] .phone-weread__progress {
 }
 
 html[data-theme="dark"] .phone-holder-plot-row {
-  --wb-raise: color-mix(in srgb, white 5%, transparent);
-  --wb-sink: color-mix(in srgb, black 38%, transparent);
-  background: color-mix(in srgb, var(--surface) 82%, var(--accent) 18%);
+  background: color-mix(in srgb, var(--surface) 96%, #fff 4%);
+  border-color: color-mix(in srgb, var(--border) 70%, #fff 8%);
 }
 
 html[data-theme="dark"] .phone-holder-plot-row.is-current {
-  background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
 }
 
 .phone-holder-empty {
@@ -21884,6 +22177,37 @@ html[data-theme="dark"] .phone-jjwxc--fanwork.phone-jjwxc--detail .fanwork-jjwxc
   flex-shrink: 0;
 }
 
+/* 约稿弹窗：贴合内容高度，去掉按钮下方多余白边 */
+#fanwork-content-slot .fanwork-commission-overlay,
+#story-fanwork-slot .fanwork-commission-overlay {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+#fanwork-content-slot .fanwork-commission-overlay .phone-forum-manage__panel,
+#story-fanwork-slot .fanwork-commission-overlay .phone-forum-manage__panel {
+  height: fit-content;
+  max-height: min(82%, calc(100% - 12px));
+  padding-bottom: 14px;
+  flex: 0 0 auto;
+  align-self: flex-end;
+}
+
+#fanwork-content-slot .fanwork-commission-overlay .phone-forum-manage__panel--form,
+#story-fanwork-slot .fanwork-commission-overlay .phone-forum-manage__panel--form {
+  justify-content: flex-start;
+}
+
+#fanwork-content-slot .fanwork-commission-overlay .phone-forum-manage__field,
+#story-fanwork-slot .fanwork-commission-overlay .phone-forum-manage__field {
+  margin-bottom: 0;
+}
+
+#fanwork-content-slot .fanwork-commission-overlay .phone-forum-manage__panel--form .phone-forum-manage__save,
+#story-fanwork-slot .fanwork-commission-overlay .phone-forum-manage__panel--form .phone-forum-manage__save {
+  margin-top: 12px;
+  margin-bottom: 0;
+}
+
 .fanwork-jjwxc__reader {
   background:
     linear-gradient(rgba(255, 252, 248, 0.5), rgba(255, 252, 248, 0.5)),
@@ -23136,10 +23460,9 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
 }
 
 .collect-printer__top {
-  display: grid;
-  grid-template-columns: 36px 1fr 36px;
+  display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0;
 }
 
 .collect-printer__icon-btn {
@@ -23163,7 +23486,7 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
 
 .collect-printer__brand {
   margin: 0;
-  text-align: center;
+  text-align: left;
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.14em;
@@ -23336,24 +23659,8 @@ html[data-theme="dark"] .phone-device .phone-jjwxc__pill-wrap {
   min-height: 0;
 }
 
-.collect-header {
-  display: grid;
-  grid-template-columns: 40px 1fr 40px;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0 8px;
-}
-
-.collect-header__title {
-  margin: 0;
-  font-size: 1.05rem;
-  font-weight: 650;
-  text-align: center;
-}
-
 .collect-header__spacer {
-  width: 40px;
-  height: 40px;
+  display: none;
 }
 
 .collect-banner {
@@ -25049,8 +25356,9 @@ html[data-theme="dark"] .collect-history-empty {
 .task-todo__bar-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 0;
   min-width: 0;
+  width: 100%;
 }
 
 .task-todo__bar-actions {
@@ -25072,15 +25380,15 @@ html[data-theme="dark"] .collect-history-empty {
 
 .task-todo__back {
   flex-shrink: 0;
-  width: 36px;
-  height: 36px;
+  width: var(--star-head-hit, 36px);
+  height: var(--star-head-hit, 36px);
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  background: var(--surface);
+  border-radius: 0;
+  background: transparent;
   color: var(--text);
-  border: 1px solid var(--border);
+  border: none;
 }
 
 .task-todo__context {
@@ -25128,10 +25436,10 @@ html[data-theme="dark"] .collect-history-empty {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  background: var(--surface);
+  border-radius: 0;
+  background: transparent;
   color: var(--text);
-  border: 1px solid var(--border);
+  border: none;
 }
 
 .task-todo__calendar.is-disabled,
@@ -25144,14 +25452,14 @@ html[data-theme="dark"] .collect-history-empty {
 
 .task-todo__gen {
   flex-shrink: 0;
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  border: none;
 }
 
 .task-todo__body {
@@ -26116,10 +26424,9 @@ html[data-theme="dark"] .collect-history-empty {
 }
 
 .radio-shell__bar {
-  display: grid;
-  grid-template-columns: 40px 1fr 40px;
+  display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0;
   padding: 8px 10px 6px;
   flex-shrink: 0;
 }
@@ -26132,7 +26439,7 @@ html[data-theme="dark"] .collect-history-empty {
   margin: 0;
   font-size: 0.88rem;
   font-weight: 600;
-  text-align: center;
+  text-align: left;
   color: color-mix(in srgb, var(--accent) 70%, var(--text));
   white-space: nowrap;
   overflow: hidden;
@@ -26900,7 +27207,7 @@ html[data-theme="dark"] .collect-history-empty {
 .pass-note-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 0;
   padding: 10px 12px 8px;
   flex-shrink: 0;
 }
@@ -26910,7 +27217,8 @@ html[data-theme="dark"] .collect-history-empty {
   margin: 0;
   font-size: 1rem;
   font-weight: 700;
-  text-align: center;
+  text-align: left;
+  min-width: 0;
 }
 
 .pass-note-header__actions {
@@ -26985,18 +27293,39 @@ html[data-theme="dark"] .collect-history-empty {
 }
 
 .pass-note-progress__dot.is-active {
-  background: var(--accent);
   transform: scale(1.25);
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.pass-note-progress__dot--whimsy.is-active,
+.pass-note-progress__dot--whimsy.is-done {
+  background: #c4b0e8;
+}
+
+.pass-note-progress__dot--choice.is-active,
+.pass-note-progress__dot--choice.is-done {
+  background: #e8b89a;
+}
+
+.pass-note-progress__dot--daily.is-active,
+.pass-note-progress__dot--daily.is-done {
+  background: #94cdb0;
+}
+
+.pass-note-progress__dot--philosophy.is-active,
+.pass-note-progress__dot--philosophy.is-done {
+  background: #9bb8d4;
+}
+
+.pass-note-progress__dot--compose.is-active,
+.pass-note-progress__dot--compose.is-done {
+  background: #e8d48a;
 }
 
 .pass-note-progress__dot.is-skipped {
   background: transparent;
   border: 2px dashed color-mix(in srgb, var(--muted2) 55%, transparent);
   transform: scale(0.85);
-}
-
-.pass-note-progress__dot.is-done {
-  background: color-mix(in srgb, var(--accent) 55%, var(--muted2));
 }
 
 .pass-note-progress__label {
@@ -27022,63 +27351,71 @@ html[data-theme="dark"] .collect-history-empty {
   flex-shrink: 0;
   display: flex;
   justify-content: center;
-  padding: 4px 12px 14px;
+  padding: 8px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: transparent;
 }
 
 .pass-note-trash {
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
+  flex-direction: row;
   align-items: center;
-  gap: 4px;
-  padding: 8px 20px 10px;
-  border: none;
-  background: transparent;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px dashed color-mix(in srgb, var(--muted2) 45%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 96%, var(--muted2) 4%);
   cursor: pointer;
   color: var(--muted2);
-  transition: transform 0.25s ease, color 0.2s ease;
+  transition: transform 0.2s ease, color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
 }
 
 .pass-note-trash__body {
   position: relative;
-  width: 44px;
-  height: 40px;
+  width: 28px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 0 0 10px 10px;
-  background: color-mix(in srgb, var(--muted2) 12%, var(--surface));
-  border: 1.5px solid color-mix(in srgb, var(--muted2) 35%, transparent);
-  transition: transform 0.3s cubic-bezier(0.34, 1.4, 0.64, 1), background 0.2s ease;
+  border-radius: 0 0 6px 6px;
+  background: transparent;
+  border: none;
+  transition: transform 0.3s cubic-bezier(0.34, 1.4, 0.64, 1);
 }
 
 .pass-note-trash__lid {
   display: block;
-  width: 50px;
-  height: 6px;
+  width: 32px;
+  height: 4px;
   margin-bottom: -1px;
-  border-radius: 3px 3px 1px 1px;
-  background: color-mix(in srgb, var(--muted2) 28%, var(--surface));
-  border: 1.5px solid color-mix(in srgb, var(--muted2) 35%, transparent);
+  border-radius: 2px 2px 1px 1px;
+  background: color-mix(in srgb, var(--muted2) 35%, transparent);
+  border: 1px solid color-mix(in srgb, var(--muted2) 40%, transparent);
   transform-origin: 20% 100%;
   transition: transform 0.35s cubic-bezier(0.34, 1.4, 0.64, 1);
 }
 
 .pass-note-trash__icon {
-  width: 22px;
-  height: 22px;
-  opacity: 0.55;
+  width: 16px;
+  height: 16px;
+  opacity: 0.72;
 }
 
 .pass-note-trash__label {
-  font-size: 0.68rem;
+  font-size: 0.74rem;
   letter-spacing: 0.02em;
+  color: var(--muted2);
 }
 
 .pass-note-trash:hover .pass-note-trash__body,
 .pass-note-trash:focus-visible .pass-note-trash__body {
-  background: color-mix(in srgb, var(--danger, #c44) 10%, var(--surface));
-  border-color: color-mix(in srgb, var(--danger, #c44) 35%, transparent);
+  transform: none;
+}
+
+.pass-note-trash:hover,
+.pass-note-trash:focus-visible {
   color: color-mix(in srgb, var(--danger, #c44) 80%, var(--text));
+  border-color: color-mix(in srgb, var(--danger, #c44) 40%, var(--border));
+  background: color-mix(in srgb, var(--danger, #c44) 8%, var(--surface));
 }
 
 .pass-note-trash.is-catching .pass-note-trash__lid {
@@ -27141,6 +27478,7 @@ html[data-theme="dark"] .collect-history-empty {
 .pass-note-slip--skipped {
   opacity: 0.82;
   --pn-paper: color-mix(in srgb, #f4f4f4 90%, var(--muted2) 10%);
+  --pn-accent: color-mix(in srgb, var(--muted2) 40%, transparent);
 }
 
 .pass-note-slip__skipped-note {
@@ -27153,26 +27491,166 @@ html[data-theme="dark"] .collect-history-empty {
 }
 
 .pass-note-slip {
-  --pn-paper: color-mix(in srgb, #fff9ee 90%, var(--accent) 10%);
-  --pn-ink: color-mix(in srgb, #2a2520 88%, var(--accent) 12%);
+  --pn-paper: #fff9ee;
+  --pn-ink: #2a2520;
+  --pn-accent: #c9b8a0;
   position: relative;
   width: 100%;
   max-width: 340px;
   margin: 0 auto 12px;
-  padding: 16px 16px 14px;
+  padding: 18px 16px 14px;
+  color: var(--pn-ink);
+  border-radius: 4px 4px 3px 3px;
+  box-shadow:
+    0 1px 0 color-mix(in srgb, white 75%, transparent) inset,
+    0 1px 0 color-mix(in srgb, var(--pn-ink) 6%, transparent),
+    0 5px 16px -5px color-mix(in srgb, black 12%, transparent),
+    0 1px 3px color-mix(in srgb, black 6%, transparent);
+  box-sizing: border-box;
+  overflow: hidden;
+  transform-origin: center top;
+}
+
+.pass-note-reveal-scroll .pass-note-slip:nth-child(3n + 1) {
+  transform: rotate(-0.35deg);
+}
+
+.pass-note-reveal-scroll .pass-note-slip:nth-child(3n + 2) {
+  transform: rotate(0.25deg);
+}
+
+.pass-note-reveal-scroll .pass-note-slip:nth-child(3n) {
+  transform: rotate(-0.15deg);
+}
+
+.pass-note-slip > * {
+  position: relative;
+  z-index: 1;
+}
+
+.pass-note-slip::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 0;
+}
+
+.pass-note-slip__tape {
+  position: absolute;
+  top: -1px;
+  left: 50%;
+  z-index: 2;
+  width: 52px;
+  height: 14px;
+  transform: translateX(-50%) rotate(-1.5deg);
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--pn-accent) 28%, white);
+  box-shadow: 0 1px 2px color-mix(in srgb, black 8%, transparent);
+  opacity: 0.72;
+}
+
+/* ── 题型淡色纸面 ── */
+
+.pass-note-slip--type-whimsy {
+  --pn-paper: #f8f4ff;
+  --pn-ink: #3a3348;
+  --pn-accent: #c4b0e8;
+}
+
+.pass-note-slip--type-choice {
+  --pn-paper: #fff5ee;
+  --pn-ink: #453528;
+  --pn-accent: #e8b89a;
+}
+
+.pass-note-slip--type-daily {
+  --pn-paper: #f0faf4;
+  --pn-ink: #2a4035;
+  --pn-accent: #94cdb0;
+}
+
+.pass-note-slip--type-philosophy {
+  --pn-paper: #f2f7fc;
+  --pn-ink: #2a3540;
+  --pn-accent: #9bb8d4;
+}
+
+.pass-note-slip--type-compose {
+  --pn-paper: #fffbeb;
+  --pn-ink: #403828;
+  --pn-accent: #e8d48a;
+}
+
+/* ── 底纹样式 ── */
+
+.pass-note-slip--pattern-lines {
   background:
     repeating-linear-gradient(
       0deg,
       transparent 0 22px,
-      color-mix(in srgb, var(--pn-ink) 5%, transparent) 22px 23px
+      color-mix(in srgb, var(--pn-accent) 22%, transparent) 22px 23px
     ),
     var(--pn-paper);
-  color: var(--pn-ink);
-  border-radius: 3px;
-  box-shadow:
-    0 1px 0 color-mix(in srgb, white 70%, transparent) inset,
-    0 4px 14px -4px color-mix(in srgb, black 10%, transparent);
-  box-sizing: border-box;
+}
+
+.pass-note-slip--pattern-dots {
+  background: var(--pn-paper);
+}
+
+.pass-note-slip--pattern-dots::before {
+  background-image: radial-gradient(
+    circle at center,
+    color-mix(in srgb, var(--pn-accent) 28%, transparent) 1.2px,
+    transparent 1.2px
+  );
+  background-size: 13px 13px;
+  opacity: 0.55;
+}
+
+.pass-note-slip--pattern-doodle {
+  background: var(--pn-paper);
+}
+
+.pass-note-slip--pattern-doodle::before {
+  background-image:
+    repeating-linear-gradient(
+      108deg,
+      transparent 0 16px,
+      color-mix(in srgb, var(--pn-accent) 14%, transparent) 16px 17px,
+      transparent 17px 34px
+    ),
+    repeating-linear-gradient(
+      72deg,
+      transparent 0 24px,
+      color-mix(in srgb, var(--pn-accent) 10%, transparent) 24px 25px,
+      transparent 25px 48px
+    );
+  opacity: 0.65;
+}
+
+.pass-note-slip--pattern-flowers {
+  background: var(--pn-paper);
+}
+
+.pass-note-slip--pattern-flowers::before {
+  background-image:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--pn-accent) 22%, transparent) 1.5px, transparent 2px),
+    radial-gradient(circle at 20% 30%, color-mix(in srgb, var(--pn-accent) 16%, transparent) 1px, transparent 1.5px),
+    radial-gradient(circle at 80% 25%, color-mix(in srgb, var(--pn-accent) 16%, transparent) 1px, transparent 1.5px),
+    radial-gradient(circle at 25% 75%, color-mix(in srgb, var(--pn-accent) 16%, transparent) 1px, transparent 1.5px),
+    radial-gradient(circle at 78% 72%, color-mix(in srgb, var(--pn-accent) 16%, transparent) 1px, transparent 1.5px);
+  background-size: 26px 26px;
+  opacity: 0.5;
+}
+
+.pass-note-slip--pattern-grid {
+  background:
+    linear-gradient(color-mix(in srgb, var(--pn-accent) 12%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--pn-accent) 12%, transparent) 1px, transparent 1px),
+    var(--pn-paper);
+  background-size: 18px 18px;
 }
 
 .pass-note-slip--closing {
@@ -27186,10 +27664,17 @@ html[data-theme="dark"] .collect-history-empty {
 }
 
 .pass-note-slip__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 0.62rem;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   font-weight: 700;
-  color: color-mix(in srgb, var(--accent) 65%, var(--pn-ink));
+  color: color-mix(in srgb, var(--pn-accent) 75%, var(--pn-ink));
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pn-accent) 12%, white);
+  border: 1px solid color-mix(in srgb, var(--pn-accent) 22%, transparent);
 }
 
 .pass-note-slip__tag--closing {
@@ -27244,13 +27729,15 @@ html[data-theme="dark"] .collect-history-empty {
 
 .pass-note-slip__answer--user {
   margin-left: 12%;
-  background: color-mix(in srgb, var(--accent) 8%, white);
+  background: color-mix(in srgb, var(--pn-accent) 14%, white);
+  border: 1px solid color-mix(in srgb, var(--pn-accent) 18%, transparent);
   text-align: right;
 }
 
 .pass-note-slip__answer--char {
   margin-right: 8%;
   background: color-mix(in srgb, var(--pn-ink) 4%, white);
+  border: 1px solid color-mix(in srgb, var(--pn-ink) 6%, transparent);
 }
 
 .pass-note-slip__who {
@@ -27296,7 +27783,37 @@ html[data-theme="dark"] .collect-history-empty {
   }
   to {
     opacity: 1;
-    transform: translateY(0) rotate(0);
+    transform: translateY(0);
+  }
+}
+
+.pass-note-reveal-scroll .pass-note-slip--reveal:nth-child(3n + 1) {
+  animation-name: pass-note-reveal-in-tilt-l;
+}
+
+.pass-note-reveal-scroll .pass-note-slip--reveal:nth-child(3n + 2) {
+  animation-name: pass-note-reveal-in-tilt-r;
+}
+
+@keyframes pass-note-reveal-in-tilt-l {
+  from {
+    opacity: 0;
+    transform: translateY(10px) rotate(-1deg);
+  }
+  to {
+    opacity: 1;
+    transform: rotate(-0.35deg);
+  }
+}
+
+@keyframes pass-note-reveal-in-tilt-r {
+  from {
+    opacity: 0;
+    transform: translateY(10px) rotate(0.8deg);
+  }
+  to {
+    opacity: 1;
+    transform: rotate(0.25deg);
   }
 }
 
@@ -27460,37 +27977,349 @@ html[data-theme="dark"] .collect-history-empty {
   font-weight: 600;
 }
 
+.pass-note-archive-subtitle {
+  margin: 0 16px 4px;
+  text-align: center;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  opacity: 0.58;
+}
+
+html[data-theme="dark"] .pass-note-archive-subtitle {
+  opacity: 1;
+  color: color-mix(in srgb, var(--text) 76%, #c8c8d0);
+}
+
 .pass-note-archive-list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 0 12px 16px;
+  padding: 4px 10px 24px 14px;
   display: flex;
   flex-direction: column;
+  gap: 20px;
+}
+
+.pass-note-archive-row {
+  position: relative;
+  padding-left: 20px;
+}
+
+.pass-note-archive-row::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 20px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 32%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 8%, transparent) 100%
+  );
+}
+
+.pass-note-archive-row__head {
+  display: flex;
+  align-items: center;
   gap: 8px;
+  margin-bottom: 10px;
+  padding-right: 2px;
+}
+
+.pass-note-archive-row__head-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.pass-note-archive-row__delete {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin: 0 0 0 auto;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0.72;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pass-note-archive-row__delete:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: color-mix(in srgb, #c44 75%, var(--text));
+}
+
+.pass-note-archive-row__delete:active {
+  transform: scale(0.94);
+}
+
+.pass-note-archive-row__dot {
+  position: absolute;
+  left: 0;
+  top: 5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--accent) 16%, var(--surface)),
+    0 2px 6px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.pass-note-archive-row__time {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  opacity: 0.82;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.pass-note-archive-row__panel {
+  padding: 12px 10px 14px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%);
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow:
+    0 4px 16px color-mix(in srgb, var(--accent) 6%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 40%, transparent);
+}
+
+.pass-note-archive-row__scroll {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 2px 2px 6px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pass-note-archive-row__scroll::-webkit-scrollbar {
+  height: 4px;
+}
+
+.pass-note-archive-row__scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: 999px;
+}
+
+.pass-note-archive-card {
+  flex: 0 0 auto;
+  width: 92px;
+  min-height: 118px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
+  padding: 10px 7px 9px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--surface) 96%, white) 0%,
+    color-mix(in srgb, var(--surface) 90%, var(--accent) 10%) 100%
+  );
+  box-shadow:
+    0 2px 10px color-mix(in srgb, var(--accent) 8%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 50%, transparent);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  text-align: center;
+  font: inherit;
+  color: inherit;
+}
+
+.pass-note-archive-card:active {
+  transform: scale(0.96);
+}
+
+.pass-note-archive-card__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent);
+}
+
+.pass-note-archive-card__svg {
+  width: 20px;
+  height: 20px;
+}
+
+.pass-note-archive-card--type-whimsy .pass-note-archive-card__icon {
+  background: color-mix(in srgb, #c4b0e8 18%, var(--surface));
+  color: color-mix(in srgb, #7b5fbf 85%, var(--accent));
+}
+
+.pass-note-archive-card--type-choice .pass-note-archive-card__icon {
+  background: color-mix(in srgb, #e8b89a 18%, var(--surface));
+  color: color-mix(in srgb, #c47a52 85%, var(--accent));
+}
+
+.pass-note-archive-card--type-daily .pass-note-archive-card__icon {
+  background: color-mix(in srgb, #94cdb0 18%, var(--surface));
+  color: color-mix(in srgb, #3d8a62 85%, var(--accent));
+}
+
+.pass-note-archive-card--type-philosophy .pass-note-archive-card__icon {
+  background: color-mix(in srgb, #9bb8d4 18%, var(--surface));
+  color: color-mix(in srgb, #4a7399 85%, var(--accent));
+}
+
+.pass-note-archive-card--type-compose .pass-note-archive-card__icon {
+  background: color-mix(in srgb, #e8d48a 18%, var(--surface));
+  color: color-mix(in srgb, #a8892f 85%, var(--accent));
+}
+
+.pass-note-archive-card__label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.pass-note-archive-card__preview {
+  width: 100%;
+  margin-top: auto;
+  font-size: 0.6rem;
+  line-height: 1.35;
+  opacity: 0.58;
+  text-align: center;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
 }
 
 .pass-note-record-card {
-  display: block;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
   width: 100%;
-  padding: 12px 14px;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--surface);
   text-align: left;
   cursor: pointer;
   box-sizing: border-box;
+  overflow: hidden;
+}
+
+.pass-note-record-card__slip {
+  flex-shrink: 0;
+  width: 44px;
+  position: relative;
+  overflow: hidden;
+}
+
+.pass-note-record-card__slip-pattern {
+  position: absolute;
+  inset: 0;
+}
+
+.pass-note-record-card--type-whimsy .pass-note-record-card__slip {
+  background: #f8f4ff;
+}
+
+.pass-note-record-card--type-whimsy .pass-note-record-card__slip-pattern--dots {
+  background-image: radial-gradient(circle at center, color-mix(in srgb, #c4b0e8 35%, transparent) 1.2px, transparent 1.2px);
+  background-size: 10px 10px;
+  opacity: 0.7;
+}
+
+.pass-note-record-card--type-choice .pass-note-record-card__slip {
+  background: #fff5ee;
+}
+
+.pass-note-record-card--type-choice .pass-note-record-card__slip-pattern--doodle {
+  background-image: repeating-linear-gradient(
+    108deg,
+    transparent 0 12px,
+    color-mix(in srgb, #e8b89a 18%, transparent) 12px 13px
+  );
+  opacity: 0.65;
+}
+
+.pass-note-record-card--type-daily .pass-note-record-card__slip {
+  background: #f0faf4;
+}
+
+.pass-note-record-card--type-daily .pass-note-record-card__slip-pattern--flowers {
+  background-image: radial-gradient(circle at 50% 50%, color-mix(in srgb, #94cdb0 30%, transparent) 1.5px, transparent 2px);
+  background-size: 14px 14px;
+  opacity: 0.6;
+}
+
+.pass-note-record-card--type-philosophy .pass-note-record-card__slip {
+  background: #f2f7fc;
+}
+
+.pass-note-record-card--type-philosophy .pass-note-record-card__slip-pattern--lines {
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent 0 10px,
+    color-mix(in srgb, #9bb8d4 25%, transparent) 10px 11px
+  );
+  opacity: 0.65;
+}
+
+.pass-note-record-card--type-compose .pass-note-record-card__slip {
+  background: #fffbeb;
+}
+
+.pass-note-record-card--type-compose .pass-note-record-card__slip-pattern--grid {
+  background-image:
+    linear-gradient(color-mix(in srgb, #e8d48a 18%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, #e8d48a 18%, transparent) 1px, transparent 1px);
+  background-size: 10px 10px;
+  opacity: 0.65;
+}
+
+.pass-note-record-card__top {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px 12px 10px;
+}
+
+.pass-note-record-card__type {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
 }
 
 .pass-note-record-card:active {
   opacity: 0.88;
 }
 
-.pass-note-record-card__top {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
+.pass-note-record-card:active .pass-note-record-card__slip {
+  filter: brightness(0.96);
 }
 
 .pass-note-record-card__avatar {
@@ -27624,11 +28453,11 @@ html[data-theme="dark"] .collect-history-empty {
 
 .you-dog-app__back {
   flex-shrink: 0;
-  width: 36px;
-  height: 36px;
+  width: var(--star-head-hit, 36px);
+  height: var(--star-head-hit, 36px);
   border: none;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border-radius: 0;
+  background: transparent;
   color: var(--text);
   display: flex;
   align-items: center;
@@ -27670,9 +28499,9 @@ html[data-theme="dark"] .collect-history-empty {
 }
 
 .you-dog-app__header--chat {
-  background: #f7f7f7;
-  border-bottom-color: rgba(0, 0, 0, 0.08);
-  backdrop-filter: none;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--accent) 12%, var(--border));
+  backdrop-filter: blur(10px);
 }
 
 .you-dog-app__header--chat .you-dog-app__bar {
@@ -27708,7 +28537,53 @@ html[data-theme="dark"] .collect-history-empty {
 }
 
 .you-dog-app__actions--chat {
-  gap: 6px;
+  gap: 1px;
+  margin-left: 4px;
+}
+
+.you-dog-app__header--chat .you-dog-app__actions--chat .phone-app__bar-action,
+.you-dog-app__header--chat .you-dog-app__actions--chat .phone-wechat-chat-action {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+}
+
+.you-dog-app__header--chat .you-dog-app__actions--chat .phone-wechat-chat-action svg,
+.you-dog-app__header--chat .you-dog-app__actions--chat .phone-wechat-gen-btn svg {
+  width: 17px;
+  height: 17px;
+  display: block;
+}
+
+.you-dog-app__header--chat .you-dog-app__actions--chat .you-dog-app__avatar-btn {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+}
+
+.you-dog-app__header--chat .you-dog-app__actions--chat .you-dog-app__avatar-btn .avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 0.78rem;
+}
+
+.you-dog-app__header--chat .phone-app__bar--wechat-chat {
+  padding: 6px 4px 6px 0;
+  gap: 0;
+}
+
+.you-dog-app__header--chat .phone-app__title--chat[data-you-dog-chat-settings-open] {
+  cursor: pointer;
+}
+
+.you-dog-app__header--chat .phone-wechat-chat-action--active {
+  color: var(--accent);
+}
+
+.you-dog-app__header--chat .phone-wechat-chat-action--delete-ready {
+  color: var(--danger, #e54d42);
 }
 
 .you-dog-app__action-btn--text {
@@ -27748,8 +28623,8 @@ html[data-theme="dark"] .collect-history-empty {
   height: 36px;
   padding: 0;
   border: none;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border-radius: 0;
+  background: transparent;
   color: var(--text);
   display: flex;
   align-items: center;
@@ -27758,8 +28633,8 @@ html[data-theme="dark"] .collect-history-empty {
 }
 
 .you-dog-app__action-btn--accent {
-  background: var(--accent);
-  color: var(--accent-contrast, #fff);
+  background: transparent;
+  color: var(--text);
 }
 
 .you-dog-app__action-btn:disabled,
@@ -27825,19 +28700,15 @@ html[data-theme="dark"] .collect-history-empty {
   gap: 12px;
   width: 100%;
   padding: 12px 14px;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%);
-  box-shadow:
-    3px 3px 9px color-mix(in srgb, var(--accent) 11%, transparent),
-    -2px -2px 7px color-mix(in srgb, white 78%, transparent);
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, var(--accent) 15%);
+  background: var(--surface);
+  box-shadow: none;
 }
 
 .you-dog-plot-row.is-active {
-  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
-  box-shadow:
-    3px 3px 9px color-mix(in srgb, var(--accent) 11%, transparent),
-    -2px -2px 7px color-mix(in srgb, white 78%, transparent),
-    inset 0 0 0 2px color-mix(in srgb, var(--accent) 38%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
 }
 
 .you-dog-plot-row.is-disabled {
@@ -27860,6 +28731,18 @@ html[data-theme="dark"] .collect-history-empty {
   color: color-mix(in srgb, var(--accent) 82%, var(--text));
 }
 
+html[data-theme="dark"] .you-dog-plot-row,
+html[data-theme="dark"] .you-dog-bar-switch,
+html[data-theme="dark"] .you-dog-gen-pick-row {
+  background: color-mix(in srgb, var(--surface) 96%, #fff 4%);
+  border-color: color-mix(in srgb, var(--border) 70%, #fff 8%);
+}
+
+html[data-theme="dark"] .you-dog-plot-row.is-active {
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+}
+
 .you-dog-bar-switch-list {
   display: flex;
   flex-direction: column;
@@ -27873,8 +28756,9 @@ html[data-theme="dark"] .collect-history-empty {
   gap: 12px;
   width: 100%;
   padding: 12px 14px;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--surface) 88%, var(--accent) 12%);
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, var(--accent) 15%);
+  background: var(--surface);
   cursor: pointer;
 }
 
@@ -28308,14 +29192,29 @@ html[data-theme="dark"] .you-dog-post__menu-item {
 .you-dog-post__action--icon {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
-  padding: 8px 10px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 6px;
   border-radius: 8px;
+  border: none;
+  background: transparent;
+}
+
+.you-dog-post__action--icon svg {
+  flex-shrink: 0;
+  display: block;
 }
 
 .you-dog-post__action--icon:hover {
   background: color-mix(in srgb, var(--accent) 7%, transparent);
   color: var(--text);
+}
+
+.you-dog-post__action--icon span {
+  font-size: 0.72rem;
+  line-height: 1;
 }
 
 .you-dog-post__action--liked {
@@ -28331,19 +29230,13 @@ html[data-theme="dark"] .you-dog-post__menu-item {
   color: var(--danger, #c44);
 }
 
-.you-dog-post__action--gen {
-  margin-left: auto;
-  padding: 7px 12px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
-  color: color-mix(in srgb, var(--accent) 85%, var(--text));
-  font-weight: 600;
+.you-dog-post__action--loading {
+  opacity: 0.55;
+  cursor: wait;
 }
 
-.you-dog-post__action--loading {
-  opacity: 0.6;
-  cursor: wait;
+.you-dog-post__action--loading svg {
+  animation: you-dog-spin 0.9s linear infinite;
 }
 
 /* 帖子详情（参考查手机论坛） */
@@ -28432,14 +29325,26 @@ html[data-theme="dark"] .you-dog-post__menu-item {
 
 .you-dog-detail__replies-gen {
   flex-shrink: 0;
-  padding: 5px 12px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: color-mix(in srgb, var(--accent) 85%, var(--text));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted2);
   cursor: pointer;
+}
+
+.you-dog-detail__replies-gen--icon svg {
+  display: block;
+}
+
+.you-dog-detail__replies-gen:hover:not(:disabled) {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
 .you-dog-detail__replies-gen:active:not(:disabled) {
@@ -28450,6 +29355,10 @@ html[data-theme="dark"] .you-dog-post__menu-item {
 .you-dog-detail__replies-gen--loading {
   opacity: 0.55;
   cursor: wait;
+}
+
+.you-dog-detail__replies-gen--loading svg {
+  animation: you-dog-spin 0.9s linear infinite;
 }
 
 .you-dog-detail__reply {
@@ -29097,7 +30006,7 @@ html[data-theme="dark"] .you-dog-post__menu-item {
 
 .you-dog-app__action-btn--on {
   color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  background: transparent;
 }
 
 .you-dog-chat {
@@ -29106,7 +30015,7 @@ html[data-theme="dark"] .you-dog-post__menu-item {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #ededed;
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg));
 }
 
 .you-dog-chat__thread {
@@ -29149,13 +30058,13 @@ html[data-theme="dark"] .you-dog-post__menu-item {
 }
 
 .you-dog-chat-msg--user .you-dog-chat-msg__bubble {
-  background: #95ec69;
-  border-color: rgba(0, 0, 0, 0.03);
-  color: #111;
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
 }
 
 .you-dog-chat-msg--selected .you-dog-chat-msg__bubble {
-  box-shadow: 0 0 0 2px rgba(7, 193, 96, 0.55);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
 .you-dog-chat-msg__side {
@@ -29172,8 +30081,8 @@ html[data-theme="dark"] .you-dog-post__menu-item {
   border-radius: 6px;
   font-size: 0.82rem;
   font-weight: 600;
-  background: #d8d8d8;
-  color: #666;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
   overflow: hidden;
 }
 
@@ -29202,12 +30111,12 @@ html[data-theme="dark"] .you-dog-post__menu-item {
 .you-dog-chat-msg__name {
   font-size: 0.76rem;
   font-weight: 600;
-  color: #666;
+  color: var(--muted2);
 }
 
 .you-dog-chat-msg__plot {
   font-size: 0.72rem;
-  color: #888;
+  color: var(--muted2);
   line-height: 1.25;
   margin-bottom: 1px;
 }
@@ -29216,13 +30125,13 @@ html[data-theme="dark"] .you-dog-post__menu-item {
   max-width: 72%;
   padding: 10px 12px;
   border-radius: 6px;
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.04);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--accent) 8%, var(--border));
   font-size: 0.88rem;
   line-height: 1.45;
   word-break: break-word;
   white-space: pre-wrap;
-  color: #111;
+  color: var(--text);
   -webkit-user-select: none;
   user-select: none;
   touch-action: manipulation;
@@ -29232,19 +30141,19 @@ html[data-theme="dark"] .you-dog-post__menu-item {
   display: block;
   margin-bottom: 6px;
   padding: 6px 8px;
-  border-left: 3px solid rgba(0, 0, 0, 0.12);
-  background: rgba(0, 0, 0, 0.04);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
   border-radius: 4px;
   font-size: 0.76rem;
   line-height: 1.35;
-  color: #888;
+  color: var(--muted2);
 }
 
 .you-dog-chat-msg__quote-author {
   display: block;
   font-weight: 600;
   margin-bottom: 2px;
-  color: #576b95;
+  color: color-mix(in srgb, var(--accent) 72%, var(--text));
 }
 
 .you-dog-chat-msg__quote-text {
@@ -29261,8 +30170,8 @@ html[data-theme="dark"] .you-dog-post__menu-item {
   margin-bottom: 8px;
   padding: 8px 10px;
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.05);
-  border-left: 3px solid #576b95;
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  border-left: 3px solid color-mix(in srgb, var(--accent) 45%, var(--border));
 }
 
 .you-dog-chat__quote-body {
@@ -29272,12 +30181,12 @@ html[data-theme="dark"] .you-dog-post__menu-item {
   flex-direction: column;
   gap: 2px;
   font-size: 0.76rem;
-  color: #888;
+  color: var(--muted2);
 }
 
 .you-dog-chat__quote-author {
   font-weight: 600;
-  color: #576b95;
+  color: color-mix(in srgb, var(--accent) 72%, var(--text));
 }
 
 .you-dog-chat__quote-text {
@@ -29292,35 +30201,35 @@ html[data-theme="dark"] .you-dog-post__menu-item {
   background: transparent;
   font-size: 1.1rem;
   line-height: 1;
-  color: #999;
+  color: var(--muted2);
   cursor: pointer;
   padding: 0 2px;
 }
 
 html[data-theme="dark"] .you-dog-chat-msg__quote {
-  background: rgba(255, 255, 255, 0.06);
-  border-left-color: rgba(255, 255, 255, 0.15);
-  color: #999;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border-left-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+  color: var(--muted2);
 }
 
 html[data-theme="dark"] .you-dog-chat__quote {
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
 }
 
 .you-dog-chat-msg__select {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  border: 1.5px solid rgba(0, 0, 0, 0.18);
-  background: #fff;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  background: var(--surface);
   flex-shrink: 0;
   margin-top: 10px;
   cursor: pointer;
 }
 
 .you-dog-chat-msg__select.is-selected {
-  background: #07c160;
-  border-color: #07c160;
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .you-dog-chat-tag {
@@ -29353,30 +30262,20 @@ html[data-theme="dark"] .you-dog-chat__quote {
 
 .you-dog-chat-tag--admin {
   max-width: none;
-  background: rgba(87, 107, 149, 0.15);
-  color: #576b95;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: color-mix(in srgb, var(--accent) 75%, var(--text));
 }
 
 .you-dog-chat-mention {
-  color: #576b95;
+  color: color-mix(in srgb, var(--accent) 78%, var(--text));
   font-weight: 600;
 }
 
 .you-dog-chat__composer {
   flex-shrink: 0;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-top: 1px solid color-mix(in srgb, var(--accent) 12%, var(--border));
   padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
-  background: #f7f7f7;
-}
-
-.you-dog-chat__silent {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.76rem;
-  color: var(--muted2);
-  margin-bottom: 6px;
-  cursor: pointer;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
 }
 
 .you-dog-chat__composer-row {
@@ -29391,10 +30290,10 @@ html[data-theme="dark"] .you-dog-chat__quote {
   max-height: 120px;
   resize: none;
   border-radius: 6px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid color-mix(in srgb, var(--accent) 12%, var(--border));
   padding: 8px 12px;
   font: inherit;
-  background: #fff;
+  background: var(--surface);
   color: var(--text);
 }
 
@@ -29403,8 +30302,8 @@ html[data-theme="dark"] .you-dog-chat__quote {
   border-radius: 6px;
   padding: 8px 14px;
   min-height: 36px;
-  background: #07c160;
-  color: #fff;
+  background: var(--accent);
+  color: var(--accent-contrast);
   font-weight: 600;
   font-size: 0.84rem;
   cursor: pointer;
@@ -29532,17 +30431,17 @@ html[data-theme="dark"] .you-dog-chat__quote {
   max-width: 100%;
   padding: 4px 10px;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.06);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
   font-size: 0.72rem;
   line-height: 1.45;
-  color: #888;
+  color: var(--muted2);
   text-align: center;
   word-break: break-word;
 }
 
 html[data-theme="dark"] .you-dog-chat-sys__text {
-  background: rgba(255, 255, 255, 0.08);
-  color: #999;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--muted2);
 }
 
 .you-dog-chat-settings__footer {
@@ -29707,7 +30606,7 @@ html[data-theme="dark"] .you-dog-chat-sys__text {
 .grudge-book-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 0;
   padding: 10px 12px 8px;
   flex-shrink: 0;
 }
@@ -29717,7 +30616,8 @@ html[data-theme="dark"] .you-dog-chat-sys__text {
   margin: 0;
   font-size: 1.05rem;
   font-weight: 700;
-  text-align: center;
+  text-align: left;
+  min-width: 0;
 }
 
 .grudge-book-header__actions {
@@ -29734,9 +30634,9 @@ html[data-theme="dark"] .you-dog-chat-sys__text {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 0;
+  background: transparent;
+  border: none;
 }
 
 .grudge-book-header__generate:disabled {

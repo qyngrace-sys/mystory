@@ -2298,13 +2298,40 @@
   const YOU_DOG_PROMPT_SUMMARY_MAX_CHARS = 320;
   /** 你才是狗：生成文风（禁止方括号表情） */
   const YOU_DOG_EMOJI_STYLE_RULE =
-    "表达情绪请直接用 Unicode emoji（如 😊😂🥺），禁止 [微笑]、[捂脸]、[表情] 等方括号表情文字；也可不使用表情。";
-  /** 你才是狗：匿名发帖语气（生活流、不暴露身份） */
+    "表情须自然参差使用：约一半帖子/回复可完全不加 emoji；其余最多 1~2 个，可嵌在句中或单独成句，" +
+    "禁止人人都在段末堆 emoji、禁止每段末尾固定加一个表情；" +
+    "同一批内不同角色习惯应不同（有人爱用有人从不用）；" +
+    "禁止 [微笑]、[捂脸]、[表情] 等方括号表情文字。";
+  /** 嗅闻博客：批量生成评论 */
+  const YOU_DOG_BATCH_REPLIES_POST_LIMIT = 10;
+  const YOU_DOG_BATCH_REPLIES_COMMENTS_PER_POST_MIN = 4;
+  const YOU_DOG_BATCH_REPLIES_COMMENTS_PER_POST_MAX = 7;
+  const YOU_DOG_BATCH_REPLIES_CHAR_SAMPLE = 10;
+  /** 你才是狗：匿名发帖语气（碎碎念、不暴露身份） */
   const YOU_DOG_ANON_TONE_RULE =
-    "文风须像真实匿名论坛/树洞发帖：第一人称口语化，自然随意，像在跟陌生网友碎碎念日常；" +
+    "文风须像真实匿名树洞/微博小号碎碎念：第一人称、口语化，像在对着陌生网友倒苦水、晒幸福或发牢骚；" +
+    "情绪可以外露——撒娇、委屈、得意、耍赖、小抱怨都行；匿名区可以说平时不好意思说出口的心里话；" +
+    "对喜欢的人/对象可以随便起外号（老婆、姐姐、老公、宝宝、主人等，须符合人设），不必称呼真名；" +
     "禁止写出角色真名、具体职业职称、公司单位名称等可识别身份的信息；" +
-    "用「她/他/老婆/姐姐/对象/室友/同事」等泛指代替姓名；不写具体工作场景，只写感情与日常小事；" +
-    "句子长短错落，可有生活流吐槽、甜蜜互动或委屈心事，避免 AI 腔、公文腔和文艺腔。";
+    "句子长短错落，可连写几件小事，想到哪说到哪；可有生活流吐槽、甜蜜互动或委屈心事；" +
+    "避免 AI 腔、公文腔、文艺腔和日报式汇报。";
+  /** 嗅闻博客 Feed：跳脱剧情，只按人设性格写碎碎念 */
+  const YOU_DOG_FEED_CONTENT_RULE =
+    "发帖必须完全跳出剧情推进与复述：禁止把阶段总结、最近剧情轮次原文或梗概改写成帖子；" +
+    "剧情/总结/记忆仅供理解「这人什么性格、跟谁什么关系、最近心情如何」，然后写与此人格相符的日常一念；" +
+    "题材优先：和对象/朋友的小互动、被定下的奇葩规矩、等人回消息、吃饭逛街睡不着、天气心情、鸡毛蒜皮吐槽；" +
+    "不必有事态发展，不必交代前因后果，一件小事或一个念头就够；像随手发的一条状态，不是连载小说。";
+  /** 嗅闻博客：评论回复须像活人刷帖 */
+  const YOU_DOG_REPLY_TONE_RULE =
+    "评论须像活人刷帖：口语短句、损友调侃、顺口接梗、随手邀约（吃饭打球聚一下），不必句句分析帖子；" +
+    "路人可完全跑偏或冷幽默（如「记得买完单再走」）；熟人可叫楼主兄弟/姐妹，半开玩笑损两句；" +
+    "可以顺着楼主的人设梗玩（如黏人就被调侃「给你点私人空间」），但禁止复读楼主原文、禁止客服腔说教腔；" +
+    "每条评论个性不同：有的极短，有的两句吐槽，有的楼中楼互怼；像真实评论区，不要整齐划一。";
+  /** 嗅闻博客：发帖风格参考（仅供语感，禁止照抄） */
+  const YOU_DOG_FEED_STYLE_HINT =
+    "语感参考（勿照抄）：「姐姐今天布置的任务是自己训练完去吃晚饭散步…她说晚上会给我打视频，嘿嘿」；" +
+    "「下午好想见老婆，她没接电话…我就躺床边看她睡觉，下雨天睡着好舒服」；" +
+    "「讨厌星期一！老婆出台新规矩周一不见面…所以就要放置我吗！」";
   const YOU_DOG_CHAT_LONG_PRESS_MS = 480;
   /** 你才是狗：每批发帖角色上限（生成弹窗中手动勾选） */
   const YOU_DOG_SPEAKERS_PER_BATCH = 4;
@@ -2747,7 +2774,7 @@
   let horizontalScrollGuard = null;
   const horizontalScrollPosCache = Object.create(null);
   const HORIZONTAL_SCROLL_SELECTOR =
-    ".h-scroll, .pill-row, .phone-forum__pill-scroll, .phone-jjwxc__pill-scroll, .knock-sticker-panel__tabs, .knock-sticker-manage__pack-tabs, .collect-history-row__scroll";
+    ".h-scroll, .pill-row, .phone-forum__pill-scroll, .phone-jjwxc__pill-scroll, .knock-sticker-panel__tabs, .knock-sticker-manage__pack-tabs, .collect-history-row__scroll, .pass-note-archive-row__scroll";
   /** 横向滑动分组时，临时锁住外层纵向滚动容器，避免弹窗/面板跟着上下位移 */
   let horizontalScrollAxisLock = null;
   /** 敲敲：用户自定义表情包分组 [{ id, name, stickers: [{ id, url, name? }], mounted?: boolean }]；挂载后仅主要角色 AI 可按名称发送 */
@@ -2936,6 +2963,7 @@
   let fanworkJjwxcCategoryGenerating = false;
   let fanworkJjwxcNovelGeneratingId = null;
   let fanworkJjwxcChapterGeneratingId = null;
+  let fanworkJjwxcCommissionGenerating = false;
   /** 收取：剧情 id */
   let collectPlotId = null;
   /** 收取：主要角色 id（非我的形象） */
@@ -3010,6 +3038,27 @@
   /** 传纸条历史：key = plotId + \\u001e + charId → 单题记录[] */
   let passNoteRecordsData = {};
   const PASS_NOTE_SESSIONS_MAX_PER_KEY = 50;
+  /** 传纸条题型：淡色纸面 + 底纹样式 */
+  const PASS_NOTE_SLIP_THEMES = {
+    whimsy: { label: "脑洞", pattern: "dots" },
+    choice: { label: "二选一", pattern: "doodle" },
+    daily: { label: "日常怪癖", pattern: "flowers" },
+    philosophy: { label: "怪哲学", pattern: "lines" },
+    compose: { label: "自拟", pattern: "grid" },
+  };
+  const PASS_NOTE_TYPE_ICONS = {
+    whimsy:
+      '<svg class="pass-note-archive-card__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M12 3l1.4 4.3L18 8.8l-3.5 2.5L15.8 16 12 13.6 8.2 16l1.3-4.7L6 8.8l4.6-1.5L12 3z"/></svg>',
+    choice:
+      '<svg class="pass-note-archive-card__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M6 4v16M18 4v16M6 12h12"/></svg>',
+    daily:
+      '<svg class="pass-note-archive-card__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M4 10h16M8 6V4M16 6V4M6 20h12a2 2 0 002-2V8H4v10a2 2 0 002 2z"/></svg>',
+    philosophy:
+      '<svg class="pass-note-archive-card__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M9.5 9a2.5 2.5 0 015 0c0 2-2.5 1.5-2.5 3.5M12 17h.01"/></svg>',
+    compose:
+      '<svg class="pass-note-archive-card__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>',
+  };
+  const PASS_NOTE_TYPE_BY_INDEX = ["whimsy", "choice", "daily"];
   let passNoteGenerating = false;
   let passNoteTossing = false;
   let passNoteHolderModalStep = "plot";
@@ -3055,6 +3104,9 @@
   let youDogFeedGenerating = false;
   let youDogRepliesGenerating = false;
   let youDogRepliesGeneratingPostId = null;
+  let youDogBatchRepliesGenerating = false;
+  /** 上一批 Feed 生成新增的 postId，供批量评论定位 */
+  let youDogLastFeedBatchPostIds = [];
   let youDogCommentPostId = null;
   let youDogCommentDraft = "";
   let youDogPostMenuPostId = null;
@@ -3074,7 +3126,11 @@
   /** @type {"feed"|"chat"} */
   let youDogGenPickMode = "feed";
   let youDogGenPickDraft = [];
-  /** @type {{ userText?: string, silent?: boolean, regenerateBatch?: boolean }|null} */
+  /** 嗅闻博客 Feed：上次生成勾选的角色 ref */
+  let youDogLastGenPickRefs = [];
+  /** 嗅闻博客群聊：上次生成勾选的 memberRef */
+  let youDogLastChatGenPickRefs = [];
+  /** @type {{ userText?: string, regenerateBatch?: boolean }|null} */
   let youDogGenPickPendingChat = null;
   /** 嗅闻博客群聊：feed | chat 子屏（铃铛切换） */
   let youDogChatSubScreen = "feed";
@@ -3088,7 +3144,6 @@
   let youDogChatParticipantPanelOpen = false;
   let youDogChatSettingsOpen = false;
   let youDogChatMoreOpen = false;
-  let youDogChatSilentMode = false;
   let youDogChatSelectMode = false;
   let youDogChatSelectedMsgIds = [];
   /** @type {{ msgId: string, text: string, authorName: string }|null} */
@@ -10119,6 +10174,9 @@
       youDogChatData: youDogChatData || null,
       youDogChatParticipantIds: Array.isArray(youDogChatParticipantIds) ? youDogChatParticipantIds.slice() : [],
       youDogChatUserCharId: youDogChatUserCharId || null,
+      youDogLastGenPickRefs: Array.isArray(youDogLastGenPickRefs) ? youDogLastGenPickRefs.slice() : [],
+      youDogLastChatGenPickRefs: Array.isArray(youDogLastChatGenPickRefs) ? youDogLastChatGenPickRefs.slice() : [],
+      youDogLastFeedBatchPostIds: Array.isArray(youDogLastFeedBatchPostIds) ? youDogLastFeedBatchPostIds.slice() : [],
     });
   }
 
@@ -10625,6 +10683,24 @@
         typeof o.youDogChatUserCharId === "string" && o.youDogChatUserCharId.trim()
           ? o.youDogChatUserCharId.trim()
           : null;
+      youDogLastGenPickRefs = [];
+      if (Array.isArray(o.youDogLastGenPickRefs)) {
+        youDogLastGenPickRefs = o.youDogLastGenPickRefs.filter(function (id) {
+          return typeof id === "string" && id.trim();
+        });
+      }
+      youDogLastChatGenPickRefs = [];
+      if (Array.isArray(o.youDogLastChatGenPickRefs)) {
+        youDogLastChatGenPickRefs = o.youDogLastChatGenPickRefs.filter(function (id) {
+          return typeof id === "string" && id.trim();
+        });
+      }
+      youDogLastFeedBatchPostIds = [];
+      if (Array.isArray(o.youDogLastFeedBatchPostIds)) {
+        youDogLastFeedBatchPostIds = o.youDogLastFeedBatchPostIds.filter(function (id) {
+          return typeof id === "string" && id.trim();
+        });
+      }
       sanitizeYouDogChatState();
       knockPlotId =
         typeof o.knockPlotId === "string" && o.knockPlotId.trim() ? o.knockPlotId.trim() : null;
@@ -13215,6 +13291,12 @@
     };
   }
 
+  /** 点星子功能：按剧情上下文展示角色头像（剧情内 override 优先于角色库）。 */
+  function fillPlotAvatarElement(el, plot, characterId) {
+    if (!el || !characterId) return;
+    fillAvatarElement(el, getPlotCharacterView(plot, characterId));
+  }
+
   /** 不在花名册中的【名】块：用首字头像 + speakerName 展示，与正式角色同布局。 */
   function getStoryLineCharacterView(plot, line) {
     if (line && isEphemeralStoryNpcId(line.characterId)) {
@@ -14085,6 +14167,11 @@
       if (ov) return ov;
     }
     const charId = key === "partner" ? partnerCharId : userCharId;
+    const plot = knockPlotId ? getPlotById(knockPlotId) : null;
+    if (plot && charId) {
+      const plotUrl = String(getPlotCharacterView(plot, charId).avatarUrl || "").trim();
+      if (plotUrl) return plotUrl;
+    }
     const char = charId ? (key === "partner" ? getKnockPartnerCharById(charId) : getCharById(charId)) : null;
     return getKnockLibraryAvatarUrl(char);
   }
@@ -18619,7 +18706,7 @@
       const disabled =
         knockContactsGenerating || knockReplyGenerating || knockMomentsGenerating ? " disabled" : "";
       return (
-        '<div class="phone-app__bar-actions knock-wechat-app__actions">' +
+        '<div class="phone-app__bar-actions knock-wechat-app__actions star-header__actions">' +
         '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
         loadingCls +
         '" data-knock-chats-generate aria-label="生成/续聊相关会话" title="生成/续聊相关会话"' +
@@ -18639,7 +18726,7 @@
           ? " disabled"
           : "";
       return (
-        '<div class="phone-app__bar-actions knock-wechat-app__actions">' +
+        '<div class="phone-app__bar-actions knock-wechat-app__actions star-header__actions">' +
         '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
         genLoadingCls +
         '" data-knock-moments-generate aria-label="AI 生成朋友圈" title="AI 生成朋友圈"' +
@@ -18658,26 +18745,20 @@
 
   function buildKnockShellHtml() {
     const actionsHtml = buildKnockShellBarActionsHtml();
-    const centeredTitle = knockMainTab === "moments";
-    const barCls =
-      "phone-app__bar phone-app__bar--wechat-list knock-wechat-app__bar" +
-      (centeredTitle ? " knock-wechat-app__bar--centered" : "");
-    const titleCls = centeredTitle
-      ? "knock-wechat-app__title-center"
-      : "phone-app__title phone-app__title--left";
+    const barCls = "phone-app__bar phone-app__bar--wechat-list knock-wechat-app__bar star-header";
     return (
       '<div class="knock-wechat-app phone-app" aria-label="敲敲微信">' +
       '<header class="' +
       barCls +
       '">' +
-      '<button type="button" class="phone-app__back" data-knock-back aria-label="返回">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="phone-app__back star-header__back" data-knock-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
-      '<h2 class="' +
-      titleCls +
-      '">' +
+      '<h2 class="phone-app__title phone-app__title--left star-header__title">' +
       escapeHtml(getKnockShellTitle()) +
       "</h2>" +
+      "</div>" +
       actionsHtml +
       "</header>" +
       '<div class="knock-wechat-app__body" data-knock-panel></div>' +
@@ -20967,12 +21048,12 @@
       (knockSelectMode ? " phone-wechat--select-mode" : "") +
       (pendingSetup ? " knock-chat--initial-setup" : "") +
       '" aria-label="敲敲聊天">' +
-      '<header class="phone-app__bar phone-app__bar--wechat-chat knock-chat__bar">' +
-      '<button type="button" class="phone-app__back" data-knock-chat-back aria-label="返回">' +
+      '<header class="phone-app__bar phone-app__bar--wechat-chat knock-chat__bar star-header">' +
+      '<div class="phone-wechat-chat-bar__lead star-header__lead">' +
+      '<button type="button" class="phone-app__back star-header__back" data-knock-chat-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
-      '<div class="phone-wechat-chat-bar__lead">' +
-      '<h2 class="phone-app__title phone-app__title--left phone-app__title--chat">' +
+      '<h2 class="phone-app__title phone-app__title--left phone-app__title--chat star-header__title">' +
       escapeHtml(partnerName) +
       "</h2></div>" +
       '<div class="phone-wechat-chat-bar__actions knock-chat__actions">' +
@@ -25142,6 +25223,43 @@
     bar.classList.toggle("overview-context-bar--empty", !plot || !focus);
   }
 
+  /** 剧情内头像变更后，刷新已打开的点星子功能界面。 */
+  function refreshOverviewSubViewsForPlot(plot) {
+    if (!plot || !plot.id) return;
+    const pid = plot.id;
+    const layerStory = els.layerStory && els.layerStory();
+    if (layerStory && !layerStory.hidden) return;
+    if (activeTab !== "overview") return;
+    if (overviewSubView === "todo" && taskTodoPlotId === pid) {
+      const slot = els.todoContentSlot();
+      if (slot) renderTaskTodoScreen(slot);
+    } else if (overviewSubView === "radio" && radioPlotId === pid) {
+      const slot = els.radioContentSlot();
+      if (slot) renderRadioScreen(slot);
+    } else if (overviewSubView === "collect" && collectPlotId === pid) {
+      const slot = els.collectContentSlot();
+      if (slot) renderCollectScreen(slot);
+    } else if (overviewSubView === "pass-note" && passNotePlotId === pid) {
+      const slot = els.passNoteContentSlot();
+      if (slot) renderPassNoteScreen(slot);
+    } else if (overviewSubView === "grudge-book" && grudgeBookPlotId === pid) {
+      const slot = els.grudgeBookContentSlot();
+      if (slot) renderGrudgeBookScreen(slot);
+    } else if (overviewSubView === "knock" && knockPlotId === pid) {
+      const slot = els.knockContentSlot();
+      if (slot) renderKnockScreen(slot, { scrollToEnd: true });
+    } else if (overviewSubView === "fanwork") {
+      const slot = els.fanworkContentSlot();
+      if (slot) renderFanworkScreen(slot);
+    } else if (overviewSubView === "you-dog") {
+      const slot = els.youDogContentSlot();
+      if (slot) renderYouDogScreen(slot);
+    } else if (overviewSubView === "phone" && phoneHolderPlotId === pid) {
+      const slot = els.phoneContentSlot();
+      if (slot) renderPhoneScreen(slot);
+    }
+  }
+
   function openOverviewContextModal() {
     phoneHolderModalMode = "overview";
     openPhoneHolderModal();
@@ -25413,7 +25531,7 @@
       const av = document.createElement("div");
       av.className = "avatar";
       b.appendChild(av);
-      fillAvatarElement(av, c);
+      fillPlotAvatarElement(av, getPlotById(phoneHolderModalPlotId), c.id);
       b.addEventListener("click", function () {
         if (isOverview) {
           setOverviewContext(phoneHolderModalPlotId, c.id);
@@ -25580,7 +25698,7 @@
       const av = document.createElement("div");
       av.className = "avatar";
       b.appendChild(av);
-      fillAvatarElement(av, c);
+      fillPlotAvatarElement(av, getPlotById(knockHolderModalPlotId), c.id);
       b.addEventListener("click", function () {
         finishKnockHolderSelection(c.id);
       });
@@ -26322,7 +26440,7 @@
       const av = document.createElement("div");
       av.className = "avatar";
       b.appendChild(av);
-      fillAvatarElement(av, c);
+      fillPlotAvatarElement(av, getPlotById(collectHolderModalPlotId), c.id);
       b.addEventListener("click", function () {
         finishCollectHolderSelection(c.id);
       });
@@ -27138,14 +27256,17 @@
       '<div class="collect-printer">' +
       '<div class="collect-printer__slot" aria-hidden="true"></div>' +
       '<div class="collect-printer__body">' +
-      '<div class="collect-printer__top">' +
-      '<button type="button" class="collect-printer__icon-btn" data-collect-back aria-label="返回">' +
+      '<div class="collect-printer__top star-header">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="collect-printer__icon-btn star-header__back" data-collect-back aria-label="返回">' +
       '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
-      '<p class="collect-printer__brand">收取 · PAGER</p>' +
+      '<p class="collect-printer__brand star-header__title">收取 · PAGER</p>' +
+      "</div>" +
+      '<div class="star-header__actions">' +
       '<button type="button" class="collect-printer__icon-btn" data-collect-settings aria-label="设置">' +
-      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>' +
-      "</button></div>" +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>' +
+      "</button></div></div>" +
       '<p class="collect-printer__subtitle">DIGITAL NOTE PRINTER</p>' +
       '<div class="collect-printer__screen"><p class="collect-printer__display">' +
       escapeHtml(displayText) +
@@ -27158,20 +27279,22 @@
 
   function buildCollectHeaderHtml(title, showBack, showSettings) {
     return (
-      '<header class="collect-header">' +
+      '<header class="collect-header star-header">' +
+      '<div class="star-header__lead">' +
       (showBack
-        ? '<button type="button" class="icon-btn collect-header__back" data-collect-back aria-label="返回">' +
+        ? '<button type="button" class="icon-btn collect-header__back star-header__back" data-collect-back aria-label="返回">' +
           '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M15 6l-6 6 6 6"/></svg>' +
           "</button>"
-        : '<span class="collect-header__spacer"></span>') +
-      '<h1 class="collect-header__title">' +
+        : "") +
+      '<h1 class="collect-header__title star-header__title">' +
       escapeHtml(title) +
-      "</h1>" +
+      "</h1></div>" +
       (showSettings
-        ? '<button type="button" class="icon-btn collect-header__settings" data-collect-settings aria-label="设置">' +
+        ? '<div class="star-header__actions">' +
+          '<button type="button" class="icon-btn collect-header__settings" data-collect-settings aria-label="设置">' +
           '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>' +
-          "</button>"
-        : '<span class="collect-header__spacer"></span>') +
+          "</button></div>"
+        : "") +
       "</header>"
     );
   }
@@ -27808,8 +27931,8 @@
     }
     saveHorizontalScrollPositions(slot);
     slot.innerHTML = html + buildCollectPhotoViewerOverlayHtml();
-    slot.querySelectorAll("[data-collect-settings-avatar]").forEach(function (av) {
-      if (sender) fillAvatarElement(av, sender);
+    slot.querySelectorAll("[data-collect-settings-avatar], [data-collect-sender-avatar]").forEach(function (av) {
+      if (sender && plot) fillPlotAvatarElement(av, plot, sender.id);
     });
     const whisperText = slot.querySelector(".collect-slip--whisper .collect-slip__reveal-text");
     if (whisperText && pack && pack.whisper) whisperText.dataset.fullText = pack.whisper.text;
@@ -28924,8 +29047,9 @@
       (readonly ? " task-todo--settled" : "") +
       '" data-task-todo-root>' +
       '<header class="task-todo__bar">' +
-      '<div class="task-todo__bar-row">' +
-      '<button type="button" class="task-todo__back" data-todo-back aria-label="返回">' +
+      '<div class="task-todo__bar-row star-header">' +
+      '<div class="star-header__lead task-todo__bar-lead">' +
+      '<button type="button" class="task-todo__back star-header__back" data-todo-back aria-label="返回">' +
       '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>' +
       "</button>" +
       '<button type="button" class="task-todo__context" data-todo-context aria-label="切换剧情与角色">' +
@@ -28936,14 +29060,14 @@
       escapeHtml(dateLabel) +
       "</span>" +
       '<svg class="task-todo__context-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>' +
-      "</button>" +
-      '<div class="task-todo__bar-actions">' +
+      "</button></div>" +
+      '<div class="star-header__actions task-todo__bar-actions">' +
       '<button type="button" class="task-todo__calendar' +
       (calendarDisabled ? " is-disabled" : "") +
       '" data-todo-calendar' +
       (calendarDisabled ? " disabled" : "") +
       ' aria-label="日历回顾" title="日历">' +
-      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>' +
       "</button>" +
       '<button type="button" class="task-todo__gen phone-wechat-gen-btn' +
       (generating ? " phone-wechat-gen-btn--loading" : "") +
@@ -29042,10 +29166,10 @@
     const day = bundle ? getTaskTodoCurrentDay(bundle) : createEmptyTaskTodoDay();
     slot.innerHTML = buildTaskTodoScreenHtml(slot, bundle, day, plot, ch, taskTodoGenerating);
     const charAv = slot.querySelector("[data-todo-char-avatar]");
-    if (charAv && ch) fillAvatarElement(charAv, ch);
+    if (charAv && ch && plot) fillPlotAvatarElement(charAv, plot, ch.id);
     const userChar = plot ? getTaskTodoProtagonist(plot) : null;
     const userAv = slot.querySelector("[data-todo-user-avatar]");
-    if (userAv && userChar) fillAvatarElement(userAv, userChar);
+    if (userAv && userChar && plot) fillPlotAvatarElement(userAv, plot, userChar.id);
   }
 
   function closeOverviewTodoView() {
@@ -30025,17 +30149,18 @@
       '<div class="radio-shell__glow"></div>' +
       '<div class="radio-shell__wave"></div>' +
       "</div>" +
-      '<header class="radio-shell__bar">' +
-      '<button type="button" class="icon-btn radio-shell__icon" data-radio-back aria-label="返回">' +
+      '<header class="radio-shell__bar star-header">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="icon-btn radio-shell__icon star-header__back" data-radio-back aria-label="返回">' +
       '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
-      '<h1 class="radio-shell__title"><span class="radio-shell__live-tag">ON AIR</span>' +
+      '<h1 class="radio-shell__title star-header__title"><span class="radio-shell__live-tag">ON AIR</span>' +
       escapeHtml(title) +
-      "</h1>" +
+      "</h1></div>" +
+      '<div class="star-header__actions">' +
       '<button type="button" class="icon-btn radio-shell__icon" data-radio-settings aria-label="设置">' +
-      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>' +
-      "</button>" +
-      "</header>" +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>' +
+      "</button></div></header>" +
       '<section class="radio-deck">' +
       '<div class="radio-deck__player">' +
       '<button type="button" class="radio-deck__avatar-btn' +
@@ -30136,13 +30261,14 @@
 
     return (
       '<div class="radio-history">' +
-      '<header class="radio-history__bar">' +
-      '<button type="button" class="icon-btn" data-radio-history-back aria-label="返回">' +
+      '<header class="radio-history__bar star-header">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="icon-btn star-header__back" data-radio-history-back aria-label="返回">' +
       '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
-      "<h2 class=\"radio-history__title\">" +
+      "<h2 class=\"radio-history__title star-header__title\">" +
       escapeHtml(hostName) +
-      " · 历史直播</h2></header>" +
+      " · 历史直播</h2></div></header>" +
       listHtml +
       "</div>"
     );
@@ -30152,13 +30278,14 @@
     if (!session) return "";
     return (
       '<div class="radio-history-detail">' +
-      '<header class="radio-history__bar">' +
-      '<button type="button" class="icon-btn" data-radio-history-back aria-label="返回">' +
+      '<header class="radio-history__bar star-header">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="icon-btn star-header__back" data-radio-history-back aria-label="返回">' +
       '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
-      "<h2 class=\"radio-history__title\">" +
+      "<h2 class=\"radio-history__title star-header__title\">" +
       escapeHtml(getRadioDisplayTitle(session)) +
-      "</h2></header>" +
+      "</h2></div></header>" +
       '<section class="radio-transcript radio-transcript--detail" data-radio-transcript>' +
       '<div class="radio-transcript__head"><span class="radio-transcript__dot"></span>电波记录</div>' +
       buildRadioTranscriptHtml(session) +
@@ -30191,7 +30318,7 @@
 
     slot.innerHTML = buildRadioLiveHtml(slot, session, hostChar, plot);
     const av = slot.querySelector("[data-radio-host-avatar]");
-    if (av && hostChar) fillAvatarElement(av, hostChar);
+    if (av && hostChar && plot) fillPlotAvatarElement(av, plot, hostChar.id);
     restoreRadioTranscriptScroll(slot, scrollSnap, opts);
   }
 
@@ -30299,7 +30426,7 @@
       const av = document.createElement("div");
       av.className = "avatar";
       b.appendChild(av);
-      fillAvatarElement(av, c);
+      fillPlotAvatarElement(av, getPlotById(radioHolderModalPlotId), c.id);
       b.addEventListener("click", function () {
         finishRadioHolderSelection(c.id);
       });
@@ -30630,6 +30757,65 @@
     return String(plotId || "") + "\u001e" + String(charId || "");
   }
 
+  function passNoteTypeFromQuestionIndex(idx) {
+    if (typeof idx === "number" && idx >= 0 && idx < PASS_NOTE_TYPE_BY_INDEX.length) {
+      return PASS_NOTE_TYPE_BY_INDEX[idx];
+    }
+    return "";
+  }
+
+  function passNoteQuestionIndexFromId(id) {
+    const m = String(id || "").match(/(\d+)/);
+    if (!m) return -1;
+    return parseInt(m[1], 10) - 1;
+  }
+
+  function normalizePassNoteQuestionType(raw) {
+    const src = String(raw || "").trim().toLowerCase();
+    if (src && PASS_NOTE_SLIP_THEMES[src]) return src;
+    return "";
+  }
+
+  function resolvePassNoteQuestionType(q, idx, opts) {
+    const fromQ = q && normalizePassNoteQuestionType(q.type);
+    if (fromQ) return fromQ;
+    const qIdx =
+      q && q.questionId != null
+        ? passNoteQuestionIndexFromId(q.questionId)
+        : q && q.id != null
+          ? passNoteQuestionIndexFromId(q.id)
+          : -1;
+    const fromId = passNoteTypeFromQuestionIndex(qIdx);
+    if (fromId) return fromId;
+    if (opts && opts.compose) return PASS_NOTE_TYPE_BY_INDEX[idx] || "philosophy";
+    if (typeof idx === "number" && PASS_NOTE_TYPE_BY_INDEX[idx]) return PASS_NOTE_TYPE_BY_INDEX[idx];
+    return "philosophy";
+  }
+
+  function getPassNoteSlipTheme(q, idx, opts) {
+    const typeKey = resolvePassNoteQuestionType(q, idx, opts);
+    return PASS_NOTE_SLIP_THEMES[typeKey] || PASS_NOTE_SLIP_THEMES.philosophy;
+  }
+
+  function buildPassNoteSlipOpenTag(q, idx, extraClasses, styleAttr, opts) {
+    const typeKey = resolvePassNoteQuestionType(q, idx, opts);
+    const theme = PASS_NOTE_SLIP_THEMES[typeKey] || PASS_NOTE_SLIP_THEMES.philosophy;
+    const cls =
+      "pass-note-slip pass-note-slip--type-" +
+      typeKey +
+      " pass-note-slip--pattern-" +
+      theme.pattern +
+      (extraClasses ? " " + extraClasses : "");
+    const style = styleAttr ? ' style="' + styleAttr + '"' : "";
+    return '<article class="' + cls + '"' + style + ">";
+  }
+
+  function buildPassNoteSlipTagHtml(q, idx, suffix, opts) {
+    const theme = getPassNoteSlipTheme(q, idx, opts);
+    const label = suffix ? theme.label + " · " + suffix : theme.label;
+    return '<span class="pass-note-slip__tag">' + escapeHtml(label) + "</span>";
+  }
+
   function normalizePassNoteQuestion(raw) {
     if (!raw || typeof raw !== "object") return null;
     const text = String(raw.text || "").trim();
@@ -30645,9 +30831,11 @@
         : raw.charAnswer != null
           ? String(raw.charAnswer).trim().slice(0, 600)
           : "";
+    const type = normalizePassNoteQuestionType(raw.type);
     return {
       id: id,
       text: text.slice(0, 300),
+      type: type,
       userAnswer: raw.userAnswer != null ? String(raw.userAnswer).trim().slice(0, 200) : "",
       charPreAnswer: raw.charPreAnswer != null ? String(raw.charPreAnswer).trim().slice(0, 600) : "",
       charReply: charReply,
@@ -30675,6 +30863,7 @@
       charId: charId,
       questionId: q.id,
       text: q.text,
+      type: q.type || "",
       userAnswer: q.userAnswer,
       charPreAnswer: q.charPreAnswer,
       charReply: q.charReply,
@@ -30697,6 +30886,7 @@
         plotId: session.plotId,
         charId: session.charId,
         text: nq.text,
+        type: nq.type,
         userAnswer: nq.userAnswer,
         charPreAnswer: nq.charPreAnswer,
         charReply: nq.charReply,
@@ -30901,11 +31091,12 @@
       "- 不必贴合当前剧情，甚至可以问「如果明天地球重力减半你会做什么」这类天马行空的问题\n" +
       "- 语言轻松有趣，每题 1-2 句，适合私下传纸条聊天\n" +
       "- 不要出需要专业知识或敏感政治宗教的内容\n" +
+      "- 每题需标注 type，从以下选一个（三道题 type 尽量不重复）：whimsy（天马行空脑洞）、choice（二选一怪问）、daily（日常怪癖）、philosophy（怪哲学）\n" +
       avoidBlock +
       "\n\n可选背景（仅作语气参考，题目不必贴合）：\n" +
       buildPassNotePlotContextBlock(plot, partnerChar) +
       "\n\n只输出 JSON，不要 markdown 围栏：\n" +
-      '{"questions":[{"id":"q1","text":"...","charPreAnswer":"..."},{"id":"q2","text":"...","charPreAnswer":"..."},{"id":"q3","text":"...","charPreAnswer":"..."}]}\n' +
+      '{"questions":[{"id":"q1","text":"...","type":"whimsy","charPreAnswer":"..."},{"id":"q2","text":"...","type":"choice","charPreAnswer":"..."},{"id":"q3","text":"...","type":"daily","charPreAnswer":"..."}]}\n' +
       "charPreAnswer 是角色本人对该问题的回答，1-3 句口语化，符合人设但题目可以很跳脱。"
     );
   }
@@ -30981,9 +31172,11 @@
       const item = parsed.questions[i] || q;
       const pre =
         item && item.charPreAnswer != null ? String(item.charPreAnswer).trim().slice(0, 600) : "";
+      const type = normalizePassNoteQuestionType(item && item.type) || passNoteTypeFromQuestionIndex(i) || "philosophy";
       return {
         id: "q" + (i + 1),
         text: q.text,
+        type: type,
         userAnswer: "",
         charPreAnswer: pre,
         charReply: "",
@@ -31091,6 +31284,7 @@
       return {
         id: "q" + (i + 1),
         text: "",
+        type: "",
         userAnswer: "",
         charPreAnswer: "",
         charReply: "",
@@ -31140,6 +31334,7 @@
       session.questions[idx] = {
         id: "q" + (idx + 1),
         text: "",
+        type: "",
         userAnswer: "",
         charPreAnswer: "",
         charReply: "",
@@ -31334,7 +31529,9 @@
           sessionId: session.id,
           plotId: session.plotId,
           charId: session.charId,
+          questionId: q.id,
           text: q.text,
+          type: q.type,
           userAnswer: q.userAnswer,
           charPreAnswer: q.charPreAnswer,
           charReply: q.charReply,
@@ -31346,6 +31543,38 @@
       }
     }
     return false;
+  }
+
+  function resolvePassNoteRecordSessionId(record) {
+    if (!record) return "";
+    if (record.sessionId) return record.sessionId;
+    const m = String(record.id || "").match(/^pnr_([^_]+)_/);
+    return m ? m[1] : String(record.id || "");
+  }
+
+  function groupPassNoteRecordsBySession(records) {
+    const groups = [];
+    const map = Object.create(null);
+    (records || []).forEach(function (r) {
+      const sid = resolvePassNoteRecordSessionId(r);
+      if (!map[sid]) {
+        map[sid] = { sessionId: sid, records: [], completedAt: 0 };
+        groups.push(map[sid]);
+      }
+      map[sid].records.push(r);
+      map[sid].completedAt = Math.max(map[sid].completedAt, r.completedAt || 0);
+    });
+    groups.sort(function (a, b) {
+      return (b.completedAt || 0) - (a.completedAt || 0);
+    });
+    groups.forEach(function (g) {
+      g.records.sort(function (a, b) {
+        const qa = String(a.questionId || a.id || "");
+        const qb = String(b.questionId || b.id || "");
+        return qa.localeCompare(qb, undefined, { numeric: true });
+      });
+    });
+    return groups;
   }
 
   function deletePassNoteRecord(recordId) {
@@ -31379,24 +31608,42 @@
     return false;
   }
 
+  function deletePassNoteSessionRecords(sessionId) {
+    const plot = getPassNotePlot();
+    const partner = getPassNoteCharacter();
+    if (!plot || !partner || !sessionId) return false;
+    const key = passNoteStorageKey(plot.id, partner.id);
+    const arr = passNoteRecordsData[key];
+    if (!arr) return false;
+    const next = arr.filter(function (r) {
+      return resolvePassNoteRecordSessionId(r) !== sessionId;
+    });
+    if (next.length === arr.length) return false;
+    if (next.length) passNoteRecordsData[key] = next;
+    else delete passNoteRecordsData[key];
+    schedulePersistNarrative();
+    return true;
+  }
+
   function buildPassNoteHeaderHtml(title, showArchive, showSettings) {
     return (
-      '<header class="pass-note-header">' +
-      '<button type="button" class="icon-btn pass-note-header__back" data-pass-note-back aria-label="返回">' +
+      '<header class="pass-note-header star-header">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="icon-btn pass-note-header__back star-header__back" data-pass-note-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
-      '<h1 class="pass-note-header__title">' +
+      '<h1 class="pass-note-header__title star-header__title">' +
       escapeHtml(title) +
-      "</h1>" +
-      '<div class="pass-note-header__actions">' +
+      "</h1></div>" +
+      '<div class="pass-note-header__actions star-header__actions">' +
       (showArchive
         ? '<button type="button" class="icon-btn pass-note-header__archive" data-pass-note-archive aria-label="记录">' +
-          '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 6h16M4 10h16M4 14h10"/><rect x="4" y="4" width="16" height="16" rx="2"/></svg>' +
+          '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 6h16M4 10h16M4 14h10"/><rect x="4" y="4" width="16" height="16" rx="2"/></svg>' +
           "</button>"
         : "") +
       (showSettings
         ? '<button type="button" class="icon-btn pass-note-header__settings" data-pass-note-settings aria-label="切换对象">' +
-          '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>' +
+          '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>' +
           "</button>"
         : '<span class="pass-note-header__spacer"></span>') +
       "</div></header>"
@@ -31429,6 +31676,8 @@
       .map(function (i) {
         let cls = "pass-note-progress__dot";
         const q = questions[i];
+        const typeKey = resolvePassNoteQuestionType(q, i, mode === "composing" ? { compose: true } : null);
+        cls += " pass-note-progress__dot--" + typeKey;
         if (q && q.skipped) cls += " is-skipped";
         else if (mode === "answering" && i < idx) cls += " is-done";
         else if (mode === "composing" && i < idx) cls += " is-done";
@@ -31469,11 +31718,11 @@
   function buildPassNoteComposeSlipHtml(q, idx, draft) {
     const isLast = idx >= 2;
     return (
-      '<article class="pass-note-slip pass-note-slip--compose">' +
+      buildPassNoteSlipOpenTag(q, idx, "pass-note-slip--compose", null, { compose: true }) +
+      '<div class="pass-note-slip__tape" aria-hidden="true"></div>' +
       '<div class="pass-note-slip__head">' +
-      '<span class="pass-note-slip__tag">自拟 · ' +
-      String(idx + 1).padStart(2, "0") +
-      "</span></div>" +
+      buildPassNoteSlipTagHtml(q, idx, "自拟 " + String(idx + 1).padStart(2, "0"), { compose: true }) +
+      "</div>" +
       '<p class="pass-note-slip__compose-hint">写下你想问 TA 的问题，可以非常跳脱，不必贴合剧情。</p>' +
       '<label class="pass-note-slip__field">' +
       '<span class="pass-note-slip__field-label">你的题目</span>' +
@@ -31492,11 +31741,11 @@
   function buildPassNoteQuestionSlipHtml(q, idx, draft) {
     const isLast = idx >= 2;
     return (
-      '<article class="pass-note-slip pass-note-slip--question">' +
+      buildPassNoteSlipOpenTag(q, idx, "pass-note-slip--question") +
+      '<div class="pass-note-slip__tape" aria-hidden="true"></div>' +
       '<div class="pass-note-slip__head">' +
-      '<span class="pass-note-slip__tag">QUESTION · ' +
-      String(idx + 1).padStart(2, "0") +
-      "</span></div>" +
+      buildPassNoteSlipTagHtml(q, idx, String(idx + 1).padStart(2, "0")) +
+      "</div>" +
       '<p class="pass-note-slip__question">' +
       escapeHtml(q.text) +
       "</p>" +
@@ -31532,26 +31781,25 @@
 
   function buildPassNotePreViewSlipHtml(q, idx, partner) {
     const partnerName = partner ? partner.name || "TA" : "TA";
+    const delay = "animation-delay:" + idx * 0.12 + "s";
     if (q.skipped) {
       return (
-        '<article class="pass-note-slip pass-note-slip--pre pass-note-slip--skipped pass-note-slip--reveal" style="animation-delay:' +
-        idx * 0.12 +
-        's">' +
-        '<div class="pass-note-slip__head"><span class="pass-note-slip__tag">Q' +
-        (idx + 1) +
-        " · 已丢掉</span></div>" +
+        buildPassNoteSlipOpenTag(q, idx, "pass-note-slip--pre pass-note-slip--skipped pass-note-slip--reveal", delay) +
+        '<div class="pass-note-slip__tape" aria-hidden="true"></div>' +
+        '<div class="pass-note-slip__head">' +
+        buildPassNoteSlipTagHtml(q, idx, "Q" + (idx + 1) + " · 已丢掉") +
+        "</div>" +
         '<p class="pass-note-slip__question">' +
         escapeHtml(q.text) +
         '</p><p class="pass-note-slip__skipped-note">此题未回答</p></article>'
       );
     }
     return (
-      '<article class="pass-note-slip pass-note-slip--pre pass-note-slip--reveal" style="animation-delay:' +
-      idx * 0.12 +
-      's">' +
-      '<div class="pass-note-slip__head"><span class="pass-note-slip__tag">Q' +
-      (idx + 1) +
-      " · TA 的回答</span></div>" +
+      buildPassNoteSlipOpenTag(q, idx, "pass-note-slip--pre pass-note-slip--reveal", delay) +
+      '<div class="pass-note-slip__tape" aria-hidden="true"></div>' +
+      '<div class="pass-note-slip__head">' +
+      buildPassNoteSlipTagHtml(q, idx, "Q" + (idx + 1) + " · TA 的回答") +
+      "</div>" +
       '<p class="pass-note-slip__question">' +
       escapeHtml(q.text) +
       "</p>" +
@@ -31594,17 +31842,16 @@
   function buildPassNoteQaSlipHtml(q, idx, userChar, partner, session, recordIdOverride) {
     const userName = userChar ? userChar.name || "我" : "我";
     const partnerName = partner ? partner.name || "TA" : "TA";
+    const delay = "animation-delay:" + idx * 0.12 + "s";
     const recordId =
       recordIdOverride || (session ? passNoteRecordIdForQuestion(session, q) : "pnr_" + (q.id || idx));
     if (q.skipped) {
       return (
-        '<article class="pass-note-slip pass-note-slip--qa pass-note-slip--skipped pass-note-slip--reveal" style="animation-delay:' +
-        idx * 0.12 +
-        's">' +
+        buildPassNoteSlipOpenTag(q, idx, "pass-note-slip--qa pass-note-slip--skipped pass-note-slip--reveal", delay) +
+        '<div class="pass-note-slip__tape" aria-hidden="true"></div>' +
         '<div class="pass-note-slip__head">' +
-        '<span class="pass-note-slip__tag">Q' +
-        (idx + 1) +
-        " · 已丢掉</span></div>" +
+        buildPassNoteSlipTagHtml(q, idx, "Q" + (idx + 1) + " · 已丢掉") +
+        "</div>" +
         '<p class="pass-note-slip__question">' +
         escapeHtml(q.text) +
         "</p>" +
@@ -31627,13 +31874,11 @@
       );
     }
     return (
-      '<article class="pass-note-slip pass-note-slip--qa pass-note-slip--reveal" style="animation-delay:' +
-      idx * 0.12 +
-      's">' +
+      buildPassNoteSlipOpenTag(q, idx, "pass-note-slip--qa pass-note-slip--reveal", delay) +
+      '<div class="pass-note-slip__tape" aria-hidden="true"></div>' +
       '<div class="pass-note-slip__head">' +
-      '<span class="pass-note-slip__tag">Q' +
-      (idx + 1) +
-      "</span></div>" +
+      buildPassNoteSlipTagHtml(q, idx, "Q" + (idx + 1)) +
+      "</div>" +
       '<p class="pass-note-slip__question">' +
       escapeHtml(q.text) +
       "</p>" +
@@ -31679,6 +31924,7 @@
     const q = {
       id: record.questionId,
       text: record.text,
+      type: record.type,
       userAnswer: record.userAnswer,
       charPreAnswer: record.charPreAnswer,
       charReply: record.charReply,
@@ -31819,19 +32065,71 @@
     );
   }
 
+  function buildPassNoteHistoryCardHtml(record, idx) {
+    const typeKey = resolvePassNoteQuestionType(record, idx);
+    const theme = PASS_NOTE_SLIP_THEMES[typeKey] || PASS_NOTE_SLIP_THEMES.philosophy;
+    const icon = PASS_NOTE_TYPE_ICONS[typeKey] || PASS_NOTE_TYPE_ICONS.philosophy;
+    const text = String(record.text || "");
+    const preview = escapeHtml(text.slice(0, 24) + (text.length > 24 ? "…" : ""));
+    return (
+      '<button type="button" class="pass-note-archive-card pass-note-archive-card--type-' +
+      typeKey +
+      '" data-pass-note-record-open="' +
+      escapeHtml(record.id) +
+      '" aria-label="' +
+      escapeHtml(theme.label) +
+      '">' +
+      '<span class="pass-note-archive-card__icon" aria-hidden="true">' +
+      icon +
+      "</span>" +
+      '<span class="pass-note-archive-card__label">' +
+      (record.favorited ? "★ " : "") +
+      escapeHtml(theme.label) +
+      "</span>" +
+      (preview ? '<span class="pass-note-archive-card__preview">' + preview + "</span>" : "") +
+      "</button>"
+    );
+  }
+
+  function buildPassNoteHistoryRowHtml(group) {
+    const timeLabel = buildStorySelectionCardTime(group.completedAt);
+    const cardsHtml = group.records
+      .map(function (r, i) {
+        return buildPassNoteHistoryCardHtml(r, i);
+      })
+      .join("");
+    return (
+      '<section class="pass-note-archive-row">' +
+      '<div class="pass-note-archive-row__head">' +
+      '<span class="pass-note-archive-row__dot" aria-hidden="true"></span>' +
+      '<div class="pass-note-archive-row__head-main">' +
+      '<time class="pass-note-archive-row__time" datetime="' +
+      escapeHtml(String(group.completedAt || "")) +
+      '">' +
+      escapeHtml(timeLabel) +
+      "</time></div>" +
+      '<button type="button" class="pass-note-archive-row__delete" data-pass-note-session-delete="' +
+      escapeHtml(group.sessionId) +
+      '" aria-label="删除此轮传纸条记录">' +
+      '<svg class="icon-linear" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/><path d="M10 11v6M14 11v6"/></svg>' +
+      "</button></div>" +
+      '<div class="pass-note-archive-row__panel">' +
+      '<div class="pass-note-archive-row__scroll" data-h-scroll-key="pass-note-archive-' +
+      escapeHtml(group.sessionId) +
+      '">' +
+      cardsHtml +
+      "</div></div></section>"
+    );
+  }
+
   function buildPassNoteArchiveHtml(slot) {
     const nav = getPassNoteNav(slot);
     const plot = getPassNotePlot();
     const partner = getPassNoteCharacter();
     const filter = nav.archiveFilter === "favorites" ? "favorites" : "all";
-    let records = getPassNoteRecordsForCurrent();
-    if (filter === "favorites") {
-      records = records.filter(function (r) {
-        return r.favorited;
-      });
-    }
+    const allRecords = getPassNoteRecordsForCurrent();
     if (nav.archiveDetailId) {
-      const detail = records.find(function (r) {
+      const detail = allRecords.find(function (r) {
         return r.id === nav.archiveDetailId;
       });
       if (detail) {
@@ -31846,33 +32144,20 @@
       }
       nav.archiveDetailId = null;
     }
-    const rowsHtml = records.length
-      ? records
-          .map(function (r) {
-            const preview = String(r.text || "").slice(0, 48);
-            return (
-              '<button type="button" class="pass-note-record-card" data-pass-note-record-open="' +
-              escapeHtml(r.id) +
-              '">' +
-              '<div class="pass-note-record-card__top">' +
-              '<div class="pass-note-record-card__avatar avatar" data-pass-note-record-av="' +
-              escapeHtml(r.id) +
-              '"></div>' +
-              '<div class="pass-note-record-card__meta">' +
-              '<p class="pass-note-record-card__name">' +
-              (r.favorited ? "★ " : "") +
-              escapeHtml(partner ? partner.name || "TA" : "") +
-              " · " +
-              escapeHtml(plot ? plot.title || "剧情" : "") +
-              "</p>" +
-              '<p class="pass-note-record-card__preview">' +
-              escapeHtml(preview) +
-              (preview.length >= 48 ? "…" : "") +
-              "</p>" +
-              '<p class="pass-note-record-card__time">' +
-              escapeHtml(formatMemoryTime(r.completedAt)) +
-              "</p></div></div></button>"
-            );
+    let groups = groupPassNoteRecordsBySession(allRecords);
+    if (filter === "favorites") {
+      groups = groups.filter(function (g) {
+        return g.records.some(function (r) {
+          return r.favorited;
+        });
+      });
+    }
+    const partnerName = partner ? partner.name || "TA" : "未选择";
+    const plotTitle = plot ? plot.title || "剧情" : "";
+    const rowsHtml = groups.length
+      ? groups
+          .map(function (g) {
+            return buildPassNoteHistoryRowHtml(g);
           })
           .join("")
       : '<div class="pass-note-empty pass-note-empty--compact">' +
@@ -31882,6 +32167,11 @@
     return (
       '<div class="pass-note-screen pass-note-screen--archive">' +
       buildPassNoteHeaderHtml("传纸条记录", false, false) +
+      '<p class="pass-note-archive-subtitle">仅显示当前绑定「' +
+      escapeHtml(partnerName) +
+      "」的传纸条记录" +
+      (plotTitle ? " · 《" + escapeHtml(plotTitle) + "》" : "") +
+      " · 保存在本机</p>" +
       '<div class="pass-note-filter">' +
       '<button type="button" class="pass-note-filter__pill' +
       (filter === "all" ? " is-active" : "") +
@@ -31931,15 +32221,9 @@
     slot.innerHTML = html;
     const partner = getPassNoteCharacter();
     const plot = getPassNotePlot();
-    slot.querySelectorAll("[data-pass-note-partner-avatar]").forEach(function (av) {
-      if (partner) fillAvatarElement(av, partner);
-    });
-    if (partner) {
-      slot.querySelectorAll("[data-pass-note-slip-av]").forEach(function (av) {
-        fillAvatarElement(av, partner);
-      });
-      slot.querySelectorAll("[data-pass-note-record-av]").forEach(function (av) {
-        fillAvatarElement(av, partner);
+    if (plot && partner) {
+      slot.querySelectorAll("[data-pass-note-partner-avatar], [data-pass-note-slip-av], [data-pass-note-record-av]").forEach(function (av) {
+        fillPlotAvatarElement(av, plot, partner.id);
       });
     }
     const ta = slot.querySelector("[data-pass-note-answer]");
@@ -32070,7 +32354,7 @@
       const av = document.createElement("div");
       av.className = "avatar";
       b.appendChild(av);
-      fillAvatarElement(av, c);
+      fillPlotAvatarElement(av, getPlotById(passNoteHolderModalPlotId), c.id);
       b.addEventListener("click", function () {
         finishPassNoteHolderSelection(c.id);
       });
@@ -32382,14 +32666,15 @@
 
   function buildGrudgeBookHeaderHtml(title, showGenerate, generating) {
     return (
-      '<header class="grudge-book-header">' +
-      '<button type="button" class="icon-btn grudge-book-header__back" data-grudge-book-back aria-label="返回">' +
+      '<header class="grudge-book-header star-header">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="icon-btn grudge-book-header__back star-header__back" data-grudge-book-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
-      '<h1 class="grudge-book-header__title">' +
+      '<h1 class="grudge-book-header__title star-header__title">' +
       escapeHtml(title) +
-      "</h1>" +
-      '<div class="grudge-book-header__actions">' +
+      "</h1></div>" +
+      '<div class="grudge-book-header__actions star-header__actions">' +
       (showGenerate
         ? '<button type="button" class="icon-btn grudge-book-header__generate phone-wechat-gen-btn' +
           (generating ? " phone-wechat-gen-btn--loading" : "") +
@@ -32400,7 +32685,7 @@
           "</button>"
         : "") +
       '<button type="button" class="icon-btn grudge-book-header__settings" data-grudge-book-settings aria-label="切换对象">' +
-      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>' +
       "</button></div></header>"
     );
   }
@@ -33137,18 +33422,15 @@
       html = buildGrudgeBookListHtml(slot, bundle, plot, partner);
     }
     slot.innerHTML = html;
-    if (partner) {
-      slot.querySelectorAll("[data-grudge-book-partner-avatar]").forEach(function (av) {
-        fillAvatarElement(av, partner);
-      });
-      slot.querySelectorAll('[data-grudge-book-reply-av="partner"]').forEach(function (av) {
-        fillAvatarElement(av, partner);
+    if (plot && partner) {
+      slot.querySelectorAll("[data-grudge-book-partner-avatar], [data-grudge-book-reply-av=\"partner\"]").forEach(function (av) {
+        fillPlotAvatarElement(av, plot, partner.id);
       });
     }
     const userChar = plot ? getGrudgeBookUserChar(plot) : null;
-    if (userChar) {
+    if (plot && userChar) {
       slot.querySelectorAll('[data-grudge-book-reply-av="user"]').forEach(function (av) {
-        fillAvatarElement(av, userChar);
+        fillPlotAvatarElement(av, plot, userChar.id);
       });
     }
   }
@@ -33271,7 +33553,7 @@
       const av = document.createElement("div");
       av.className = "avatar";
       b.appendChild(av);
-      fillAvatarElement(av, c);
+      fillPlotAvatarElement(av, getPlotById(grudgeBookHolderModalPlotId), c.id);
       b.addEventListener("click", function () {
         finishGrudgeBookHolderSelection(c.id);
       });
@@ -33652,9 +33934,32 @@
 
   function buildYouDogBellIconSvg() {
     return (
-      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
       '<path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>' +
       '<path d="M13.73 21a2 2 0 01-3.46 0"/>' +
+      "</svg>"
+    );
+  }
+
+  function buildYouDogGenRepliesIconSvg(size) {
+    const s = Number(size) > 0 ? Number(size) : 16;
+    return (
+      '<svg class="icon-linear" width="' +
+      s +
+      '" height="' +
+      s +
+      '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>' +
+      '<path d="M12 8v6M9 11h6"/>' +
+      "</svg>"
+    );
+  }
+
+  function buildYouDogBatchRepliesIconSvg() {
+    return (
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M7.9 20A9 9 0 104 16.1L2 22z"/>' +
+      '<path d="M8 12h6M8 16h4"/>' +
       "</svg>"
     );
   }
@@ -33707,6 +34012,50 @@
     const limit = Math.max(1, Number(cap) || 1);
     if (list.length <= limit) return list.slice();
     return list.slice(0, limit);
+  }
+
+  function resolveYouDogGenPickDraftFromLast(refs, mode) {
+    const cap = mode === "chat" ? YOU_DOG_CHAT_SPEAKERS_PER_BATCH : YOU_DOG_SPEAKERS_PER_BATCH;
+    const lastRefs = mode === "chat" ? youDogLastChatGenPickRefs : youDogLastGenPickRefs;
+    const validSet = new Set(Array.isArray(refs) ? refs.filter(Boolean) : []);
+    const restored = (Array.isArray(lastRefs) ? lastRefs : []).filter(function (ref) {
+      return validSet.has(ref);
+    });
+    if (!restored.length) return defaultYouDogGenPickDraft(refs, cap);
+    return restored.slice(0, cap);
+  }
+
+  function saveYouDogGenPickDraft(draft, mode) {
+    const saved = Array.isArray(draft) ? draft.filter(Boolean).slice() : [];
+    if (mode === "chat") {
+      youDogLastChatGenPickRefs = saved;
+    } else {
+      youDogLastGenPickRefs = saved;
+    }
+    schedulePersistNarrative();
+  }
+
+  function refreshYouDogGenPickHint() {
+    const hintEl = document.querySelector(".you-dog-gen-pick .phone-forum-manage__hint");
+    if (!hintEl || !youDogGenPickOpen) return;
+    const isChat = youDogGenPickMode === "chat";
+    const batchCap = isChat ? YOU_DOG_CHAT_SPEAKERS_PER_BATCH : YOU_DOG_SPEAKERS_PER_BATCH;
+    const pickedCount = youDogGenPickDraft.length;
+    hintEl.textContent = isChat
+      ? "列出群聊成员；同一人物在不同剧情中视为不同角色。请勾选最多 " +
+          batchCap +
+          " 位参与本批生成（已选 " +
+          pickedCount +
+          " / " +
+          batchCap +
+          "）"
+      : "列出各剧情主要角色；同一人物在不同剧情中视为不同角色。请勾选最多 " +
+          batchCap +
+          " 位参与本批生成（已选 " +
+          pickedCount +
+          " / " +
+          batchCap +
+          "）";
   }
 
   function ensureYouDogPlotsForSpeakerRefs(refs) {
@@ -34200,16 +34549,16 @@
     lines.push(buildYouDogParticipantProfilesBlock(plot, participantIds) || "（无）");
     if (summaryBlock) {
       lines.push("");
-      lines.push("【阶段总结】");
+      lines.push("【人设参考 · 阶段总结（仅供理解性格与关系，严禁复述或改写进帖子）】");
       lines.push(summaryBlock);
     }
     if (memoryBlock) {
       lines.push("");
-      lines.push("【相关记忆（最近 " + YOU_DOG_PLOT_MEMORY_REF_LIMIT + " 条）】");
+      lines.push("【人设参考 · 相关记忆（仅供理解性格，严禁复述或改写进帖子）】");
       lines.push(memoryBlock);
     }
     lines.push("");
-    lines.push("【最近 " + YOU_DOG_PLOT_REF_TURN_LIMIT + " 轮剧情（末轮全文，更早轮为摘录）】");
+    lines.push("【人设参考 · 最近 " + YOU_DOG_PLOT_REF_TURN_LIMIT + " 轮剧情（仅供理解关系与心境，严禁复述或改写进帖子）】");
     lines.push(history || "故事刚开始。");
     return { lines: lines, protagName: protagName };
   }
@@ -34326,7 +34675,8 @@
       "请为「你才是狗·匿名推特」生成一批新推文 JSON。",
       "以下有多条剧情世界观并行；角色用小号/匿名 ID 发帖，像真实树洞/论坛碎碎念。",
       YOU_DOG_ANON_TONE_RULE,
-      "狗味要浓：暗戳戳秀恩爱、较劲、炫耀、和各自剧情相关的小心思。",
+      YOU_DOG_FEED_CONTENT_RULE,
+      YOU_DOG_FEED_STYLE_HINT,
       "严禁暴露角色真名；anonId 是界面显示的匿名网名。",
       "speakerRef 必须使用 plotId:charId 格式（见本批列表），以区分不同剧情中的同一人物设定。",
       "不同剧情的角色可在同一时间线互动，但发帖内容须符合各自剧情设定。",
@@ -34384,8 +34734,10 @@
         "tag 须为上列 sectionId 之一，根据内容选最贴切分区；本批内尽量覆盖不同分区。anonId 不可重复；" +
         YOU_DOG_ANON_TONE_RULE +
         " " +
+        YOU_DOG_FEED_CONTENT_RULE +
+        " " +
         YOU_DOG_EMOJI_STYLE_RULE +
-        "；须与对应角色所在剧情一致。"
+        "；只根据角色性格与关系写碎碎念，不要写成剧情摘要或情节推进。"
     );
     return lines.join("\n");
   }
@@ -34406,6 +34758,7 @@
           : [];
     const touchedPlotIds = new Set();
     const seenSpeakers = new Set();
+    const addedPostIds = [];
     newPosts.forEach(function (raw) {
       const normalized = normalizeYouDogFeedSpeakerRefFromRaw(raw && raw.speakerRef, raw && raw.plotId);
       if (!normalized) return;
@@ -34420,6 +34773,7 @@
       if (post) {
         post.plotId = normalized.plotId;
         bundle.posts.push(post);
+        addedPostIds.push(post.id);
         touchedPlotIds.add(normalized.plotId);
       }
     });
@@ -34439,7 +34793,123 @@
     touchedPlotIds.forEach(function (plotId) {
       persistYouDogTwitterBundle(ensureYouDogTwitterBundle(plotId), plotId);
     });
-    return { added: seenSpeakers.size, expected: batchSpeakerRefs.length };
+    return { added: seenSpeakers.size, expected: batchSpeakerRefs.length, addedPostIds: addedPostIds };
+  }
+
+  function applyYouDogRepliesToPost(post, parsed) {
+    if (!post || !parsed) return 0;
+    let added = 0;
+    if (!Array.isArray(post.likes)) post.likes = [];
+    if (!Array.isArray(post.comments)) post.comments = [];
+    if (Array.isArray(parsed.likes)) {
+      parsed.likes.forEach(function (like) {
+        const l = String(like || "").trim();
+        if (l && post.likes.indexOf(l) < 0) post.likes.push(l);
+      });
+    }
+    if (Array.isArray(parsed.comments)) {
+      parsed.comments.forEach(function (c) {
+        const norm = normalizeYouDogComment(c);
+        if (norm) {
+          post.comments.push(norm);
+          added++;
+        }
+      });
+    }
+    return added;
+  }
+
+  function getYouDogBatchReplyTargetPosts() {
+    const out = [];
+    const seen = new Set();
+    youDogLastFeedBatchPostIds.forEach(function (id) {
+      const pid = String(id || "").trim();
+      if (!pid || seen.has(pid)) return;
+      const ctx = findYouDogPostContext(pid);
+      if (!ctx || !ctx.post) return;
+      seen.add(pid);
+      out.push(ctx);
+    });
+    if (out.length) return out.slice(0, YOU_DOG_BATCH_REPLIES_POST_LIMIT);
+    const merged = getYouDogMergedPosts();
+    if (!merged.length) return [];
+    return merged
+      .slice(0, YOU_DOG_BATCH_REPLIES_POST_LIMIT)
+      .map(function (p) {
+        return findYouDogPostContext(p && p.id);
+      })
+      .filter(Boolean);
+  }
+
+  function buildYouDogBatchRepliesPrompt(postContexts, poolSpeakerRefs) {
+    const sampledRefs = shuffleYouDogArray(poolSpeakerRefs).slice(
+      0,
+      Math.min(YOU_DOG_BATCH_REPLIES_CHAR_SAMPLE, poolSpeakerRefs.length)
+    );
+    const speakerLabels = sampledRefs
+      .map(function (ref) {
+        return formatYouDogFeedSpeakerRefLabel(ref) + "（speakerRef=" + ref + "）";
+      })
+      .filter(Boolean);
+    const userAnon = getYouDogCurrentUserAnonId();
+    const lines = [
+      "请为以下多条匿名推文批量生成互动回复 JSON。",
+      "这是论坛/树洞场景：剧情角色用小号互动，互不知真实身份；还可有路人吃瓜网友。",
+      YOU_DOG_REPLY_TONE_RULE,
+      YOU_DOG_EMOJI_STYLE_RULE,
+      "",
+      "【本批优先参与回复的剧情角色（随机抽取，须穿插使用）】",
+      speakerLabels.length ? speakerLabels.join("\n") : "（无）",
+      "",
+      "【待回复帖子】",
+    ];
+    postContexts.forEach(function (ctx, idx) {
+      const post = ctx.post;
+      const plot = ctx.plot;
+      lines.push(
+        "--- 帖 " +
+          (idx + 1) +
+          " postId=" +
+          post.id +
+          " | 剧情《" +
+          (plot && plot.title ? plot.title : "未命名") +
+          "》 | 楼主 " +
+          (post.anonId || "@?") +
+          " ---"
+      );
+      lines.push("正文：" + truncateCharsWithEllipsis(post.text || "", 220));
+      const commentLines = (post.comments || []).map(function (c) {
+        const rt = c.replyTo ? " 回复" + c.replyTo : "";
+        return "- " + c.anonId + rt + "：" + truncateCharsWithEllipsis(c.text || "", 80);
+      });
+      if (commentLines.length) {
+        lines.push("已有回复（勿重复）：");
+        lines.push(commentLines.join("\n"));
+      }
+      lines.push("");
+    });
+    if (userAnon) {
+      lines.push("【用户匿名马甲（可回复 TA）】" + userAnon);
+      lines.push("");
+    }
+    const perPostMin = YOU_DOG_BATCH_REPLIES_COMMENTS_PER_POST_MIN;
+    const perPostMax = YOU_DOG_BATCH_REPLIES_COMMENTS_PER_POST_MAX;
+    lines.push(
+      "要求：为每条帖子分别生成互动；每帖约 " +
+        perPostMin +
+        "~" +
+        perPostMax +
+        " 条新评论 + 2~5 个点赞。" +
+        "约 30~45% 评论来自路人/吃瓜网友（speakerRef 用 web:随机）；其余来自上方剧情角色（speakerRef 用 plotId:charId）。" +
+        "可回复楼主（replyTo=\"op\"）、楼中楼互怼、回复用户马甲。" +
+        "评论像损友/路人随手接话：可调侃楼主、邀约吃饭打球、冷幽默跑偏；贴合帖子氛围即可，不必分析剧情。" +
+        "\n只输出 JSON：{\"replies\":[{\"postId\":\"帖子id\",\"likes\":[\"@anon\"],\"comments\":[{\"id\":\"c_xxx\",\"anonId\":\"@...\",\"text\":\"...\",\"replyTo\":\"op|null|@马甲\",\"speakerRef\":\"plotId:charId|npc:...|web:...\"}]}}" +
+        "\n" +
+        YOU_DOG_REPLY_TONE_RULE +
+        " " +
+        YOU_DOG_EMOJI_STYLE_RULE
+    );
+    return lines.join("\n");
   }
 
   function buildYouDogFeedPrompt(plot, participantIds, bundle, batchSpeakerIds) {
@@ -34461,7 +34931,8 @@
       "请为「你才是狗·匿名推特」生成一批新推文 JSON。",
       "这是角色用小号/匿名 ID 发的碎碎念，像真实树洞/论坛发帖。",
       YOU_DOG_ANON_TONE_RULE,
-      "狗味要浓：暗戳戳秀恩爱、较劲、炫耀、和剧情相关的小心思。",
+      YOU_DOG_FEED_CONTENT_RULE,
+      YOU_DOG_FEED_STYLE_HINT,
       "严禁暴露角色真名；anonId 是界面显示的匿名网名；speakerRef 供系统内部映射（用角色 id 或 npc:名称）。",
       "严禁替「我的形象」主角「" + ctx.protagName + "」发帖。",
       "",
@@ -34492,8 +34963,10 @@
         "tag 须为上列 sectionId 之一。anonId 不可重复；" +
         YOU_DOG_ANON_TONE_RULE +
         " " +
+        YOU_DOG_FEED_CONTENT_RULE +
+        " " +
         YOU_DOG_EMOJI_STYLE_RULE +
-        "；须与剧情一致。"
+        "；只根据角色性格与关系写碎碎念，不要写成剧情摘要或情节推进。"
     );
     return lines.join("\n");
   }
@@ -34522,6 +34995,7 @@
       .filter(Boolean);
     const lines = [
       "请为以下匿名推文生成互动回复 JSON（点赞 + 评论）。",
+      YOU_DOG_REPLY_TONE_RULE,
       "发帖人 anonId：" + (post.anonId || "@?") + "；正文：" + (post.text || ""),
       "",
     ];
@@ -34540,11 +35014,14 @@
     lines.push(batchNames.length ? batchNames.join("\n") : "（无）");
     lines.push("");
     lines.push(
-      "还可加入：剧情 otherRoles 中未建档 NPC（speakerRef 用 npc:名称）、无关路人/吃瓜网友（speakerRef 用 web:随机）。\n" +
-        "约 20~40% 为路人。可回复楼主（replyTo=\"op\"）、回复用户马甲（replyTo=\"@" +
+      "还可加入：剧情 otherRoles 中未建档 NPC（speakerRef 用 npc:名称）、无关路人/吃瓜网友（speakerRef 用 web:随机）。" +
+        "约 25~40% 为路人。可回复楼主（replyTo=\"op\"）、回复用户马甲（replyTo=\"@" +
         userAnon.replace(/^@/, "") +
-        "\" 或完整 anonId）、楼中楼互怼。\n" +
-        "只输出 JSON：{\"likes\":[\"@anon\"],\"comments\":[{\"id\":\"c_xxx\",\"anonId\":\"@...\",\"text\":\"...\",\"replyTo\":\"op|@某马甲|null\",\"speakerRef\":\"charId|npc:...|web:...\"}]}\n" +
+        "\" 或完整 anonId）、楼中楼互怼。" +
+        "请生成约 4~6 条新评论 + 2~4 个点赞；像损友/路人随手接话，可调侃邀约或冷幽默，不必分析剧情。" +
+        "\n只输出 JSON：{\"likes\":[\"@anon\"],\"comments\":[{\"id\":\"c_xxx\",\"anonId\":\"@...\",\"text\":\"...\",\"replyTo\":\"op|@某马甲|null\",\"speakerRef\":\"charId|npc:...|web:...\"}]}\n" +
+        YOU_DOG_REPLY_TONE_RULE +
+        " " +
         YOU_DOG_EMOJI_STYLE_RULE
     );
     return lines.join("\n");
@@ -34580,10 +35057,15 @@
       const _genCtx = beginGenCall("you-dog-feed", { slot: slot });
       const systemPrompt =
         "你是中文互动叙事助手。生成「你才是狗·匿名推特」JSON。\n" +
-        "角色以匿名小号发帖，狗味浓，暗搓搓秀恩爱/较劲；禁止暴露真名；禁止替用户主角发帖。\n" +
+        "角色以匿名小号发帖碎碎念；禁止暴露真名；禁止替用户主角发帖。\n" +
         YOU_DOG_ANON_TONE_RULE +
+        "\n" +
+        YOU_DOG_FEED_CONTENT_RULE +
+        "\n" +
+        YOU_DOG_FEED_STYLE_HINT +
         "\n可能有多条并行剧情，speakerRef 须用 plotId:charId 格式以区分不同剧情中的同一人物。\n" +
         "本批每个 speakerRef 必须恰好对应 1 条 post，不得遗漏、不得重复、不得一人多篇。\n" +
+        "只根据角色性格写日常碎碎念，不要复述或推进剧情。\n" +
         YOU_DOG_EMOJI_STYLE_RULE + "\n" +
         "只输出一个 JSON 对象，不要用 markdown 代码围栏。\n" +
         '格式：{"posts":[{"id":"...","anonId":"@...","speakerRef":"plotId:charId","text":"...","time":"...","tag":"sectionId","likes":[],"comments":[]}]}';
@@ -34602,6 +35084,10 @@
       const parsed = parseAssistantJsonObject(raw);
       const feedResult = distributeYouDogFeedPosts(parsed, batchSpeakerRefs);
       if (!feedResult.added) throw new Error("未能解析有效的推文内容");
+      if (feedResult.addedPostIds && feedResult.addedPostIds.length) {
+        youDogLastFeedBatchPostIds = feedResult.addedPostIds.slice();
+        schedulePersistNarrative();
+      }
       if (feedResult.added < feedResult.expected) {
         showToast(
           "已生成 " + feedResult.added + " / " + feedResult.expected + " 条（部分角色未返回，可再点一次 ✦）",
@@ -34621,7 +35107,7 @@
   }
 
   async function generateYouDogReplies(slot, postId) {
-    if (youDogRepliesGenerating || youDogFeedGenerating) return;
+    if (youDogRepliesGenerating || youDogFeedGenerating || youDogBatchRepliesGenerating) return;
     const ctx = findYouDogPostContext(postId);
     if (!ctx || !ctx.plot || !ctx.bundle || !ctx.post) return;
     const plot = ctx.plot;
@@ -34637,6 +35123,8 @@
       const systemPrompt =
         "你是中文互动叙事助手。为匿名推特帖子生成点赞与评论 JSON。\n" +
         "身份多元：剧情角色、NPC、路人网友；互不知真实身份。\n" +
+        YOU_DOG_REPLY_TONE_RULE +
+        "\n" +
         YOU_DOG_EMOJI_STYLE_RULE + "\n" +
         "只输出 JSON：{\"likes\":[\"@anon\"],\"comments\":[{\"id\":\"...\",\"anonId\":\"@...\",\"text\":\"...\",\"replyTo\":\"op|null|@马甲\",\"speakerRef\":\"...\"}]}";
       const allParticipantIds = getYouDogAllParticipantIds();
@@ -34651,20 +35139,12 @@
         chatApiOptsFromGen(_genCtx)
       );
       const parsed = parseAssistantJsonObject(raw);
-      if (parsed && Array.isArray(parsed.likes)) {
-        parsed.likes.forEach(function (like) {
-          const l = String(like || "").trim();
-          if (l && post.likes.indexOf(l) < 0) post.likes.push(l);
-        });
-      }
-      if (parsed && Array.isArray(parsed.comments)) {
-        parsed.comments.forEach(function (c) {
-          const norm = normalizeYouDogComment(c);
-          if (norm) post.comments.push(norm);
-        });
+      const added = applyYouDogRepliesToPost(post, parsed);
+      if (!added && !(parsed && Array.isArray(parsed.likes) && parsed.likes.length)) {
+        throw new Error("未能解析有效的回复内容");
       }
       persistYouDogTwitterBundle(bundle, ctx.plotId);
-      showToast("已生成新回复", "success");
+      showToast(added ? "已生成 " + added + " 条新回复" : "已更新点赞", "success");
     } catch (err) {
       console.error(err);
       showToast(err && err.message ? err.message : "生成回复失败", "error", 4200);
@@ -34672,6 +35152,81 @@
       clearGenCallContext();
       youDogRepliesGenerating = false;
       youDogRepliesGeneratingPostId = null;
+      renderYouDogScreen(slot || els.youDogContentSlot());
+    }
+  }
+
+  async function generateYouDogBatchReplies(slot) {
+    if (youDogFeedGenerating || youDogRepliesGenerating || youDogBatchRepliesGenerating) return;
+    sanitizeYouDogState();
+    const postContexts = getYouDogBatchReplyTargetPosts();
+    if (!postContexts.length) {
+      showToast("还没有可回复的帖子，请先生成一批博客。", "warning");
+      return;
+    }
+    const poolRefs = getYouDogAllFeedSpeakerCandidateRefs();
+    youDogBatchRepliesGenerating = true;
+    renderYouDogScreen(slot || els.youDogContentSlot());
+    try {
+      showToast("正在批量生成评论…", "info", 3200);
+      const _genCtx = beginGenCall("you-dog-batch-replies", { slot: slot, count: postContexts.length });
+      const systemPrompt =
+        "你是中文互动叙事助手。为多条匿名论坛帖子批量生成点赞与评论 JSON。\n" +
+        "身份多元：各剧情角色小号、NPC、路人网友；互不知真实身份。\n" +
+        YOU_DOG_REPLY_TONE_RULE +
+        "\n" +
+        YOU_DOG_EMOJI_STYLE_RULE +
+        "\n只输出 JSON：{\"replies\":[{\"postId\":\"...\",\"likes\":[\"@anon\"],\"comments\":[{\"id\":\"...\",\"anonId\":\"@...\",\"text\":\"...\",\"replyTo\":\"op|null|@马甲\",\"speakerRef\":\"plotId:charId|npc:...|web:...\"}]}}";
+      const userPrompt = buildYouDogBatchRepliesPrompt(postContexts, poolRefs);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.85,
+        Math.min(8192, 2800 + postContexts.length * 900),
+        chatApiOptsFromGen(_genCtx)
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const repliesList = parsed && Array.isArray(parsed.replies) ? parsed.replies : [];
+      let totalComments = 0;
+      let touchedPosts = 0;
+      const touchedPlotIds = new Set();
+      repliesList.forEach(function (item) {
+        const postId = String(item && item.postId || "").trim();
+        if (!postId) return;
+        let ctx = null;
+        for (let i = 0; i < postContexts.length; i++) {
+          if (postContexts[i].post && postContexts[i].post.id === postId) {
+            ctx = postContexts[i];
+            break;
+          }
+        }
+        if (!ctx) ctx = findYouDogPostContext(postId);
+        if (!ctx || !ctx.post || !ctx.bundle) return;
+        const added = applyYouDogRepliesToPost(ctx.post, item);
+        if (added || (item && Array.isArray(item.likes) && item.likes.length)) {
+          touchedPosts++;
+          touchedPlotIds.add(ctx.plotId);
+          totalComments += added;
+        }
+      });
+      touchedPlotIds.forEach(function (plotId) {
+        const bundle = ensureYouDogTwitterBundle(plotId);
+        persistYouDogTwitterBundle(bundle, plotId);
+      });
+      if (!touchedPosts) throw new Error("未能解析有效的批量回复内容");
+      showToast(
+        "已为 " + touchedPosts + " 条帖子生成 " + totalComments + " 条新评论",
+        "success",
+        4200
+      );
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "批量生成评论失败", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      youDogBatchRepliesGenerating = false;
       renderYouDogScreen(slot || els.youDogContentSlot());
     }
   }
@@ -34783,7 +35338,8 @@
     const previewLimit = typeof opts.previewLimit === "number" ? opts.previewLimit : 0;
     const likes = post && Array.isArray(post.likes) ? post.likes : [];
     let comments = post && Array.isArray(post.comments) ? post.comments : [];
-    const generating = youDogRepliesGenerating && youDogRepliesGeneratingPostId === post.id;
+    const generating =
+      (youDogRepliesGenerating && youDogRepliesGeneratingPostId === post.id) || youDogBatchRepliesGenerating;
     if (previewLimit > 0 && comments.length > previewLimit) {
       comments = comments.slice(0, previewLimit);
     }
@@ -34868,7 +35424,8 @@
     const postIdEsc = escapeHtml(String(post.id || ""));
     const tagId = resolveYouDogSectionId(post.tag);
     const tagLabel = getYouDogSectionLabel(tagId);
-    const generating = youDogRepliesGenerating && youDogRepliesGeneratingPostId === post.id;
+    const generating =
+      (youDogRepliesGenerating && youDogRepliesGeneratingPostId === post.id) || youDogBatchRepliesGenerating;
     const comments = post.comments || [];
     let repliesHtml = "";
     if (comments.length) {
@@ -34887,14 +35444,14 @@
       repliesHtml += '<div class="you-dog-detail__generating">正在生成新回复…</div>';
     }
     const genBtnHtml =
-      '<button type="button" class="you-dog-detail__replies-gen' +
-      (generating ? " you-dog-detail__replies-gen--loading" : "") +
+      '<button type="button" class="you-dog-detail__replies-gen you-dog-detail__replies-gen--icon' +
+      (generating || youDogBatchRepliesGenerating ? " you-dog-detail__replies-gen--loading" : "") +
       '" data-you-dog-gen-replies="' +
       postIdEsc +
-      '"' +
-      (generating || youDogFeedGenerating ? " disabled" : "") +
+      '" aria-label="生成回复"' +
+      (generating || youDogFeedGenerating || youDogBatchRepliesGenerating ? " disabled" : "") +
       ">" +
-      (generating ? "生成中…" : "生成讨论") +
+      buildYouDogGenRepliesIconSvg(18) +
       "</button>";
     return (
       '<div class="you-dog-detail">' +
@@ -35022,11 +35579,11 @@
   }
 
   function buildYouDogPostDetailHeaderActionsHtml() {
-    return '<div class="you-dog-app__actions">' + buildYouDogPersonaHeaderHtml() + "</div>";
+    return '<div class="you-dog-app__actions star-header__actions">' + buildYouDogPersonaHeaderHtml() + "</div>";
   }
 
   function buildYouDogProfileHeaderActionsHtml() {
-    return '<div class="you-dog-app__actions">' + buildYouDogPersonaHeaderHtml() + "</div>";
+    return '<div class="you-dog-app__actions star-header__actions">' + buildYouDogPersonaHeaderHtml() + "</div>";
   }
 
   function buildYouDogPostHtml(post, placeholder) {
@@ -35041,6 +35598,8 @@
     }
     const userLiked = youDogUserHasLikedPost(post);
     const postId = escapeHtml(String(post.id || ""));
+    const genLoading =
+      (youDogRepliesGenerating && youDogRepliesGeneratingPostId === post.id) || youDogBatchRepliesGenerating;
     const tagId = resolveYouDogSectionId(post.tag);
     const tagLabel = getYouDogSectionLabel(tagId);
     return (
@@ -35106,9 +35665,15 @@
       '" aria-label="删除">' +
       '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>' +
       "</button>" +
-      '<button type="button" class="you-dog-post__action you-dog-post__action--gen" data-you-dog-gen-replies="' +
+      '<button type="button" class="you-dog-post__action you-dog-post__action--icon' +
+      (genLoading ? " you-dog-post__action--loading" : "") +
+      '" data-you-dog-gen-replies="' +
       postId +
-      '">生成回复</button></div></article>'
+      '" aria-label="生成回复"' +
+      (genLoading || youDogFeedGenerating ? " disabled" : "") +
+      ">" +
+      buildYouDogGenRepliesIconSvg(16) +
+      "</button></div></article>"
     );
   }
 
@@ -35377,7 +35942,7 @@
         showToast("暂无剧情主要角色，请先在剧情中添加主要角色。", "warning");
         return;
       }
-      youDogGenPickDraft = defaultYouDogGenPickDraft(refs, YOU_DOG_SPEAKERS_PER_BATCH);
+      youDogGenPickDraft = resolveYouDogGenPickDraftFromLast(refs, "feed");
       youDogGenPickPendingChat = null;
     } else {
       if (!isYouDogChatReady()) {
@@ -35390,7 +35955,7 @@
         showToast("群聊还没有成员。", "warning");
         return;
       }
-      youDogGenPickDraft = defaultYouDogGenPickDraft(refs, YOU_DOG_CHAT_SPEAKERS_PER_BATCH);
+      youDogGenPickDraft = resolveYouDogGenPickDraftFromLast(refs, "chat");
       youDogGenPickPendingChat = chatOpts && typeof chatOpts === "object" ? chatOpts : {};
     }
     youDogGenPickOpen = true;
@@ -35441,6 +36006,7 @@
     const draft = youDogGenPickDraft.slice();
     const mode = youDogGenPickMode;
     const chatOpts = youDogGenPickPendingChat || {};
+    saveYouDogGenPickDraft(draft, mode);
     closeYouDogGenPick();
     if (mode === "feed") {
       ensureYouDogPlotsForSpeakerRefs(draft);
@@ -35558,24 +36124,60 @@
     );
   }
 
+  function buildYouDogChatPersonaHeaderHtml() {
+    const persona = getYouDogChatUserPersonaChar();
+    if (!persona) {
+      return (
+        '<button type="button" class="you-dog-app__avatar-btn you-dog-app__avatar-btn--empty" data-you-dog-chat-persona-open aria-label="选择群聊形象">' +
+        '<span class="avatar">?</span></button>'
+      );
+    }
+    const avatarUrl = getYouDogUserPersonaAvatarUrl(persona);
+    const avInner = avatarUrl
+      ? '<img src="' + escapeHtml(avatarUrl) + '" alt="" />'
+      : escapeHtml(String(persona.name || "?").slice(0, 1));
+    const avCls = "avatar" + (avatarUrl ? " avatar--has-image" : "");
+    return (
+      '<button type="button" class="you-dog-app__avatar-btn" data-you-dog-chat-persona-open aria-label="切换群聊形象：' +
+      escapeHtml(persona.name || "我的形象") +
+      '">' +
+      '<span class="' +
+      avCls +
+      '">' +
+      avInner +
+      "</span></button>"
+    );
+  }
+
   function buildYouDogHeaderActionsHtml() {
     if (youDogChatSubScreen === "chat") {
       return buildYouDogChatHeaderActionsHtml();
     }
+    const busy =
+      youDogFeedGenerating || youDogRepliesGenerating || youDogBatchRepliesGenerating;
+    const hasPosts = getYouDogMergedPosts().length > 0;
     const genLoading = youDogFeedGenerating ? " you-dog-app__action-btn--loading" : "";
-    const genDisabled =
-      youDogFeedGenerating || youDogRepliesGenerating || !youDogPlotIds.length ? " disabled" : "";
+    const batchLoading = youDogBatchRepliesGenerating ? " you-dog-app__action-btn--loading" : "";
+    const genDisabled = busy || !youDogPlotIds.length ? " disabled" : "";
+    const batchDisabled = busy || !hasPosts || !youDogPlotIds.length ? " disabled" : "";
     const chatOnCls = youDogChatSubScreen === "chat" ? " you-dog-app__action-btn--on" : "";
     return (
-      '<div class="you-dog-app__actions">' +
+      '<div class="you-dog-app__actions star-header__actions">' +
       '<button type="button" class="you-dog-app__action-btn' +
       chatOnCls +
       '" data-you-dog-chat-toggle aria-label="群聊" title="群聊">' +
       buildYouDogBellIconSvg() +
       "</button>" +
+      '<button type="button" class="you-dog-app__action-btn' +
+      batchLoading +
+      '" data-you-dog-batch-replies aria-label="批量生成评论" title="批量生成评论"' +
+      batchDisabled +
+      ">" +
+      buildYouDogBatchRepliesIconSvg() +
+      "</button>" +
       '<button type="button" class="you-dog-app__action-btn you-dog-app__action-btn--accent' +
       genLoading +
-      '" data-you-dog-generate aria-label="生成推文"' +
+      '" data-you-dog-generate aria-label="生成推文" title="生成推文"' +
       genDisabled +
       ">" +
       buildPhoneWechatStarIconSvg() +
@@ -36986,56 +37588,57 @@
     );
   }
 
-  function buildYouDogChatMoreSheetHtml() {
-    if (!youDogChatMoreOpen || !isYouDogChatReady()) return "";
+  function buildYouDogChatHeaderActionsHtml() {
     const genDisabled = youDogChatGenerating;
     const regenDisabled = youDogChatGenerating || !(youDogChatData && youDogChatData.lastBatchId);
+    const selectActive = youDogChatSelectMode;
+    const selectedCount = youDogChatSelectedMsgIds.length;
     const selectLabel =
-      youDogChatSelectMode && youDogChatSelectedMsgIds.length
-        ? "删除已选(" + youDogChatSelectedMsgIds.length + ")"
+      selectActive && selectedCount
+        ? "删除已选(" + selectedCount + ")"
         : "选择消息";
-    const persona = getYouDogChatUserPersonaChar();
-    const personaName = persona ? persona.name || "我的形象" : "未选择";
+    const genLoadingCls = youDogChatGenerating ? " phone-wechat-gen-btn--loading" : "";
+    const settingsActiveCls = youDogChatSettingsOpen ? " phone-wechat-chat-action--active" : "";
+    const selectCls =
+      "phone-app__bar-action phone-wechat-chat-action phone-wechat-chat-action--select" +
+      (selectActive ? " phone-wechat-chat-action--active" : "") +
+      (selectActive && selectedCount ? " phone-wechat-chat-action--delete-ready" : "");
+    const selectIcon =
+      selectActive && selectedCount
+        ? '<svg class="icon-linear" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>'
+        : '<svg class="icon-linear" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>';
     return (
-      '<div class="you-dog-chat-more" role="dialog" aria-modal="true" aria-label="群聊更多">' +
-      '<button type="button" class="you-dog-chat-more__backdrop" data-you-dog-chat-more-close aria-label="关闭"></button>' +
-      '<div class="you-dog-chat-more__sheet">' +
-      '<div class="you-dog-chat-more__head">' +
-      "<h3>群聊操作</h3>" +
-      '<button type="button" class="you-dog-chat-more__close" data-you-dog-chat-more-close aria-label="关闭">×</button>' +
-      "</div>" +
-      '<button type="button" class="you-dog-chat-more__item you-dog-chat-more__item--accent' +
-      (genDisabled ? " is-disabled" : "") +
-      '" data-you-dog-chat-generate' +
+      '<div class="you-dog-app__actions you-dog-app__actions--chat phone-wechat-chat-bar__actions star-header__actions">' +
+      '<button type="button" class="phone-app__bar-action phone-wechat-chat-action' +
+      settingsActiveCls +
+      '" data-you-dog-chat-settings-open aria-label="群设置" title="群设置">' +
+      '<svg class="icon-linear" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>' +
+      "</button>" +
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn phone-wechat-chat-action phone-wechat-chat-action--generate' +
+      genLoadingCls +
+      '" data-you-dog-chat-generate aria-label="继续生成" title="继续生成"' +
       (genDisabled ? " disabled" : "") +
       ">" +
-      '<span class="you-dog-chat-more__item-icon" aria-hidden="true">✦</span>' +
-      "<span>继续生成</span></button>" +
-      '<button type="button" class="you-dog-chat-more__item"' +
+      buildPhoneWechatStarIconSvg() +
+      "</button>" +
+      '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn phone-wechat-chat-action" data-you-dog-chat-regenerate aria-label="重生成上一轮" title="重生成上一轮"' +
       (regenDisabled ? " disabled" : "") +
-      ' data-you-dog-chat-regenerate>' +
-      "<span>重生成上一轮</span></button>" +
-      '<button type="button" class="you-dog-chat-more__item" data-you-dog-chat-select-toggle>' +
+      ">" +
+      buildKnockRegenerateIconSvg() +
+      "</button>" +
+      '<button type="button" class="' +
+      selectCls.trim() +
+      '" data-you-dog-chat-select-toggle aria-label="' +
       escapeHtml(selectLabel) +
+      '" title="' +
+      escapeHtml(selectLabel) +
+      '"' +
+      (youDogChatGenerating ? " disabled" : "") +
+      ">" +
+      selectIcon +
       "</button>" +
-      '<button type="button" class="you-dog-chat-more__item" data-you-dog-chat-persona-open>' +
-      "群聊形象（" +
-      escapeHtml(personaName) +
-      "）</button>" +
-      "</div></div>"
-    );
-  }
-
-  function buildYouDogChatHeaderActionsHtml() {
-    return (
-      '<div class="you-dog-app__actions you-dog-app__actions--chat">' +
-      '<button type="button" class="you-dog-app__action-btn you-dog-app__action-btn--text" data-you-dog-chat-toggle aria-label="返回动态" title="返回动态">动态</button>' +
-      '<button type="button" class="you-dog-app__action-btn" data-you-dog-chat-settings-open aria-label="群设置" title="群设置">' +
-      '<svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>' +
-      "</button>" +
-      '<button type="button" class="you-dog-app__action-btn you-dog-app__action-btn--more" data-you-dog-chat-more-toggle aria-label="更多" title="更多">' +
-      '<svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.75"/><circle cx="12" cy="12" r="1.75"/><circle cx="19" cy="12" r="1.75"/></svg>' +
-      "</button></div>"
+      buildYouDogChatPersonaHeaderHtml() +
+      "</div>"
     );
   }
 
@@ -37062,13 +37665,12 @@
       threadHtml =
         '<div class="you-dog-chat__empty"><p>群「' +
         escapeHtml(data.groupName || "未命名") +
-        '」</p><p class="field__hint">点 ✦ 生成第一批聊天，或在下方发言</p></div>';
+        '」</p><p class="field__hint">点顶栏 ✦ 生成聊天，或在下方发言后手动点生成</p></div>';
     }
     if (youDogChatGenerating) {
       threadHtml += '<div class="you-dog-chat__generating">正在生成群聊…</div>';
     }
     const composerDisabled = youDogChatGenerating || youDogChatSelectMode;
-    const silentChecked = youDogChatSilentMode ? " checked" : "";
     const quoteBarHtml = youDogChatQuoteDraft
       ? '<div class="you-dog-chat__quote" data-you-dog-chat-quote-bar>' +
         '<span class="you-dog-chat__quote-body">' +
@@ -37087,11 +37689,6 @@
       "</div>" +
       '<div class="you-dog-chat__composer">' +
       quoteBarHtml +
-      '<label class="you-dog-chat__silent">' +
-      '<input type="checkbox" data-you-dog-chat-silent-toggle' +
-      silentChecked +
-      (composerDisabled ? " disabled" : "") +
-      " />沉默旁观</label>" +
       '<div class="you-dog-chat__composer-row">' +
       '<textarea class="you-dog-chat__input" data-you-dog-chat-input rows="1" placeholder="发言…"' +
       (composerDisabled ? " disabled" : "") +
@@ -37329,7 +37926,7 @@
     renderYouDogScreen(els.youDogContentSlot());
     showToast(isReopen ? "群设置已更新" : "群聊已建立", "success");
     if (!isReopen) {
-      openYouDogGenPick("chat", els.youDogContentSlot(), { silent: true });
+      openYouDogGenPick("chat", els.youDogContentSlot());
     }
     youDogChatSetupDraft = null;
   }
@@ -37458,14 +38055,8 @@
     appendYouDogChatUserMessage(text);
     youDogChatQuoteDraft = null;
     if (input) input.value = "";
-    if (youDogChatSilentMode) {
-      renderYouDogScreen(root);
-      scrollYouDogChatThreadToEnd(root);
-      return;
-    }
     renderYouDogScreen(root);
     scrollYouDogChatThreadToEnd(root);
-    openYouDogGenPick("chat", root, { userText: text });
   }
 
   function buildYouDogTabsHtml() {
@@ -37504,15 +38095,18 @@
     let bodyHtml = buildYouDogFeedHtml();
     let barTitle = "嗅闻博客";
     let headerActions = buildYouDogHeaderActionsHtml();
-    let barSubHtml = "";
+    let barTitleCls = "you-dog-app__bar-title you-dog-app__bar-title-text star-header__title";
+    let barCls = "you-dog-app__bar star-header";
+    let barLeadCls = "star-header__lead";
+    let barTitleAttr = "";
     if (youDogChatSubScreen === "chat") {
       bodyHtml = buildYouDogChatHtml();
       barTitle = isYouDogChatReady() ? ensureYouDogChatData().groupName || "群聊" : "群聊";
-      if (isYouDogChatReady()) {
-        const memberCount = (ensureYouDogChatData().members || []).length + 1;
-        barSubHtml =
-          '<span class="you-dog-app__bar-sub">' + memberCount + " 位成员</span>";
-      }
+      barTitleCls += " phone-app__title--chat";
+      barCls += " phone-app__bar--wechat-chat";
+      barLeadCls += " phone-wechat-chat-bar__lead";
+      barTitleAttr =
+        ' data-you-dog-chat-settings-open role="button" tabindex="0" title="群设置（可改群名称）"';
     } else if (youDogScreen === "post" && youDogDetailPostId) {
       bodyHtml = buildYouDogPostDetailHtml(youDogDetailPostId);
       barTitle = "帖子";
@@ -37524,23 +38118,29 @@
     }
     return (
       '<div class="you-dog-app' +
-      (youDogChatSubScreen === "chat" && (youDogChatSettingsOpen || youDogChatMoreOpen)
-        ? " you-dog-app--chat-modal"
-        : "") +
+      (youDogChatSubScreen === "chat" && youDogChatSettingsOpen ? " you-dog-app--chat-modal" : "") +
       '" aria-label="你才是狗">' +
       '<header class="you-dog-app__header' +
       (youDogChatSubScreen === "chat" ? " you-dog-app__header--chat" : "") +
       '">' +
-      '<div class="you-dog-app__bar">' +
-      '<button type="button" class="you-dog-app__back" data-you-dog-back aria-label="返回">' +
+      '<div class="' +
+      barCls +
+      '">' +
+      '<div class="' +
+      barLeadCls +
+      '">' +
+      '<button type="button" class="you-dog-app__back star-header__back" data-you-dog-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
       '<div class="you-dog-app__brand">' +
-      '<span class="you-dog-app__bar-title you-dog-app__bar-title-text">' +
+      '<span class="' +
+      barTitleCls +
+      '"' +
+      barTitleAttr +
+      ">" +
       escapeHtml(barTitle) +
       "</span>" +
-      barSubHtml +
-      "</div>" +
+      "</div></div>" +
       headerActions +
       "</div></header>" +
       '<div class="you-dog-app__body">' +
@@ -37548,9 +38148,7 @@
       "</div>" +
       buildYouDogSectionManageOverlayHtml() +
       buildYouDogGenPickOverlayHtml() +
-      (youDogChatSubScreen === "chat"
-        ? buildYouDogChatMoreSheetHtml() + buildYouDogChatSettingsOverlayHtml()
-        : "") +
+      (youDogChatSubScreen === "chat" ? buildYouDogChatSettingsOverlayHtml() : "") +
       "</div>"
     );
   }
@@ -37698,7 +38296,7 @@
               return;
             }
             if (toggleYouDogPlot(plotId, true)) {
-              renderYouDogHolderPlotList();
+              row.classList.add("is-active");
               renderYouDogScreen(els.youDogContentSlot());
               const plot = plots.find(function (pl) {
                 return pl.id === plotId;
@@ -37714,7 +38312,7 @@
               return;
             }
             if (toggleYouDogPlot(plotId, false)) {
-              renderYouDogHolderPlotList();
+              row.classList.remove("is-active");
               renderYouDogScreen(els.youDogContentSlot());
             } else {
               input.checked = true;
@@ -39621,11 +40219,12 @@
       buildPhoneWechatStarIconSvg() +
       "</button>";
     return (
-      '<header class="phone-app__bar phone-app__bar--wechat-list">' +
-      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<header class="phone-app__bar phone-app__bar--wechat-list star-header">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="phone-app__back star-header__back" data-phone-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
-      '<h2 class="phone-app__title phone-app__title--left">朋友圈</h2>' +
+      '<h2 class="phone-app__title phone-app__title--left star-header__title">朋友圈</h2></div>' +
       genBtn +
       "</header>"
     );
@@ -40179,11 +40778,12 @@
       buildPhoneWechatStarIconSvg() +
       "</button>";
     return (
-      '<header class="phone-app__bar phone-app__bar--wechat-list">' +
-      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<header class="phone-app__bar phone-app__bar--wechat-list star-header">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="phone-app__back star-header__back" data-phone-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
-      '<h2 class="phone-app__title phone-app__title--left">音乐</h2>' +
+      '<h2 class="phone-app__title phone-app__title--left star-header__title">音乐</h2></div>' +
       buildPhoneBarActionsHtml(selectBtn, genBtn) +
       "</header>"
     );
@@ -40756,11 +41356,12 @@
       phoneForumGenerating ||
       phoneBrowserGenerating;
     return (
-      '<header class="phone-app__bar phone-app__bar--wechat-list">' +
-      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<header class="phone-app__bar phone-app__bar--wechat-list star-header">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="phone-app__back star-header__back" data-phone-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
-      '<h2 class="phone-app__title phone-app__title--left">相册</h2>' +
+      '<h2 class="phone-app__title phone-app__title--left star-header__title">相册</h2></div>' +
       '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
       loadingCls +
       '" data-phone-album-generate aria-label="AI 生成相册内容" title="AI 生成相册内容"' +
@@ -41197,7 +41798,8 @@
       fanworkJjwxcGenerating ||
       fanworkJjwxcCategoryGenerating ||
       fanworkJjwxcNovelGeneratingId ||
-      fanworkJjwxcChapterGeneratingId
+      fanworkJjwxcChapterGeneratingId ||
+      fanworkJjwxcCommissionGenerating
     );
   }
 
@@ -41330,7 +41932,7 @@
     if (fanworkSlotEl) {
       const fanNav = getFanworkNav(fanworkSlotEl);
       const fanCur = String(fanNav.screen || "");
-      if (fanCur === "jjwxc" || fanCur === "jjwxc-novel" || fanCur === "jjwxc-chapter") {
+      if (fanCur === "jjwxc") {
         pruneFanworkJjwxcNovelsWithoutDetail();
       }
       return;
@@ -42024,13 +42626,14 @@
       buildPhoneWechatStarIconSvg() +
       "</button>";
     return (
-      '<header class="phone-app__bar phone-app__bar--wechat-list">' +
-      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<header class="phone-app__bar phone-app__bar--wechat-list star-header">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="phone-app__back star-header__back" data-phone-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
-      '<h2 class="phone-app__title phone-app__title--left">' +
+      '<h2 class="phone-app__title phone-app__title--left star-header__title">' +
       escapeHtml(title) +
-      "</h2>" +
+      "</h2></div>" +
       '<div class="phone-app__bar-actions phone-app__bar-actions--auto-pair">' +
       autoDeleteBtn +
       genBtn +
@@ -43788,12 +44391,13 @@
       buildPhoneWechatStarIconSvg() +
       "</button>";
     return (
-      '<header class="phone-app__bar phone-app__bar--wechat-list phone-browser__bar">' +
-      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<header class="phone-app__bar phone-app__bar--wechat-list star-header phone-browser__bar">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="phone-app__back star-header__back" data-phone-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
       '<div class="phone-browser__title-wrap">' +
-      '<h2 class="phone-app__title phone-app__title--left">浏览历史</h2>' +
+      '<h2 class="phone-app__title phone-app__title--left star-header__title">浏览历史</h2>' +
       '<button type="button" class="phone-browser__section-gen-btn' +
       sectionLoadingCls +
       '" data-phone-browser-section-generate aria-label="为「' +
@@ -43807,7 +44411,7 @@
       ">+" +
       PHONE_BROWSER_SECTION_GENERATE_COUNT +
       "</button>" +
-      "</div>" +
+      "</div></div>" +
       genBtn +
       "</header>"
     );
@@ -45511,12 +46115,13 @@
       buildPhoneWechatStarIconSvg() +
       "</button>";
     return (
-      '<header class="phone-app__bar phone-app__bar--wechat-list phone-memo__bar">' +
-      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<header class="phone-app__bar phone-app__bar--wechat-list star-header phone-memo__bar">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="phone-app__back star-header__back" data-phone-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
       '<div class="phone-memo__title-wrap">' +
-      '<h2 class="phone-app__title phone-app__title--left">备忘录</h2>' +
+      '<h2 class="phone-app__title phone-app__title--left star-header__title">备忘录</h2>' +
       '<button type="button" class="phone-memo__section-gen-btn' +
       sectionLoadingCls +
       '" data-phone-memo-section-generate aria-label="为「' +
@@ -45530,7 +46135,7 @@
       ">+" +
       PHONE_MEMO_SECTION_GENERATE_COUNT +
       "</button>" +
-      "</div>" +
+      "</div></div>" +
       genBtn +
       "</header>"
     );
@@ -46828,13 +47433,14 @@
       buildPhoneWechatStarIconSvg() +
       "</button>";
     return (
-      '<header class="phone-app__bar phone-app__bar--wechat-list phone-diary__bar">' +
-      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<header class="phone-app__bar phone-app__bar--wechat-list star-header phone-diary__bar">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="phone-app__back star-header__back" data-phone-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
       '<div class="phone-diary__title-wrap">' +
-      '<h2 class="phone-app__title phone-app__title--left">日记</h2>' +
-      "</div>" +
+      '<h2 class="phone-app__title phone-app__title--left star-header__title">日记</h2>' +
+      "</div></div>" +
       '<div class="phone-app__bar-actions">' +
       deleteBtn +
       genBtn +
@@ -47536,13 +48142,14 @@
       buildPhoneWechatStarIconSvg() +
       "</button>";
     return (
-      '<header class="phone-app__bar phone-app__bar--wechat-list phone-bill__bar">' +
-      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<header class="phone-app__bar phone-app__bar--wechat-list star-header phone-bill__bar">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="phone-app__back star-header__back" data-phone-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
       '<div class="phone-bill__title-wrap">' +
-      '<h2 class="phone-app__title phone-app__title--left">账单</h2>' +
-      "</div>" +
+      '<h2 class="phone-app__title phone-app__title--left star-header__title">账单</h2>' +
+      "</div></div>" +
       genBtn +
       "</header>"
     );
@@ -48116,15 +48723,16 @@
       buildPhoneWechatStarIconSvg() +
       "</button>";
     return (
-      '<header class="phone-app__bar phone-app__bar--wechat-list phone-weread__bar">' +
-      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<header class="phone-app__bar phone-app__bar--wechat-list star-header phone-weread__bar">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="phone-app__back star-header__back" data-phone-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
       '<div class="phone-weread__title-wrap">' +
-      '<h2 class="phone-app__title phone-app__title--left phone-weread__title">' +
+      '<h2 class="phone-app__title phone-app__title--left phone-weread__title star-header__title">' +
       escapeHtml(title) +
       "</h2>" +
-      "</div>" +
+      "</div></div>" +
       genBtn +
       "</header>"
     );
@@ -49905,15 +50513,16 @@
       genBtn +
       "</div>";
     return (
-      '<header class="phone-app__bar phone-jjwxc__bar">' +
-      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<header class="phone-app__bar phone-jjwxc__bar star-header">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="phone-app__back star-header__back" data-phone-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
       '<div class="phone-jjwxc__title-wrap">' +
-      '<h2 class="phone-app__title phone-app__title--left phone-jjwxc__title">' +
+      '<h2 class="phone-app__title phone-app__title--left phone-jjwxc__title star-header__title">' +
       escapeHtml(title) +
       "</h2>" +
-      "</div>" +
+      "</div></div>" +
       barActions +
       "</header>"
     );
@@ -50932,6 +51541,11 @@
 
   const FANWORK_JJWXC_MIN_CATEGORIES = 1;
   const FANWORK_JJWXC_MAX_CATEGORIES = 14;
+  /** 书城「全部」筛选（虚拟，非分区） */
+  const FANWORK_JJWXC_CATEGORY_ALL = "__all__";
+  /** 约稿作品：不归属任何预设分区，仅在「全部」中展示 */
+  const FANWORK_JJWXC_CATEGORY_NONE = "__uncategorized__";
+  const FANWORK_JJWXC_COMMISSION_HINT_MAX = 480;
 
   /** 小狗饭默认分区：同人文常见题材，首次选 CP 时预填，可编辑/删除 */
   const FANWORK_JJWXC_DEFAULT_CATEGORIES = [
@@ -51238,6 +51852,22 @@
     );
   }
 
+  function isFanworkJjwxcAllCategoryId(categoryId) {
+    return String(categoryId || "").trim() === FANWORK_JJWXC_CATEGORY_ALL;
+  }
+
+  function isFanworkJjwxcUncategorizedCategoryId(categoryId) {
+    return String(categoryId || "").trim() === FANWORK_JJWXC_CATEGORY_NONE;
+  }
+
+  function buildFanworkJjwxcCommissionIconSvg() {
+    return (
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4 16.5-16.5z"/><path d="M15 5l3 3"/>' +
+      "</svg>"
+    );
+  }
+
   function mergeFanworkJjwxcPlotBundles(existing, incoming) {
     const base = existing && typeof existing === "object" ? existing : {};
     const add = incoming && typeof incoming === "object" ? incoming : {};
@@ -51479,6 +52109,70 @@
       readProgress: readProgress,
       lastReadKey: normalizePhoneBrowserDateKey(item.lastReadKey || item.dateKey),
     };
+  }
+
+  function normalizeFanworkJjwxcCommissionNovelItem(item, idx, seenIds) {
+    if (!item || typeof item !== "object") return null;
+    let id = String(item.id || "").trim() || "fn-comm-" + String((idx || 0) + 1);
+    while (seenIds && seenIds.has(id)) id = id + "-d";
+    if (seenIds) seenIds.add(id);
+    const title = truncateCharsWithEllipsis(String(item.title || item.name || "").trim(), PHONE_JJWXC_TITLE_MAX);
+    const author = truncateCharsWithEllipsis(String(item.author || item.penName || "").trim(), PHONE_JJWXC_AUTHOR_MAX);
+    const summary = truncateCharsWithEllipsis(String(item.summary || item.blurb || item.intro || "").trim(), PHONE_JJWXC_SUMMARY_MAX);
+    if (!title || !author || !summary) return null;
+    let coverHue = Number(item.coverHue);
+    if (!Number.isFinite(coverHue)) coverHue = hashPhoneJjwxcHue(title + author);
+    let collectCount = Number(item.collectCount != null ? item.collectCount : item.favorites);
+    if (!Number.isFinite(collectCount) || collectCount < 0) collectCount = 0;
+    let wordCountLabel = String(item.wordCount || item.words || "").trim();
+    if (!wordCountLabel) wordCountLabel = "…";
+    wordCountLabel = truncateCharsWithEllipsis(wordCountLabel, 12);
+    const chIn = Array.isArray(item.chapters) ? item.chapters : [];
+    const chSeen = new Set();
+    const chapters = [];
+    chIn.forEach(function (ch, ci) {
+      if (chapters.length >= FANWORK_JJWXC_MIN_CHAPTERS) return;
+      const normalized = normalizeFanworkJjwxcChapterItem(ch, ci, chSeen);
+      if (!normalized) return;
+      const content = capFanworkJjwxcStorageText(
+        normalizePhoneJjwxcChapterParagraphs(String(ch.content || ch.text || normalized.content || "").trim()),
+        FANWORK_JJWXC_CHAPTER_CONTENT_MAX
+      );
+      if (fanworkJjwxcTextCharCount(content) < FANWORK_JJWXC_MIN_CHAPTER_CHARS) return;
+      normalized.content = content;
+      normalized.contentReady = true;
+      normalized.generatedAt = Date.now();
+      if (!normalized.wordCount) normalized.wordCount = Math.round(content.replace(/\s/g, "").length);
+      chapters.push(normalized);
+    });
+    const synopsis = capFanworkJjwxcStorageText(String(item.synopsis || "").trim(), FANWORK_JJWXC_SYNOPSIS_MAX);
+    const novel = {
+      id: id,
+      categoryId: FANWORK_JJWXC_CATEGORY_NONE,
+      title: title,
+      author: author,
+      tags: normalizePhoneJjwxcTags(item.tags),
+      summary: summary,
+      status: normalizePhoneJjwxcStatus(item.status),
+      wordCountLabel: wordCountLabel,
+      collectCount: Math.round(collectCount),
+      coverHue: Math.max(0, Math.min(359, Math.round(coverHue))),
+      synopsis: synopsis,
+      authorNote: capFanworkJjwxcStorageText(
+        String(item.authorNote || item.authorWords || "").trim(),
+        FANWORK_JJWXC_DETAIL_AUTHOR_NOTE_MAX
+      ),
+      chapters: chapters,
+      onShelf: false,
+      isFavorite: false,
+      readProgress: 0,
+      lastReadKey: null,
+      detailReady: false,
+    };
+    if (!fanworkJjwxcNovelHasDetail(novel)) return null;
+    if (!chapters.length || !phoneJjwxcChapterHasContent(chapters[0])) return null;
+    novel.detailReady = true;
+    return novel;
   }
 
   function buildFanworkJjwxcNovelCountRequirementBlock(isIncrement) {
@@ -51878,6 +52572,35 @@
     renderFanworkScreen(slot);
   }
 
+  function openFanworkJjwxcCommissionDialog(slot) {
+    if (!getFanworkCpPair()) {
+      showToast("请先选择剧情与 CP。", "warning");
+      return;
+    }
+    const nav = getFanworkNav(slot);
+    nav.jjwxcCommissionOpen = true;
+    renderFanworkScreen(slot);
+  }
+
+  function closeFanworkJjwxcCommissionDialog(slot) {
+    const nav = getFanworkNav(slot);
+    nav.jjwxcCommissionOpen = false;
+    renderFanworkScreen(slot);
+  }
+
+  async function confirmFanworkJjwxcCommission(slot) {
+    const input = slot && slot.querySelector("[data-fanwork-jjwxc-commission-input]");
+    const direction = input ? String(input.value || "").trim() : "";
+    if (!direction) {
+      showToast("请填写约稿方向。", "warning");
+      return;
+    }
+    const nav = getFanworkNav(slot);
+    nav.jjwxcCommissionOpen = false;
+    renderFanworkScreen(slot);
+    await generateFanworkJjwxcCommissionContent(slot, direction);
+  }
+
   function buildFanworkJjwxcAppendOverlayHtml(nav, novelId) {
     if (!nav || !nav.jjwxcAppendOpen || nav.jjwxcAppendNovelId !== novelId) return "";
     return (
@@ -51925,11 +52648,36 @@
     );
   }
 
+  function buildFanworkJjwxcCommissionOverlayHtml(nav) {
+    if (!nav || !nav.jjwxcCommissionOpen) return "";
+    const pair = getFanworkCpPair();
+    const cpHint = pair ? getFanworkCpLabel(pair) : "请先选择 CP";
+    return (
+      '<div class="phone-forum-manage fanwork-commission-overlay" role="dialog" aria-modal="true" aria-label="约稿">' +
+      '<button type="button" class="phone-forum-manage__backdrop" data-fanwork-jjwxc-commission-cancel aria-label="关闭"></button>' +
+      '<div class="phone-forum-manage__panel phone-forum-manage__panel--form">' +
+      '<div class="phone-forum-manage__head">' +
+      '<h3 class="phone-forum-manage__title">约稿</h3>' +
+      '<button type="button" class="phone-forum-manage__close" data-fanwork-jjwxc-commission-cancel aria-label="取消">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      "</button></div>" +
+      '<p class="phone-forum-manage__hint">为当前 CP「' +
+      escapeHtml(cpHint) +
+      "」定向创作一篇同人文，将直接生成简介与第 1 章全文，作品显示在「全部」中。</p>" +
+      '<label class="phone-forum-manage__field"><span class="phone-forum-manage__label">约稿方向</span>' +
+      '<textarea class="phone-forum-manage__textarea" data-fanwork-jjwxc-commission-input maxlength="' +
+      FANWORK_JJWXC_COMMISSION_HINT_MAX +
+      '" rows="5" placeholder="描述你想看的 CP 剧情走向、风格、AU 设定或禁忌…"></textarea></label>' +
+      '<button type="button" class="btn btn--primary btn--pill phone-forum-manage__save" data-fanwork-jjwxc-commission-confirm>开始约稿</button>' +
+      "</div></div>"
+    );
+  }
+
   function getFanworkJjwxcActiveCategoryId(nav) {
     const id = String((nav && nav.jjwxcCategoryId) || "").trim();
+    if (isFanworkJjwxcAllCategoryId(id)) return FANWORK_JJWXC_CATEGORY_ALL;
     if (id && findFanworkJjwxcCategory(id)) return id;
-    const sections = getFanworkJjwxcCategories();
-    return sections.length ? sections[0].id : "";
+    return FANWORK_JJWXC_CATEGORY_ALL;
   }
 
   function buildFanworkPlotWorldBookBlock(plot) {
@@ -52311,6 +53059,47 @@
     return lines.join("\n");
   }
 
+  function buildFanworkJjwxcCommissionPrompt(pair, userDirection, existing) {
+    const direction = truncateCharsWithEllipsis(String(userDirection || "").trim(), FANWORK_JJWXC_COMMISSION_HINT_MAX);
+    const lines = [
+      "请根据读者的约稿方向，为 CP 创作一篇同人文：含书城列表信息、作品详情简介、第 1 章完整正文。",
+      "CP：" + getFanworkCpLabel(pair),
+      "",
+      buildFanworkCpProfileBlock(pair),
+      "",
+      "【约稿方向（必须严格遵守）】",
+      direction,
+      "",
+      "【已有作品摘要（请勿重复 id 或同标题）】",
+    ];
+    const novels = existing && existing.novels ? existing.novels : [];
+    if (novels.length) {
+      novels.slice(0, 8).forEach(function (n) {
+        lines.push(formatFanworkJjwxcNovelForPrompt(n));
+      });
+    } else {
+      lines.push("（无）");
+    }
+    lines.push("");
+    lines.push(
+      "输出唯一 JSON：{\"novel\":{\"id\":\"唯一id\",\"categoryId\":\"" +
+        FANWORK_JJWXC_CATEGORY_NONE +
+        "\",\"title\":\"...\",\"author\":\"笔名\",\"tags\":[\"标签\"],\"summary\":\"列表页简介\",\"authorNote\":\"作者有话说\",\"status\":\"ongoing\",\"wordCount\":\"12万字\",\"collectCount\":0,\"coverHue\":0,\"synopsis\":\"详情页完整简介\",\"chapters\":[{\"id\":\"ch-1\",\"title\":\"第1章 …\",\"content\":\"正文\",\"readerThought\":\"作者的话\",\"wordCount\":0}]}}\n" +
+        "categoryId 必须为 \"" +
+        FANWORK_JJWXC_CATEGORY_NONE +
+        "\"（不归属任何预设分区）；chapters 数组长度必须为 1；synopsis 不少于 200 字；" +
+        "第 1 章正文约 " +
+        FANWORK_JJWXC_TARGET_CHAPTER_CHARS +
+        " 字（不少于 " +
+        FANWORK_JJWXC_MIN_CHAPTER_CHARS +
+        " 字）；段间用\\n\\n分隔；" +
+        FANWORK_JJWXC_COMPLETE_TEXT_RULE +
+        "\n" +
+        FANWORK_JJWXC_AUTHOR_WORDS_PROMPT
+    );
+    return lines.join("\n");
+  }
+
   async function generateFanworkJjwxcCatalogContent(slot) {
     if (isAnyPhoneAiGenerating()) {
       showToast("正在生成中，请稍候…", "info");
@@ -52375,6 +53164,87 @@
       clearGenCallContext();
       fanworkJjwxcGenerating = false;
       if (slot && String(getFanworkNav(slot).screen || "").indexOf("jjwxc") === 0) renderFanworkScreen(slot);
+    }
+  }
+
+  async function generateFanworkJjwxcCommissionContent(slot, userDirection) {
+    if (isAnyPhoneAiGenerating()) {
+      showToast("正在生成中，请稍候…", "info");
+      return;
+    }
+    const pair = getFanworkCpPair();
+    if (!pair) {
+      showToast("请先选择剧情。", "warning");
+      return;
+    }
+    const direction = String(userDirection || "").trim();
+    if (!direction) {
+      showToast("请填写约稿方向。", "warning");
+      return;
+    }
+    const key = getFanworkCpStorageKey();
+    const bundleRec = getFanworkJjwxcBundleMutable();
+    if (!bundleRec) {
+      showToast("请先选择剧情。", "warning");
+      return;
+    }
+    const existing = bundleRec.bundle;
+    fanworkJjwxcCommissionGenerating = true;
+    if (slot && String(getFanworkNav(slot).screen || "").indexOf("jjwxc") === 0) renderFanworkScreen(slot);
+    showToast("正在约稿生成同人文…", "info");
+    const _genCtx = beginGenCall("fanwork-jjwxc-commission", { slot: slot });
+    try {
+      const systemPrompt =
+        "你是中文同人向叙事助手。根据读者约稿方向，为指定 CP 生成一篇完整开篇章节的同人文 JSON。\n" +
+        "只输出一个 JSON 对象，不要用 markdown 代码围栏。\n" +
+        '格式：{"novel":{"id":"...","categoryId":"' +
+        FANWORK_JJWXC_CATEGORY_NONE +
+        '","title":"...","author":"...","tags":[],"summary":"...","authorNote":"...","status":"ongoing","wordCount":"...","collectCount":0,"coverHue":0,"synopsis":"...","chapters":[{"id":"ch-1","title":"...","content":"...","readerThought":"...","wordCount":0}]}}';
+      const userPrompt = buildFanworkJjwxcCommissionPrompt(pair, direction, existing);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.82,
+        16384
+      , chatApiOptsFromGen(_genCtx));
+      const parsed = parseAssistantJsonObject(raw);
+      if (getFanworkCpStorageKey() !== key) {
+        showToast("剧情已切换，已取消本次生成结果。", "warning");
+        return;
+      }
+      const rawNovel = parsed && parsed.novel && typeof parsed.novel === "object" ? parsed.novel : parsed;
+      const seenIds = new Set(
+        (existing.novels || []).map(function (n) {
+          return n && n.id;
+        })
+      );
+      const novel = normalizeFanworkJjwxcCommissionNovelItem(rawNovel, 0, seenIds);
+      if (!novel) throw new Error("约稿结果不完整，请重试");
+      if (!Array.isArray(existing.novels)) existing.novels = [];
+      existing.novels.unshift(novel);
+      existing.generatedAt = Date.now();
+      persistFanworkJjwxcBundle(existing, true, key);
+      const nav = slot ? getFanworkNav(slot) : null;
+      if (nav) {
+        nav.jjwxcCategoryId = FANWORK_JJWXC_CATEGORY_ALL;
+        nav.jjwxcTab = "store";
+        nav.screen = "jjwxc-chapter";
+        nav.jjwxcNovelId = novel.id;
+        nav.jjwxcNovelPlotKey = key;
+        nav.jjwxcChapterId = novel.chapters[0].id;
+      }
+      if (slot) renderFanworkScreen(slot);
+      markFanworkJjwxcNovelReadProgress(novel.id, novel.chapters[0].id, key);
+      showToast("约稿完成：《" + novel.title + "》", "success");
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "约稿生成失败，请检查 API 配置后重试", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      fanworkJjwxcCommissionGenerating = false;
+      if (slot) renderFanworkScreen(slot);
     }
   }
 
@@ -52684,7 +53554,17 @@
         : typeof generateAttr === "string" && generateAttr.trim()
           ? generateAttr.trim()
           : "data-fanwork-jjwxc-generate";
-    const autoDeleteBtn = buildPhoneAutoDeleteBtnHtml();
+    const autoDeleteBtn = opts.autoDelete ? buildPhoneAutoDeleteBtnHtml() : "";
+    const commissionLoadingCls = fanworkJjwxcCommissionGenerating ? " phone-wechat-gen-btn--loading" : "";
+    const commissionBtn = opts.commissionBtn
+      ? '<button type="button" class="phone-app__bar-action phone-fanwork-commission-btn' +
+        commissionLoadingCls +
+        '" data-fanwork-jjwxc-commission-open aria-label="约稿" title="约稿"' +
+        (disabled ? " disabled" : "") +
+        ">" +
+        buildFanworkJjwxcCommissionIconSvg() +
+        "</button>"
+      : "";
     const genBtn =
       genAttr
         ? '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
@@ -52699,28 +53579,29 @@
         : "";
     const showBack = opts.showBack !== false;
     const cpInline = opts.cpInline ? buildFanworkCpBarInlineHtml(opts.nav) : "";
+    const barClass =
+      "phone-app__bar phone-jjwxc__bar star-header" +
+      (showBack ? "" : " phone-jjwxc__bar--no-back") +
+      (cpInline ? " phone-jjwxc__bar--with-cp" : "");
     const backCell = showBack
-      ? '<button type="button" class="phone-app__back" data-fanwork-back aria-label="返回">' +
+      ? '<button type="button" class="phone-app__back star-header__back" data-fanwork-back aria-label="返回">' +
         '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
         "</button>"
       : "";
-    const barClass =
-      "phone-app__bar phone-jjwxc__bar" +
-      (showBack ? "" : " phone-jjwxc__bar--no-back") +
-      (cpInline ? " phone-jjwxc__bar--with-cp" : "");
     const trail =
-      cpInline || genBtn || autoDeleteBtn
-        ? '<div class="phone-jjwxc__bar-trail">' + cpInline + autoDeleteBtn + genBtn + "</div>"
+      cpInline || commissionBtn || genBtn || autoDeleteBtn
+        ? '<div class="phone-jjwxc__bar-trail star-header__actions">' + cpInline + commissionBtn + autoDeleteBtn + genBtn + "</div>"
         : genBtn || autoDeleteBtn || '<span class="phone-app__bar-side" aria-hidden="true"></span>';
     return (
       '<header class="' +
       barClass +
       '">' +
+      '<div class="star-header__lead">' +
       (showBack ? backCell : "") +
       '<div class="phone-jjwxc__title-wrap">' +
-      '<h2 class="phone-app__title phone-app__title--left phone-jjwxc__title">' +
+      '<h2 class="phone-app__title phone-app__title--left phone-jjwxc__title star-header__title">' +
       escapeHtml(title) +
-      "</h2></div>" +
+      "</h2></div></div>" +
       trail +
       "</header>"
     );
@@ -53012,9 +53893,16 @@
 
   function buildFanworkJjwxcCategoryPillsHtml(activeCategoryId) {
     const sections = getFanworkJjwxcCategories();
+    const allActive = isFanworkJjwxcAllCategoryId(activeCategoryId);
+    const allTab =
+      '<button type="button" class="filter-pill phone-jjwxc__pill' +
+      (allActive ? " is-active" : "") +
+      '" data-fanwork-jjwxc-category="' +
+      escapeHtml(FANWORK_JJWXC_CATEGORY_ALL) +
+      '">全部</button>';
     const tabs = sections
       .map(function (sec) {
-        const active = sec.id === activeCategoryId;
+        const active = !allActive && sec.id === activeCategoryId;
         return (
           '<button type="button" class="filter-pill phone-jjwxc__pill' +
           (active ? " is-active" : "") +
@@ -53026,11 +53914,12 @@
         );
       })
       .join("");
-    const catGenBtn = buildPhoneJjwxcCategoryGenBtnHtml(activeCategoryId, true);
+    const catGenBtn = allActive ? "" : buildPhoneJjwxcCategoryGenBtnHtml(activeCategoryId, true);
     return (
       '<div class="pill-row-wrap phone-jjwxc__pill-wrap phone-jjwxc__pill-wrap--sticky" aria-label="书城分区">' +
       '<div class="phone-jjwxc__pill-row">' +
       '<div class="phone-jjwxc__pill-scroll pill-row">' +
+      allTab +
       (tabs || '<span class="field__hint phone-jjwxc__empty-cat">请先点 ⚙ 添加分区</span>') +
       "</div>" +
       '<div class="phone-jjwxc__pill-actions">' +
@@ -53132,13 +54021,17 @@
       const key = getFanworkCpStorageKey();
       const rec = key ? fanworkJjwxcData[key] : null;
       const novels = (rec && rec.novels ? rec.novels : []).filter(function (n) {
-        return n && n.categoryId === categoryId;
+        if (!n) return false;
+        if (isFanworkJjwxcAllCategoryId(categoryId)) return true;
+        return n.categoryId === categoryId;
       });
       if (!novels.length) {
         const noCp = !getFanworkCpPair();
         cards = noCp
           ? buildFanworkEmptyHtml("cp", "先选一条剧情，再开嗑同人文")
-          : buildFanworkEmptyHtml("cat", "该分区还没有粮 · 点右上角 ✦ 生成");
+          : isFanworkJjwxcAllCategoryId(categoryId)
+            ? buildFanworkEmptyHtml("default", "还没有粮 · 点右上角 ✦ 生成书城，或点约稿定向创作")
+            : buildFanworkEmptyHtml("cat", "该分区还没有粮 · 点右上角 ✦ 生成");
       } else {
         novels.forEach(function (n, idx) {
           cards += buildFanworkJjwxcNovelCardHtml(n, false, { rank: idx + 1 });
@@ -53217,7 +54110,13 @@
     return (
       '<div class="phone-app phone-jjwxc phone-jjwxc--fanwork" aria-label="小狗饭">' +
       '<div class="phone-jjwxc__top">' +
-      buildFanworkJjwxcBarHtml("小狗饭", undefined, { showBack: showMainBack, cpInline: true, nav: nav }) +
+      buildFanworkJjwxcBarHtml("小狗饭", undefined, {
+        showBack: showMainBack,
+        cpInline: true,
+        nav: nav,
+        autoDelete: true,
+        commissionBtn: true,
+      }) +
       buildFanworkJjwxcBottomNavHtml(tab) +
       "</div>" +
       '<div class="phone-jjwxc__scroll">' +
@@ -53225,6 +54124,7 @@
       "</div>" +
       buildFanworkJjwxcManageOverlayHtml(nav) +
       buildFanworkPlotPickerOverlayHtml(nav) +
+      buildFanworkJjwxcCommissionOverlayHtml(nav) +
       "</div>"
     );
   }
@@ -53428,6 +54328,7 @@
       }
     } else if (nav.screen === "jjwxc") {
       if (nav.plotPickOpen) nav.plotPickOpen = false;
+      else if (nav.jjwxcCommissionOpen) nav.jjwxcCommissionOpen = false;
       else if (nav.jjwxcCategoryFormId) nav.jjwxcCategoryFormId = null;
       else if (nav.jjwxcManageOpen) nav.jjwxcManageOpen = false;
       else if (slot && slot.id === "fanwork-content-slot") {
@@ -53480,7 +54381,7 @@
     nav.plotPickPendingPartnerId = null;
     nav.screen = "jjwxc";
     nav.jjwxcTab = nav.jjwxcTab || "store";
-    nav.jjwxcCategoryId = getFanworkJjwxcActiveCategoryId(nav);
+    nav.jjwxcCategoryId = FANWORK_JJWXC_CATEGORY_ALL;
     getFanworkJjwxcBundleMutable();
     renderAllFanworkScreens(slot);
     if (changed) {
@@ -53604,8 +54505,7 @@
     persistFanworkJjwxcCategoryStore(true);
     const nav = getFanworkNav(slot);
     if (nav.jjwxcCategoryId === id) {
-      const cats = getFanworkJjwxcCategories();
-      nav.jjwxcCategoryId = cats.length ? cats[0].id : "";
+      nav.jjwxcCategoryId = FANWORK_JJWXC_CATEGORY_ALL;
     }
     nav.jjwxcCategoryFormId = null;
     if (!getFanworkJjwxcCategories().length) nav.jjwxcManageOpen = false;
@@ -53687,7 +54587,7 @@
     const nav = getFanworkNav(slot);
     if (nav.screen !== "jjwxc") return;
     const id = String(categoryId || "").trim();
-    if (!findFanworkJjwxcCategory(id)) return;
+    if (!isFanworkJjwxcAllCategoryId(id) && !findFanworkJjwxcCategory(id)) return;
     nav.jjwxcCategoryId = id;
     renderFanworkScreen(slot);
   }
@@ -54264,13 +55164,14 @@
 
   function buildPhoneAppBarHtml(title) {
     return (
-      '<header class="phone-app__bar">' +
-      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<header class="phone-app__bar star-header">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="phone-app__back star-header__back" data-phone-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
-      '<h2 class="phone-app__title">' +
+      '<h2 class="phone-app__title star-header__title">' +
       escapeHtml(title) +
-      "</h2>" +
+      "</h2></div>" +
       '<span class="phone-app__bar-side" aria-hidden="true"></span>' +
       "</header>"
     );
@@ -54278,7 +55179,7 @@
 
   function buildPhoneWechatStarIconSvg() {
     return (
-      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
       '<path d="M12 2l1.6 5.2L19 9l-5.4 1.8L12 16l-1.6-5.2L5 9l5.4-1.8L12 2z"/>' +
       '<path d="M19 4l.8 2.4h2.5l-2 1.5.8 2.4L19 9.2l-2.1 1.5.8-2.4-2-1.5h2.5L19 4z"/>' +
       "</svg>"
@@ -54324,12 +55225,12 @@
           : "多选删除";
     const disabledAttr = placeholder || phoneWechatGenerating ? " disabled" : "";
     return (
-      '<header class="phone-app__bar phone-app__bar--wechat-chat">' +
-      '<div class="phone-wechat-chat-bar__lead">' +
-      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<header class="phone-app__bar phone-app__bar--wechat-chat star-header">' +
+      '<div class="phone-wechat-chat-bar__lead star-header__lead">' +
+      '<button type="button" class="phone-app__back star-header__back" data-phone-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
-      '<h2 class="phone-app__title phone-app__title--chat">' +
+      '<h2 class="phone-app__title phone-app__title--chat star-header__title">' +
       escapeHtml(title) +
       "</h2>" +
       "</div>" +
@@ -54382,11 +55283,12 @@
       buildPhoneWechatStarIconSvg() +
       "</button>";
     return (
-      '<header class="phone-app__bar phone-app__bar--wechat-list">' +
-      '<button type="button" class="phone-app__back" data-phone-back aria-label="返回">' +
+      '<header class="phone-app__bar phone-app__bar--wechat-list star-header">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="phone-app__back star-header__back" data-phone-back aria-label="返回">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
-      '<h2 class="phone-app__title phone-app__title--left">微信</h2>' +
+      '<h2 class="phone-app__title phone-app__title--left star-header__title">微信</h2></div>' +
       buildPhoneBarActionsHtml(selectBtn, genBtn) +
       "</header>"
     );
@@ -62531,12 +63433,6 @@
       }
     });
   }
-  document.addEventListener("change", function (e) {
-    const silentToggle = e.target.closest("[data-you-dog-chat-silent-toggle]");
-    if (silentToggle) {
-      youDogChatSilentMode = !!silentToggle.checked;
-    }
-  });
   document.addEventListener("keydown", function (e) {
     if (e.key !== "Enter" || e.isComposing || e.shiftKey) return;
     const input = e.target.closest("[data-you-dog-chat-input]");
@@ -62588,13 +63484,13 @@
 
     if (e.target.closest("[data-you-dog-chat-generate]")) {
       youDogChatMoreOpen = false;
-      openYouDogGenPick("chat", slot, { silent: youDogChatSilentMode });
+      openYouDogGenPick("chat", slot);
       return;
     }
 
     if (e.target.closest("[data-you-dog-chat-regenerate]")) {
       youDogChatMoreOpen = false;
-      openYouDogGenPick("chat", slot, { silent: youDogChatSilentMode, regenerateBatch: true });
+      openYouDogGenPick("chat", slot, { regenerateBatch: true });
       return;
     }
 
@@ -62685,6 +63581,11 @@
         renderYouDogScreen(slot);
         scrollYouDogChatThreadToEnd(slot);
       }
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-batch-replies]")) {
+      void generateYouDogBatchReplies(slot);
       return;
     }
 
@@ -62844,26 +63745,22 @@
     if (!target || !target.matches) return;
 
     if (target.matches("[data-you-dog-gen-pick-toggle]")) {
-      const slot = els.youDogContentSlot();
       const id = target.getAttribute("data-you-dog-gen-pick-toggle");
       const ok = toggleYouDogGenPickDraft(id, target.checked);
       if (!ok) {
         target.checked = !target.checked;
         return;
       }
-      if (slot) renderYouDogScreen(slot);
+      refreshYouDogGenPickHint();
       return;
     }
 
     if (target.matches("[data-you-dog-toggle-participant]")) {
-      const slot = els.youDogContentSlot();
       const charId = target.getAttribute("data-you-dog-toggle-participant");
       const ok = toggleYouDogParticipant(charId, target.checked);
       if (!ok) {
         target.checked = !target.checked;
-        return;
       }
-      if (slot) renderYouDogScreen(slot);
       return;
     }
   });
@@ -62978,6 +63875,27 @@
       nav.archiveFilter = filterBtn.getAttribute("data-pass-note-filter") === "favorites" ? "favorites" : "all";
       nav.archiveDetailId = null;
       renderPassNoteScreen(slot);
+      return;
+    }
+
+    const sessionDelBtn = e.target.closest("[data-pass-note-session-delete]");
+    if (sessionDelBtn) {
+      const sessionId = sessionDelBtn.getAttribute("data-pass-note-session-delete");
+      if (!sessionId) return;
+      showConfirm("确认删除这一轮的全部纸条记录？", "删除记录").then(function (ok) {
+        if (!ok) return;
+        if (nav.archiveDetailId) {
+          const allRecords = getPassNoteRecordsForCurrent();
+          const detail = allRecords.find(function (r) {
+            return r.id === nav.archiveDetailId;
+          });
+          if (detail && resolvePassNoteRecordSessionId(detail) === sessionId) {
+            nav.archiveDetailId = null;
+          }
+        }
+        deletePassNoteSessionRecords(sessionId);
+        renderPassNoteScreen(slot);
+      });
       return;
     }
 
@@ -63892,6 +64810,21 @@
       return;
     }
 
+    if (e.target.closest("[data-fanwork-jjwxc-commission-open]")) {
+      openFanworkJjwxcCommissionDialog(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-fanwork-jjwxc-commission-cancel]")) {
+      closeFanworkJjwxcCommissionDialog(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-fanwork-jjwxc-commission-confirm]")) {
+      void confirmFanworkJjwxcCommission(slot);
+      return;
+    }
+
     if (e.target.closest("[data-fanwork-jjwxc-category-generate]")) {
       void generateFanworkJjwxcCategoryContent(slot);
       return;
@@ -64394,6 +65327,7 @@
       fillStoryComposerAvatar(plot);
       renderStoryPlay(plot);
       schedulePersistNarrative();
+      refreshOverviewSubViewsForPlot(plot);
       closePlotMyOverrideModal();
       showToast("已保存我的形象", "success");
     });
@@ -64458,6 +65392,7 @@
       upsertPlotCharacterOverride(plot, plotRoleOverrideCharacterId, avatar, profile);
       renderStoryPlay(plot);
       schedulePersistNarrative();
+      refreshOverviewSubViewsForPlot(plot);
       closePlotRoleOverrideModal();
       showToast("已保存角色形象", "success");
     });
