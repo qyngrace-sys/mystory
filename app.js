@@ -2323,6 +2323,17 @@
     "嗅闻博客与内置群聊均为平行世界：各角色仅以匿名马甲在此交流分享，彼此素不相识，" +
     "不会也不应暴露真实姓名、剧情身份，不可认出对方是谁；" +
     "互动须按陌生网友关系，不可直呼真名、不可假装线下熟人、不可提「我们剧情里」「上次那件事」等跨线熟人梗。";
+  /** 博客生成时参考群聊（偶发、可完全不提） */
+  const YOU_DOG_FEED_FROM_CHAT_HINT =
+    "下方群聊摘录仅作背景：本批 10 条里最多 0～1 条可隐约相关，其余全部写日常碎碎念；" +
+    "整批完全不提群聊也完全正常；若联动，只可含糊带过，不可写「我们群」「刚才群里 XXX 说」。";
+  /** 群聊生成时参考博客 */
+  const YOU_DOG_CHAT_FROM_FEED_HINT =
+    "下方树洞摘录仅作背景：本批 16～24 条里最多 0～2 条可顺带提到刷到的帖，其余照常闲聊；" +
+    "整批完全不提树洞也完全正常；若提到，像随口转述「刚刷到一个…」，不可对号入座群友。";
+  /** 跨频道参考：摘录条数上限（少量即可，避免模型过度引用） */
+  const YOU_DOG_CROSS_REF_FEED_POST_LIMIT = 5;
+  const YOU_DOG_CROSS_REF_CHAT_MSG_LIMIT = 10;
   /** 嗅闻博客：评论回复须像陌生网友刷帖 */
   const YOU_DOG_REPLY_TONE_RULE =
     "评论须像陌生网友刷帖：口语短句、顺口接梗、冷幽默跑偏，不必句句分析帖子；" +
@@ -2330,18 +2341,45 @@
     "路人可完全跑偏或吃瓜（如「记得买完单再走」）；网友互怼可以有损友感，但来自陌生人嘴炮而非熟人默契；" +
     "可以顺着楼主帖子的氛围玩梗，但禁止复读楼主原文、禁止客服腔说教腔；" +
     "每条评论个性不同：有的极短，有的两句吐槽，有的楼中楼互怼；像真实评论区，不要整齐划一。";
+  /** 嗅闻博客：楼主不得给自己当路人评论，只能以贴主身份回复他人 */
+  const YOU_DOG_REPLY_OP_RULE =
+    "严禁楼主给自己的帖子当路人评论：若评论 speakerRef 与帖子 speakerRef 相同，则只能是贴主身份回复他人——" +
+    "须使用楼主 anonId，且 replyTo 须指向某条已有评论的 anonId（不可 replyTo=\"op\" 或 null，不可另起一楼自评）。" +
+    "其他角色、NPC、路人仍可正常评论楼主帖；贴主可在楼中楼回复网友。";
+  /** 嗅闻博客：用户点赞与评论仅由用户本人操作，生成时不得模拟 */
+  const YOU_DOG_NO_USER_ACTION_RULE =
+    "用户的点赞与评论均由用户本人在客户端操作；生成时严禁模拟用户、严禁以用户马甲 anonId 点赞，" +
+    "严禁 speakerRef 为 user: 开头的评论；若用户已在帖下手动评论，其他角色可在楼中楼 replyTo 该 anonId 回复。";
+  /** 嗅闻博客群聊：自然闲聊语气（勿句句汇报剧情） */
+  const YOU_DOG_CHAT_TONE_RULE =
+    "像普通微信群闲聊：口语短句，通常一两句（8~55 字），不要写长段；" +
+    "不必每条都聊各自剧情或与用户相关的事，可聊天气饭点游戏段子摸鱼吐槽等符合人设的日常；" +
+    "剧情/人设/总结仅供把握说话风格与性格，不是每条消息的素材库；" +
+    "约半数消息可与剧情无关；接梗、复读、短反应、同一人连发两三句都行；" +
+    "禁止每条都像在做剧情汇报或诉苦大会；禁止整齐划一每人一段小作文。";
+  /** 活动私聊：朋友向，非攻略对象 */
+  const YOU_DOG_ACTIVITY_DM_FRIEND_RULE =
+    "活动私聊里用户是普通朋友/网友，不是恋爱攻略对象：禁止暧昧撩拨、土味情话、占有欲、壁咚式告白、" +
+    "「你只能是我的」类台词；可以真诚关心、吐槽互损、请教意见、分享日常，语气自然像熟人私聊。" +
+    "结合用户人设理解其性格与处境，但不要把每条消息都写成在「追」用户。";
+  /** 活动私聊：批量主动消息最少/最多角色数 */
+  const YOU_DOG_ACTIVITY_PROACTIVE_DM_MIN = 1;
+  const YOU_DOG_ACTIVITY_PROACTIVE_DM_MAX = 3;
   /** 嗅闻博客：发帖风格参考（仅供语感，禁止照抄） */
   const YOU_DOG_FEED_STYLE_HINT =
     "语感参考（勿照抄）：「姐姐今天布置的任务是自己训练完去吃晚饭散步…她说晚上会给我打视频，嘿嘿」；" +
     "「下午好想见老婆，她没接电话…我就躺床边看她睡觉，下雨天睡着好舒服」；" +
     "「讨厌星期一！老婆出台新规矩周一不见面…所以就要放置我吗！」";
   const YOU_DOG_CHAT_LONG_PRESS_MS = 480;
-  /** 你才是狗：每批发帖角色上限（从角色池随机抽取） */
-  const YOU_DOG_SPEAKERS_PER_BATCH = 4;
+  /** 嗅闻博客 Feed：每批最少帖子数 / 最少不同角色数 */
+  const YOU_DOG_FEED_POSTS_PER_BATCH = 10;
+  const YOU_DOG_FEED_MIN_UNIQUE_SPEAKERS = 5;
+  /** 嗅闻博客 Feed：生成弹窗最多可勾选角色数 */
+  const YOU_DOG_FEED_GEN_PICK_MAX = 10;
   /** 嗅闻博客群聊：每批参与发言 memberRef 上限（生成弹窗中手动勾选） */
   const YOU_DOG_CHAT_SPEAKERS_PER_BATCH = 4;
-  /** 你才是狗：已选角色较多时，每批至少发言人数 */
-  const YOU_DOG_TARGET_SPEAKERS_PER_BATCH = 5;
+  /** 你才是狗：已选角色较多时，每批至少发言人数（兼容旧逻辑） */
+  const YOU_DOG_TARGET_SPEAKERS_PER_BATCH = YOU_DOG_FEED_MIN_UNIQUE_SPEAKERS;
   const YOU_DOG_POST_TEXT_MAX = 280;
   const YOU_DOG_COMMENT_TEXT_MAX = 200;
   /** 嗅闻博客群聊：同时参与生成上限 */
@@ -2353,9 +2391,9 @@
   /** 嗅闻博客群聊：引用历史消息条数 */
   const YOU_DOG_CHAT_HISTORY_MSG_LIMIT = 40;
   /** 嗅闻博客群聊：每批最少/最多消息数 */
-  const YOU_DOG_CHAT_MSGS_PER_BATCH_MIN = 8;
-  const YOU_DOG_CHAT_MSGS_PER_BATCH_MAX = 18;
-  const YOU_DOG_CHAT_TEXT_MAX = 300;
+  const YOU_DOG_CHAT_MSGS_PER_BATCH_MIN = 16;
+  const YOU_DOG_CHAT_MSGS_PER_BATCH_MAX = 24;
+  const YOU_DOG_CHAT_TEXT_MAX = 120;
   const YOU_DOG_CHAT_GROUP_NAME_MAX = 24;
   const YOU_DOG_CHAT_CATEGORY_NAME_MAX = 8;
   const YOU_DOG_CHAT_PROFILE_MAX_CHARS = 600;
@@ -3045,13 +3083,43 @@
   /** 传纸条历史：key = plotId + \\u001e + charId → 单题记录[] */
   let passNoteRecordsData = {};
   const PASS_NOTE_SESSIONS_MAX_PER_KEY = 50;
-  /** 传纸条题型：淡色纸面 + 底纹样式 */
+  /** 传纸条题型：淡色纸面 + 底纹样式（AI 出题从 PASS_NOTE_AI_TYPE_KEYS 中每轮抽 3 种） */
   const PASS_NOTE_SLIP_THEMES = {
     whimsy: { label: "脑洞", pattern: "dots" },
     choice: { label: "二选一", pattern: "doodle" },
     daily: { label: "日常怪癖", pattern: "flowers" },
     philosophy: { label: "怪哲学", pattern: "lines" },
+    confession: { label: "真心话", pattern: "grid" },
+    hypothetical: { label: "假如", pattern: "dots" },
+    preference: { label: "偏好", pattern: "doodle" },
+    association: { label: "联想", pattern: "flowers" },
+    scenario: { label: "情境", pattern: "lines" },
+    memory: { label: "回忆", pattern: "grid" },
     compose: { label: "自拟", pattern: "grid" },
+  };
+  const PASS_NOTE_AI_TYPE_KEYS = [
+    "whimsy",
+    "choice",
+    "daily",
+    "philosophy",
+    "confession",
+    "hypothetical",
+    "preference",
+    "association",
+    "scenario",
+    "memory",
+  ];
+  const PASS_NOTE_AI_TYPE_HINTS = {
+    whimsy: "天马行空、surreal 假设、离谱想象",
+    choice: "两个选项都怪，必须二选一",
+    daily: "生活习惯、小怪癖、日常选择",
+    philosophy: "人生意义、存在主义怪问",
+    confession: "诚实坦白、小秘密、软肋（轻松不沉重）",
+    hypothetical: "如果…会怎样、平行时空、改变一件事",
+    preference: "排序、取舍、最喜欢/最不能接受",
+    association: "一个词/场景让你想到什么、自由联想",
+    scenario: "置身某场景你会怎么做、角色扮演式提问",
+    memory: "童年、过往、怀旧、第一印象",
   };
   const PASS_NOTE_TYPE_ICONS = {
     whimsy:
@@ -3062,10 +3130,21 @@
       '<svg class="pass-note-archive-card__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M4 10h16M8 6V4M16 6V4M6 20h12a2 2 0 002-2V8H4v10a2 2 0 002 2z"/></svg>',
     philosophy:
       '<svg class="pass-note-archive-card__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M9.5 9a2.5 2.5 0 015 0c0 2-2.5 1.5-2.5 3.5M12 17h.01"/></svg>',
+    confession:
+      '<svg class="pass-note-archive-card__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M12 21s-7-4.5-9.5-9a5.5 5.5 0 019-4.5 5.5 5.5 0 019 4.5C19 16.5 12 21 12 21z"/></svg>',
+    hypothetical:
+      '<svg class="pass-note-archive-card__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M6 3v12M18 21V9M6 3l12 6M6 15l12 6"/></svg>',
+    preference:
+      '<svg class="pass-note-archive-card__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M4 18V6M9 18V10M14 18V8M19 18V4"/></svg>',
+    association:
+      '<svg class="pass-note-archive-card__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="8" cy="12" r="3"/><circle cx="16" cy="12" r="3"/><path d="M11 12h2"/></svg>',
+    scenario:
+      '<svg class="pass-note-archive-card__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M12 3v4M5 20h14M8 7l-2 13M16 7l2 13"/></svg>',
+    memory:
+      '<svg class="pass-note-archive-card__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 9h6M9 13h4"/></svg>',
     compose:
       '<svg class="pass-note-archive-card__svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>',
   };
-  const PASS_NOTE_TYPE_BY_INDEX = ["whimsy", "choice", "daily"];
   let passNoteGenerating = false;
   let passNoteTossing = false;
   let passNoteHolderModalStep = "plot";
@@ -3087,6 +3166,9 @@
   let grudgeBookHolderModalMode = "first";
   const GRUDGE_BOOK_DEFAULT_RELATIONSHIP = "情侣";
   const GRUDGE_BOOK_ENTRIES_MAX = 30;
+  const GRUDGE_BOOK_DIARY_PHOTOS_MAX = 4;
+  const GRUDGE_BOOK_DIARY_PHOTO_MAX_SIDE = 960;
+  const GRUDGE_BOOK_DIARY_PHOTO_MAX_CHARS = 420000;
   const grudgeBookNavBySlotId = Object.create(null);
 
   /** 你才是狗：已开启的剧情 id 列表（可多选，时间线合并显示） */
@@ -3095,16 +3177,28 @@
   let youDogParticipantIds = [];
   /** 你才是狗：下次生成推文的发言角色 id */
   let youDogNextGenCharId = null;
-  /** 你才是狗：互动用「我的形象」id（可跨剧情切换） */
-  let youDogUserCharId = null;
-  /** 你才是狗：全局匿名马甲（绑定所有「我的形象」） */
-  let youDogUserAnonAlias = null;
-  /** 你才是狗：主 Tab feed | profile | chat */
-  let youDogMainTab = "feed";
+  /** 你才是狗：用户自建身份（与角色库「我的形象」无关） */
+  const YOU_DOG_USER_PROFILE_REF = "user:yd-profile";
+  const YOU_DOG_ACTIVITY_BUNDLE_KEY = "__activity__";
+  let youDogUserProfile = {
+    nickname: "",
+    realName: "",
+    avatarUrl: "",
+    persona: "",
+    anonAlias: "",
+  };
+  /** 你才是狗：主 Tab home | messages | profile */
+  let youDogMainTab = "home";
+  /** 首页分区：feed 树洞 | forum 动态 */
+  let youDogHomeSegment = "feed";
+  /** 消息分区：group 群聊 | dm 私聊 */
+  let youDogMessagesSegment = "group";
   /** 嗅闻博客子屏：feed | post | profile */
   let youDogScreen = "feed";
   let youDogDetailPostId = null;
   let youDogProfileSpeakerRef = null;
+  /** 我的页分段：likes 喜欢 | bookmarks 收藏 */
+  let youDogProfileSegment = "likes";
   let youDogNavFrom = "feed";
   /** 你才是狗推特数据：key = plotId */
   let youDogTwitterData = {};
@@ -3141,16 +3235,24 @@
   let youDogLastChatGenPickRefs = [];
   /** @type {{ userText?: string, regenerateBatch?: boolean }|null} */
   let youDogGenPickPendingChat = null;
-  /** 嗅闻博客群聊：feed | chat 子屏（铃铛切换） */
+  /** @deprecated 已由 youDogMainTab 取代；持久化兼容用 */
   let youDogChatSubScreen = "feed";
+  /** 活动：hub | dm | compose */
+  let youDogActivityScreen = "hub";
+  /** 活动 hub 子页：dm-list 微信私聊列表 | forum 论坛动态 */
+  let youDogActivityHubTab = "dm-list";
+  let youDogActivityDmRef = null;
+  let youDogActivityGenerating = false;
+  let youDogActivityComposeDraft = "";
+  let youDogActivityComposeTag = "tree";
+  /** @type {{ dmSessions: Record<string, { messages: object[] }> }} */
+  let youDogActivityData = { dmSessions: {} };
   /** 嗅闻博客群聊：群数据 */
   let youDogChatData = null;
   /** 嗅闻博客群聊：参与生成的 memberRef 列表（兼容旧存档） */
   let youDogChatParticipantIds = [];
   /** 嗅闻博客群聊：发言角色池（memberRef，由 AI 根据语境挑选发言） */
   let youDogChatSpeakerPoolRefs = [];
-  /** 嗅闻博客群聊：用户形象 id（cc-self，与推特互动身份独立） */
-  let youDogChatUserCharId = null;
   let youDogChatGenerating = false;
   let youDogChatParticipantPanelOpen = false;
   let youDogChatSettingsOpen = false;
@@ -3187,6 +3289,381 @@
   ];
   const YOU_DOG_SECTION_NAME_MAX = 12;
   const YOU_DOG_SECTION_DESC_MAX = 200;
+
+  function normalizeYouDogUserProfile(raw) {
+    const o = raw && typeof raw === "object" ? raw : {};
+    return {
+      nickname: String(o.nickname || "").trim().slice(0, 24),
+      realName: String(o.realName || "").trim().slice(0, 24),
+      avatarUrl: String(o.avatarUrl || "").trim(),
+      persona: String(o.persona || "").trim().slice(0, 800),
+      anonAlias: normalizeYouDogAnonAlias(o.anonAlias || ""),
+    };
+  }
+
+  function ensureYouDogUserProfile() {
+    youDogUserProfile = normalizeYouDogUserProfile(youDogUserProfile);
+    if (!youDogUserProfile.anonAlias) {
+      const suffix = Math.floor(Math.random() * 9000 + 1000);
+      youDogUserProfile.anonAlias = "@嗅友" + suffix;
+    }
+    return youDogUserProfile;
+  }
+
+  function isYouDogUserProfileReady() {
+    const p = ensureYouDogUserProfile();
+    return !!(p.nickname && p.persona);
+  }
+
+  function getYouDogUserDisplayNickname() {
+    const p = ensureYouDogUserProfile();
+    return p.nickname || "用户";
+  }
+
+  function getYouDogUserRealName() {
+    const p = ensureYouDogUserProfile();
+    return p.realName || p.nickname || "用户";
+  }
+
+  function getYouDogUserAvatarUrl() {
+    return ensureYouDogUserProfile().avatarUrl || "";
+  }
+
+  function buildYouDogUserProfilePromptBlock() {
+    const p = ensureYouDogUserProfile();
+    const lines = [
+      "【用户（群友/活动区主角，角色仅按以下信息理解用户，不可引用剧情库「我的形象」）】",
+      "昵称：" + (p.nickname || "未设置"),
+      "真名：" + (p.realName || p.nickname || "未设置") + "（角色在平行世界互不相识，不可直呼真名）",
+      "人设：" + (truncateCharsWithEllipsis(p.persona, YOU_DOG_PROMPT_PROFILE_MAX_CHARS) || "未设定"),
+    ];
+    return lines.join("\n");
+  }
+
+  function saveYouDogUserProfileFromDom() {
+    const nickEl = document.getElementById("you-dog-profile-nickname");
+    const realEl = document.getElementById("you-dog-profile-realname");
+    const personaEl = document.getElementById("you-dog-profile-persona");
+    const aliasEl = document.getElementById("you-dog-profile-alias-input");
+    const nickname = nickEl ? String(nickEl.value || "").trim() : "";
+    const realName = realEl ? String(realEl.value || "").trim() : "";
+    const persona = personaEl ? String(personaEl.value || "").trim() : "";
+    if (!nickname) {
+      showToast("请填写昵称。", "warning");
+      return false;
+    }
+    if (!persona) {
+      showToast("请填写人设。", "warning");
+      return false;
+    }
+    youDogUserProfile.nickname = nickname.slice(0, 24);
+    youDogUserProfile.realName = realName.slice(0, 24);
+    youDogUserProfile.persona = persona.slice(0, 800);
+    if (aliasEl) {
+      const alias = normalizeYouDogAnonAlias(aliasEl.value);
+      if (alias && alias.replace(/^@/, "").length >= 2) {
+        youDogUserProfile.anonAlias = alias;
+      }
+    }
+    ensureYouDogUserProfile();
+    schedulePersistNarrative();
+    return true;
+  }
+
+  function sanitizeYouDogActivityState() {
+    if (!youDogActivityData || typeof youDogActivityData !== "object") {
+      youDogActivityData = { dmSessions: {} };
+    }
+    if (!youDogActivityData.dmSessions || typeof youDogActivityData.dmSessions !== "object") {
+      youDogActivityData.dmSessions = {};
+    }
+    if (
+      youDogActivityScreen !== "hub" &&
+      youDogActivityScreen !== "dm" &&
+      youDogActivityScreen !== "compose"
+    ) {
+      youDogActivityScreen = "hub";
+    }
+    if (youDogActivityHubTab !== "dm-list" && youDogActivityHubTab !== "forum") {
+      youDogActivityHubTab = "dm-list";
+    }
+    ensureYouDogActivityBundle();
+  }
+
+  function ensureYouDogActivityBundle() {
+    const key = YOU_DOG_ACTIVITY_BUNDLE_KEY;
+    if (!youDogTwitterData[key]) {
+      youDogTwitterData[key] = { posts: [], anonIdMap: {}, userPersonaMap: {} };
+    }
+    const bundle = youDogTwitterData[key];
+    if (!Array.isArray(bundle.posts)) bundle.posts = [];
+    if (!bundle.anonIdMap || typeof bundle.anonIdMap !== "object") bundle.anonIdMap = {};
+    return bundle;
+  }
+
+  function getYouDogActivityPosts() {
+    const bundle = ensureYouDogActivityBundle();
+    return (bundle.posts || [])
+      .slice()
+      .sort(function (a, b) {
+        const ta = a && typeof a.createdAt === "number" ? a.createdAt : 0;
+        const tb = b && typeof b.createdAt === "number" ? b.createdAt : 0;
+        return tb - ta;
+      });
+  }
+
+  function getYouDogActivityMemberRefs() {
+    if (!isYouDogChatReady()) return [];
+    return (ensureYouDogChatData().members || [])
+      .map(function (m) {
+        return m && m.memberRef;
+      })
+      .filter(Boolean);
+  }
+
+  function getYouDogActivityDmSession(memberRef) {
+    const ref = String(memberRef || "").trim();
+    if (!ref) return { messages: [] };
+    sanitizeYouDogActivityState();
+    if (!youDogActivityData.dmSessions[ref]) {
+      youDogActivityData.dmSessions[ref] = { messages: [] };
+    }
+    if (!Array.isArray(youDogActivityData.dmSessions[ref].messages)) {
+      youDogActivityData.dmSessions[ref].messages = [];
+    }
+    return youDogActivityData.dmSessions[ref];
+  }
+
+  function getYouDogActivityMemberLabel(memberRef) {
+    return isYouDogChatReady()
+      ? getYouDogChatMemberDisplayName(memberRef).split(" · ")[0]
+      : String(memberRef || "未知");
+  }
+
+  function formatYouDogActivityDmListTime(ts) {
+    const n = Number(ts);
+    if (!n || !Number.isFinite(n)) return "";
+    const diff = Date.now() - n;
+    if (diff < 60000) return "刚刚";
+    if (diff < 3600000) return Math.floor(diff / 60000) + "分钟前";
+    if (diff < 86400000) return Math.floor(diff / 3600000) + "小时前";
+    const d = new Date(n);
+    return (d.getMonth() + 1) + "/" + d.getDate();
+  }
+
+  function getYouDogActivityDmPreview(memberRef) {
+    const session = getYouDogActivityDmSession(memberRef);
+    const msgs = session.messages || [];
+    if (!msgs.length) return "点击开始聊天";
+    const last = msgs[msgs.length - 1];
+    const prefix = last && last.role === "user" ? "我: " : "";
+    return truncateCharsWithEllipsis(prefix + String((last && last.text) || ""), 42);
+  }
+
+  function getYouDogActivityPostListTitle(text) {
+    const first = String(text || "")
+      .trim()
+      .split(/\n/)[0];
+    if (!first) return "无标题";
+    return first.length > 28 ? truncateCharsWithEllipsis(first, 28) : first;
+  }
+
+  function getYouDogActivityPostListPreview(text) {
+    const trimmed = String(text || "").trim();
+    if (trimmed.length <= 28) return "";
+    return truncateCharsWithEllipsis(trimmed, 72);
+  }
+
+  function pickYouDogActivityProactiveDmRefs() {
+    const refs = getYouDogActivityMemberRefs();
+    if (!refs.length) return [];
+    const max = Math.min(YOU_DOG_ACTIVITY_PROACTIVE_DM_MAX, refs.length);
+    const min = Math.min(YOU_DOG_ACTIVITY_PROACTIVE_DM_MIN, max);
+    const count = min >= max ? max : min + Math.floor(Math.random() * (max - min + 1));
+    return shuffleYouDogArray(refs).slice(0, count);
+  }
+
+  function buildYouDogActivityDmHistoryBlock(memberRef, limit) {
+    const session = getYouDogActivityDmSession(memberRef);
+    const cap = typeof limit === "number" ? limit : 8;
+    return (session.messages || [])
+      .slice(-cap)
+      .map(function (m) {
+        const who =
+          m.role === "user" ? getYouDogUserDisplayNickname() : getYouDogActivityMemberLabel(memberRef);
+        return who + "：" + truncateCharsWithEllipsis(m.text || "", 100);
+      })
+      .join("\n");
+  }
+
+  function buildYouDogActivityProactiveDmTopicRule() {
+    return (
+      "每条消息主题从以下类型中自然选取（不同角色可不同类型，不必统一）：\n" +
+      "1) 衔接群聊最近话题，像私下找朋友唠两句；\n" +
+      "2) 轻提各自剧情/近况，口语带过不讲大道理；\n" +
+      "3) 向朋友请教、问用户意见或建议（工作学习生活均可）；\n" +
+      "4) 纯闲聊：摸鱼、段子、游戏、外卖、天气等日常。"
+    );
+  }
+
+  function buildYouDogActivityProactiveDmBatchPrompt(selectedRefs) {
+    const refs = (selectedRefs || []).filter(Boolean);
+    const data = ensureYouDogChatData();
+    const poolLabels = refs
+      .map(function (ref) {
+        return getYouDogActivityMemberLabel(ref) + "（memberRef=" + ref + "）";
+      })
+      .filter(Boolean);
+    const lines = [
+      "请为「你才是狗·活动私聊」生成一批角色主动找用户私聊的消息 JSON。",
+      YOU_DOG_PARALLEL_WORLD_RULE,
+      YOU_DOG_ACTIVITY_DM_FRIEND_RULE,
+      YOU_DOG_CHAT_TONE_RULE,
+      "",
+      buildYouDogUserProfilePromptBlock(),
+      "",
+      "【本批须发私聊的角色（每人恰好 1 条，memberRef 只能来自下列）】",
+      poolLabels.join("\n"),
+      "",
+      buildYouDogActivityProactiveDmTopicRule(),
+      "",
+    ];
+    const groupHistory = buildYouDogChatHistoryBlock(data, 24);
+    if (groupHistory) {
+      lines.push("【群聊最近记录（可衔接，勿照搬）】");
+      lines.push(groupHistory);
+      lines.push("");
+    }
+    refs.forEach(function (memberRef) {
+      const parsed = parseYouDogChatMemberRef(memberRef);
+      if (!parsed) return;
+      const plot = plots.find(function (p) {
+        return p.id === parsed.plotId;
+      });
+      if (!plot) return;
+      lines.push("════ " + getYouDogActivityMemberLabel(memberRef) + " · 性格参考 ════");
+      lines.push(buildYouDogChatPlotContextBlock(plot, parsed.charId));
+      const dmHistory = buildYouDogActivityDmHistoryBlock(memberRef, 6);
+      if (dmHistory) {
+        lines.push("【与该用户已有私聊（须衔接，勿重复）】");
+        lines.push(dmHistory);
+      }
+      lines.push("");
+    });
+    lines.push(
+      "角色主动开口找用户私聊，不要求用户先说话；口语 1~3 句，8~80 字。" +
+        "\n只输出 JSON：{\"messages\":[{\"memberRef\":\"plotId:charId\",\"text\":\"...\"}]}"
+    );
+    return lines.join("\n");
+  }
+
+  function buildYouDogActivitySingleProactiveDmPrompt(memberRef) {
+    const parsed = parseYouDogChatMemberRef(memberRef);
+    if (!parsed) return "";
+    const plot = plots.find(function (p) {
+      return p.id === parsed.plotId;
+    });
+    if (!plot) return "";
+    const data = ensureYouDogChatData();
+    const lines = [
+      "请为「你才是狗·活动私聊」生成角色主动找用户私聊的一条消息 JSON。",
+      YOU_DOG_PARALLEL_WORLD_RULE,
+      YOU_DOG_ACTIVITY_DM_FRIEND_RULE,
+      YOU_DOG_CHAT_TONE_RULE,
+      "",
+      buildYouDogUserProfilePromptBlock(),
+      "",
+      "【发私聊的角色 memberRef=" + memberRef + "】",
+      buildYouDogChatPlotContextBlock(plot, parsed.charId),
+      "",
+      buildYouDogActivityProactiveDmTopicRule(),
+      "",
+    ];
+    const groupHistory = buildYouDogChatHistoryBlock(data, 20);
+    if (groupHistory) {
+      lines.push("【群聊最近记录（可衔接，勿照搬）】");
+      lines.push(groupHistory);
+      lines.push("");
+    }
+    const dmHistory = buildYouDogActivityDmHistoryBlock(memberRef, 10);
+    if (dmHistory) {
+      lines.push("【与该用户已有私聊（须衔接，勿重复）】");
+      lines.push(dmHistory);
+      lines.push("");
+    }
+    lines.push(
+      "角色主动开口找用户私聊，不要求用户先说话；口语 1~3 句，8~80 字。" +
+        '\n只输出 JSON：{"text":"..."}'
+    );
+    return lines.join("\n");
+  }
+
+  function appendYouDogActivityProactiveDmMessages(parsed, allowedRefs) {
+    const allowed = new Set((allowedRefs || []).filter(Boolean));
+    const list = parsed && Array.isArray(parsed.messages) ? parsed.messages : [];
+    let added = 0;
+    list.forEach(function (raw) {
+      const ref = String((raw && raw.memberRef) || "").trim();
+      if (!allowed.has(ref)) return;
+      const text = String((raw && raw.text) || "").trim();
+      if (!text) return;
+      const session = getYouDogActivityDmSession(ref);
+      session.messages.push({
+        id: uid("ydadm"),
+        role: "char",
+        text: text.slice(0, YOU_DOG_CHAT_TEXT_MAX),
+        time: Date.now(),
+      });
+      added++;
+    });
+    if (added) schedulePersistNarrative();
+    return added;
+  }
+
+  function youDogOnChatTab() {
+    return youDogMainTab === "messages" && youDogMessagesSegment === "group";
+  }
+
+  function syncYouDogLegacyChatSubScreen() {
+    youDogChatSubScreen = youDogOnChatTab() ? "chat" : "feed";
+  }
+
+  /** 将旧版四 Tab（群聊/树洞/活动/我的）迁移为首页+消息+我的 */
+  function normalizeYouDogMainTabLayout() {
+    const tab = String(youDogMainTab || "").trim();
+    if (tab === "home" || tab === "messages" || tab === "profile") {
+      /* 已是新结构 */
+    } else if (tab === "feed") {
+      youDogMainTab = "home";
+      youDogHomeSegment = "feed";
+    } else if (tab === "chat") {
+      youDogMainTab = "messages";
+      youDogMessagesSegment = "group";
+    } else if (tab === "activity" || tab === "playground") {
+      if (youDogActivityScreen === "compose" || youDogActivityHubTab === "forum") {
+        youDogMainTab = "home";
+        youDogHomeSegment = "forum";
+      } else if (youDogActivityScreen === "dm") {
+        youDogMainTab = "messages";
+        youDogMessagesSegment = "dm";
+      } else if (youDogActivityHubTab === "forum") {
+        youDogMainTab = "home";
+        youDogHomeSegment = "forum";
+      } else {
+        youDogMainTab = "messages";
+        youDogMessagesSegment = "dm";
+      }
+    } else {
+      youDogMainTab = "home";
+      youDogHomeSegment = "feed";
+    }
+    if (youDogHomeSegment !== "feed" && youDogHomeSegment !== "forum") {
+      youDogHomeSegment = "feed";
+    }
+    if (youDogMessagesSegment !== "group" && youDogMessagesSegment !== "dm") {
+      youDogMessagesSegment = "group";
+    }
+  }
 
   const COLLECT_TTS_LABELS = {
     whisper: "播放",
@@ -10176,23 +10653,25 @@
       youDogPlotId: youDogPlotIds.length ? youDogPlotIds[0] : null,
       youDogParticipantIds: Array.isArray(youDogParticipantIds) ? youDogParticipantIds.slice() : [],
       youDogNextGenCharId: youDogNextGenCharId || null,
-      youDogUserCharId: youDogUserCharId || null,
-      youDogUserAnonAlias: youDogUserAnonAlias || null,
+      youDogUserProfile: ensureYouDogUserProfile(),
       youDogSections: Array.isArray(youDogSections) ? youDogSections.map(cloneYouDogSection) : [],
       youDogTwitterData: youDogTwitterData || {},
-      youDogChatSubScreen: youDogChatSubScreen === "chat" ? "chat" : "feed",
+      youDogMainTab: youDogMainTab || "home",
+      youDogHomeSegment: youDogHomeSegment || "feed",
+      youDogMessagesSegment: youDogMessagesSegment || "group",
+      youDogChatSubScreen: youDogOnChatTab() ? "chat" : "feed",
       youDogChatData: youDogChatData || null,
       youDogChatParticipantIds: Array.isArray(youDogChatParticipantIds) ? youDogChatParticipantIds.slice() : [],
       youDogChatSpeakerPoolRefs: Array.isArray(youDogChatSpeakerPoolRefs)
         ? youDogChatSpeakerPoolRefs.slice()
         : [],
-      youDogChatUserCharId: youDogChatUserCharId || null,
       youDogLastGenPickRefs: Array.isArray(youDogLastGenPickRefs) ? youDogLastGenPickRefs.slice() : [],
       youDogFeedSpeakerPoolRefs: Array.isArray(youDogFeedSpeakerPoolRefs)
         ? youDogFeedSpeakerPoolRefs.slice()
         : [],
       youDogLastChatGenPickRefs: Array.isArray(youDogLastChatGenPickRefs) ? youDogLastChatGenPickRefs.slice() : [],
       youDogLastFeedBatchPostIds: Array.isArray(youDogLastFeedBatchPostIds) ? youDogLastFeedBatchPostIds.slice() : [],
+      youDogActivityData: youDogActivityData || { dmSessions: {} },
     });
   }
 
@@ -10641,13 +11120,23 @@
       }
       grudgeBookViewPerspective =
         o.grudgeBookViewPerspective === "character" ? "character" : "user";
-      grudgeBookActiveBook = o.grudgeBookActiveBook === "merit" ? "merit" : "grudge";
+      grudgeBookActiveBook =
+        o.grudgeBookActiveBook === "merit"
+          ? "merit"
+          : o.grudgeBookActiveBook === "diary"
+            ? "diary"
+            : "grudge";
       sanitizeGrudgeBookState();
       youDogPlotIds = [];
       youDogParticipantIds = [];
       youDogNextGenCharId = null;
-      youDogUserCharId = null;
-      youDogUserAnonAlias = null;
+      youDogUserProfile = normalizeYouDogUserProfile(null);
+      if (o.youDogUserProfile && typeof o.youDogUserProfile === "object") {
+        youDogUserProfile = normalizeYouDogUserProfile(o.youDogUserProfile);
+      }
+      if (!youDogUserProfile.anonAlias && typeof o.youDogUserAnonAlias === "string" && o.youDogUserAnonAlias.trim()) {
+        youDogUserProfile.anonAlias = normalizeYouDogAnonAlias(o.youDogUserAnonAlias.trim());
+      }
       if (Array.isArray(o.youDogPlotIds)) {
         youDogPlotIds = o.youDogPlotIds.filter(function (id) {
           return typeof id === "string" && id.trim();
@@ -10665,12 +11154,6 @@
       } else if (youDogParticipantIds.length) {
         youDogNextGenCharId = youDogParticipantIds[0];
       }
-      if (typeof o.youDogUserCharId === "string" && o.youDogUserCharId.trim()) {
-        youDogUserCharId = o.youDogUserCharId.trim();
-      }
-      if (typeof o.youDogUserAnonAlias === "string" && o.youDogUserAnonAlias.trim()) {
-        youDogUserAnonAlias = o.youDogUserAnonAlias.trim();
-      }
       youDogSections = [];
       if (Array.isArray(o.youDogSections)) {
         o.youDogSections.forEach(function (sec) {
@@ -10687,7 +11170,23 @@
         });
       }
       sanitizeYouDogState();
-      youDogChatSubScreen = o.youDogChatSubScreen === "chat" ? "chat" : "feed";
+      if (typeof o.youDogMainTab === "string" && o.youDogMainTab.trim()) {
+        youDogMainTab = o.youDogMainTab.trim();
+      } else {
+        youDogMainTab = o.youDogChatSubScreen === "chat" ? "messages" : "home";
+      }
+      youDogHomeSegment = "feed";
+      if (typeof o.youDogHomeSegment === "string") {
+        const seg = o.youDogHomeSegment.trim();
+        if (seg === "feed" || seg === "forum") youDogHomeSegment = seg;
+      }
+      youDogMessagesSegment = "group";
+      if (typeof o.youDogMessagesSegment === "string") {
+        const seg = o.youDogMessagesSegment.trim();
+        if (seg === "group" || seg === "dm") youDogMessagesSegment = seg;
+      }
+      normalizeYouDogMainTabLayout();
+      syncYouDogLegacyChatSubScreen();
       youDogChatData = normalizeYouDogChatData(o.youDogChatData);
       youDogChatParticipantIds = [];
       if (Array.isArray(o.youDogChatParticipantIds)) {
@@ -10703,10 +11202,6 @@
       } else if (youDogChatParticipantIds.length) {
         youDogChatSpeakerPoolRefs = youDogChatParticipantIds.slice();
       }
-      youDogChatUserCharId =
-        typeof o.youDogChatUserCharId === "string" && o.youDogChatUserCharId.trim()
-          ? o.youDogChatUserCharId.trim()
-          : null;
       youDogLastGenPickRefs = [];
       if (Array.isArray(o.youDogLastGenPickRefs)) {
         youDogLastGenPickRefs = o.youDogLastGenPickRefs.filter(function (id) {
@@ -10731,6 +11226,14 @@
           return typeof id === "string" && id.trim();
         });
       }
+      youDogActivityData = { dmSessions: {} };
+      if (o.youDogActivityData && typeof o.youDogActivityData === "object") {
+        youDogActivityData.dmSessions =
+          o.youDogActivityData.dmSessions && typeof o.youDogActivityData.dmSessions === "object"
+            ? o.youDogActivityData.dmSessions
+            : {};
+      }
+      sanitizeYouDogActivityState();
       sanitizeYouDogChatState();
       knockPlotId =
         typeof o.knockPlotId === "string" && o.knockPlotId.trim() ? o.knockPlotId.trim() : null;
@@ -30751,9 +31254,20 @@
     return String(plotId || "") + "\u001e" + String(charId || "");
   }
 
+  function pickPassNoteDistinctTypes(count) {
+    const pool = PASS_NOTE_AI_TYPE_KEYS.slice();
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = pool[i];
+      pool[i] = pool[j];
+      pool[j] = t;
+    }
+    return pool.slice(0, Math.min(count, pool.length));
+  }
+
   function passNoteTypeFromQuestionIndex(idx) {
-    if (typeof idx === "number" && idx >= 0 && idx < PASS_NOTE_TYPE_BY_INDEX.length) {
-      return PASS_NOTE_TYPE_BY_INDEX[idx];
+    if (typeof idx === "number" && idx >= 0 && idx < PASS_NOTE_AI_TYPE_KEYS.length) {
+      return PASS_NOTE_AI_TYPE_KEYS[idx];
     }
     return "";
   }
@@ -30781,8 +31295,12 @@
           : -1;
     const fromId = passNoteTypeFromQuestionIndex(qIdx);
     if (fromId) return fromId;
-    if (opts && opts.compose) return PASS_NOTE_TYPE_BY_INDEX[idx] || "philosophy";
-    if (typeof idx === "number" && PASS_NOTE_TYPE_BY_INDEX[idx]) return PASS_NOTE_TYPE_BY_INDEX[idx];
+    if (opts && opts.compose) {
+      return PASS_NOTE_AI_TYPE_KEYS[idx % PASS_NOTE_AI_TYPE_KEYS.length] || "philosophy";
+    }
+    if (typeof idx === "number" && PASS_NOTE_AI_TYPE_KEYS[idx % PASS_NOTE_AI_TYPE_KEYS.length]) {
+      return PASS_NOTE_AI_TYPE_KEYS[idx % PASS_NOTE_AI_TYPE_KEYS.length];
+    }
     return "philosophy";
   }
 
@@ -31078,19 +31596,43 @@
       recent.length > 0
         ? "\n\n请避免与以下近期已出题目重复或过于相似：\n" + recent.map(function (t) { return "- " + t; }).join("\n")
         : "";
+    const suggestedTypes = pickPassNoteDistinctTypes(3);
+    const typeCatalog = PASS_NOTE_AI_TYPE_KEYS.map(function (key) {
+      const theme = PASS_NOTE_SLIP_THEMES[key];
+      return (
+        key +
+        "（" +
+        (theme ? theme.label : key) +
+        "：" +
+        (PASS_NOTE_AI_TYPE_HINTS[key] || "") +
+        "）"
+      );
+    }).join("\n");
     return (
       "请为「传纸条」互动生成 3 道趣味问答题。\n" +
       "要求：\n" +
-      "- 题目可以完全跳脱剧情与人设，鼓励脑洞、 surreal 假设、无厘头二选一、哲学怪问、日常怪癖等\n" +
+      "- 每轮固定 3 题，题型从下方类型库中任选 3 种，三道题 type 必须互不重复\n" +
+      "- 本轮建议优先尝试这些 type（可替换为同库其他类型，但仍须 3 种各不同）：" +
+      suggestedTypes.join("、") +
+      "\n" +
+      "- 题目可以完全跳脱剧情与人设，鼓励脑洞、 surreal 假设、无厘头二选一、哲学怪问、日常怪癖、真心话、假如、偏好取舍、联想、情境、回忆等\n" +
       "- 不必贴合当前剧情，甚至可以问「如果明天地球重力减半你会做什么」这类天马行空的问题\n" +
       "- 语言轻松有趣，每题 1-2 句，适合私下传纸条聊天\n" +
       "- 不要出需要专业知识或敏感政治宗教的内容\n" +
-      "- 每题需标注 type，从以下选一个（三道题 type 尽量不重复）：whimsy（天马行空脑洞）、choice（二选一怪问）、daily（日常怪癖）、philosophy（怪哲学）\n" +
+      "- 每题需标注 type，只能从以下类型库中选一个：\n" +
+      typeCatalog +
+      "\n" +
       avoidBlock +
       "\n\n可选背景（仅作语气参考，题目不必贴合）：\n" +
       buildPassNotePlotContextBlock(plot, partnerChar) +
       "\n\n只输出 JSON，不要 markdown 围栏：\n" +
-      '{"questions":[{"id":"q1","text":"...","type":"whimsy","charPreAnswer":"..."},{"id":"q2","text":"...","type":"choice","charPreAnswer":"..."},{"id":"q3","text":"...","type":"daily","charPreAnswer":"..."}]}\n' +
+      '{"questions":[{"id":"q1","text":"...","type":"' +
+      suggestedTypes[0] +
+      '","charPreAnswer":"..."},{"id":"q2","text":"...","type":"' +
+      suggestedTypes[1] +
+      '","charPreAnswer":"..."},{"id":"q3","text":"...","type":"' +
+      suggestedTypes[2] +
+      '","charPreAnswer":"..."}]}\n' +
       "charPreAnswer 是角色本人对该问题的回答，1-3 句口语化，符合人设但题目可以很跳脱。"
     );
   }
@@ -31162,11 +31704,27 @@
     if (!parsed || !Array.isArray(parsed.questions)) throw new Error("题目格式不正确");
     const questions = parsed.questions.map(normalizePassNoteQuestion).filter(Boolean);
     if (questions.length < 3) throw new Error("需要生成 3 道题目");
+    const fallbackTypes = pickPassNoteDistinctTypes(3);
+    const usedTypes = Object.create(null);
     return questions.slice(0, 3).map(function (q, i) {
       const item = parsed.questions[i] || q;
       const pre =
         item && item.charPreAnswer != null ? String(item.charPreAnswer).trim().slice(0, 600) : "";
-      const type = normalizePassNoteQuestionType(item && item.type) || passNoteTypeFromQuestionIndex(i) || "philosophy";
+      let type =
+        normalizePassNoteQuestionType(item && item.type) ||
+        fallbackTypes[i] ||
+        passNoteTypeFromQuestionIndex(i) ||
+        "philosophy";
+      if (usedTypes[type]) {
+        const replacement = fallbackTypes.find(function (t) {
+          return !usedTypes[t];
+        }) ||
+          PASS_NOTE_AI_TYPE_KEYS.find(function (t) {
+            return !usedTypes[t];
+          });
+        if (replacement) type = replacement;
+      }
+      usedTypes[type] = true;
       return {
         id: "q" + (i + 1),
         text: q.text,
@@ -31273,12 +31831,13 @@
     }
   }
 
-  function createEmptyPassNoteQuestions() {
+  function createEmptyPassNoteQuestions(visualTypes) {
+    const types = Array.isArray(visualTypes) && visualTypes.length ? visualTypes : pickPassNoteDistinctTypes(3);
     return [0, 1, 2].map(function (i) {
       return {
         id: "q" + (i + 1),
         text: "",
-        type: "",
+        type: types[i] || types[0] || "",
         userAnswer: "",
         charPreAnswer: "",
         charReply: "",
@@ -31950,7 +32509,7 @@
         buildPassNoteHeaderHtml("传纸条", true, true) +
         buildPassNoteBannerHtml(plot, partner) +
         '<div class="pass-note-hub">' +
-        '<p class="pass-note-hub__intro">每轮 3 题。你先作答，再先看 TA 对题目本身的回答，最后收到 TA 对你答案的回应。题目可以很跳脱。</p>' +
+        '<p class="pass-note-hub__intro">每轮 3 题，题型随机混搭（脑洞、二选一、真心话、假如、回忆等十余种）。你先作答，再先看 TA 对题目本身的回答，最后收到 TA 对你答案的回应。</p>' +
         '<button type="button" class="btn btn--primary btn--pill pass-note-hub__start" data-pass-note-start-custom>自己准备题目</button>' +
         '<button type="button" class="btn btn--secondary btn--pill pass-note-hub__start" data-pass-note-start-ai' +
         (passNoteGenerating ? " disabled" : "") +
@@ -32446,6 +33005,37 @@
     };
   }
 
+  function normalizeGrudgeBookDiaryEntry(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const content = String(raw.content || raw.event || "").trim();
+    if (!content) return null;
+    const id =
+      typeof raw.id === "string" && raw.id.trim()
+        ? raw.id.trim()
+        : "gbd_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+    const title = String(raw.title || "").trim().slice(0, 60);
+    const mood = String(raw.mood || "").trim().slice(0, 20);
+    let photos = [];
+    if (Array.isArray(raw.photos)) {
+      photos = raw.photos
+        .filter(function (p) {
+          return isSafeImageUrl(p);
+        })
+        .slice(0, GRUDGE_BOOK_DIARY_PHOTOS_MAX);
+    } else if (isSafeImageUrl(raw.photo)) {
+      photos = [String(raw.photo).trim()];
+    }
+    return {
+      id: id,
+      title: title,
+      content: content.slice(0, 2000),
+      mood: mood,
+      photos: photos,
+      createdAt: typeof raw.createdAt === "number" ? raw.createdAt : Date.now(),
+      updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : Date.now(),
+    };
+  }
+
   function normalizeGrudgeBookSide(raw, bookType) {
     const side = raw && typeof raw === "object" ? raw : {};
     const grudges = Array.isArray(side.grudges)
@@ -32458,23 +33048,38 @@
           return normalizeGrudgeBookEntry(e, "merit");
         }).filter(Boolean)
       : [];
-    return { grudges: grudges, merits: merits };
+    const diaries = Array.isArray(side.diaries)
+      ? side.diaries.map(function (e) {
+          return normalizeGrudgeBookDiaryEntry(e);
+        }).filter(Boolean)
+      : [];
+    return { grudges: grudges, merits: merits, diaries: diaries };
   }
 
   function normalizeGrudgeBookBundle(raw) {
     if (!raw || typeof raw !== "object") return null;
     const user = normalizeGrudgeBookSide(raw.user, "grudge");
     const character = normalizeGrudgeBookSide(raw.character, "grudge");
-    if (!user.grudges.length && !user.merits.length && !character.grudges.length && !character.merits.length) {
-      return { user: { grudges: [], merits: [] }, character: { grudges: [], merits: [] } };
+    if (
+      !user.grudges.length &&
+      !user.merits.length &&
+      !user.diaries.length &&
+      !character.grudges.length &&
+      !character.merits.length &&
+      !character.diaries.length
+    ) {
+      return {
+        user: { grudges: [], merits: [], diaries: [] },
+        character: { grudges: [], merits: [], diaries: [] },
+      };
     }
     return { user: user, character: character };
   }
 
   function createEmptyGrudgeBookBundle() {
     return {
-      user: { grudges: [], merits: [] },
-      character: { grudges: [], merits: [] },
+      user: { grudges: [], merits: [], diaries: [] },
+      character: { grudges: [], merits: [], diaries: [] },
     };
   }
 
@@ -32499,7 +33104,7 @@
       grudgeBookCharId = null;
     }
     if (grudgeBookViewPerspective !== "character") grudgeBookViewPerspective = "user";
-    if (grudgeBookActiveBook !== "merit") grudgeBookActiveBook = "grudge";
+    if (grudgeBookActiveBook !== "merit" && grudgeBookActiveBook !== "diary") grudgeBookActiveBook = "grudge";
   }
 
   function getGrudgeBookPlot() {
@@ -32556,7 +33161,15 @@
   function getGrudgeBookNav(slot) {
     const id = slot && slot.id ? slot.id : "grudge-book-content-slot";
     if (!grudgeBookNavBySlotId[id]) {
-      grudgeBookNavBySlotId[id] = { screen: "list", detailId: null, composeDraft: null, editingId: null };
+      grudgeBookNavBySlotId[id] = {
+        screen: "list",
+        detailId: null,
+        composeDraft: null,
+        editingId: null,
+        historyFilterPersp: "all",
+        historyFilterType: "all",
+        historyReturn: false,
+      };
     }
     return grudgeBookNavBySlotId[id];
   }
@@ -32566,12 +33179,14 @@
   }
 
   function grudgeBookListKey() {
-    return grudgeBookActiveBook === "merit" ? "merits" : "grudges";
+    if (grudgeBookActiveBook === "merit") return "merits";
+    if (grudgeBookActiveBook === "diary") return "diaries";
+    return "grudges";
   }
 
   function getGrudgeBookEntries(bundle) {
     if (!bundle) return [];
-    const side = bundle[grudgeBookSideKey()] || { grudges: [], merits: [] };
+    const side = bundle[grudgeBookSideKey()] || { grudges: [], merits: [], diaries: [] };
     const list = side[grudgeBookListKey()] || [];
     return list.slice().sort(function (a, b) {
       return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
@@ -32581,7 +33196,7 @@
   function findGrudgeBookEntry(bundle, entryId) {
     if (!bundle || !entryId) return null;
     const sides = ["user", "character"];
-    const lists = ["grudges", "merits"];
+    const lists = ["grudges", "merits", "diaries"];
     for (let si = 0; si < sides.length; si++) {
       const side = bundle[sides[si]];
       if (!side) continue;
@@ -32594,6 +33209,49 @@
       }
     }
     return null;
+  }
+
+  function collectGrudgeBookHistoryItems(bundle) {
+    if (!bundle) return [];
+    const items = [];
+    const sideDefs = [
+      { key: "user", label: "我的本" },
+      { key: "character", label: "TA的本" },
+    ];
+    const typeDefs = [
+      { list: "grudges", bookType: "grudge", label: "记仇" },
+      { list: "merits", bookType: "merit", label: "积德" },
+      { list: "diaries", bookType: "diary", label: "日记" },
+    ];
+    sideDefs.forEach(function (sideDef) {
+      const side = bundle[sideDef.key] || {};
+      typeDefs.forEach(function (typeDef) {
+        (side[typeDef.list] || []).forEach(function (entry) {
+          items.push({
+            entry: entry,
+            side: sideDef.key,
+            sideLabel: sideDef.label,
+            bookType: typeDef.bookType,
+            typeLabel: typeDef.label,
+            list: typeDef.list,
+          });
+        });
+      });
+    });
+    return items.sort(function (a, b) {
+      return (b.entry.updatedAt || b.entry.createdAt || 0) - (a.entry.updatedAt || a.entry.createdAt || 0);
+    });
+  }
+
+  function formatGrudgeBookHistoryTime(ts) {
+    if (!ts) return "";
+    const d = new Date(ts);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return y + "-" + m + "-" + day + " " + hh + ":" + mm;
   }
 
   function grudgeBookPlanStatusLabel(plan, bookType) {
@@ -32638,6 +33296,15 @@
   }
 
   function defaultGrudgeBookComposeDraft(plot, partner, bookType) {
+    if (bookType === "diary") {
+      return {
+        title: "",
+        content: "",
+        mood: "",
+        photos: [],
+        bookType: "diary",
+      };
+    }
     const userChar = plot ? getGrudgeBookUserChar(plot) : null;
     const defaultParty =
       grudgeBookViewPerspective === "character"
@@ -32658,7 +33325,8 @@
     };
   }
 
-  function buildGrudgeBookHeaderHtml(title, showGenerate, generating) {
+  function buildGrudgeBookHeaderHtml(title, showGenerate, generating, showHistory) {
+    if (showHistory === undefined) showHistory = false;
     return (
       '<header class="grudge-book-header star-header">' +
       '<div class="star-header__lead">' +
@@ -32676,6 +33344,11 @@
           (generating ? " disabled" : "") +
           ">" +
           buildPhoneWechatStarIconSvg() +
+          "</button>"
+        : "") +
+      (showHistory
+        ? '<button type="button" class="icon-btn grudge-book-header__history" data-grudge-book-history aria-label="历史记录" title="历史记录">' +
+          '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 6h16M4 10h16M4 14h10"/><rect x="4" y="4" width="16" height="16" rx="2"/></svg>' +
           "</button>"
         : "") +
       '<button type="button" class="icon-btn grudge-book-header__settings" data-grudge-book-settings aria-label="切换对象">' +
@@ -32725,7 +33398,34 @@
       '<button type="button" class="grudge-book-seg__btn grudge-book-seg__btn--merit' +
       (book === "merit" ? " is-active" : "") +
       '" data-grudge-book-book="merit" role="tab">积德本</button>' +
+      '<button type="button" class="grudge-book-seg__btn grudge-book-seg__btn--diary' +
+      (book === "diary" ? " is-active" : "") +
+      '" data-grudge-book-book="diary" role="tab">日记本</button>' +
       "</div></div>"
+    );
+  }
+
+  function buildGrudgeBookDiaryCardHtml(entry) {
+    const preview = entry.content ? entry.content.slice(0, 72) + (entry.content.length > 72 ? "…" : "") : "";
+    const photoCount = Array.isArray(entry.photos) ? entry.photos.length : 0;
+    return (
+      '<button type="button" class="grudge-book-entry-card grudge-book-entry-card--diary" data-grudge-book-open="' +
+      escapeHtml(entry.id) +
+      '">' +
+      '<div class="grudge-book-entry-card__top">' +
+      '<span class="grudge-book-entry-card__party">' +
+      escapeHtml(entry.title || "无标题") +
+      "</span>" +
+      (entry.mood ? '<span class="grudge-book-entry-card__mood">' + escapeHtml(entry.mood) + "</span>" : "") +
+      "</div>" +
+      '<p class="grudge-book-entry-card__event">' +
+      escapeHtml(preview) +
+      "</p>" +
+      '<div class="grudge-book-entry-card__meta">' +
+      (photoCount ? '<span class="grudge-book-entry-card__photos">📷 ' + photoCount + "</span>" : "") +
+      '<span class="grudge-book-entry-card__time">' +
+      escapeHtml(formatGrudgeBookHistoryTime(entry.updatedAt || entry.createdAt)) +
+      "</span></div></button>"
     );
   }
 
@@ -32765,9 +33465,13 @@
     const bookType = grudgeBookActiveBook;
     const entries = getGrudgeBookEntries(bundle);
     const isMerit = bookType === "merit";
-    const addLabel = isMerit ? "积一份德" : "记一笔仇";
-    const emptyHint =
-      grudgeBookViewPerspective === "character"
+    const isDiary = bookType === "diary";
+    const addLabel = isDiary ? "写一篇日记" : isMerit ? "积一份德" : "记一笔仇";
+    const emptyHint = isDiary
+      ? grudgeBookViewPerspective === "character"
+        ? "TA 的日记本还是空的。点右上角生成，看看 TA 最近写了什么。"
+        : "日记本还没有内容。记录下今天的心情与片段吧。"
+      : grudgeBookViewPerspective === "character"
         ? isMerit
           ? "TA 的积德本还是空的。点右上角生成，让 TA 写下对你的感恩。"
           : "TA 的记仇本还是空的。点右上角生成，看看 TA 对你记了哪些仇。"
@@ -32776,18 +33480,20 @@
           : "记仇本干干净净。若有委屈，可以悄悄记下一笔。";
     const rows =
       entries.length > 0
-        ? entries.map(function (e) {
-            return buildGrudgeBookEntryCardHtml(e, bookType);
-          }).join("")
+        ? entries
+            .map(function (e) {
+              return isDiary ? buildGrudgeBookDiaryCardHtml(e) : buildGrudgeBookEntryCardHtml(e, bookType);
+            })
+            .join("")
         : '<p class="grudge-book-empty">' + escapeHtml(emptyHint) + "</p>";
-    const themeCls = isMerit ? "grudge-book-screen--merit" : "grudge-book-screen--grudge";
-    const notebookLabel = isMerit ? "积德本" : "记仇本";
+    const themeCls = isDiary ? "grudge-book-screen--diary" : isMerit ? "grudge-book-screen--merit" : "grudge-book-screen--grudge";
+    const notebookLabel = isDiary ? "日记本" : isMerit ? "积德本" : "记仇本";
     const perspLabel = grudgeBookViewPerspective === "character" ? "TA的本" : "我的本";
     return (
       '<div class="grudge-book-screen ' +
       themeCls +
       '">' +
-      buildGrudgeBookHeaderHtml("恩怨本", true, grudgeBookGenerating) +
+      buildGrudgeBookHeaderHtml("恩怨本", true, grudgeBookGenerating, true) +
       (plot && partner ? buildGrudgeBookBannerHtml(plot, partner) : "") +
       buildGrudgeBookSegHtml() +
       '<div class="grudge-book-notebook">' +
@@ -32840,7 +33546,10 @@
   }
 
   function buildGrudgeBookComposeHtml(slot, draft, editingId) {
-    const bookType = draft.bookType === "merit" ? "merit" : "grudge";
+    const bookType = draft.bookType === "merit" ? "merit" : draft.bookType === "diary" ? "diary" : "grudge";
+    if (bookType === "diary") {
+      return buildGrudgeBookDiaryComposeHtml(slot, draft, editingId);
+    }
     const isMerit = bookType === "merit";
     const themeCls = isMerit ? "grudge-book-screen--merit" : "grudge-book-screen--grudge";
     const title = editingId ? (isMerit ? "编辑积德" : "编辑记仇") : isMerit ? "积一份德" : "记一笔仇";
@@ -32869,7 +33578,194 @@
     );
   }
 
+  function buildGrudgeBookDiaryPhotoGridHtml(photos, editable) {
+    const list = Array.isArray(photos) ? photos : [];
+    let html = '<div class="grudge-book-diary-photos">';
+    list.forEach(function (url, idx) {
+      if (!isSafeImageUrl(url)) return;
+      html +=
+        '<figure class="grudge-book-diary-photo">' +
+        '<img src="' +
+        escapeHtml(url) +
+        '" alt="日记照片" loading="lazy" />' +
+        (editable
+          ? '<button type="button" class="grudge-book-diary-photo__remove" data-grudge-book-diary-photo-remove="' +
+            idx +
+            '" aria-label="移除照片">×</button>'
+          : "") +
+        "</figure>";
+    });
+    if (editable && list.length < GRUDGE_BOOK_DIARY_PHOTOS_MAX) {
+      html +=
+        '<label class="grudge-book-diary-photo grudge-book-diary-photo--add">' +
+        '<input type="file" accept="image/*" class="grudge-book-diary-photo__input" data-grudge-book-diary-photo-add hidden />' +
+        '<span class="grudge-book-diary-photo__add-inner">' +
+        '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 5v14M5 12h14"/></svg>' +
+        "<span>添加照片</span></span></label>";
+    }
+    html += "</div>";
+    return html;
+  }
+
+  function buildGrudgeBookDiaryComposeHtml(slot, draft, editingId) {
+    const title = editingId ? "编辑日记" : "写一篇日记";
+    return (
+      '<div class="grudge-book-screen grudge-book-screen--diary grudge-book-screen--compose">' +
+      buildGrudgeBookHeaderHtml(title, false, false, false) +
+      '<div class="grudge-book-compose grudge-book-compose--diary">' +
+      buildGrudgeBookFieldHtml("标题", "title", draft.title, false, "可选，给今天起个名字") +
+      buildGrudgeBookFieldHtml("心情", "mood", draft.mood, false, "例如：开心、想念") +
+      buildGrudgeBookFieldHtml("正文", "content", draft.content, true, "写下今天想留住的片段…") +
+      '<div class="grudge-book-field">' +
+      '<span class="grudge-book-field__label">照片</span>' +
+      buildGrudgeBookDiaryPhotoGridHtml(draft.photos, true) +
+      '<p class="grudge-book-diary-photo__hint">最多 ' +
+      GRUDGE_BOOK_DIARY_PHOTOS_MAX +
+      " 张，单张会自动压缩</p></div>" +
+      '<div class="grudge-book-compose__actions">' +
+      '<button type="button" class="btn btn--secondary btn--pill" data-grudge-book-compose-cancel>取消</button>' +
+      '<button type="button" class="btn btn--primary btn--pill" data-grudge-book-compose-save>保存</button>' +
+      "</div></div></div>"
+    );
+  }
+
+  function buildGrudgeBookDiaryDetailHtml(entry, isUserSide) {
+    const photos = Array.isArray(entry.photos) ? entry.photos.filter(isSafeImageUrl) : [];
+    return (
+      '<div class="grudge-book-screen grudge-book-screen--diary grudge-book-screen--detail">' +
+      buildGrudgeBookHeaderHtml("日记详情", false, false, false) +
+      '<div class="grudge-book-detail grudge-book-detail--diary">' +
+      '<div class="grudge-book-detail__fields">' +
+      (entry.title
+        ? '<p><span class="grudge-book-detail__key">标题</span>' + escapeHtml(entry.title) + "</p>"
+        : "") +
+      (entry.mood ? '<p><span class="grudge-book-detail__key">心情</span>' + escapeHtml(entry.mood) + "</p>" : "") +
+      '<p><span class="grudge-book-detail__key">时间</span>' +
+      escapeHtml(formatGrudgeBookHistoryTime(entry.updatedAt || entry.createdAt)) +
+      "</p>" +
+      '<p class="grudge-book-detail__event grudge-book-detail__diary-text">' +
+      escapeHtml(entry.content || "") +
+      "</p></div>" +
+      (photos.length ? buildGrudgeBookDiaryPhotoGridHtml(photos, false) : "") +
+      (isUserSide
+        ? '<div class="grudge-book-detail__actions">' +
+          '<button type="button" class="btn btn--secondary btn--pill" data-grudge-book-edit>编辑</button>' +
+          '<button type="button" class="btn btn--danger btn--pill" data-grudge-book-delete>删除</button>' +
+          "</div>"
+        : "") +
+      "</div></div>"
+    );
+  }
+
+  function buildGrudgeBookHistoryFilterHtml(nav) {
+    const persp = nav.historyFilterPersp || "all";
+    const type = nav.historyFilterType || "all";
+    function perspBtn(val, label) {
+      return (
+        '<button type="button" class="grudge-book-history-filter__btn' +
+        (persp === val ? " is-active" : "") +
+        '" data-grudge-book-history-persp="' +
+        val +
+        '">' +
+        escapeHtml(label) +
+        "</button>"
+      );
+    }
+    function typeBtn(val, label) {
+      return (
+        '<button type="button" class="grudge-book-history-filter__btn' +
+        (type === val ? " is-active" : "") +
+        '" data-grudge-book-history-type="' +
+        val +
+        '">' +
+        escapeHtml(label) +
+        "</button>"
+      );
+    }
+    return (
+      '<div class="grudge-book-history-filters">' +
+      '<div class="grudge-book-history-filter" role="tablist" aria-label="视角筛选">' +
+      perspBtn("all", "全部") +
+      perspBtn("user", "我的本") +
+      perspBtn("character", "TA的本") +
+      "</div>" +
+      '<div class="grudge-book-history-filter grudge-book-history-filter--type" role="tablist" aria-label="分类筛选">' +
+      typeBtn("all", "全部") +
+      typeBtn("grudge", "记仇") +
+      typeBtn("merit", "积德") +
+      typeBtn("diary", "日记") +
+      "</div></div>"
+    );
+  }
+
+  function buildGrudgeBookHistoryItemHtml(item) {
+    const entry = item.entry;
+    const isDiary = item.bookType === "diary";
+    const preview = isDiary
+      ? (entry.content || "").slice(0, 64)
+      : (entry.event || "").slice(0, 64);
+    const suffix = preview.length < (isDiary ? entry.content || "" : entry.event || "").length ? "…" : "";
+    const photoBadge =
+      isDiary && Array.isArray(entry.photos) && entry.photos.length
+        ? '<span class="grudge-book-history-item__badge grudge-book-history-item__badge--photo">📷</span>'
+        : "";
+    return (
+      '<button type="button" class="grudge-book-history-item" data-grudge-book-history-open="' +
+      escapeHtml(entry.id) +
+      '">' +
+      '<div class="grudge-book-history-item__head">' +
+      '<span class="grudge-book-history-item__tags">' +
+      '<span class="grudge-book-history-item__tag grudge-book-history-item__tag--side">' +
+      escapeHtml(item.sideLabel) +
+      "</span>" +
+      '<span class="grudge-book-history-item__tag grudge-book-history-item__tag--type grudge-book-history-item__tag--' +
+      item.bookType +
+      '">' +
+      escapeHtml(item.typeLabel) +
+      "</span>" +
+      photoBadge +
+      "</span>" +
+      '<time class="grudge-book-history-item__time">' +
+      escapeHtml(formatGrudgeBookHistoryTime(entry.updatedAt || entry.createdAt)) +
+      "</time></div>" +
+      '<p class="grudge-book-history-item__preview">' +
+      escapeHtml(isDiary && entry.title ? entry.title + " · " + preview + suffix : preview + suffix) +
+      "</p></button>"
+    );
+  }
+
+  function buildGrudgeBookHistoryHtml(bundle, nav) {
+    const persp = nav.historyFilterPersp || "all";
+    const type = nav.historyFilterType || "all";
+    let items = collectGrudgeBookHistoryItems(bundle);
+    if (persp !== "all") {
+      items = items.filter(function (it) {
+        return it.side === persp;
+      });
+    }
+    if (type !== "all") {
+      items = items.filter(function (it) {
+        return it.bookType === type;
+      });
+    }
+    const rows =
+      items.length > 0
+        ? items.map(buildGrudgeBookHistoryItemHtml).join("")
+        : '<p class="grudge-book-empty grudge-book-empty--history">暂无符合筛选条件的记录</p>';
+    return (
+      '<div class="grudge-book-screen grudge-book-screen--history">' +
+      buildGrudgeBookHeaderHtml("历史记录", false, false, false) +
+      buildGrudgeBookHistoryFilterHtml(nav) +
+      '<div class="grudge-book-history-list">' +
+      rows +
+      "</div></div>"
+    );
+  }
+
   function buildGrudgeBookDetailHtml(slot, entry, bookType, partner, userChar) {
+    if (bookType === "diary") {
+      return buildGrudgeBookDiaryDetailHtml(entry, grudgeBookViewPerspective === "user");
+    }
     const isMerit = bookType === "merit";
     const themeCls = isMerit ? "grudge-book-screen--merit" : "grudge-book-screen--grudge";
     const isUserSide = grudgeBookViewPerspective === "user";
@@ -33029,7 +33925,7 @@
       '<div class="grudge-book-screen grudge-book-screen--grudge">' +
       buildGrudgeBookHeaderHtml("恩怨本", false, false) +
       '<div class="grudge-book-hub">' +
-      '<p class="grudge-book-hub__hint">选择一段剧情里的角色，在记仇本与积德本中记录你们的恩怨与温情。</p>' +
+      '<p class="grudge-book-hub__hint">选择一段剧情里的角色，在记仇本、积德本与日记本中记录你们的恩怨、温情与日常。</p>' +
       '<button type="button" class="btn btn--primary btn--pill" data-grudge-book-pick>选择对象</button>' +
       "</div></div>"
     );
@@ -33042,12 +33938,60 @@
       const key = el.getAttribute("data-grudge-book-field");
       if (key) draft[key] = String(el.value || "").trim();
     });
+    if (draft.bookType === "diary") {
+      if (!Array.isArray(draft.photos)) draft.photos = [];
+      return draft;
+    }
     const picker = slot.querySelector("[data-grudge-book-intensity-picker]");
     if (picker) {
       const sel = picker.getAttribute("data-grudge-book-intensity-picker");
       draft.intensity = Math.max(1, Math.min(5, parseInt(sel, 10) || 3));
     }
     return draft;
+  }
+
+  function saveGrudgeBookDiaryFromDraft(slot, draft, editingId) {
+    const bundle = getGrudgeBookBundle();
+    if (!bundle) return false;
+    const content = String(draft.content || "").trim();
+    if (!content) {
+      showToast("请填写日记正文。", "info");
+      return false;
+    }
+    const side = bundle.user;
+    const now = Date.now();
+    const photos = Array.isArray(draft.photos)
+      ? draft.photos.filter(isSafeImageUrl).slice(0, GRUDGE_BOOK_DIARY_PHOTOS_MAX)
+      : [];
+    if (editingId) {
+      const hit = findGrudgeBookEntry(bundle, editingId);
+      if (!hit || hit.side !== "user" || hit.list !== "diaries") return false;
+      hit.entry.title = String(draft.title || "").trim().slice(0, 60);
+      hit.entry.mood = String(draft.mood || "").trim().slice(0, 20);
+      hit.entry.content = content.slice(0, 2000);
+      hit.entry.photos = photos;
+      hit.entry.updatedAt = now;
+    } else {
+      const arr = side.diaries || [];
+      if (arr.length >= GRUDGE_BOOK_ENTRIES_MAX) {
+        showToast("已达上限（最多 " + GRUDGE_BOOK_ENTRIES_MAX + " 篇），请先删除旧日记。", "info");
+        return false;
+      }
+      const entry = normalizeGrudgeBookDiaryEntry({
+        id: uid("gbd"),
+        title: draft.title,
+        mood: draft.mood,
+        content: content,
+        photos: photos,
+        createdAt: now,
+        updatedAt: now,
+      });
+      if (!entry) return false;
+      if (!side.diaries) side.diaries = [];
+      side.diaries.unshift(entry);
+    }
+    schedulePersistNarrative();
+    return true;
   }
 
   function saveGrudgeBookEntryFromDraft(slot, draft, editingId) {
@@ -33275,6 +34219,80 @@
     }
   }
 
+  async function generateGrudgeBookCharDiaries(slot) {
+    if (grudgeBookGenerating) return;
+    const plot = getGrudgeBookPlot();
+    const partner = getGrudgeBookCharacter();
+    const bundle = getGrudgeBookBundle();
+    if (!plot || !partner || !bundle) return;
+    const side = bundle.character;
+    const existing = side.diaries || [];
+    if (existing.length >= GRUDGE_BOOK_ENTRIES_MAX) {
+      showToast("TA 的日记本已满，请先删除部分记录。", "info");
+      return;
+    }
+    const userChar = getGrudgeBookUserChar(plot);
+    grudgeBookGenerating = true;
+    renderGrudgeBookScreen(slot);
+    try {
+      const existingLines = existing
+        .slice(0, 6)
+        .map(function (e, i) {
+          return (i + 1) + ". " + (e.title || e.content || "").slice(0, 60);
+        })
+        .join("\n");
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: "你是互动叙事助手，只能输出 JSON。" },
+          {
+            role: "user",
+            content:
+              "你是互动叙事助手。请扮演主要角色「" +
+              (partner.name || "TA") +
+              "」，从第一人称视角为「日记本」批量生成 1～3 篇新日记——记录" +
+              (userChar ? "与「" + (userChar.name || "我") + "」" : "") +
+              "相关的日常片段、心绪或碎碎念。\n\n" +
+              buildKnockPersonaBlock(partner, "你扮演的角色", "partner", 800) +
+              "\n\n" +
+              buildGrudgeBookPlotContextBlock(plot, partner) +
+              (existingLines ? "\n\n已有日记（勿重复）：\n" + existingLines : "") +
+              "\n\n要求：口吻符合角色人设；每篇 80～220 字；可含简短标题与 2～4 字心情。\n" +
+              '只输出 JSON：{"entries":[{"title":"可选标题","content":"正文","mood":"心情"}]}',
+          },
+        ],
+        0.9,
+        1400
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      if (!parsed || !Array.isArray(parsed.entries)) throw new Error("格式不正确");
+      const now = Date.now();
+      let added = 0;
+      parsed.entries.forEach(function (item) {
+        if (existing.length + added >= GRUDGE_BOOK_ENTRIES_MAX) return;
+        const entry = normalizeGrudgeBookDiaryEntry({
+          id: uid("gbdc"),
+          title: item.title,
+          content: item.content,
+          mood: item.mood,
+          createdAt: now,
+          updatedAt: now,
+        });
+        if (!entry) return;
+        if (!side.diaries) side.diaries = [];
+        side.diaries.unshift(entry);
+        added++;
+      });
+      if (!added) throw new Error("未生成有效日记");
+      schedulePersistNarrative();
+      showToast("已为 TA 的日记本新增 " + added + " 篇", "success");
+    } catch (err) {
+      showToast("生成失败：" + (err && err.message ? err.message : "请稍后重试"), "warning");
+    } finally {
+      grudgeBookGenerating = false;
+      renderGrudgeBookScreen(slot);
+    }
+  }
+
   async function generateGrudgeBookCharEntries(slot) {
     if (grudgeBookGenerating) return;
     if (grudgeBookViewPerspective !== "character") {
@@ -33286,7 +34304,7 @@
     const bundle = getGrudgeBookBundle();
     if (!plot || !partner || !bundle) return;
     const bookType = grudgeBookActiveBook;
-    const listKey = bookType === "merit" ? "merits" : "grudges";
+    const listKey = bookType === "merit" ? "merits" : bookType === "diary" ? "diaries" : "grudges";
     const side = bundle.character;
     const existing = side[listKey] || [];
     if (existing.length >= GRUDGE_BOOK_ENTRIES_MAX) {
@@ -33347,7 +34365,15 @@
   async function handleGrudgeBookGenerate(slot) {
     const nav = getGrudgeBookNav(slot);
     if (grudgeBookViewPerspective === "character") {
-      await generateGrudgeBookCharEntries(slot);
+      if (grudgeBookActiveBook === "diary") {
+        await generateGrudgeBookCharDiaries(slot);
+      } else {
+        await generateGrudgeBookCharEntries(slot);
+      }
+      return;
+    }
+    if (grudgeBookActiveBook === "diary") {
+      showToast("日记本需手动撰写。切换到 TA 的本可生成角色日记。", "info");
       return;
     }
     if (nav.screen === "detail" && nav.detailId) {
@@ -33402,7 +34428,7 @@
         html = buildGrudgeBookDetailHtml(
           slot,
           hit.entry,
-          hit.list === "merits" ? "merit" : "grudge",
+          hit.list === "merits" ? "merit" : hit.list === "diaries" ? "diary" : "grudge",
           partner,
           userChar
         );
@@ -33411,6 +34437,8 @@
         nav.detailId = null;
         html = buildGrudgeBookListHtml(slot, bundle, plot, partner);
       }
+    } else if (nav.screen === "history" && bundle) {
+      html = buildGrudgeBookHistoryHtml(bundle, nav);
     } else {
       nav.screen = "list";
       html = buildGrudgeBookListHtml(slot, bundle, plot, partner);
@@ -33455,8 +34483,7 @@
           ? "《" + (plot.title || "未命名剧情") + "》· 点选一名主要角色"
           : "点选主要角色（不含「我的形象」）";
       } else {
-        hintEl.hidden = false;
-        hintEl.textContent = "先选择恩怨本对象所在的剧情";
+        hintEl.hidden = true;
       }
     }
     if (backBtn) backBtn.hidden = !onCharStep;
@@ -33475,20 +34502,16 @@
       listEl.appendChild(ph);
       return;
     }
+    const currentPlotId = grudgeBookPlotId || grudgeBookHolderModalPlotId;
     plots.forEach(function (p) {
       const candidates = getCollectCharacterCandidatesForPlot(p.id);
-      if (!candidates.length) return;
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "phone-holder-plot-item";
-      btn.innerHTML =
-        '<span class="phone-holder-plot-item__title">' +
-        escapeHtml(p.title || "未命名剧情") +
-        "</span>" +
-        '<span class="phone-holder-plot-item__meta">' +
-        candidates.length +
-        " 名主要角色</span>";
+      const isCurrent = currentPlotId === p.id;
+      const btn = buildPhoneHolderPlotRowBtn(p, isCurrent);
       btn.addEventListener("click", function () {
+        if (!candidates.length) {
+          showToast("该剧情下没有「主要角色」。", "warning");
+          return;
+        }
         if (!p.protagonistId) {
           showToast("该剧情未设置「我的形象」，无法使用恩怨本。", "warning");
           return;
@@ -33731,52 +34754,19 @@
   }
 
   function getYouDogPlotPersonaChar() {
-    if (!youDogPlotIds.length) return null;
-    for (let i = 0; i < youDogPlotIds.length; i++) {
-      const plot = plots.find(function (p) {
-        return p.id === youDogPlotIds[i];
-      });
-      if (!plot || !plot.protagonistId) continue;
-      const ch = getCharById(plot.protagonistId);
-      if (ch && ch.categoryId === CHAR_CATEGORY_SELF_ID) return ch;
-    }
     return null;
   }
 
   function getYouDogUserPersonaChar() {
-    if (!youDogUserCharId) return null;
-    const ch = getCharById(youDogUserCharId);
-    if (!ch || ch.categoryId !== CHAR_CATEGORY_SELF_ID) return null;
-    return ch;
+    return isYouDogUserProfileReady() ? ensureYouDogUserProfile() : null;
   }
 
   function getAllYouDogSelfPersonaOptions() {
-    const seen = new Set();
-    const out = [];
-    plots.forEach(function (plot) {
-      if (!plot || !plot.protagonistId) return;
-      const ch = getCharById(plot.protagonistId);
-      if (!ch || ch.categoryId !== CHAR_CATEGORY_SELF_ID) return;
-      if (seen.has(ch.id)) return;
-      seen.add(ch.id);
-      out.push({
-        charId: ch.id,
-        char: ch,
-        plotId: plot.id,
-        plotTitle: plot.title || "未命名剧情",
-        avatarUrl: getYouDogPlotPersonaAvatarUrl(plot, ch),
-      });
-    });
-    return out;
+    return [];
   }
 
-  function getYouDogUserPersonaAvatarUrl(char) {
-    if (!char) return "";
-    const plot = plots.find(function (p) {
-      return p && p.protagonistId === char.id;
-    });
-    if (plot) return getYouDogPlotPersonaAvatarUrl(plot, char);
-    return char.avatarUrl ? String(char.avatarUrl).trim() : "";
+  function getYouDogUserPersonaAvatarUrl() {
+    return getYouDogUserAvatarUrl();
   }
 
   function normalizeYouDogAnonAlias(raw) {
@@ -33787,14 +34777,8 @@
   }
 
   function ensureYouDogGlobalAnonAlias() {
-    const existing = normalizeYouDogAnonAlias(youDogUserAnonAlias);
-    if (existing) {
-      youDogUserAnonAlias = existing;
-      return existing;
-    }
-    const suffix = Math.floor(Math.random() * 9000 + 1000);
-    youDogUserAnonAlias = "@嗅友" + suffix;
-    return youDogUserAnonAlias;
+    const p = ensureYouDogUserProfile();
+    return p.anonAlias || "@嗅友0000";
   }
 
   function saveYouDogGlobalAnonAlias(raw) {
@@ -33803,7 +34787,7 @@
       showToast("马甲名至少 2 个字符。", "warning");
       return false;
     }
-    youDogUserAnonAlias = normalized;
+    youDogUserProfile.anonAlias = normalized;
     schedulePersistNarrative();
     return true;
   }
@@ -34009,7 +34993,7 @@
   }
 
   function resolveYouDogGenPickDraftFromLast(refs, mode) {
-    const cap = mode === "chat" ? YOU_DOG_CHAT_SPEAKERS_PER_BATCH : YOU_DOG_SPEAKERS_PER_BATCH;
+    const cap = mode === "chat" ? YOU_DOG_CHAT_SPEAKERS_PER_BATCH : YOU_DOG_FEED_GEN_PICK_MAX;
     const lastRefs = mode === "chat" ? youDogLastChatGenPickRefs : youDogLastGenPickRefs;
     const validSet = new Set(Array.isArray(refs) ? refs.filter(Boolean) : []);
     const restored = (Array.isArray(lastRefs) ? lastRefs : []).filter(function (ref) {
@@ -34033,7 +35017,7 @@
     const hintEl = document.querySelector(".you-dog-gen-pick .phone-forum-manage__hint");
     if (!hintEl || !youDogGenPickOpen) return;
     const isChat = youDogGenPickMode === "chat";
-    const batchCap = isChat ? YOU_DOG_CHAT_SPEAKERS_PER_BATCH : YOU_DOG_SPEAKERS_PER_BATCH;
+    const batchCap = isChat ? YOU_DOG_CHAT_SPEAKERS_PER_BATCH : YOU_DOG_FEED_GEN_PICK_MAX;
     const pickedCount = youDogGenPickDraft.length;
     hintEl.textContent = isChat
       ? "列出群聊成员；同一人物在不同剧情中视为不同角色。请勾选最多 " +
@@ -34043,13 +35027,17 @@
           " / " +
           batchCap +
           "）"
-      : "列出各剧情主要角色；同一人物在不同剧情中视为不同角色。请勾选最多 " +
-          batchCap +
-          " 位参与本批生成（已选 " +
-          pickedCount +
-          " / " +
-          batchCap +
-          "）";
+      : "列出各剧情主要角色；同一人物在不同剧情中视为不同角色。请勾选 " +
+        YOU_DOG_FEED_MIN_UNIQUE_SPEAKERS +
+        "~" +
+        batchCap +
+        " 位参与本批生成（将生成 " +
+        YOU_DOG_FEED_POSTS_PER_BATCH +
+        " 条推文；已选 " +
+        pickedCount +
+        " / " +
+        batchCap +
+        "）";
   }
 
   function ensureYouDogPlotsForSpeakerRefs(refs) {
@@ -34128,6 +35116,25 @@
   function findYouDogPostContext(postId) {
     const id = String(postId || "").trim();
     if (!id) return null;
+    const actBundle = ensureYouDogActivityBundle();
+    if (actBundle && Array.isArray(actBundle.posts)) {
+      const actPost = actBundle.posts.find(function (p) {
+        return p && p.id === id;
+      });
+      if (actPost) {
+        return {
+          post: actPost,
+          bundle: actBundle,
+          plotId: YOU_DOG_ACTIVITY_BUNDLE_KEY,
+          plot: youDogPlotIds.length
+            ? plots.find(function (p) {
+                return p.id === youDogPlotIds[0];
+              }) || null
+            : null,
+          isActivity: true,
+        };
+      }
+    }
     for (let i = 0; i < youDogPlotIds.length; i++) {
       const plotId = youDogPlotIds[i];
       const bundle = ensureYouDogTwitterBundle(plotId);
@@ -34167,6 +35174,136 @@
     return merged.map(function (row) {
       return row.post;
     });
+  }
+
+  function resolveYouDogPostMemberRef(post) {
+    if (!post) return "";
+    const speakerRef = String(post.speakerRef || "").trim();
+    if (!speakerRef || speakerRef.indexOf("web:") === 0 || speakerRef.indexOf("npc:") === 0) return "";
+    const parsed = parseYouDogChatMemberRef(speakerRef);
+    if (parsed) return makeYouDogChatMemberRef(parsed.plotId, parsed.charId);
+    const plotId = String(post.plotId || "").trim() || resolveYouDogPlotIdForChar(speakerRef);
+    if (!plotId) return "";
+    return makeYouDogChatMemberRef(plotId, speakerRef);
+  }
+
+  function getYouDogAnonIdForMemberRef(memberRef) {
+    const parsed = parseYouDogChatMemberRef(memberRef);
+    if (!parsed) return "";
+    const bundle = ensureYouDogTwitterBundle(parsed.plotId);
+    if (bundle && bundle.anonIdMap && bundle.anonIdMap[parsed.charId]) {
+      return String(bundle.anonIdMap[parsed.charId]).trim();
+    }
+    const posts = getYouDogPostsBySpeaker(parsed.charId).filter(function (p) {
+      return p && String(p.plotId || "") === parsed.plotId;
+    });
+    return posts.length && posts[0].anonId ? String(posts[0].anonId).trim() : "";
+  }
+
+  function buildYouDogCrossRefIdentityMapBlock(memberRefs) {
+    if (!isYouDogChatReady()) return "";
+    const refs = Array.isArray(memberRefs) ? memberRefs.filter(Boolean) : [];
+    if (!refs.length) return "";
+    const lines = ["【双频道身份对照（仅供偶发联想，正文严禁点破；多数内容不必用）】"];
+    let any = false;
+    refs.forEach(function (ref) {
+      const parsed = parseYouDogChatMemberRef(ref);
+      if (!parsed) return;
+      const rec = getYouDogChatMemberRecord(ref);
+      if (!rec) return;
+      const tag = getYouDogChatMemberTag(ref);
+      const anonId = getYouDogAnonIdForMemberRef(ref) || "（尚未在树洞发帖）";
+      lines.push(
+        "- memberRef=" +
+          ref +
+          " | 群内标签「" +
+          (tag.name || "?") +
+          "」| 树洞 " +
+          anonId +
+          "（同一人，两边互不可认）"
+      );
+      any = true;
+    });
+    return any ? lines.join("\n") : "";
+  }
+
+  function buildYouDogCrossRefChatBlockForFeed(opts) {
+    opts = opts && typeof opts === "object" ? opts : {};
+    if (!isYouDogChatReady()) return "";
+    const data = ensureYouDogChatData();
+    const cap = typeof opts.limit === "number" ? opts.limit : YOU_DOG_CROSS_REF_CHAT_MSG_LIMIT;
+    const msgs = (data.messages || [])
+      .filter(function (m) {
+        return m && m.kind !== "system";
+      })
+      .slice(-cap);
+    if (!msgs.length) return "";
+    const groupName = String(data.groupName || "内置群聊").trim();
+    const lines = [
+      "【" + groupName + "·近期消息摘录（背景参考；本批群聊绝大多数不必提及）】",
+    ];
+    msgs.forEach(function (m) {
+      const isUser = String(m.memberRef || "").indexOf("user:") === 0;
+      const who = isUser ? "群主·" + getYouDogChatUserDisplayName() : "「" + (m.tagName || "群友") + "」";
+      lines.push("- " + who + "：" + truncateCharsWithEllipsis(String(m.text || "").trim(), 88));
+    });
+    return lines.join("\n");
+  }
+
+  function buildYouDogCrossRefFeedBlockForChat(opts) {
+    opts = opts && typeof opts === "object" ? opts : {};
+    const cap = typeof opts.limit === "number" ? opts.limit : YOU_DOG_CROSS_REF_FEED_POST_LIMIT;
+    const poolSet = new Set(Array.isArray(opts.poolRefs) ? opts.poolRefs.filter(Boolean) : []);
+    const posts = getYouDogMergedPosts().slice(0, cap);
+    if (!posts.length) return "";
+    const lines = ["【匿名树洞·近期帖子摘录（背景参考；本批群聊绝大多数不必提及）】"];
+    posts.forEach(function (post) {
+      const tagLabel = getYouDogSectionLabel(resolveYouDogSectionId(post.tag));
+      const anon = String(post.anonId || "@?").trim();
+      const text = truncateCharsWithEllipsis(String(post.text || "").trim(), 96);
+      let line = "- [" + tagLabel + "] " + anon + "：「" + text + "」";
+      if (poolSet.size && isYouDogChatReady()) {
+        const memberRef = resolveYouDogPostMemberRef(post);
+        if (memberRef && poolSet.has(memberRef)) {
+          const tag = getYouDogChatMemberTag(memberRef);
+          line += "（仅供理解：楼主即群内「" + (tag.name || "?") + "」，群聊中不可认出）";
+        }
+      }
+      lines.push(line);
+    });
+    return lines.join("\n");
+  }
+
+  function appendYouDogCrossRefFeedPromptBlocks(lines, memberRefs) {
+    const chatBlock = buildYouDogCrossRefChatBlockForFeed({});
+    const identityBlock = buildYouDogCrossRefIdentityMapBlock(memberRefs);
+    if (!chatBlock && !identityBlock) return;
+    if (identityBlock) {
+      lines.push(identityBlock);
+      lines.push("");
+    }
+    if (chatBlock) {
+      lines.push(YOU_DOG_FEED_FROM_CHAT_HINT);
+      lines.push("");
+      lines.push(chatBlock);
+      lines.push("");
+    }
+  }
+
+  function appendYouDogCrossRefChatPromptBlocks(lines, poolRefs) {
+    const feedBlock = buildYouDogCrossRefFeedBlockForChat({ poolRefs: poolRefs });
+    const identityBlock = buildYouDogCrossRefIdentityMapBlock(poolRefs);
+    if (!feedBlock && !identityBlock) return;
+    if (identityBlock) {
+      lines.push(identityBlock);
+      lines.push("");
+    }
+    if (feedBlock) {
+      lines.push(YOU_DOG_CHAT_FROM_FEED_HINT);
+      lines.push("");
+      lines.push(feedBlock);
+      lines.push("");
+    }
   }
 
   function toggleYouDogPlot(plotId, enabled) {
@@ -34216,18 +35353,12 @@
     if (!youDogNextGenCharId || !candidateSet.has(youDogNextGenCharId)) {
       youDogNextGenCharId = youDogParticipantIds.length ? youDogParticipantIds[0] : null;
     }
-    if (youDogUserCharId) {
-      const u = getCharById(youDogUserCharId);
-      if (!u || u.categoryId !== CHAR_CATEGORY_SELF_ID) youDogUserCharId = null;
-    }
-    if (!youDogUserCharId) {
-      const personaOptions = getAllYouDogSelfPersonaOptions();
-      if (personaOptions.length) youDogUserCharId = personaOptions[0].charId;
-    }
-    ensureYouDogGlobalAnonAlias();
+    ensureYouDogUserProfile();
     sanitizeYouDogSectionsState();
     sanitizeYouDogFeedSpeakerPoolRefs();
     sanitizeYouDogChatState();
+    sanitizeYouDogActivityState();
+    normalizeYouDogMainTabLayout();
   }
 
   function sanitizeYouDogFeedSpeakerPoolRefs() {
@@ -34333,9 +35464,11 @@
     return (
       '<section class="you-dog-feed-speaker-pool">' +
       '<p class="you-dog-feed-speaker-pool__title">发帖角色池</p>' +
-      '<p class="you-dog-feed-speaker-pool__hint">勾选可参与随机发帖的角色；每次点 ✦ 随机抽取 ' +
-      YOU_DOG_SPEAKERS_PER_BATCH +
-      " 人各发 1 帖（已选 " +
+      '<p class="you-dog-feed-speaker-pool__hint">勾选可参与随机发帖的角色；每次点 ✦ 从已选角色中抽取至少 ' +
+      YOU_DOG_FEED_MIN_UNIQUE_SPEAKERS +
+      " 人，一次生成 " +
+      YOU_DOG_FEED_POSTS_PER_BATCH +
+      " 条推文并尽量分布于不同分区（已选 " +
       pickedCount +
       " 人）</p>" +
       '<div class="you-dog-feed-speaker-pool__list">' +
@@ -34517,12 +35650,21 @@
     return a;
   }
 
-  function pickYouDogBatchSpeakers(participantIds) {
-    const ids = Array.isArray(participantIds) ? participantIds.filter(Boolean) : [];
+  function pickYouDogFeedBatchAssignments(poolRefs) {
+    const ids = Array.isArray(poolRefs) ? poolRefs.filter(Boolean) : [];
     if (!ids.length) return [];
-    const cap = YOU_DOG_SPEAKERS_PER_BATCH;
-    if (ids.length <= cap) return ids.slice();
-    return shuffleYouDogArray(ids).slice(0, cap);
+    const shuffled = shuffleYouDogArray(ids);
+    const uniqueCount = Math.min(YOU_DOG_FEED_MIN_UNIQUE_SPEAKERS, shuffled.length);
+    const uniqueBase = shuffled.slice(0, uniqueCount);
+    const assignments = uniqueBase.slice();
+    while (assignments.length < YOU_DOG_FEED_POSTS_PER_BATCH) {
+      assignments.push(uniqueBase[Math.floor(Math.random() * uniqueBase.length)]);
+    }
+    return assignments.slice(0, YOU_DOG_FEED_POSTS_PER_BATCH);
+  }
+
+  function pickYouDogBatchSpeakers(participantIds) {
+    return pickYouDogFeedBatchAssignments(participantIds);
   }
 
   function pickYouDogChatBatchSpeakers(memberRefs) {
@@ -34570,7 +35712,12 @@
     opts = opts || {};
     const speakerRef = String((post && post.speakerRef) || "").trim();
     const plotId = (post && post.plotId) || resolveYouDogPlotIdForChar(speakerRef);
-    const avatarUrl = speakerRef ? getYouDogCharAvatarUrl(speakerRef, plotId) : "";
+    let avatarUrl = "";
+    if (speakerRef === YOU_DOG_USER_PROFILE_REF || speakerRef.indexOf("user:") === 0) {
+      avatarUrl = getYouDogUserAvatarUrl();
+    } else if (speakerRef) {
+      avatarUrl = getYouDogCharAvatarUrl(speakerRef, plotId);
+    }
     let inner = "";
     if (avatarUrl) {
       inner =
@@ -34613,15 +35760,15 @@
     if (ch && ch.name) charName = String(ch.name).trim();
     else if (ref.indexOf("npc:") === 0) charName = ref.slice(4) || "NPC";
     else if (ref.indexOf("web:") === 0) charName = "路人网友";
-    else if (ref.indexOf("user:") === 0) charName = "我";
+    else if (ref.indexOf("user:") === 0) charName = getYouDogUserDisplayNickname();
     const anonId =
       (posts[0] && posts[0].anonId) ||
       (ref.indexOf("user:") === 0 ? getYouDogCurrentUserAnonId() : "@匿名");
     const avatarUrl =
       ref && ref.indexOf("web:") !== 0 && ref.indexOf("npc:") !== 0 && ref.indexOf("user:") !== 0
         ? getYouDogCharAvatarUrl(ref, plotId)
-        : ref.indexOf("user:") === 0 && youDogUserCharId
-          ? getYouDogUserPersonaAvatarUrl(getYouDogUserPersonaChar())
+        : ref.indexOf("user:") === 0
+          ? getYouDogUserAvatarUrl()
           : "";
     return {
       speakerRef: ref,
@@ -34639,9 +35786,14 @@
       showToast("帖子不存在", "warning");
       return;
     }
+    if (fromScreen !== "profile") {
+      youDogMainTab = "home";
+      youDogHomeSegment = fromScreen === "activity" ? "forum" : "feed";
+      youDogActivityHubTab = youDogHomeSegment === "forum" ? "forum" : "dm-list";
+    }
     youDogScreen = "post";
     youDogDetailPostId = id;
-    youDogNavFrom = fromScreen === "profile" ? "profile" : "feed";
+    youDogNavFrom = fromScreen === "profile" ? "profile" : fromScreen === "activity" ? "forum" : "feed";
     youDogPostMenuPostId = null;
     renderYouDogScreen(slot || els.youDogContentSlot());
   }
@@ -34657,25 +35809,29 @@
   }
 
   function handleYouDogBack(slot) {
-    if (youDogChatSubScreen === "chat") {
-      youDogChatSubScreen = "feed";
-      youDogChatParticipantPanelOpen = false;
-      youDogChatSelectMode = false;
-      youDogChatSelectedMsgIds = [];
-      youDogChatSettingsOpen = false;
-      youDogChatMoreOpen = false;
-      youDogChatQuoteDraft = null;
-      hideYouDogChatMsgActionBubble();
+    if (youDogMainTab === "home" && youDogActivityScreen === "compose") {
+      closeYouDogActivityCompose();
+      renderYouDogScreen(slot);
+      return;
+    }
+    if (youDogMainTab === "messages" && youDogActivityScreen === "dm") {
+      youDogActivityScreen = "hub";
+      youDogActivityDmRef = null;
       renderYouDogScreen(slot);
       return;
     }
     if (youDogScreen === "post") {
-      youDogScreen = youDogNavFrom === "profile" ? "profile" : "feed";
+      youDogScreen = "feed";
       youDogDetailPostId = null;
+      if (youDogNavFrom === "forum") {
+        youDogMainTab = "home";
+        youDogHomeSegment = "forum";
+        youDogActivityHubTab = "forum";
+      }
       renderYouDogScreen(slot);
       return;
     }
-    if (youDogScreen === "profile") {
+    if (youDogScreen === "profile" && youDogProfileSpeakerRef) {
       youDogScreen = "feed";
       youDogProfileSpeakerRef = null;
       renderYouDogScreen(slot);
@@ -34815,6 +35971,35 @@
     return ensureYouDogGlobalAnonAlias();
   }
 
+  function isYouDogUserSimulatedLike(anonLike) {
+    const userAnon = getYouDogCurrentUserAnonId();
+    if (!userAnon) return false;
+    return String(anonLike || "").trim() === userAnon;
+  }
+
+  function isYouDogUserSimulatedComment(comment) {
+    if (!comment) return false;
+    if (String(comment.speakerRef || "").trim().indexOf("user:") === 0) return true;
+    return isYouDogUserSimulatedLike(comment.anonId);
+  }
+
+  function buildYouDogFeedSectionDistributionRule() {
+    const sectionCount = getYouDogSections().length;
+    const minTags = Math.min(YOU_DOG_FEED_POSTS_PER_BATCH, Math.max(3, sectionCount));
+    return (
+      "本批须生成 " +
+      YOU_DOG_FEED_POSTS_PER_BATCH +
+      " 条推文，涉及至少 " +
+      YOU_DOG_FEED_MIN_UNIQUE_SPEAKERS +
+      " 位不同角色；同一角色可发多条但每条 anonId 须不同。" +
+      " tag 须尽量分布于不同分区，至少使用 " +
+      minTags +
+      " 个不同 sectionId，避免全部挤在同一分区。" +
+      " posts 的 likes 与 comments 必须为空数组 []；" +
+      YOU_DOG_NO_USER_ACTION_RULE
+    );
+  }
+
   function normalizeYouDogComment(raw) {
     if (!raw || typeof raw !== "object") return null;
     const text = stripYouDogBracketEmoji(String(raw.text || "").trim());
@@ -34843,12 +36028,22 @@
     }
     if (!anonId) anonId = "@匿名" + Math.floor(Math.random() * 9999);
     const comments = Array.isArray(raw.comments)
-      ? raw.comments.map(normalizeYouDogComment).filter(Boolean)
+      ? raw.comments
+          .map(normalizeYouDogComment)
+          .filter(Boolean)
+          .filter(function (c) {
+            return !isYouDogUserSimulatedComment(c);
+          })
       : [];
     const likes = Array.isArray(raw.likes)
-      ? raw.likes.map(function (x) {
-          return String(x || "").trim();
-        }).filter(Boolean)
+      ? raw.likes
+          .map(function (x) {
+            return String(x || "").trim();
+          })
+          .filter(Boolean)
+          .filter(function (x) {
+            return !isYouDogUserSimulatedLike(x);
+          })
       : [];
     return {
       id: String(raw.id || uid("ydp")).trim(),
@@ -34947,25 +36142,42 @@
       lines.push("严禁替以下主视角主角发帖：" + protagNames.join("、"));
       lines.push("");
     }
+    const uniqueSpeakerRefs = [];
+    const uniqueSeen = new Set();
+    batchSpeakerRefs.forEach(function (ref) {
+      const key = String(ref || "").trim();
+      if (!key || uniqueSeen.has(key)) return;
+      uniqueSeen.add(key);
+      uniqueSpeakerRefs.push(key);
+    });
+    appendYouDogCrossRefFeedPromptBlocks(lines, uniqueSpeakerRefs);
     const batchNames = batchSpeakerRefs
       .map(function (ref) {
         const label = formatYouDogFeedSpeakerRefLabel(ref);
         return label ? label + "（speakerRef=" + ref + "）" : "";
       })
       .filter(Boolean);
+    const assignmentLines = batchSpeakerRefs.map(function (ref, idx) {
+      const label = formatYouDogFeedSpeakerRefLabel(ref);
+      return idx + 1 + ". " + (label || ref) + "（speakerRef=" + ref + "）";
+    });
     const postCount = batchSpeakerRefs.length;
-    lines.push("【本批须发言的角色（每人恰好 1 帖，不得遗漏或重复）】");
-    lines.push(batchNames.length ? batchNames.join("\n") : "（无）");
+    lines.push(
+      "【本批推文分配（共 " +
+        postCount +
+        " 条，其中 " +
+        uniqueSpeakerRefs.length +
+        " 位不同角色；同一角色可出现多条）】"
+    );
+    lines.push(assignmentLines.length ? assignmentLines.join("\n") : "（无）");
     lines.push("");
     lines.push("【可选分区（tag 字段须用 sectionId；简介供生成参考）】");
     lines.push(buildYouDogSectionsPromptBlock());
     lines.push("");
     lines.push(
-      "必须恰好生成 " +
-        postCount +
-        " 条推文，每条对应上方列表中一个 speakerRef（plotId:charId），每个 speakerRef 只能出现 1 次。" +
+      buildYouDogFeedSectionDistributionRule() +
         '只输出 JSON：{"posts":[{"id":"唯一英文id","anonId":"@匿名网名","speakerRef":"plotId:charId","text":"碎碎念","time":"相对时间如3小时前","tag":"sectionId","likes":[],"comments":[]}]}。' +
-        "tag 须为上列 sectionId 之一，根据内容选最贴切分区；本批内尽量覆盖不同分区。anonId 不可重复；" +
+        "anonId 每条不可重复；" +
         YOU_DOG_ANON_TONE_RULE +
         " " +
         YOU_DOG_FEED_CONTENT_RULE +
@@ -34983,25 +36195,30 @@
     );
   }
 
-  function distributeYouDogFeedPosts(parsed, batchSpeakerRefs) {
+  function distributeYouDogFeedPosts(parsed, batchFeedAssignments) {
     const newPosts =
       parsed && Array.isArray(parsed.newPosts)
         ? parsed.newPosts
         : parsed && Array.isArray(parsed.posts)
           ? parsed.posts
           : [];
+    const assignments = Array.isArray(batchFeedAssignments) ? batchFeedAssignments.filter(Boolean) : [];
+    const allowedRefs = new Set(assignments);
     const touchedPlotIds = new Set();
-    const seenSpeakers = new Set();
     const addedPostIds = [];
     newPosts.forEach(function (raw) {
+      if (addedPostIds.length >= YOU_DOG_FEED_POSTS_PER_BATCH) return;
       const normalized = normalizeYouDogFeedSpeakerRefFromRaw(raw && raw.speakerRef, raw && raw.plotId);
       if (!normalized) return;
-      if (seenSpeakers.has(normalized.batchRef)) return;
-      if (batchSpeakerRefs.indexOf(normalized.batchRef) < 0) return;
-      seenSpeakers.add(normalized.batchRef);
+      if (!allowedRefs.has(normalized.batchRef)) return;
       const bundle = ensureYouDogTwitterBundle(normalized.plotId);
       const post = normalizeYouDogPost(
-        Object.assign({}, raw, { speakerRef: normalized.charId, plotId: normalized.plotId }),
+        Object.assign({}, raw, {
+          speakerRef: normalized.charId,
+          plotId: normalized.plotId,
+          likes: [],
+          comments: [],
+        }),
         bundle
       );
       if (post) {
@@ -35012,11 +36229,11 @@
         touchedPlotIds.add(normalized.plotId);
       }
     });
-    batchSpeakerRefs.forEach(function (ref) {
-      const parsed = parseYouDogChatMemberRef(ref);
-      if (!parsed) return;
-      const plotId = parsed.plotId;
-      const cid = parsed.charId;
+    assignments.forEach(function (ref) {
+      const parsedRef = parseYouDogChatMemberRef(ref);
+      if (!parsedRef) return;
+      const plotId = parsedRef.plotId;
+      const cid = parsedRef.charId;
       const bundle = ensureYouDogTwitterBundle(plotId);
       if (!bundle.anonIdMap[cid]) {
         const ch = getCharById(cid);
@@ -35028,7 +36245,20 @@
     touchedPlotIds.forEach(function (plotId) {
       persistYouDogTwitterBundle(ensureYouDogTwitterBundle(plotId), plotId);
     });
-    return { added: seenSpeakers.size, expected: batchSpeakerRefs.length, addedPostIds: addedPostIds };
+    return { added: addedPostIds.length, expected: assignments.length || YOU_DOG_FEED_POSTS_PER_BATCH, addedPostIds: addedPostIds };
+  }
+
+  function isYouDogInvalidSelfComment(post, comment) {
+    if (!post || !comment) return true;
+    const postRef = String(post.speakerRef || "").trim();
+    const commentRef = String(comment.speakerRef || "").trim();
+    if (!postRef || !commentRef || postRef !== commentRef) return false;
+    const opAnon = String(post.anonId || "").trim();
+    const commentAnon = String(comment.anonId || "").trim();
+    const replyTo = String(comment.replyTo || "").trim();
+    if (commentAnon !== opAnon) return true;
+    if (!replyTo || replyTo === "op") return true;
+    return false;
   }
 
   function applyYouDogRepliesToPost(post, parsed) {
@@ -35039,13 +36269,13 @@
     if (Array.isArray(parsed.likes)) {
       parsed.likes.forEach(function (like) {
         const l = String(like || "").trim();
-        if (l && post.likes.indexOf(l) < 0) post.likes.push(l);
+        if (l && !isYouDogUserSimulatedLike(l) && post.likes.indexOf(l) < 0) post.likes.push(l);
       });
     }
     if (Array.isArray(parsed.comments)) {
       parsed.comments.forEach(function (c) {
         const norm = normalizeYouDogComment(c);
-        if (norm) {
+        if (norm && !isYouDogInvalidSelfComment(post, norm) && !isYouDogUserSimulatedComment(norm)) {
           post.comments.push(norm);
           added++;
         }
@@ -35086,10 +36316,11 @@
         return formatYouDogFeedSpeakerRefLabel(ref) + "（speakerRef=" + ref + "）";
       })
       .filter(Boolean);
-    const userAnon = getYouDogCurrentUserAnonId();
     const lines = [
       "请为以下多条匿名推文批量生成互动回复 JSON。",
       YOU_DOG_PARALLEL_WORLD_RULE,
+      YOU_DOG_REPLY_OP_RULE,
+      YOU_DOG_NO_USER_ACTION_RULE,
       "这是论坛/树洞场景：剧情角色用小号互动，互不知真实身份；还可有路人吃瓜网友。",
       YOU_DOG_REPLY_TONE_RULE,
       YOU_DOG_EMOJI_STYLE_RULE,
@@ -35111,6 +36342,8 @@
           (plot && plot.title ? plot.title : "未命名") +
           "》 | 楼主 " +
           (post.anonId || "@?") +
+          " | 楼主 speakerRef=" +
+          (post.speakerRef || "?") +
           " ---"
       );
       lines.push("正文：" + truncateCharsWithEllipsis(post.text || "", 220));
@@ -35124,10 +36357,6 @@
       }
       lines.push("");
     });
-    if (userAnon) {
-      lines.push("【用户匿名马甲（可回复 TA）】" + userAnon);
-      lines.push("");
-    }
     const perPostMin = YOU_DOG_BATCH_REPLIES_COMMENTS_PER_POST_MIN;
     const perPostMax = YOU_DOG_BATCH_REPLIES_COMMENTS_PER_POST_MAX;
     lines.push(
@@ -35137,11 +36366,18 @@
         perPostMax +
         " 条新评论 + 2~5 个点赞。" +
         "约 30~45% 评论来自路人/吃瓜网友（speakerRef 用 web:随机）；其余来自上方剧情角色（speakerRef 用 plotId:charId）。" +
-        "可回复楼主（replyTo=\"op\"）、楼中楼互怼、回复用户马甲。" +
+        "可回复楼主（replyTo=\"op\"）、楼中楼互怼；若已有用户评论可在楼中楼 replyTo 其 anonId。" +
+        YOU_DOG_REPLY_OP_RULE +
+        " " +
+        YOU_DOG_NO_USER_ACTION_RULE +
         "评论像陌生网友随手接话：可调侃楼主、邀约吃饭打球、冷幽默跑偏；贴合帖子氛围即可，不必分析剧情，不可暴露身份。" +
         "\n只输出 JSON：{\"replies\":[{\"postId\":\"帖子id\",\"likes\":[\"@anon\"],\"comments\":[{\"id\":\"c_xxx\",\"anonId\":\"@...\",\"text\":\"...\",\"replyTo\":\"op|null|@马甲\",\"speakerRef\":\"plotId:charId|npc:...|web:...\"}]}}" +
         "\n" +
         YOU_DOG_REPLY_TONE_RULE +
+        " " +
+        YOU_DOG_REPLY_OP_RULE +
+        " " +
+        YOU_DOG_NO_USER_ACTION_RULE +
         " " +
         YOU_DOG_EMOJI_STYLE_RULE
     );
@@ -35185,18 +36421,15 @@
       lines.push(existingSummary.join("\n"));
       lines.push("");
     }
-    lines.push("【本批须发言的角色（每人恰好 1 帖，不得遗漏或重复）】");
+    lines.push("【本批须发言的角色（共 " + postCount + " 条分配）】");
     lines.push(batchNames.length ? batchNames.join("\n") : "（无）");
     lines.push("");
     lines.push("【可选分区（tag 字段须用 sectionId；简介供生成参考）】");
     lines.push(buildYouDogSectionsPromptBlock());
     lines.push("");
     lines.push(
-      "必须恰好生成 " +
-        postCount +
-        " 条推文，每条对应上方列表中一个 speakerRef，每个 speakerRef 只能出现 1 次。" +
+      buildYouDogFeedSectionDistributionRule() +
         '只输出 JSON：{"posts":[{"id":"唯一英文id","anonId":"@匿名网名","speakerRef":"角色id或npc:名","text":"碎碎念","time":"相对时间如3小时前","tag":"sectionId","likes":[],"comments":[]}]}。' +
-        "tag 须为上列 sectionId 之一。anonId 不可重复；" +
         YOU_DOG_ANON_TONE_RULE +
         " " +
         YOU_DOG_FEED_CONTENT_RULE +
@@ -35221,7 +36454,6 @@
       const rt = c.replyTo ? " 回复" + c.replyTo : "";
       return "- " + c.anonId + rt + "：" + truncateCharsWithEllipsis(c.text || "", 100);
     });
-    const userAnon = getYouDogCurrentUserAnonId();
     const batchIds = shuffleYouDogArray(participantIds).slice(0, Math.min(3, participantIds.length));
     const batchNames = batchIds
       .map(function (id) {
@@ -35232,8 +36464,10 @@
     const lines = [
       "请为以下匿名推文生成互动回复 JSON（点赞 + 评论）。",
       YOU_DOG_PARALLEL_WORLD_RULE,
+      YOU_DOG_REPLY_OP_RULE,
+      YOU_DOG_NO_USER_ACTION_RULE,
       YOU_DOG_REPLY_TONE_RULE,
-      "发帖人 anonId：" + (post.anonId || "@?") + "；正文：" + (post.text || ""),
+      "发帖人 anonId：" + (post.anonId || "@?") + "；speakerRef：" + (post.speakerRef || "?") + "；正文：" + (post.text || ""),
       "",
     ];
     lines.push.apply(lines, ctx.lines);
@@ -35243,21 +36477,22 @@
       lines.push(commentLines.join("\n"));
       lines.push("");
     }
-    if (userAnon) {
-      lines.push("【用户匿名马甲（可回复 TA）】" + userAnon);
-      lines.push("");
-    }
     lines.push("【优先参与回复的剧情角色】");
     lines.push(batchNames.length ? batchNames.join("\n") : "（无）");
     lines.push("");
     lines.push(
       "还可加入：剧情 otherRoles 中未建档 NPC（speakerRef 用 npc:名称）、无关路人/吃瓜网友（speakerRef 用 web:随机）。" +
-        "约 25~40% 为路人。可回复楼主（replyTo=\"op\"）、回复用户马甲（replyTo=\"@" +
-        userAnon.replace(/^@/, "") +
-        "\" 或完整 anonId）、楼中楼互怼。" +
+        "约 25~40% 为路人。可回复楼主（replyTo=\"op\"）、楼中楼互怼；若已有用户评论可在楼中楼 replyTo 其 anonId。" +
+        YOU_DOG_REPLY_OP_RULE +
+        " " +
+        YOU_DOG_NO_USER_ACTION_RULE +
         "请生成约 4~6 条新评论 + 2~4 个点赞；像陌生网友随手接话，可调侃邀约或冷幽默，不必分析剧情，不可暴露身份。" +
         "\n只输出 JSON：{\"likes\":[\"@anon\"],\"comments\":[{\"id\":\"c_xxx\",\"anonId\":\"@...\",\"text\":\"...\",\"replyTo\":\"op|@某马甲|null\",\"speakerRef\":\"charId|npc:...|web:...\"}]}\n" +
         YOU_DOG_REPLY_TONE_RULE +
+        " " +
+        YOU_DOG_REPLY_OP_RULE +
+        " " +
+        YOU_DOG_NO_USER_ACTION_RULE +
         " " +
         YOU_DOG_EMOJI_STYLE_RULE
     );
@@ -35278,10 +36513,18 @@
       Array.isArray(opts.participantIds) && opts.participantIds.length
         ? opts.participantIds.filter(Boolean)
         : getYouDogFeedSpeakerPoolRefs();
-    const batchSpeakerRefs = pickYouDogBatchSpeakers(poolRefs);
+    const batchSpeakerRefs = pickYouDogFeedBatchAssignments(poolRefs);
     if (!batchSpeakerRefs.length) {
       showToast("请先在互动身份里勾选参与发帖的角色。", "warning");
       openYouDogPersonaModal();
+      return;
+    }
+    const uniquePoolCount = new Set(poolRefs).size;
+    if (uniquePoolCount < YOU_DOG_FEED_MIN_UNIQUE_SPEAKERS) {
+      showToast(
+        "发帖角色池至少需要 " + YOU_DOG_FEED_MIN_UNIQUE_SPEAKERS + " 人，当前仅 " + uniquePoolCount + " 人。",
+        "warning"
+      );
       return;
     }
     ensureYouDogPlotsForSpeakerRefs(poolRefs);
@@ -35304,8 +36547,13 @@
         "\n" +
         YOU_DOG_FEED_STYLE_HINT +
         "\n可能有多条并行剧情，speakerRef 须用 plotId:charId 格式以区分不同剧情中的同一人物。\n" +
-        "本批每个 speakerRef 必须恰好对应 1 条 post，不得遗漏、不得重复、不得一人多篇。\n" +
-        "只根据角色性格写日常碎碎念，不要复述或推进剧情。\n" +
+        "本批须生成 " +
+        YOU_DOG_FEED_POSTS_PER_BATCH +
+        " 条 post，涉及至少 " +
+        YOU_DOG_FEED_MIN_UNIQUE_SPEAKERS +
+        " 位不同角色；同一角色可发多条；likes 与 comments 须为空数组。\n" +
+        YOU_DOG_NO_USER_ACTION_RULE +
+        "\n只根据角色性格写日常碎碎念，不要复述或推进剧情。\n" +
         YOU_DOG_EMOJI_STYLE_RULE + "\n" +
         "只输出一个 JSON 对象，不要用 markdown 代码围栏。\n" +
         '格式：{"posts":[{"id":"...","anonId":"@...","speakerRef":"plotId:charId","text":"...","time":"...","tag":"sectionId","likes":[],"comments":[]}]}';
@@ -35330,8 +36578,8 @@
       }
       if (feedResult.added < feedResult.expected) {
         showToast(
-          "已生成 " + feedResult.added + " / " + feedResult.expected + " 条（部分角色未返回，可再点一次 ✦）",
-          feedResult.added >= YOU_DOG_TARGET_SPEAKERS_PER_BATCH ? "success" : "warning"
+          "已生成 " + feedResult.added + " / " + feedResult.expected + " 条（部分未返回，可再点一次 ✦）",
+          feedResult.added >= YOU_DOG_FEED_POSTS_PER_BATCH ? "success" : "warning"
         );
       } else {
         showToast(isRegenerate ? "已追加 " + feedResult.added + " 条推文" : "已生成 " + feedResult.added + " 条推文", "success");
@@ -35347,8 +36595,12 @@
   }
 
   async function generateYouDogReplies(slot, postId) {
+    const ctxEarly = findYouDogPostContext(postId);
+    if (ctxEarly && ctxEarly.plotId === YOU_DOG_ACTIVITY_BUNDLE_KEY) {
+      return generateYouDogActivityReplies(slot, postId);
+    }
     if (youDogRepliesGenerating || youDogFeedGenerating || youDogBatchRepliesGenerating) return;
-    const ctx = findYouDogPostContext(postId);
+    const ctx = ctxEarly;
     if (!ctx || !ctx.plot || !ctx.bundle || !ctx.post) return;
     const plot = ctx.plot;
     const bundle = ctx.bundle;
@@ -35365,6 +36617,10 @@
         YOU_DOG_PARALLEL_WORLD_RULE +
         "\n身份多元：剧情角色、NPC、路人网友；互不知真实身份。\n" +
         YOU_DOG_REPLY_TONE_RULE +
+        "\n" +
+        YOU_DOG_REPLY_OP_RULE +
+        "\n" +
+        YOU_DOG_NO_USER_ACTION_RULE +
         "\n" +
         YOU_DOG_EMOJI_STYLE_RULE + "\n" +
         "只输出 JSON：{\"likes\":[\"@anon\"],\"comments\":[{\"id\":\"...\",\"anonId\":\"@...\",\"text\":\"...\",\"replyTo\":\"op|null|@马甲\",\"speakerRef\":\"...\"}]}";
@@ -35416,6 +36672,10 @@
         YOU_DOG_PARALLEL_WORLD_RULE +
         "\n身份多元：各剧情角色小号、NPC、路人网友；互不知真实身份。\n" +
         YOU_DOG_REPLY_TONE_RULE +
+        "\n" +
+        YOU_DOG_REPLY_OP_RULE +
+        "\n" +
+        YOU_DOG_NO_USER_ACTION_RULE +
         "\n" +
         YOU_DOG_EMOJI_STYLE_RULE +
         "\n只输出 JSON：{\"replies\":[{\"postId\":\"...\",\"likes\":[\"@anon\"],\"comments\":[{\"id\":\"...\",\"anonId\":\"@...\",\"text\":\"...\",\"replyTo\":\"op|null|@马甲\",\"speakerRef\":\"plotId:charId|npc:...|web:...\"}]}}";
@@ -35480,8 +36740,8 @@
   }
 
   function toggleYouDogPostLike(postId) {
-    if (!youDogUserCharId) {
-      showToast("请先在设置中选择「我的形象」。", "warning");
+    if (!isYouDogUserProfileReady()) {
+      showToast("请先完善你的身份（昵称与人设）。", "warning");
       openYouDogPersonaModal();
       return false;
     }
@@ -35498,8 +36758,8 @@
   }
 
   function submitYouDogComment(postId, text) {
-    if (!youDogUserCharId) {
-      showToast("请先在设置中选择「我的形象」。", "warning");
+    if (!isYouDogUserProfileReady()) {
+      showToast("请先完善你的身份（昵称与人设）。", "warning");
       return false;
     }
     const ctx = findYouDogPostContext(postId);
@@ -35514,7 +36774,7 @@
       anonId: anon,
       text: trimmed.slice(0, YOU_DOG_COMMENT_TEXT_MAX),
       replyTo: null,
-      speakerRef: "user:" + youDogUserCharId,
+      speakerRef: YOU_DOG_USER_PROFILE_REF,
     });
     persistYouDogTwitterBundle(ctx.bundle, ctx.plotId);
     return true;
@@ -36171,7 +37431,7 @@
   function buildYouDogGenPickOverlayHtml() {
     if (!youDogGenPickOpen) return "";
     const isChat = youDogGenPickMode === "chat";
-    const batchCap = isChat ? YOU_DOG_CHAT_SPEAKERS_PER_BATCH : YOU_DOG_SPEAKERS_PER_BATCH;
+    const batchCap = isChat ? YOU_DOG_CHAT_SPEAKERS_PER_BATCH : YOU_DOG_FEED_GEN_PICK_MAX;
     const title = isChat ? "选择本批发言角色" : "选择本批发帖角色";
     const pickedCount = youDogGenPickDraft.length;
     const hint = isChat
@@ -36182,9 +37442,13 @@
         " / " +
         batchCap +
         "）"
-      : "列出各剧情主要角色；同一人物在不同剧情中视为不同角色。请勾选最多 " +
+      : "列出各剧情主要角色；同一人物在不同剧情中视为不同角色。请勾选 " +
+        YOU_DOG_FEED_MIN_UNIQUE_SPEAKERS +
+        "~" +
         batchCap +
-        " 位参与本批生成（已选 " +
+        " 位参与本批生成（将生成 " +
+        YOU_DOG_FEED_POSTS_PER_BATCH +
+        " 条推文；已选 " +
         pickedCount +
         " / " +
         batchCap +
@@ -36250,7 +37514,8 @@
     if (!key) return false;
     const set = new Set(youDogGenPickDraft);
     const batchCap =
-      youDogGenPickMode === "chat" ? YOU_DOG_CHAT_SPEAKERS_PER_BATCH : YOU_DOG_SPEAKERS_PER_BATCH;
+      youDogGenPickMode === "chat" ? YOU_DOG_CHAT_SPEAKERS_PER_BATCH : YOU_DOG_FEED_GEN_PICK_MAX;
+    const feedMin = YOU_DOG_FEED_MIN_UNIQUE_SPEAKERS;
     if (enabled) {
       if (set.has(key)) return true;
       if (set.size >= batchCap) {
@@ -36259,8 +37524,14 @@
       }
       set.add(key);
     } else {
-      if (set.size <= 1) {
-        showToast("至少保留一个参与生成的角色。", "warning");
+      const minKeep = youDogGenPickMode === "chat" ? 1 : feedMin;
+      if (set.size <= minKeep) {
+        showToast(
+          youDogGenPickMode === "chat"
+            ? "至少保留一个参与生成的角色。"
+            : "至少保留 " + feedMin + " 位参与生成的角色。",
+          "warning"
+        );
         return false;
       }
       set.delete(key);
@@ -36275,7 +37546,11 @@
       return;
     }
     const batchCap =
-      youDogGenPickMode === "chat" ? YOU_DOG_CHAT_SPEAKERS_PER_BATCH : YOU_DOG_SPEAKERS_PER_BATCH;
+      youDogGenPickMode === "chat" ? YOU_DOG_CHAT_SPEAKERS_PER_BATCH : YOU_DOG_FEED_GEN_PICK_MAX;
+    if (youDogGenPickMode === "feed" && youDogGenPickDraft.length < YOU_DOG_FEED_MIN_UNIQUE_SPEAKERS) {
+      showToast("请至少勾选 " + YOU_DOG_FEED_MIN_UNIQUE_SPEAKERS + " 位角色。", "warning");
+      return;
+    }
     if (youDogGenPickDraft.length > batchCap) {
       showToast("本批最多选择 " + batchCap + " 位角色。", "warning");
       return;
@@ -36377,21 +37652,21 @@
   }
 
   function buildYouDogPersonaHeaderHtml() {
-    const persona = getYouDogUserPersonaChar();
-    if (!persona) {
+    const profile = ensureYouDogUserProfile();
+    if (!isYouDogUserProfileReady()) {
       return (
-        '<button type="button" class="you-dog-app__avatar-btn you-dog-app__avatar-btn--empty" data-you-dog-persona-open aria-label="选择身份">' +
+        '<button type="button" class="you-dog-app__avatar-btn you-dog-app__avatar-btn--empty" data-you-dog-persona-open aria-label="创建身份">' +
         '<span class="avatar">?</span></button>'
       );
     }
-    const avatarUrl = getYouDogUserPersonaAvatarUrl(persona);
+    const avatarUrl = profile.avatarUrl || "";
     const avInner = avatarUrl
       ? '<img src="' + escapeHtml(avatarUrl) + '" alt="" />'
-      : escapeHtml(String(persona.name || "?").slice(0, 1));
+      : escapeHtml(String(profile.nickname || "?").slice(0, 1));
     const avCls = "avatar" + (avatarUrl ? " avatar--has-image" : "");
     return (
-      '<button type="button" class="you-dog-app__avatar-btn" data-you-dog-persona-open aria-label="切换身份：' +
-      escapeHtml(persona.name || "我的形象") +
+      '<button type="button" class="you-dog-app__avatar-btn" data-you-dog-persona-open aria-label="编辑身份：' +
+      escapeHtml(profile.nickname || "用户") +
       '">' +
       '<span class="' +
       avCls +
@@ -36402,66 +37677,11 @@
   }
 
   function buildYouDogChatPersonaHeaderHtml() {
-    const persona = getYouDogChatUserPersonaChar();
-    if (!persona) {
-      return (
-        '<button type="button" class="you-dog-app__avatar-btn you-dog-app__avatar-btn--empty" data-you-dog-chat-persona-open aria-label="选择群聊形象">' +
-        '<span class="avatar">?</span></button>'
-      );
-    }
-    const avatarUrl = getYouDogUserPersonaAvatarUrl(persona);
-    const avInner = avatarUrl
-      ? '<img src="' + escapeHtml(avatarUrl) + '" alt="" />'
-      : escapeHtml(String(persona.name || "?").slice(0, 1));
-    const avCls = "avatar" + (avatarUrl ? " avatar--has-image" : "");
-    return (
-      '<button type="button" class="you-dog-app__avatar-btn" data-you-dog-chat-persona-open aria-label="切换群聊形象：' +
-      escapeHtml(persona.name || "我的形象") +
-      '">' +
-      '<span class="' +
-      avCls +
-      '">' +
-      avInner +
-      "</span></button>"
-    );
+    return buildYouDogPersonaHeaderHtml();
   }
 
   function buildYouDogHeaderActionsHtml() {
-    if (youDogChatSubScreen === "chat") {
-      return buildYouDogChatHeaderActionsHtml();
-    }
-    const busy =
-      youDogFeedGenerating || youDogRepliesGenerating || youDogBatchRepliesGenerating;
-    const hasPosts = getYouDogMergedPosts().length > 0;
-    const genLoading = youDogFeedGenerating ? " you-dog-app__action-btn--loading" : "";
-    const batchLoading = youDogBatchRepliesGenerating ? " you-dog-app__action-btn--loading" : "";
-    const genDisabled = busy || !youDogPlotIds.length ? " disabled" : "";
-    const batchDisabled = busy || !hasPosts || !youDogPlotIds.length ? " disabled" : "";
-    const chatOnCls = youDogChatSubScreen === "chat" ? " you-dog-app__action-btn--on" : "";
-    return (
-      '<div class="you-dog-app__actions star-header__actions">' +
-      '<button type="button" class="you-dog-app__action-btn' +
-      chatOnCls +
-      '" data-you-dog-chat-toggle aria-label="群聊" title="群聊">' +
-      buildYouDogBellIconSvg() +
-      "</button>" +
-      '<button type="button" class="you-dog-app__action-btn' +
-      batchLoading +
-      '" data-you-dog-batch-replies aria-label="批量生成评论" title="批量生成评论"' +
-      batchDisabled +
-      ">" +
-      buildYouDogBatchRepliesIconSvg() +
-      "</button>" +
-      '<button type="button" class="you-dog-app__action-btn you-dog-app__action-btn--accent' +
-      genLoading +
-      '" data-you-dog-generate aria-label="生成推文" title="生成推文"' +
-      genDisabled +
-      ">" +
-      buildPhoneWechatStarIconSvg() +
-      "</button>" +
-      buildYouDogPersonaHeaderHtml() +
-      "</div>"
-    );
+    return buildYouDogMainTabHeaderActionsHtml();
   }
 
   function buildYouDogParticipantListHtml() {
@@ -36516,7 +37736,7 @@
     if (!posts.length && !youDogFeedGenerating) {
       const emptyHint =
         youDogFeedTag === "all"
-          ? "点右上角 ✦ 随机生成推文（可在头像里设置发帖角色池）"
+          ? "点右上角 ✦ 生成树洞帖（可在「我的」里设置发帖角色池）"
           : "该分区暂无内容，试试切换分区或生成新推文";
       html +=
         '<div class="you-dog-empty">' +
@@ -36538,11 +37758,14 @@
 
   function buildYouDogParticipantPanelHtml() {
     const activeCount = youDogParticipantIds.length;
-    const batchCap = Math.min(YOU_DOG_SPEAKERS_PER_BATCH, activeCount);
     const batchHint =
-      activeCount >= YOU_DOG_TARGET_SPEAKERS_PER_BATCH
-        ? "每次生成已选角色各发 1 帖（最多 " + batchCap + " 人）"
-        : "每次生成已选 " + activeCount + " 人各发 1 帖";
+      activeCount >= YOU_DOG_FEED_MIN_UNIQUE_SPEAKERS
+        ? "每次从角色池抽取至少 " +
+          YOU_DOG_FEED_MIN_UNIQUE_SPEAKERS +
+          " 人，一次生成 " +
+          YOU_DOG_FEED_POSTS_PER_BATCH +
+          " 条推文"
+        : "角色池至少需要 " + YOU_DOG_FEED_MIN_UNIQUE_SPEAKERS + " 人才能生成";
     return (
       '<section class="you-dog-participant-panel">' +
       '<div class="you-dog-participant-panel__head">' +
@@ -36567,39 +37790,121 @@
     const bookmarked = posts.filter(function (p) {
       return p && p.userSavedBookmark;
     });
-    const userChar = getYouDogUserPersonaChar();
-    const personaLabel = userChar ? userChar.name || "我的形象" : "未选择";
+    const profile = ensureYouDogUserProfile();
+    const personaLabel = profile.nickname || "未设置";
     const userAnon = getYouDogCurrentUserAnonId();
-    function cards(list, emptyText) {
-      if (!list.length) return '<p class="you-dog-empty">' + escapeHtml(emptyText) + "</p>";
-      return list
-        .map(function (p) {
-          return (
-            '<button type="button" class="you-dog-profile__card" data-you-dog-goto-post="' +
-            escapeHtml(p.id) +
-            '">' +
-            '<div class="you-dog-profile__card-anon">' +
-            escapeHtml(String(p.anonId || "")) +
-            "</div>" +
-            '<div class="you-dog-profile__card-text">' +
-            escapeHtml(String(p.text || "")) +
-            "</div></button>"
-          );
-        })
-        .join("");
+    const avatarUrl = getYouDogUserAvatarUrl();
+    const avInner = avatarUrl
+      ? '<img src="' + escapeHtml(avatarUrl) + '" alt="" />'
+      : escapeHtml(String(personaLabel === "未设置" ? "?" : personaLabel).slice(0, 1));
+    const avCls =
+      "you-dog-profile-hero__avatar avatar" + (avatarUrl ? " avatar--has-image" : "");
+    const personaPreview = truncateCharsWithEllipsis(String(profile.persona || "").trim(), 72);
+    const personaHtml = personaPreview
+      ? escapeHtml(personaPreview)
+      : '<span class="you-dog-profile-hero__persona--empty">完善人设后，角色会按此理解你</span>';
+    const activeList = youDogProfileSegment === "bookmarks" ? bookmarked : liked;
+    const emptyTitle =
+      youDogProfileSegment === "bookmarks" ? "还没有收藏的帖子" : "还没有喜欢的帖子";
+    const emptyHint =
+      youDogProfileSegment === "bookmarks"
+        ? "在树洞或动态里收藏后会出现在这里"
+        : "在树洞或动态里点赞后会出现在这里";
+
+    function postRows(list) {
+      if (!list.length) {
+        return (
+          '<div class="you-dog-profile-empty">' +
+          '<span class="you-dog-profile-empty__icon" aria-hidden="true">' +
+          (youDogProfileSegment === "bookmarks" ? "☆" : "♡") +
+          "</span>" +
+          '<p class="you-dog-profile-empty__title">' +
+          escapeHtml(emptyTitle) +
+          "</p>" +
+          '<p class="you-dog-profile-empty__hint">' +
+          escapeHtml(emptyHint) +
+          "</p></div>"
+        );
+      }
+      return (
+        '<div class="you-dog-profile-list">' +
+        list
+          .map(function (p) {
+            const tagLabel = getYouDogSectionLabel(resolveYouDogSectionId(p.tag));
+            const initial = String(p.anonId || "@").replace(/^@/, "").slice(0, 1) || "?";
+            return (
+              '<button type="button" class="you-dog-profile-post-row" data-you-dog-goto-post="' +
+              escapeHtml(String(p.id || "")) +
+              '">' +
+              '<span class="you-dog-profile-post-row__avatar" aria-hidden="true">' +
+              escapeHtml(initial) +
+              "</span>" +
+              '<span class="you-dog-profile-post-row__body">' +
+              '<span class="you-dog-profile-post-row__top">' +
+              '<span class="you-dog-profile-post-row__anon">' +
+              escapeHtml(String(p.anonId || "@匿名")) +
+              "</span>" +
+              '<span class="you-dog-profile-post-row__tag">' +
+              escapeHtml(tagLabel) +
+              "</span></span>" +
+              '<span class="you-dog-profile-post-row__text">' +
+              escapeHtml(String(p.text || "")) +
+              "</span>" +
+              '<span class="you-dog-profile-post-row__meta">' +
+              escapeHtml(String(p.time || "")) +
+              "</span></span></button>"
+            );
+          })
+          .join("") +
+        "</div>"
+      );
     }
+
     return (
-      '<div class="you-dog-profile">' +
-      '<div class="you-dog-profile__section">' +
-      '<p class="you-dog-profile__heading">当前身份 · ' +
+      '<div class="you-dog-hub you-dog-hub--profile">' +
+      '<div class="you-dog-profile-hero">' +
+      '<div class="you-dog-profile-hero__banner" aria-hidden="true"></div>' +
+      '<div class="you-dog-profile-hero__main">' +
+      '<button type="button" class="' +
+      avCls +
+      '" data-you-dog-persona-open aria-label="编辑身份">' +
+      avInner +
+      "</button>" +
+      '<div class="you-dog-profile-hero__info">' +
+      '<h2 class="you-dog-profile-hero__name">' +
       escapeHtml(personaLabel) +
-      (userAnon ? "（" + escapeHtml(userAnon) + "）" : "") +
-      '</p><button type="button" class="btn btn--secondary btn--pill" data-you-dog-persona-open>查看身份详情</button></div>' +
-      '<div class="you-dog-profile__section"><h3 class="you-dog-profile__heading">喜欢</h3>' +
-      cards(liked, "还没有喜欢的帖子") +
-      "</div>" +
-      '<div class="you-dog-profile__section"><h3 class="you-dog-profile__heading">收藏</h3>' +
-      cards(bookmarked, "还没有收藏的帖子") +
+      "</h2>" +
+      (userAnon
+        ? '<p class="you-dog-profile-hero__anon">' + escapeHtml(userAnon) + "</p>"
+        : "") +
+      '<p class="you-dog-profile-hero__persona">' +
+      personaHtml +
+      "</p></div></div>" +
+      '<div class="you-dog-profile-hero__stats">' +
+      '<span class="you-dog-profile-hero__stat"><strong>' +
+      escapeHtml(String(liked.length)) +
+      '</strong><span>喜欢</span></span>' +
+      '<span class="you-dog-profile-hero__stat-divider" aria-hidden="true"></span>' +
+      '<span class="you-dog-profile-hero__stat"><strong>' +
+      escapeHtml(String(bookmarked.length)) +
+      '</strong><span>收藏</span></span></div>' +
+      '<div class="you-dog-profile-hero__actions">' +
+      '<button type="button" class="you-dog-profile-hero__action" data-you-dog-persona-open>' +
+      '<svg class="icon-linear" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>' +
+      "编辑身份</button>" +
+      '<button type="button" class="you-dog-profile-hero__action" data-you-dog-pick-plot>' +
+      '<svg class="icon-linear" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>' +
+      "管理剧情</button></div></div>" +
+      buildYouDogSegmentBarHtml(
+        [
+          { id: "likes", label: "喜欢" },
+          { id: "bookmarks", label: "收藏" },
+        ],
+        youDogProfileSegment,
+        "you-dog-profile-segment"
+      ) +
+      '<div class="you-dog-hub__panel you-dog-hub__panel--profile">' +
+      postRows(activeList) +
       "</div></div>"
     );
   }
@@ -36867,21 +38172,11 @@
   }
 
   function getYouDogChatMemberAvatarUrl(memberRef) {
-    const parsed = parseYouDogChatMemberRef(memberRef);
-    if (!parsed) {
-      if (String(memberRef || "").indexOf("user:") === 0) {
-        const uid2 = String(memberRef).slice(5);
-        const ch = getCharById(uid2);
-        if (ch) {
-          const plot = plots.find(function (p) {
-            return p && p.protagonistId === uid2;
-          });
-          if (plot) return getYouDogPlotPersonaAvatarUrl(plot, ch);
-          return ch.avatarUrl ? String(ch.avatarUrl).trim() : "";
-        }
-      }
-      return "";
+    if (String(memberRef || "").indexOf("user:") === 0) {
+      return getYouDogUserAvatarUrl();
     }
+    const parsed = parseYouDogChatMemberRef(memberRef);
+    if (!parsed) return "";
     const plot = plots.find(function (p) {
       return p.id === parsed.plotId;
     });
@@ -36901,24 +38196,11 @@
   }
 
   function getAllYouDogChatSelfPersonaOptions() {
-    return getSelfCharacters().map(function (ch) {
-      const plot = plots.find(function (p) {
-        return p && p.protagonistId === ch.id;
-      });
-      return {
-        charId: ch.id,
-        char: ch,
-        plotTitle: plot ? plot.title || "未命名剧情" : "",
-        avatarUrl: plot ? getYouDogPlotPersonaAvatarUrl(plot, ch) : ch.avatarUrl ? String(ch.avatarUrl).trim() : "",
-      };
-    });
+    return [];
   }
 
   function getYouDogChatUserPersonaChar() {
-    if (!youDogChatUserCharId) return null;
-    const ch = getCharById(youDogChatUserCharId);
-    if (!ch || ch.categoryId !== CHAR_CATEGORY_SELF_ID) return null;
-    return ch;
+    return isYouDogUserProfileReady() ? ensureYouDogUserProfile() : null;
   }
 
   function sanitizeYouDogChatState() {
@@ -36929,14 +38211,7 @@
     if (!youDogChatData || !youDogChatData.setupComplete) {
       youDogChatParticipantIds = [];
       youDogChatSpeakerPoolRefs = [];
-      if (youDogChatUserCharId) {
-        const u = getCharById(youDogChatUserCharId);
-        if (!u || u.categoryId !== CHAR_CATEGORY_SELF_ID) youDogChatUserCharId = null;
-      }
-      if (!youDogChatUserCharId) {
-        const opts = getAllYouDogChatSelfPersonaOptions();
-        if (opts.length) youDogChatUserCharId = opts[0].charId;
-      }
+      ensureYouDogUserProfile();
       return;
     }
     ensureYouDogChatData();
@@ -36964,14 +38239,7 @@
         isAdmin: false,
       });
     });
-    if (youDogChatUserCharId) {
-      const u = getCharById(youDogChatUserCharId);
-      if (!u || u.categoryId !== CHAR_CATEGORY_SELF_ID) youDogChatUserCharId = null;
-    }
-    if (!youDogChatUserCharId) {
-      const opts = getAllYouDogChatSelfPersonaOptions();
-      if (opts.length) youDogChatUserCharId = opts[0].charId;
-    }
+    ensureYouDogUserProfile();
     youDogChatData.messages = (youDogChatData.messages || [])
       .map(function (m) {
         return normalizeYouDogChatMessage(m, youDogChatData);
@@ -37032,13 +38300,13 @@
       );
     }
     const lines = [
-      "【人设】",
+      "【人设（仅供把握性格与说话习惯，本批大部分消息不必提及剧情）】",
       profile,
       "",
-      "【阶段总结（最近 " + YOU_DOG_CHAT_SUMMARY_LIMIT + " 条）】",
+      "【阶段总结（背景参考，勿复述）】",
       summaryBlock || "尚无总结。",
       "",
-      "【最近 " + YOU_DOG_CHAT_PLOT_TURN_LIMIT + " 轮剧情】",
+      "【最近剧情（背景参考，可完全不提）】",
       history || "剧情尚未开始。",
     ];
     return lines.join("\n");
@@ -37088,13 +38356,11 @@
   }
 
   function getYouDogChatUserDisplayName() {
-    const ch = getYouDogChatUserPersonaChar();
-    return ch && ch.name ? String(ch.name).trim() : "用户";
+    return getYouDogUserDisplayNickname();
   }
 
   function getYouDogTwitterPersonaRealName() {
-    const ch = getYouDogUserPersonaChar();
-    return ch && ch.name ? String(ch.name).trim() : getYouDogChatUserDisplayName();
+    return getYouDogUserRealName();
   }
 
   function updateYouDogChatPhase(persist) {
@@ -37117,46 +38383,43 @@
     const phase = dataObj.phase || "opening";
     const twitterName = getYouDogTwitterPersonaRealName();
     const userName = getYouDogChatUserDisplayName();
+    const batchSizeHint =
+      "本批目标 " +
+      YOU_DOG_CHAT_MSGS_PER_BATCH_MIN +
+      "～" +
+      YOU_DOG_CHAT_MSGS_PER_BATCH_MAX +
+      " 条，每条通常一两句（8~55 字）。";
+    const toneHint = YOU_DOG_CHAT_TONE_RULE;
     if (phase === "opening") {
       return (
         "【本批剧本 · 破冰阶段】\n" +
-        "角色互不认识，只能看到对方头顶的彩色标签；禁止直呼真名，用标签称呼。\n" +
-        "本批须逐步对标签表示困惑，轮流 @用户（群昵称：" +
+        toneHint +
+        "\n角色互不认识，只能看到对方头顶的彩色标签；禁止直呼真名，用标签称呼。\n" +
+        "可偶尔 @用户（群昵称：" +
         userName +
-        "）。\n" +
-        "若历史里尚未出现，本批须安排：某角色质疑「是不是 " +
+        "），但不必每条都 @；大部分消息可以是闲聊、吐槽、接梗。\n" +
+        "若历史里尚未出现，本批可穿插一次：某角色质疑「是不是 " +
         twitterName +
-        " 在胡闹」，其他角色回应「你怎么也认识 " +
-        twitterName +
-        "？」。\n" +
-        "语气像被拉进陌生群，2～4 人发言即可，不要全员同时爆发。\n" +
-        "每条消息 20～120 字，本批共 " +
-        YOU_DOG_CHAT_MSGS_PER_BATCH_MIN +
-        "～" +
-        YOU_DOG_CHAT_MSGS_PER_BATCH_MAX +
-        " 条。"
+        " 在胡闹」，其他人接话——仅此一次即可，不要整批都在讨论这件事。\n" +
+        batchSizeHint
       );
     }
     if (phase === "discovery") {
       return (
         "【本批剧本 · 平行世界觉醒】\n" +
-        "角色开始怀疑彼此是平行世界的同类，用标签互怼、互嘲、较劲，像大学男生宿舍群。\n" +
-        "可聊剧情内外话题；仍用标签称呼，偶尔 @用户。\n" +
-        "每条 20～120 字，本批 " +
-        YOU_DOG_CHAT_MSGS_PER_BATCH_MIN +
-        "～" +
-        YOU_DOG_CHAT_MSGS_PER_BATCH_MAX +
-        " 条。"
+        toneHint +
+        "\n角色开始怀疑彼此是平行世界的同类，用标签互怼、互嘲、较劲，像普通男生宿舍/网友群。\n" +
+        "可聊任何日常话题（游戏、外卖、天气、段子）；偶尔聊各自世界的事，但禁止人人每句都在汇报剧情或与用户相关的事。\n" +
+        "仍用标签称呼，偶尔 @用户。" +
+        batchSizeHint
       );
     }
     return (
       "【本批剧本 · 自由群聊】\n" +
-      "平行世界自觉已建立；标签互称、互损、较劲，话题不限。\n" +
-      "每条 20～120 字，本批尽量多聊，目标 " +
-      YOU_DOG_CHAT_MSGS_PER_BATCH_MIN +
-      "～" +
-      YOU_DOG_CHAT_MSGS_PER_BATCH_MAX +
-      " 条。"
+      toneHint +
+      "\n平行世界自觉已建立；标签互称、互损、接梗，话题不限。\n" +
+      "像真实群聊：有人连发两三句短消息，有人只回「草」「确实」「？？？」；约半数消息与剧情无关。" +
+      batchSizeHint
     );
   }
 
@@ -37174,6 +38437,9 @@
       .filter(Boolean);
     const lines = [
       "请为群聊「" + (data.groupName || "未命名群") + "」生成一批新消息 JSON。",
+      YOU_DOG_CHAT_TONE_RULE,
+      "",
+      buildYouDogUserProfilePromptBlock(),
       "",
       "【群成员与标签（角色只见标签，不见真名）】",
       buildYouDogChatMembersTagBlock(data),
@@ -37182,13 +38448,13 @@
       poolLabels.length ? poolLabels.join("\n") : "（无）",
       "",
       "【本批发言规则】",
-      "根据下方群聊最近记录，从角色池中决定本批谁该开口；不必全员每批都说话，也不必固定人数。" +
+      "根据下方群聊最近记录，从角色池中决定本批谁该开口；不必全员每批都说话，同一人可连发多条短消息。" +
         "被 @、话题相关、性格接梗、有人刚说完想回嘴等情况优先；" +
-        "本批约 " +
+        "本批须生成 " +
         YOU_DOG_CHAT_MSGS_PER_BATCH_MIN +
         "～" +
         YOU_DOG_CHAT_MSGS_PER_BATCH_MAX +
-        " 条，每条 memberRef 须来自角色池。",
+        " 条，每条 memberRef 须来自角色池；每条通常一两句，8~55 字。",
       "",
       buildYouDogChatPhaseInstruction(data),
       "",
@@ -37200,7 +38466,7 @@
         return p.id === parsed.plotId;
       });
       if (!plot) return;
-      lines.push("════ " + getYouDogChatMemberDisplayName(memberRef) + " · 上下文 ════");
+      lines.push("════ " + getYouDogChatMemberDisplayName(memberRef) + " · 性格参考（勿句句引用） ════");
       lines.push(buildYouDogChatPlotContextBlock(plot, parsed.charId));
       lines.push("");
     });
@@ -37210,13 +38476,15 @@
       lines.push(history);
       lines.push("");
     }
+    appendYouDogCrossRefChatPromptBlocks(lines, poolRefs);
     if (opts.userText) {
       lines.push("【用户刚发送】");
       lines.push(getYouDogChatUserDisplayName() + "：" + String(opts.userText).trim());
       lines.push("");
     }
     lines.push(
-      "只输出 JSON：{\"messages\":[{\"memberRef\":\"plotId:charId\",\"text\":\"...\",\"mentions\":[\"@" +
+      YOU_DOG_CHAT_TONE_RULE +
+        "\n只输出 JSON：{\"messages\":[{\"memberRef\":\"plotId:charId\",\"text\":\"...\",\"mentions\":[\"@" +
         getYouDogChatUserDisplayName() +
         '"]}]}'
     );
@@ -37260,14 +38528,14 @@
 
   function appendYouDogChatUserMessage(text, quoteDraft) {
     const data = ensureYouDogChatData();
-    if (!youDogChatUserCharId) return false;
+    if (!isYouDogUserProfileReady()) return false;
     const trimmed = String(text || "").trim();
     if (!trimmed) return false;
     const quoteSrc = quoteDraft || youDogChatQuoteDraft;
     const payload = {
       id: uid("ydcm"),
       batchId: null,
-      memberRef: "user:" + youDogChatUserCharId,
+      memberRef: YOU_DOG_USER_PROFILE_REF,
       text: trimmed.slice(0, YOU_DOG_CHAT_TEXT_MAX),
       time: "刚刚",
       tagName: "",
@@ -37428,6 +38696,10 @@
         '<svg class="icon-linear story-selection-bubble__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10h10a4 4 0 014 4v7"/><path d="M3 10l4-4"/><path d="M7 6L3 10l4 4"/></svg>' +
         '<span class="story-selection-bubble__label">引用</span>' +
         "</button>" +
+        '<button type="button" data-you-dog-chat-msg-action="knock">' +
+        '<svg class="icon-linear story-selection-bubble__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M21 12a8 8 0 01-8 8H8l-5 3V8a8 8 0 018-8h8a8 8 0 018 8z"/></svg>' +
+        '<span class="story-selection-bubble__label">敲敲</span>' +
+        "</button>" +
         '<button type="button" data-you-dog-chat-msg-action="delete">' +
         '<svg class="icon-linear story-selection-bubble__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>' +
         '<span class="story-selection-bubble__label">删除</span>' +
@@ -37504,7 +38776,7 @@
     function inYouDogChatBubbleTarget(el) {
       if (!el || !el.closest) return null;
       const slot = el.closest("#you-dog-content-slot");
-      if (!slot || youDogChatSubScreen !== "chat" || youDogChatSelectMode) return null;
+      if (!slot || !youDogOnChatTab() || youDogChatSelectMode) return null;
       const bubble = el.closest("[data-you-dog-chat-bubble]");
       if (!bubble || !slot.contains(bubble)) return null;
       const msgEl = bubble.closest("[data-you-dog-chat-msg-id]");
@@ -37561,8 +38833,13 @@
         const ctx = youDogChatMsgActionContext;
         const action = actionBtn.getAttribute("data-you-dog-chat-msg-action");
         if (ctx && ctx.msgId) {
+          const msg = getYouDogChatMessageById(ctx.msgId);
           if (action === "quote") setYouDogChatQuoteFromMessage(ctx.msgId);
-          else if (action === "delete") {
+          else if (action === "knock") {
+            if (msg && msg.memberRef && String(msg.memberRef).indexOf("user:") !== 0) {
+              void openKnockFromYouDogMemberRef(msg.memberRef);
+            }
+          } else if (action === "delete") {
             void showConfirm("确定删除这条消息？", "删除消息").then(function (ok) {
               if (!ok) return;
               deleteYouDogChatMessagesByIds([ctx.msgId]);
@@ -37603,7 +38880,7 @@
     sanitizeYouDogChatState();
     const poolRefs = getYouDogChatSpeakerPoolRefs();
     if (!poolRefs.length) {
-      showToast("请先在群聊形象里勾选参与发言的角色。", "warning");
+      showToast("请先在身份设置里勾选参与发言的角色。", "warning");
       openYouDogChatPersonaModal();
       return;
     }
@@ -37619,10 +38896,17 @@
       const systemPrompt =
         "你是中文互动叙事助手。生成「嗅闻博客·平行世界群聊」JSON。\n" +
         YOU_DOG_PARALLEL_WORLD_RULE +
+        "\n" +
+        YOU_DOG_CHAT_TONE_RULE +
         "\n角色互不认识，只见头顶标签；禁止输出角色真名（标签名可以）。\n" +
         "memberRef 格式为 plotId:charId；仅输出角色池中成员的消息。\n" +
-        "根据群聊上文从角色池决定本批谁发言，不必全员每批都开口。\n" +
-        "群聊口语化、宿舍男生互损感；可 @用户。\n" +
+        "根据群聊上文从角色池决定本批谁发言，不必全员每批都开口；同一人可连发多条短消息。\n" +
+        "像普通微信群闲聊，大部分消息一两句即可，不必每条都聊剧情或与用户相关的事。\n" +
+        "本批须生成 " +
+        YOU_DOG_CHAT_MSGS_PER_BATCH_MIN +
+        "～" +
+        YOU_DOG_CHAT_MSGS_PER_BATCH_MAX +
+        " 条消息。\n" +
         "只输出一个 JSON 对象，不要用 markdown 代码围栏。";
       const userPrompt = buildYouDogChatUserPrompt({ userText: opts.userText, poolRefs: poolRefs });
       const raw = await callChatCompletion(
@@ -37631,7 +38915,7 @@
           { role: "user", content: userPrompt },
         ],
         0.86,
-        7168,
+        8192,
         chatApiOptsFromGen(_genCtx)
       );
       const parsed = parseAssistantJsonObject(raw);
@@ -37808,7 +39092,7 @@
     if (!youDogChatSettingsOpen || !isYouDogChatReady()) return "";
     const data = ensureYouDogChatData();
     const persona = getYouDogChatUserPersonaChar();
-    const personaName = persona ? persona.name || "我的形象" : "未选择";
+    const personaName = getYouDogUserDisplayNickname();
     const memberRows = (data.members || [])
       .map(function (m) {
         const cand = getAllYouDogChatMemberCandidates().find(function (c) {
@@ -37856,7 +39140,7 @@
       '" maxlength="' +
       YOU_DOG_CHAT_GROUP_NAME_MAX +
       '" /></label>' +
-      '<button type="button" class="btn btn--secondary btn--pill you-dog-chat-settings__persona-btn" data-you-dog-chat-persona-open>切换群聊形象（当前：' +
+      '<button type="button" class="btn btn--secondary btn--pill you-dog-chat-settings__persona-btn" data-you-dog-persona-open>编辑身份（当前：' +
       escapeHtml(personaName) +
       "）</button>" +
       '<div class="you-dog-chat-settings__members"><p class="you-dog-chat-settings__members-title">群成员 · 踢出后将删除其全部发言</p>' +
@@ -37931,7 +39215,7 @@
         '<div class="you-dog-chat-stub">' +
         '<div class="you-dog-chat-stub__icon" aria-hidden="true">💬</div>' +
         "<p>还没有建立群聊</p>" +
-        '<p class="field__hint">点击右上角铃铛，为全部剧情的主要角色打标签并建群</p>' +
+        '<p class="field__hint">建群后可与树洞、动态、私聊在同一 App 内互通</p>' +
         '<button type="button" class="btn btn--primary btn--pill" data-you-dog-chat-setup-open>开始建群</button></div>'
       );
     }
@@ -37948,7 +39232,7 @@
       threadHtml =
         '<div class="you-dog-chat__empty"><p>群「' +
         escapeHtml(data.groupName || "未命名") +
-        '」</p><p class="field__hint">点顶栏 ✦ 生成聊天（可在群聊形象里设置发言角色池），或在下方发言</p></div>';
+        '」</p><p class="field__hint">点顶栏 ✦ 生成聊天（可在身份设置里配置发言角色池），或在下方发言</p></div>';
     }
     if (youDogChatGenerating) {
       threadHtml += '<div class="you-dog-chat__generating">正在生成群聊…</div>';
@@ -38003,11 +39287,9 @@
         memberTagNames[c.memberRef] = "";
       }
     });
-    const personaOpts = getAllYouDogChatSelfPersonaOptions();
     youDogChatSetupDraft = {
       memberTagNames: memberTagNames,
       groupName: existing ? existing.groupName || "" : "",
-      userCharId: youDogChatUserCharId || (personaOpts.length ? personaOpts[0].charId : null),
       isReopen: !!existing,
     };
     youDogChatSetupStep = "tag";
@@ -38023,13 +39305,13 @@
     if (!body || !youDogChatSetupDraft) return;
     const step = youDogChatSetupStep;
     if (titleEl) {
-      titleEl.textContent = step === "tag" ? "打标签" : "群名称与形象";
+      titleEl.textContent = step === "tag" ? "打标签" : "群名称";
     }
     if (hintEl) {
       hintEl.textContent =
         step === "tag"
           ? "在每位角色后面输入标签名即可，颜色会自动分配"
-          : "输入群聊名称，并选择你在群里的形象（全部角色默认入群）";
+          : "输入群聊名称（你的身份请在右上角头像处创建）";
     }
     if (backBtn) backBtn.hidden = step === "tag";
     if (confirmBtn) {
@@ -38062,24 +39344,6 @@
         '" maxlength="' +
         YOU_DOG_CHAT_GROUP_NAME_MAX +
         '" placeholder="例如：平行世界宿舍" /></label>';
-      const personaOpts = getAllYouDogChatSelfPersonaOptions();
-      html += '<p class="field__hint">群聊形象（与推特互动身份独立）</p><div class="you-dog-persona-options">';
-      personaOpts.forEach(function (opt) {
-        const on = youDogChatSetupDraft.userCharId === opt.charId;
-        html +=
-          '<button type="button" class="you-dog-persona-option' +
-          (on ? " is-active" : "") +
-          '" data-you-dog-chat-setup-persona="' +
-          escapeHtml(opt.charId) +
-          '">' +
-          '<span class="you-dog-persona-option__name-row">' +
-          escapeHtml(opt.char.name || "我的形象") +
-          (opt.plotTitle
-            ? '<span class="you-dog-persona-option__plot-source"> · 《' + escapeHtml(opt.plotTitle) + "》</span>"
-            : "") +
-          "</span></button>";
-      });
-      html += "</div>";
     }
     body.innerHTML = html;
   }
@@ -38149,8 +39413,9 @@
         return;
       }
       youDogChatSetupDraft.groupName = name;
-      if (!youDogChatSetupDraft.userCharId) {
-        showToast("请选择群聊形象。", "warning");
+      if (!isYouDogUserProfileReady()) {
+        showToast("请先在右上角创建你的身份（昵称与人设）。", "warning");
+        openYouDogPersonaModal();
         return;
       }
     } else {
@@ -38201,8 +39466,9 @@
       phase: prevPhase,
       lastBatchId: prevBatch,
     });
-    youDogChatUserCharId = youDogChatSetupDraft.userCharId;
-    youDogChatSubScreen = "chat";
+    youDogMainTab = "messages";
+    youDogMessagesSegment = "group";
+    syncYouDogLegacyChatSubScreen();
     sanitizeYouDogChatState();
     schedulePersistNarrative();
     closeYouDogChatSetupModal();
@@ -38223,50 +39489,17 @@
   function renderYouDogChatPersonaModal() {
     const pick = els.youDogChatPersonaPick();
     if (!pick) return;
-    const options = getAllYouDogChatSelfPersonaOptions();
-    if (!options.length) {
-      pick.innerHTML =
-        '<p class="you-dog-persona-empty">还没有「我的形象」，请先在剧情中设定主角。</p>' +
-        buildYouDogChatSpeakerPoolSectionHtml();
-      return;
-    }
-    const optionsHtml = options
-      .map(function (opt) {
-        const on = youDogChatUserCharId === opt.charId;
-        const avInner = opt.avatarUrl
-          ? '<img src="' + escapeHtml(opt.avatarUrl) + '" alt="" />'
-          : escapeHtml(String(opt.char.name || "?").slice(0, 1));
-        const avCls = "you-dog-persona-option__av avatar" + (opt.avatarUrl ? " avatar--has-image" : "");
-        return (
-          '<button type="button" class="you-dog-persona-option' +
-          (on ? " is-active" : "") +
-          '" data-you-dog-chat-persona-select="' +
-          escapeHtml(opt.charId) +
-          '">' +
-          '<span class="' +
-          avCls +
-          '">' +
-          avInner +
-          "</span>" +
-          '<span class="you-dog-persona-option__meta">' +
-          '<span class="you-dog-persona-option__name">' +
-          escapeHtml(opt.char.name || "我的形象") +
-          "</span>" +
-          '<span class="you-dog-persona-option__plot">《' +
-          escapeHtml(opt.plotTitle || "未命名剧情") +
-          "》</span></span>" +
-          (on
-            ? '<span class="you-dog-persona-option__badge" aria-hidden="true">当前</span>'
-            : "") +
-          "</button>"
-        );
-      })
-      .join("");
+    const profile = ensureYouDogUserProfile();
     pick.innerHTML =
-      '<p class="you-dog-persona-sheet__hint you-dog-persona-sheet__hint--top">选择与群成员无关的群聊发言身份。</p>' +
-      '<div class="you-dog-persona-options">' +
-      optionsHtml +
-      "</div>" +
+      '<p class="you-dog-persona-sheet__hint you-dog-persona-sheet__hint--top">群聊发言使用你在「你才是狗」中创建的身份；与剧情库「我的形象」无关。</p>' +
+      '<div class="you-dog-user-profile you-dog-user-profile--summary">' +
+      '<p><strong>昵称：</strong>' +
+      escapeHtml(profile.nickname || "未设置") +
+      "</p>" +
+      '<p><strong>真名：</strong>' +
+      escapeHtml(profile.realName || "未设置") +
+      "</p>" +
+      '<button type="button" class="btn btn--secondary btn--pill" data-you-dog-persona-open>编辑身份</button></div>' +
       buildYouDogChatSpeakerPoolSectionHtml();
   }
 
@@ -38297,30 +39530,7 @@
   }
 
   function handleYouDogChatToggle() {
-    try {
-      if (!isYouDogChatReady()) {
-        openYouDogChatSetupModal();
-        return;
-      }
-      youDogScreen = "feed";
-      youDogDetailPostId = null;
-      youDogProfileSpeakerRef = null;
-      youDogChatSubScreen = youDogChatSubScreen === "chat" ? "feed" : "chat";
-      youDogChatParticipantPanelOpen = false;
-      youDogChatSelectMode = false;
-      youDogChatSelectedMsgIds = [];
-      youDogChatSettingsOpen = false;
-      youDogChatMoreOpen = false;
-      youDogChatQuoteDraft = null;
-      hideYouDogChatMsgActionBubble();
-      renderYouDogScreen(els.youDogContentSlot());
-      if (youDogChatSubScreen === "chat") {
-        scrollYouDogChatThreadToEnd(els.youDogContentSlot());
-      }
-    } catch (err) {
-      console.error(err);
-      showToast("进入群聊失败，请刷新后重试。", "error", 4200);
-    }
+    switchYouDogMainTab("messages");
   }
 
   function toggleYouDogChatSelectMode(slot) {
@@ -38352,9 +39562,9 @@
     const input = root && root.querySelector("[data-you-dog-chat-input]");
     const text = input ? String(input.value || "").trim() : "";
     if (!text) return;
-    if (!youDogChatUserCharId) {
-      showToast("请先选择群聊形象。", "warning");
-      openYouDogChatPersonaModal();
+    if (!isYouDogUserProfileReady()) {
+      showToast("请先创建你的身份（昵称与人设）。", "warning");
+      openYouDogPersonaModal();
       return;
     }
     appendYouDogChatUserMessage(text);
@@ -38364,20 +39574,930 @@
     scrollYouDogChatThreadToEnd(root);
   }
 
-  function buildYouDogTabsHtml() {
+  async function openKnockFromYouDogMemberRef(memberRef) {
+    const parsed = parseYouDogChatMemberRef(memberRef);
+    if (!parsed) {
+      showToast("无法识别该标签对应的角色", "warning");
+      return;
+    }
+    const plot = plots.find(function (p) {
+      return p.id === parsed.plotId;
+    });
+    if (!plot) {
+      showToast("剧情不存在", "warning");
+      return;
+    }
+    overviewSubView = null;
+    syncOverviewSubViewUi();
+    knockPlotId = parsed.plotId;
+    knockPartnerCharId = parsed.charId;
+    if (plot.protagonistId) knockUserCharId = plot.protagonistId;
+    await openOverviewKnockView();
+    showToast("已跳转敲敲私聊", "info");
+  }
+
+  /* ── 你才是狗 · 活动 ── */
+
+  function buildYouDogActivityRepliesPrompt(post, memberRefs) {
+    const comments = (post && post.comments) || [];
+    const commentLines = comments.map(function (c) {
+      const rt = c.replyTo ? " 回复" + c.replyTo : "";
+      return "- " + c.anonId + rt + "：" + truncateCharsWithEllipsis(c.text || "", 100);
+    });
+    const poolLabels = (memberRefs || [])
+      .map(function (ref) {
+        return getYouDogActivityMemberLabel(ref) + "（memberRef=" + ref + "）";
+      })
+      .filter(Boolean);
+    const lines = [
+      "请为以下用户活动帖生成互动回复 JSON（点赞 + 评论）。",
+      YOU_DOG_PARALLEL_WORLD_RULE,
+      YOU_DOG_REPLY_OP_RULE,
+      YOU_DOG_REPLY_TONE_RULE,
+      "发帖人 anonId：" + (post.anonId || "@?") + "；speakerRef：" + YOU_DOG_USER_PROFILE_REF + "；正文：" + (post.text || ""),
+      "",
+      buildYouDogUserProfilePromptBlock(),
+      "",
+    ];
+    if (commentLines.length) {
+      lines.push("【已有回复（勿重复）】");
+      lines.push(commentLines.join("\n"));
+      lines.push("");
+    }
+    lines.push("【优先参与回复的群聊角色】");
+    lines.push(poolLabels.length ? poolLabels.join("\n") : "（无）");
+    lines.push("");
+    memberRefs.forEach(function (memberRef) {
+      const parsed = parseYouDogChatMemberRef(memberRef);
+      if (!parsed) return;
+      const plot = plots.find(function (p) {
+        return p.id === parsed.plotId;
+      });
+      if (!plot) return;
+      lines.push("════ " + getYouDogActivityMemberLabel(memberRef) + " · 性格参考 ════");
+      lines.push(buildYouDogChatPlotContextBlock(plot, parsed.charId));
+      lines.push("");
+    });
+    lines.push(
+      "还可加入 NPC（speakerRef 用 npc:名称）、路人网友（web:随机）。约 25~40% 为路人。" +
+        "可回复楼主（replyTo=\"op\"）、楼中楼互怼；若已有用户评论可在楼中楼 replyTo 其 anonId。" +
+        YOU_DOG_NO_USER_ACTION_RULE +
+        " 请生成约 4~6 条新评论 + 2~4 个点赞。" +
+        "\n只输出 JSON：{\"likes\":[\"@anon\"],\"comments\":[{\"id\":\"c_xxx\",\"anonId\":\"@...\",\"text\":\"...\",\"replyTo\":\"op|@某马甲|null\",\"speakerRef\":\"plotId:charId|npc:...|web:...\"}]}"
+    );
+    return lines.join("\n");
+  }
+
+  function submitYouDogActivityPost(text, tag) {
+    if (!isYouDogUserProfileReady()) {
+      showToast("请先完善你的身份（昵称与人设）。", "warning");
+      openYouDogPersonaModal();
+      return null;
+    }
+    const trimmed = String(text || "").trim();
+    if (!trimmed) return null;
+    const bundle = ensureYouDogActivityBundle();
+    const post = normalizeYouDogPost(
+      {
+        id: uid("yda"),
+        anonId: getYouDogCurrentUserAnonId(),
+        speakerRef: YOU_DOG_USER_PROFILE_REF,
+        plotId: YOU_DOG_ACTIVITY_BUNDLE_KEY,
+        text: trimmed.slice(0, YOU_DOG_POST_TEXT_MAX),
+        time: "刚刚",
+        tag: resolveYouDogSectionId(tag || "tree"),
+        likes: [],
+        comments: [],
+        createdAt: Date.now(),
+      },
+      bundle
+    );
+    if (!post) return null;
+    bundle.posts.push(post);
+    persistYouDogTwitterBundle(bundle, YOU_DOG_ACTIVITY_BUNDLE_KEY);
+    schedulePersistNarrative();
+    return post;
+  }
+
+  function buildYouDogActivityHubTabsHtml() {
     const tabs = [
-      { id: "feed", label: "时间线", stub: false },
-      { id: "profile", label: "我的", stub: false },
-      { id: "chat", label: "群聊", stub: false },
+      { id: "dm-list", label: "私聊" },
+      { id: "forum", label: "动态" },
     ];
     return (
-      '<nav class="you-dog-tabs" aria-label="你才是狗导航">' +
+      '<div class="you-dog-activity-segments" role="tablist" aria-label="活动分区">' +
+      tabs
+        .map(function (t) {
+          const on = youDogActivityHubTab === t.id;
+          return (
+            '<button type="button" class="you-dog-activity-segments__item' +
+            (on ? " is-active" : "") +
+            '" role="tab" aria-selected="' +
+            (on ? "true" : "false") +
+            '" data-you-dog-activity-hub-tab="' +
+            escapeHtml(t.id) +
+            '">' +
+            escapeHtml(t.label) +
+            "</button>"
+          );
+        })
+        .join("") +
+      "</div>"
+    );
+  }
+
+  function buildYouDogActivityChatListHtml() {
+    const refs = getYouDogActivityMemberRefs();
+    if (!refs.length) {
+      return (
+        '<div class="you-dog-activity-chat-list__empty">' +
+        '<p class="you-dog-activity__empty-hint">建立群聊后，可在此与各位角色单独私聊</p></div>'
+      );
+    }
+    const rows = refs
+      .map(function (ref) {
+        const avatarUrl = getYouDogChatMemberAvatarUrl(ref);
+        const label = getYouDogActivityMemberLabel(ref);
+        const initial = label ? Array.from(label)[0] : "?";
+        const avInner = avatarUrl
+          ? '<img src="' + escapeHtml(avatarUrl) + '" alt="" />'
+          : escapeHtml(initial);
+        const avCls =
+          "phone-wechat-row__avatar you-dog-activity-chat-list__av" +
+          (avatarUrl ? " phone-social-avatar--has-image" : "");
+        const session = getYouDogActivityDmSession(ref);
+        const msgs = session.messages || [];
+        const last = msgs.length ? msgs[msgs.length - 1] : null;
+        const preview = getYouDogActivityDmPreview(ref);
+        const timeStr = last ? formatYouDogActivityDmListTime(last.time) : "";
+        const unread =
+          msgs.length && last && last.role === "char"
+            ? '<span class="you-dog-activity-chat-list__badge" aria-hidden="true"></span>'
+            : "";
+        return (
+          '<button type="button" class="phone-wechat-row you-dog-activity-chat-list__row" data-you-dog-activity-dm="' +
+          escapeHtml(ref) +
+          '">' +
+          '<span class="' +
+          avCls +
+          '" role="presentation">' +
+          avInner +
+          "</span>" +
+          '<span class="phone-wechat-row__body">' +
+          '<span class="phone-wechat-row__top">' +
+          '<span class="phone-wechat-row__name">' +
+          escapeHtml(label) +
+          "</span>" +
+          (timeStr
+            ? '<span class="phone-wechat-row__time">' + escapeHtml(timeStr) + "</span>"
+            : "") +
+          "</span>" +
+          '<span class="phone-wechat-row__preview">' +
+          escapeHtml(preview) +
+          "</span>" +
+          "</span>" +
+          unread +
+          "</button>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="you-dog-activity-chat-list phone-wechat">' +
+      '<div class="phone-wechat__list">' +
+      rows +
+      "</div></div>"
+    );
+  }
+
+  function buildYouDogActivityForumPostRowHtml(post, placeholder) {
+    if (placeholder) {
+      return (
+        '<div class="phone-forum-post-row-item">' +
+        '<div class="phone-forum-post-row phone-forum-post-row--placeholder">' +
+        '<span class="phone-forum__avatar" aria-hidden="true">…</span>' +
+        '<span class="phone-forum-post-row__body">' +
+        '<span class="phone-forum-post-row__title">…</span>' +
+        '<span class="phone-forum-post-row__preview">…</span>' +
+        '<span class="phone-forum-post-row__meta">' +
+        '<span class="phone-forum-post-row__author">…</span>' +
+        '<span class="phone-forum-post-row__stat">…回复 · …</span>' +
+        "</span></span></div></div>"
+      );
+    }
+    const author = String(post.anonId || "@匿名").trim();
+    const title = getYouDogActivityPostListTitle(post.text);
+    const preview = getYouDogActivityPostListPreview(post.text);
+    const tagLabel = getYouDogSectionLabel(resolveYouDogSectionId(post.tag));
+    const replyCount = (post.comments && post.comments.length) || 0;
+    const postId = escapeHtml(String(post.id || ""));
+    const initial = author ? Array.from(author.replace(/^@/, ""))[0] || "?" : "?";
+    return (
+      '<div class="phone-forum-post-row-item">' +
+      '<button type="button" class="phone-forum-post-row" data-you-dog-open-post="' +
+      postId +
+      '">' +
+      '<span class="phone-forum__avatar" aria-hidden="true">' +
+      escapeHtml(initial) +
+      "</span>" +
+      '<span class="phone-forum-post-row__body">' +
+      '<span class="phone-forum-post-row__title phone-forum-post-row__title--filled">' +
+      escapeHtml(title) +
+      "</span>" +
+      (preview
+        ? '<span class="phone-forum-post-row__preview phone-forum-post-row__preview--filled">' +
+          escapeHtml(preview) +
+          "</span>"
+        : "") +
+      '<span class="phone-forum-post-row__meta">' +
+      '<span class="phone-forum__author-line">' +
+      '<span class="phone-forum-post-row__author">' +
+      escapeHtml(author) +
+      "</span>" +
+      '<span class="phone-forum__role-tag phone-forum__role-tag--user">' +
+      escapeHtml(tagLabel) +
+      "</span></span>" +
+      '<span class="phone-forum-post-row__stat">' +
+      escapeHtml(String(replyCount)) +
+      "回复 · " +
+      escapeHtml(String(post.time || "")) +
+      "</span></span></span></button></div>"
+    );
+  }
+
+  function buildYouDogActivityForumHtml() {
+    const posts = getYouDogActivityPosts();
+    let rows = "";
+    if (youDogActivityGenerating) {
+      rows += buildYouDogActivityForumPostRowHtml(null, true);
+    }
+    if (!posts.length && !youDogActivityGenerating) {
+      rows =
+        '<div class="phone-forum__empty"><p class="phone-forum__empty-text">还没有动态，点右上角发帖</p></div>';
+    } else {
+      rows += posts
+        .map(function (p) {
+          return buildYouDogActivityForumPostRowHtml(p, false);
+        })
+        .join("");
+    }
+    return (
+      '<div class="you-dog-activity-forum phone-forum">' +
+      '<div class="phone-forum__scroll">' +
+      '<div class="phone-forum__list">' +
+      rows +
+      "</div></div></div>"
+    );
+  }
+
+  function buildYouDogActivityComposePageHtml() {
+    const sections = getYouDogSections();
+    const tagOptions = sections
+      .map(function (sec) {
+        const on = youDogActivityComposeTag === sec.id;
+        return (
+          '<button type="button" class="you-dog-activity-compose__tag' +
+          (on ? " is-active" : "") +
+          '" data-you-dog-activity-compose-tag="' +
+          escapeHtml(sec.id) +
+          '">' +
+          escapeHtml(sec.name) +
+          "</button>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="you-dog-activity you-dog-activity--compose phone-forum">' +
+      '<div class="you-dog-activity-compose-page">' +
+      '<p class="you-dog-activity-compose-page__hint">以你的树洞马甲发帖，角色可用同样方式回复</p>' +
+      '<label class="you-dog-activity-compose-page__field">' +
+      '<span class="you-dog-activity-compose-page__label">分区</span>' +
+      '<div class="you-dog-activity-compose__tags">' +
+      tagOptions +
+      "</div></label>" +
+      '<label class="you-dog-activity-compose-page__field">' +
+      '<span class="you-dog-activity-compose-page__label">正文</span>' +
+      '<textarea class="you-dog-activity-compose-page__input" data-you-dog-activity-compose-input rows="8" maxlength="' +
+      YOU_DOG_POST_TEXT_MAX +
+      '" placeholder="写点什么…">' +
+      escapeHtml(youDogActivityComposeDraft || "") +
+      "</textarea></label>" +
+      '<button type="button" class="btn btn--primary btn--pill you-dog-activity-compose-page__submit" data-you-dog-activity-compose-submit>发布</button>' +
+      "</div></div>"
+    );
+  }
+
+  function buildYouDogActivityHubHtml() {
+    if (!isYouDogChatReady()) {
+      return (
+        '<div class="you-dog-empty">' +
+        '<p class="you-dog-empty__title">还没有群聊</p>' +
+        '<p>先去群聊 Tab 建群，再来活动区互动</p>' +
+        '<button type="button" class="btn btn--primary btn--pill" data-you-dog-chat-setup-open>去建群</button></div>'
+      );
+    }
+    const panelHtml =
+      youDogActivityHubTab === "forum"
+        ? buildYouDogActivityForumHtml()
+        : buildYouDogActivityChatListHtml();
+    return (
+      '<div class="you-dog-activity you-dog-activity--hub you-dog-activity--hub-' +
+      escapeHtml(youDogActivityHubTab) +
+      '">' +
+      buildYouDogActivityHubTabsHtml() +
+      '<div class="you-dog-activity__panel">' +
+      panelHtml +
+      "</div></div>"
+    );
+  }
+
+  function buildYouDogActivityDmMessageHtml(msg) {
+    if (!msg) return "";
+    const isUser = msg.role === "user";
+    const avatarUrl = isUser ? getYouDogUserAvatarUrl() : getYouDogChatMemberAvatarUrl(youDogActivityDmRef);
+    const label = isUser ? getYouDogUserDisplayNickname() : getYouDogActivityMemberLabel(youDogActivityDmRef);
+    const initial = label ? Array.from(label)[0] : "?";
+    const avInner = avatarUrl
+      ? '<img src="' + escapeHtml(avatarUrl) + '" alt="" />'
+      : escapeHtml(initial);
+    const avCls = "avatar you-dog-activity-dm__av" + (avatarUrl ? " avatar--has-image" : "");
+    return (
+      '<div class="you-dog-activity-dm__msg' +
+      (isUser ? " you-dog-activity-dm__msg--user" : "") +
+      '">' +
+      '<span class="' +
+      avCls +
+      '">' +
+      avInner +
+      "</span>" +
+      '<div class="you-dog-activity-dm__bubble">' +
+      escapeHtml(String(msg.text || "")) +
+      "</div></div>"
+    );
+  }
+
+  function buildYouDogActivityDmHtml(memberRef) {
+    const ref = String(memberRef || "").trim();
+    const session = getYouDogActivityDmSession(ref);
+    const msgs = session.messages || [];
+    let threadHtml = msgs.map(buildYouDogActivityDmMessageHtml).join("");
+    if (!threadHtml) {
+      threadHtml =
+        '<div class="you-dog-activity-dm__empty"><p>和 ' +
+        escapeHtml(getYouDogActivityMemberLabel(ref)) +
+        " 打个招呼吧</p></div>";
+    }
+    if (youDogActivityGenerating) {
+      threadHtml += '<div class="you-dog-activity-dm__generating">对方正在输入…</div>';
+    }
+    return (
+      '<div class="you-dog-activity you-dog-activity--dm">' +
+      '<div class="you-dog-activity-dm__thread" data-you-dog-activity-dm-thread>' +
+      threadHtml +
+      "</div>" +
+      '<div class="you-dog-activity-dm__composer">' +
+      '<textarea class="you-dog-activity-dm__input" data-you-dog-activity-dm-input rows="1" placeholder="发消息…"' +
+      (youDogActivityGenerating ? " disabled" : "") +
+      "></textarea>" +
+      '<button type="button" class="you-dog-activity-dm__send" data-you-dog-activity-dm-send aria-label="发送"' +
+      (youDogActivityGenerating ? " disabled" : "") +
+      ">发送</button></div></div>"
+    );
+  }
+
+  function buildYouDogActivityHtml() {
+    sanitizeYouDogActivityState();
+    if (youDogActivityScreen === "dm" && youDogActivityDmRef) {
+      return buildYouDogActivityDmHtml(youDogActivityDmRef);
+    }
+    if (youDogActivityScreen === "compose") {
+      return buildYouDogActivityComposePageHtml();
+    }
+    return buildYouDogActivityHubHtml();
+  }
+
+  function buildYouDogActivityHeaderActionsHtml() {
+    const busy =
+      youDogActivityGenerating || youDogRepliesGenerating || youDogBatchRepliesGenerating;
+    const dmGenLoading = youDogActivityGenerating ? " you-dog-app__action-btn--loading" : "";
+    if (youDogActivityScreen === "dm") {
+      return (
+        '<div class="you-dog-app__actions star-header__actions">' +
+        '<button type="button" class="you-dog-app__action-btn you-dog-app__action-btn--accent' +
+        dmGenLoading +
+        '" data-you-dog-activity-dm-char-generate aria-label="生成消息" title="生成角色主动消息"' +
+        (busy ? " disabled" : "") +
+        ">" +
+        buildPhoneWechatStarIconSvg() +
+        "</button>" +
+        buildYouDogPersonaHeaderHtml() +
+        "</div>"
+      );
+    }
+    if (youDogActivityScreen === "compose") {
+      return (
+        '<div class="you-dog-app__actions star-header__actions">' +
+        '<button type="button" class="you-dog-app__action-btn you-dog-app__action-btn--accent" data-you-dog-activity-compose-submit aria-label="发布" title="发布">发布</button>' +
+        buildYouDogPersonaHeaderHtml() +
+        "</div>"
+      );
+    }
+    if (youDogHomeSegment === "forum" && youDogMainTab === "home") {
+      const hasPosts = getYouDogActivityPosts().length > 0;
+      const genLoading = youDogRepliesGenerating ? " you-dog-app__action-btn--loading" : "";
+      return (
+        '<div class="you-dog-app__actions star-header__actions">' +
+        '<button type="button" class="you-dog-app__action-btn' +
+        genLoading +
+        '" data-you-dog-activity-compose-open aria-label="发帖" title="发帖"' +
+        (busy ? " disabled" : "") +
+        ">" +
+        '<svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>' +
+        "</button>" +
+        (hasPosts
+          ? '<button type="button" class="you-dog-app__action-btn" data-you-dog-activity-batch-replies aria-label="批量生成评论" title="为最新动态生成角色回复"' +
+            (busy ? " disabled" : "") +
+            ">" +
+            buildYouDogBatchRepliesIconSvg() +
+            "</button>"
+          : "") +
+        buildYouDogPersonaHeaderHtml() +
+        "</div>"
+      );
+    }
+    return (
+      '<div class="you-dog-app__actions star-header__actions">' +
+      '<button type="button" class="you-dog-app__action-btn you-dog-app__action-btn--accent' +
+      dmGenLoading +
+      '" data-you-dog-activity-dm-generate aria-label="生成私聊" title="随机几位角色主动发私聊"' +
+      (busy ? " disabled" : "") +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>" +
+      buildYouDogPersonaHeaderHtml() +
+      "</div>"
+    );
+  }
+
+  function openYouDogActivityDm(memberRef, slot) {
+    const ref = String(memberRef || "").trim();
+    if (!ref) return;
+    if (!isYouDogUserProfileReady()) {
+      showToast("请先完善你的身份（昵称与人设）。", "warning");
+      openYouDogPersonaModal();
+      return;
+    }
+    youDogMainTab = "messages";
+    youDogMessagesSegment = "dm";
+    youDogActivityScreen = "dm";
+    youDogActivityDmRef = ref;
+    renderYouDogScreen(slot || els.youDogContentSlot());
+  }
+
+  function scrollYouDogActivityDmToEnd(slot) {
+    const thread = slot && slot.querySelector("[data-you-dog-activity-dm-thread]");
+    if (thread) thread.scrollTop = thread.scrollHeight;
+  }
+
+  function appendYouDogActivityDmUserMessage(text) {
+    const ref = youDogActivityDmRef;
+    if (!ref) return false;
+    const trimmed = String(text || "").trim();
+    if (!trimmed) return false;
+    const session = getYouDogActivityDmSession(ref);
+    session.messages.push({
+      id: uid("ydadm"),
+      role: "user",
+      text: trimmed.slice(0, YOU_DOG_CHAT_TEXT_MAX),
+      time: Date.now(),
+    });
+    schedulePersistNarrative();
+    return true;
+  }
+
+  function buildYouDogActivityDmPrompt(memberRef, userText) {
+    const parsed = parseYouDogChatMemberRef(memberRef);
+    if (!parsed) return "";
+    const plot = plots.find(function (p) {
+      return p.id === parsed.plotId;
+    });
+    if (!plot) return "";
+    const session = getYouDogActivityDmSession(memberRef);
+    const history = (session.messages || [])
+      .slice(-12)
+      .map(function (m) {
+        return (m.role === "user" ? getYouDogUserDisplayNickname() : getYouDogActivityMemberLabel(memberRef)) + "：" + m.text;
+      })
+      .join("\n");
+    const lines = [
+      "请为「你才是狗·活动私聊」生成角色回复 JSON。",
+      YOU_DOG_PARALLEL_WORLD_RULE,
+      YOU_DOG_ACTIVITY_DM_FRIEND_RULE,
+      YOU_DOG_CHAT_TONE_RULE,
+      "",
+      buildYouDogUserProfilePromptBlock(),
+      "",
+      "【对话角色 memberRef=" + memberRef + "】",
+      buildYouDogChatPlotContextBlock(plot, parsed.charId),
+      "",
+    ];
+    if (history) {
+      lines.push("【最近私聊】");
+      lines.push(history);
+      lines.push("");
+    }
+    lines.push("【用户刚发送】");
+    lines.push(getYouDogUserDisplayNickname() + "：" + String(userText || "").trim());
+    lines.push("");
+    lines.push('只输出 JSON：{"text":"角色回复（1~3句口语）"}');
+    return lines.join("\n");
+  }
+
+  async function generateYouDogActivityDmReply(slot, userText) {
+    const ref = youDogActivityDmRef;
+    if (!ref || youDogActivityGenerating) return;
+    youDogActivityGenerating = true;
+    renderYouDogScreen(slot || els.youDogContentSlot());
+    try {
+      const _genCtx = beginGenCall("you-dog-activity-dm", { slot: slot, memberRef: ref });
+      const raw = await callChatCompletion(
+        [
+          {
+            role: "system",
+            content:
+              "你是中文互动叙事助手。生成活动私聊中角色的回复 JSON。\n" +
+              YOU_DOG_ACTIVITY_DM_FRIEND_RULE +
+              "\n" +
+              YOU_DOG_EMOJI_STYLE_RULE +
+              "\n只输出一个 JSON 对象。",
+          },
+          { role: "user", content: buildYouDogActivityDmPrompt(ref, userText) },
+        ],
+        0.85,
+        1024,
+        chatApiOptsFromGen(_genCtx)
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const reply = String((parsed && parsed.text) || "").trim();
+      if (!reply) throw new Error("未能生成回复");
+      const session = getYouDogActivityDmSession(ref);
+      session.messages.push({
+        id: uid("ydadm"),
+        role: "char",
+        text: reply.slice(0, YOU_DOG_CHAT_TEXT_MAX),
+        time: Date.now(),
+      });
+      schedulePersistNarrative();
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成回复失败", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      youDogActivityGenerating = false;
+      renderYouDogScreen(slot || els.youDogContentSlot());
+      scrollYouDogActivityDmToEnd(slot || els.youDogContentSlot());
+    }
+  }
+
+  async function sendYouDogActivityDmMessage(slot) {
+    const root = slot || els.youDogContentSlot();
+    const input = root && root.querySelector("[data-you-dog-activity-dm-input]");
+    const text = input ? String(input.value || "").trim() : "";
+    if (!text) return;
+    if (!isYouDogUserProfileReady()) {
+      showToast("请先完善你的身份。", "warning");
+      openYouDogPersonaModal();
+      return;
+    }
+    appendYouDogActivityDmUserMessage(text);
+    if (input) input.value = "";
+    renderYouDogScreen(root);
+    scrollYouDogActivityDmToEnd(root);
+    await generateYouDogActivityDmReply(root, text);
+  }
+
+  async function generateYouDogActivityProactiveDms(slot) {
+    if (youDogActivityGenerating) return;
+    if (!isYouDogUserProfileReady()) {
+      showToast("请先完善你的身份（昵称与人设）。", "warning");
+      openYouDogPersonaModal();
+      return;
+    }
+    if (!isYouDogChatReady()) {
+      showToast("请先建立群聊。", "warning");
+      return;
+    }
+    const refs = pickYouDogActivityProactiveDmRefs();
+    if (!refs.length) {
+      showToast("还没有可私聊的角色。", "warning");
+      return;
+    }
+    youDogActivityGenerating = true;
+    renderYouDogScreen(slot || els.youDogContentSlot());
+    try {
+      showToast("正在生成私聊…", "info");
+      const _genCtx = beginGenCall("you-dog-activity-proactive-dms", { slot: slot, refs: refs });
+      const raw = await callChatCompletion(
+        [
+          {
+            role: "system",
+            content:
+              "你是中文互动叙事助手。生成活动私聊中角色主动找用户的消息 JSON。\n" +
+              YOU_DOG_EMOJI_STYLE_RULE +
+              "\n只输出一个 JSON 对象。",
+          },
+          { role: "user", content: buildYouDogActivityProactiveDmBatchPrompt(refs) },
+        ],
+        0.86,
+        2048,
+        chatApiOptsFromGen(_genCtx)
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const added = appendYouDogActivityProactiveDmMessages(parsed, refs);
+      if (!added) throw new Error("未能生成有效的私聊内容");
+      showToast("已有 " + added + " 位角色发来私聊", "success");
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成私聊失败", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      youDogActivityGenerating = false;
+      renderYouDogScreen(slot || els.youDogContentSlot());
+    }
+  }
+
+  async function generateYouDogActivityDmProactive(slot) {
+    const ref = youDogActivityDmRef;
+    if (!ref || youDogActivityGenerating) return;
+    if (!isYouDogUserProfileReady()) {
+      showToast("请先完善你的身份（昵称与人设）。", "warning");
+      openYouDogPersonaModal();
+      return;
+    }
+    youDogActivityGenerating = true;
+    renderYouDogScreen(slot || els.youDogContentSlot());
+    try {
+      showToast("正在生成消息…", "info");
+      const _genCtx = beginGenCall("you-dog-activity-dm-proactive", { slot: slot, memberRef: ref });
+      const raw = await callChatCompletion(
+        [
+          {
+            role: "system",
+            content:
+              "你是中文互动叙事助手。生成活动私聊中角色主动找用户的消息 JSON。\n" +
+              YOU_DOG_EMOJI_STYLE_RULE +
+              "\n只输出一个 JSON 对象。",
+          },
+          { role: "user", content: buildYouDogActivitySingleProactiveDmPrompt(ref) },
+        ],
+        0.86,
+        1024,
+        chatApiOptsFromGen(_genCtx)
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const reply = String((parsed && parsed.text) || "").trim();
+      if (!reply) throw new Error("未能生成消息");
+      const session = getYouDogActivityDmSession(ref);
+      session.messages.push({
+        id: uid("ydadm"),
+        role: "char",
+        text: reply.slice(0, YOU_DOG_CHAT_TEXT_MAX),
+        time: Date.now(),
+      });
+      schedulePersistNarrative();
+      showToast("已生成新消息", "success");
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成消息失败", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      youDogActivityGenerating = false;
+      renderYouDogScreen(slot || els.youDogContentSlot());
+      scrollYouDogActivityDmToEnd(slot || els.youDogContentSlot());
+    }
+  }
+
+  function openYouDogActivityCompose(slot) {
+    if (!isYouDogUserProfileReady()) {
+      showToast("请先完善你的身份（昵称与人设）。", "warning");
+      openYouDogPersonaModal();
+      return;
+    }
+    youDogMainTab = "home";
+    youDogHomeSegment = "forum";
+    youDogActivityHubTab = "forum";
+    youDogActivityComposeDraft = "";
+    youDogActivityComposeTag = getYouDogSections()[0] ? getYouDogSections()[0].id : "tree";
+    youDogActivityScreen = "compose";
+    renderYouDogScreen(slot || els.youDogContentSlot());
+  }
+
+  function closeYouDogActivityCompose() {
+    youDogActivityScreen = "hub";
+    youDogActivityComposeDraft = "";
+  }
+
+  function submitYouDogActivityCompose(slot) {
+    const root = slot || els.youDogContentSlot();
+    const input = root && root.querySelector("[data-you-dog-activity-compose-input]");
+    const text = input ? String(input.value || "").trim() : youDogActivityComposeDraft;
+    const post = submitYouDogActivityPost(text, youDogActivityComposeTag);
+    if (!post) return;
+    closeYouDogActivityCompose();
+    youDogMainTab = "home";
+    youDogHomeSegment = "forum";
+    youDogActivityHubTab = "forum";
+    renderYouDogScreen(root);
+    showToast("已发布", "success");
+  }
+
+  async function generateYouDogActivityReplies(slot, postId) {
+    if (youDogRepliesGenerating || youDogFeedGenerating || youDogBatchRepliesGenerating) return;
+    const ctx = findYouDogPostContext(postId);
+    if (!ctx || !ctx.post || ctx.plotId !== YOU_DOG_ACTIVITY_BUNDLE_KEY) return;
+    const post = ctx.post;
+    const id = String(postId || "").trim();
+    youDogRepliesGenerating = true;
+    youDogRepliesGeneratingPostId = id;
+    renderYouDogScreen(slot || els.youDogContentSlot());
+    try {
+      showToast("正在生成角色回复…", "info");
+      const _genCtx = beginGenCall("you-dog-activity-replies", { slot: slot, postId: id });
+      const memberRefs = getYouDogActivityMemberRefs();
+      const systemPrompt =
+        "你是中文互动叙事助手。为用户活动帖生成点赞与评论 JSON。\n" +
+        YOU_DOG_PARALLEL_WORLD_RULE +
+        "\n" +
+        YOU_DOG_REPLY_TONE_RULE +
+        "\n" +
+        YOU_DOG_REPLY_OP_RULE +
+        "\n" +
+        YOU_DOG_NO_USER_ACTION_RULE +
+        "\n" +
+        YOU_DOG_EMOJI_STYLE_RULE;
+      const userPrompt = buildYouDogActivityRepliesPrompt(post, memberRefs);
+      const raw = await callChatCompletion(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        0.82,
+        2048,
+        chatApiOptsFromGen(_genCtx)
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const added = applyYouDogRepliesToPost(post, parsed);
+      if (!added && !(parsed && Array.isArray(parsed.likes) && parsed.likes.length)) {
+        throw new Error("未能解析有效的回复内容");
+      }
+      persistYouDogTwitterBundle(ctx.bundle, YOU_DOG_ACTIVITY_BUNDLE_KEY);
+      showToast(added ? "已生成 " + added + " 条新回复" : "已更新点赞", "success");
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "生成回复失败", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      youDogRepliesGenerating = false;
+      youDogRepliesGeneratingPostId = null;
+      renderYouDogScreen(slot || els.youDogContentSlot());
+    }
+  }
+
+  async function generateYouDogActivityBatchReplies(slot) {
+    if (youDogFeedGenerating || youDogRepliesGenerating || youDogBatchRepliesGenerating) return;
+    const posts = getYouDogActivityPosts().slice(0, YOU_DOG_BATCH_REPLIES_POST_LIMIT);
+    if (!posts.length) {
+      showToast("还没有可回复的动态", "warning");
+      return;
+    }
+    youDogBatchRepliesGenerating = true;
+    renderYouDogScreen(slot || els.youDogContentSlot());
+    try {
+      for (let i = 0; i < posts.length; i++) {
+        await generateYouDogActivityReplies(slot, posts[i].id);
+      }
+      showToast("已为动态生成角色回复", "success");
+    } finally {
+      youDogBatchRepliesGenerating = false;
+      renderYouDogScreen(slot || els.youDogContentSlot());
+    }
+  }
+  function buildYouDogTabIconSvg(tabId) {
+    if (tabId === "home") {
+      return '<svg class="you-dog-tab-bar__icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M4 10.5L12 4l8 6.5V20a1 1 0 01-1 1h-5v-6H10v6H5a1 1 0 01-1-1v-9.5z"/></svg>';
+    }
+    if (tabId === "messages") {
+      return '<svg class="you-dog-tab-bar__icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M21 12a8 8 0 01-8 8H8l-5 3V8a8 8 0 018-8h8a8 8 0 018 8z"/><path d="M8 12h8"/></svg>';
+    }
+    return '<svg class="you-dog-tab-bar__icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M6 20v-1a6 6 0 0112 0v1"/></svg>';
+  }
+
+  function buildYouDogTabBadgeHtml(tabId) {
+    return "";
+  }
+
+  function buildYouDogSegmentBarHtml(items, activeId, dataAttr) {
+    return (
+      '<div class="you-dog-segments" role="tablist">' +
+      items
+        .map(function (t) {
+          const on = activeId === t.id;
+          return (
+            '<button type="button" class="you-dog-segments__item' +
+            (on ? " is-active" : "") +
+            '" role="tab" aria-selected="' +
+            (on ? "true" : "false") +
+            '" data-' +
+            dataAttr +
+            '="' +
+            escapeHtml(t.id) +
+            '">' +
+            escapeHtml(t.label) +
+            "</button>"
+          );
+        })
+        .join("") +
+      "</div>"
+    );
+  }
+
+  function buildYouDogHomeBodyHtml() {
+    if (youDogActivityScreen === "compose") {
+      return buildYouDogActivityComposePageHtml();
+    }
+    const panelHtml =
+      youDogHomeSegment === "forum" ? buildYouDogActivityForumHtml() : buildYouDogFeedHtml();
+    return (
+      '<div class="you-dog-hub you-dog-hub--home you-dog-hub--' +
+      escapeHtml(youDogHomeSegment) +
+      '">' +
+      buildYouDogSegmentBarHtml(
+        [
+          { id: "feed", label: "树洞" },
+          { id: "forum", label: "动态" },
+        ],
+        youDogHomeSegment,
+        "you-dog-home-segment"
+      ) +
+      '<div class="you-dog-hub__panel">' +
+      panelHtml +
+      "</div></div>"
+    );
+  }
+
+  function buildYouDogMessagesBodyHtml() {
+    if (youDogActivityScreen === "dm" && youDogActivityDmRef) {
+      return buildYouDogActivityDmHtml(youDogActivityDmRef);
+    }
+    let panelHtml;
+    if (youDogMessagesSegment === "dm") {
+      if (!isYouDogChatReady()) {
+        panelHtml =
+          '<div class="you-dog-activity-chat-list__empty">' +
+          '<p class="you-dog-activity__empty-hint">建立群聊后，可在此与各位角色单独私聊</p>' +
+          '<button type="button" class="btn btn--primary btn--pill" data-you-dog-chat-setup-open style="margin-top:12px">去建群</button></div>';
+      } else {
+        panelHtml = buildYouDogActivityChatListHtml();
+      }
+    } else {
+      panelHtml = buildYouDogChatHtml();
+    }
+    return (
+      '<div class="you-dog-hub you-dog-hub--messages you-dog-hub--' +
+      escapeHtml(youDogMessagesSegment) +
+      '">' +
+      buildYouDogSegmentBarHtml(
+        [
+          { id: "group", label: "群聊" },
+          { id: "dm", label: "私聊" },
+        ],
+        youDogMessagesSegment,
+        "you-dog-messages-segment"
+      ) +
+      '<div class="you-dog-hub__panel">' +
+      panelHtml +
+      "</div></div>"
+    );
+  }
+
+  function buildYouDogTabsHtml() {
+    const tabs = [
+      { id: "home", label: "首页" },
+      { id: "messages", label: "消息" },
+      { id: "profile", label: "我的" },
+    ];
+    const hideTabs =
+      youDogScreen === "post" ||
+      (youDogScreen === "profile" && youDogProfileSpeakerRef) ||
+      (youDogMainTab === "messages" && youDogActivityScreen === "dm") ||
+      (youDogMainTab === "home" && youDogActivityScreen === "compose");
+    if (hideTabs) return "";
+    return (
+      '<nav class="you-dog-tab-bar you-dog-tab-bar--three" aria-label="你才是狗导航">' +
       tabs
         .map(function (t) {
           const on = youDogMainTab === t.id;
-          let cls = "you-dog-tabs__item";
-          if (on) cls += " you-dog-tabs__item--on";
-          if (t.stub) cls += " you-dog-tabs__item--stub";
+          let cls = "you-dog-tab-bar__item";
+          if (on) cls += " you-dog-tab-bar__item--on";
           return (
             '<button type="button" class="' +
             cls +
@@ -38385,10 +40505,12 @@
             escapeHtml(t.id) +
             '" aria-current="' +
             (on ? "page" : "false") +
-            (t.stub ? ' data-you-dog-tab-stub="true"' : "") +
-            ">" +
+            '">' +
+            buildYouDogTabIconSvg(t.id) +
+            buildYouDogTabBadgeHtml(t.id) +
+            '<span class="you-dog-tab-bar__label">' +
             escapeHtml(t.label) +
-            "</button>"
+            "</span></button>"
           );
         })
         .join("") +
@@ -38396,37 +40518,133 @@
     );
   }
 
+  function buildYouDogMainTabBodyHtml() {
+    normalizeYouDogMainTabLayout();
+    if (youDogMainTab === "home") {
+      return buildYouDogHomeBodyHtml();
+    }
+    if (youDogMainTab === "messages") {
+      return buildYouDogMessagesBodyHtml();
+    }
+    if (youDogMainTab === "profile") {
+      return buildYouDogProfileHtml();
+    }
+    return buildYouDogHomeBodyHtml();
+  }
+
+  function buildYouDogMainTabTitleHtml() {
+    normalizeYouDogMainTabLayout();
+    if (youDogMainTab === "home") {
+      if (youDogActivityScreen === "compose") return "发帖";
+      if (youDogHomeSegment === "forum") return "动态";
+      return "树洞";
+    }
+    if (youDogMainTab === "messages") {
+      if (youDogActivityScreen === "dm" && youDogActivityDmRef) {
+        return getYouDogActivityMemberLabel(youDogActivityDmRef);
+      }
+      if (youDogMessagesSegment === "group") {
+        return isYouDogChatReady() ? ensureYouDogChatData().groupName || "群聊" : "群聊";
+      }
+      return "私聊";
+    }
+    if (youDogMainTab === "profile") return "我的";
+    return "你才是狗";
+  }
+
+  function buildYouDogMainTabHeaderActionsHtml() {
+    normalizeYouDogMainTabLayout();
+    if (youDogMainTab === "home") {
+      if (youDogActivityScreen === "compose") {
+        return buildYouDogActivityHeaderActionsHtml();
+      }
+      if (youDogHomeSegment === "forum") {
+        return buildYouDogActivityHeaderActionsHtml();
+      }
+      return buildYouDogFeedHeaderActionsHtml();
+    }
+    if (youDogMainTab === "messages") {
+      if (youDogActivityScreen === "dm" || youDogMessagesSegment === "dm") {
+        return buildYouDogActivityHeaderActionsHtml();
+      }
+      return buildYouDogChatHeaderActionsHtml();
+    }
+    if (youDogMainTab === "profile") {
+      return buildYouDogProfileHeaderActionsHtml();
+    }
+    return buildYouDogFeedHeaderActionsHtml();
+  }
+
+  function buildYouDogFeedHeaderActionsHtml() {
+    const busy =
+      youDogFeedGenerating || youDogRepliesGenerating || youDogBatchRepliesGenerating;
+    const hasPosts = getYouDogMergedPosts().length > 0;
+    const genLoading = youDogFeedGenerating ? " you-dog-app__action-btn--loading" : "";
+    const batchLoading = youDogBatchRepliesGenerating ? " you-dog-app__action-btn--loading" : "";
+    const genDisabled = busy || !youDogPlotIds.length ? " disabled" : "";
+    const batchDisabled = busy || !hasPosts || !youDogPlotIds.length ? " disabled" : "";
+    return (
+      '<div class="you-dog-app__actions star-header__actions">' +
+      '<button type="button" class="you-dog-app__action-btn' +
+      batchLoading +
+      '" data-you-dog-batch-replies aria-label="批量生成评论" title="批量生成评论"' +
+      batchDisabled +
+      ">" +
+      buildYouDogBatchRepliesIconSvg() +
+      "</button>" +
+      '<button type="button" class="you-dog-app__action-btn you-dog-app__action-btn--accent' +
+      genLoading +
+      '" data-you-dog-generate aria-label="生成推文" title="生成推文"' +
+      genDisabled +
+      ">" +
+      buildPhoneWechatStarIconSvg() +
+      "</button>" +
+      buildYouDogPersonaHeaderHtml() +
+      "</div>"
+    );
+  }
+
   function buildYouDogShellHtml() {
-    let bodyHtml = buildYouDogFeedHtml();
-    let barTitle = "嗅闻博客";
-    let headerActions = buildYouDogHeaderActionsHtml();
+    const inPostDetail = youDogScreen === "post" && youDogDetailPostId;
+    const inCharProfile = youDogScreen === "profile" && youDogProfileSpeakerRef;
+    let bodyHtml = buildYouDogMainTabBodyHtml();
+    let barTitle = buildYouDogMainTabTitleHtml();
+    let headerActions = buildYouDogMainTabHeaderActionsHtml();
     let barTitleCls = "you-dog-app__bar-title you-dog-app__bar-title-text star-header__title";
     let barCls = "you-dog-app__bar star-header";
     let barLeadCls = "star-header__lead";
     let barTitleAttr = "";
-    if (youDogChatSubScreen === "chat") {
-      bodyHtml = buildYouDogChatHtml();
-      barTitle = isYouDogChatReady() ? ensureYouDogChatData().groupName || "群聊" : "群聊";
-      barTitleCls += " phone-app__title--chat";
-      barCls += " phone-app__bar--wechat-chat";
-      barLeadCls += " phone-wechat-chat-bar__lead";
-      barTitleAttr =
-        ' data-you-dog-chat-settings-open role="button" tabindex="0" title="群设置（可改群名称）"';
-    } else if (youDogScreen === "post" && youDogDetailPostId) {
+    if (inPostDetail) {
       bodyHtml = buildYouDogPostDetailHtml(youDogDetailPostId);
       barTitle = "帖子";
       headerActions = buildYouDogPostDetailHeaderActionsHtml(youDogDetailPostId);
-    } else if (youDogScreen === "profile" && youDogProfileSpeakerRef) {
+    } else if (inCharProfile) {
       bodyHtml = buildYouDogCharProfileHtml(youDogProfileSpeakerRef);
       barTitle = "主页";
       headerActions = buildYouDogProfileHeaderActionsHtml();
     }
+    const onChat =
+      youDogMainTab === "messages" &&
+      youDogMessagesSegment === "group" &&
+      !inPostDetail &&
+      !inCharProfile &&
+      youDogActivityScreen !== "dm";
+    if (onChat) {
+      barTitle = isYouDogChatReady() ? ensureYouDogChatData().groupName || "群聊" : "群聊";
+      barTitleCls += " phone-app__title--chat";
+      barCls += " phone-app__bar--wechat-chat";
+      barLeadCls += " phone-wechat-chat-bar__lead";
+      if (isYouDogChatReady()) {
+        barTitleAttr =
+          ' data-you-dog-chat-settings-open role="button" tabindex="0" title="群设置（可改群名称）"';
+      }
+    }
     return (
-      '<div class="you-dog-app' +
-      (youDogChatSubScreen === "chat" && youDogChatSettingsOpen ? " you-dog-app--chat-modal" : "") +
+      '<div class="you-dog-app you-dog-app--tabbed' +
+      (onChat && youDogChatSettingsOpen ? " you-dog-app--chat-modal" : "") +
       '" aria-label="你才是狗">' +
       '<header class="you-dog-app__header' +
-      (youDogChatSubScreen === "chat" ? " you-dog-app__header--chat" : "") +
+      (onChat ? " you-dog-app__header--chat" : "") +
       '">' +
       '<div class="' +
       barCls +
@@ -38451,9 +40669,10 @@
       '<div class="you-dog-app__body">' +
       bodyHtml +
       "</div>" +
+      buildYouDogTabsHtml() +
       buildYouDogSectionManageOverlayHtml() +
       buildYouDogGenPickOverlayHtml() +
-      (youDogChatSubScreen === "chat" ? buildYouDogChatSettingsOverlayHtml() : "") +
+      (onChat ? buildYouDogChatSettingsOverlayHtml() : "") +
       "</div>"
     );
   }
@@ -38493,12 +40712,81 @@
     }
   }
 
-  function switchYouDogMainTab(tab) {
-    const next = tab === "profile" || tab === "chat" ? tab : "feed";
-    if (next === youDogMainTab) return;
-    youDogMainTab = next;
-    youDogPostMenuPostId = null;
+  function switchYouDogHomeSegment(segment) {
+    if (segment !== "feed" && segment !== "forum") return;
+    youDogMainTab = "home";
+    youDogHomeSegment = segment;
+    youDogActivityHubTab = segment === "forum" ? "forum" : "dm-list";
+    youDogActivityScreen = "hub";
+    syncYouDogLegacyChatSubScreen();
     renderYouDogScreen(els.youDogContentSlot());
+  }
+
+  function switchYouDogMessagesSegment(segment) {
+    if (segment !== "group" && segment !== "dm") return;
+    youDogMainTab = "messages";
+    youDogMessagesSegment = segment;
+    youDogActivityHubTab = segment === "dm" ? "dm-list" : "forum";
+    youDogActivityScreen = "hub";
+    youDogActivityDmRef = null;
+    syncYouDogLegacyChatSubScreen();
+    if (segment === "group" && !isYouDogChatReady()) {
+      openYouDogChatSetupModal();
+    }
+    renderYouDogScreen(els.youDogContentSlot());
+    if (segment === "group") scrollYouDogChatThreadToEnd(els.youDogContentSlot());
+  }
+
+  function switchYouDogMainTab(tab) {
+    normalizeYouDogMainTabLayout();
+    const next =
+      tab === "profile" || tab === "home" || tab === "messages"
+        ? tab
+        : tab === "feed" || tab === "activity"
+          ? "home"
+          : tab === "chat"
+            ? "messages"
+            : "home";
+    if (
+      next === youDogMainTab &&
+      youDogScreen === "feed" &&
+      !youDogProfileSpeakerRef &&
+      !youDogDetailPostId
+    ) {
+      if (next === "messages" && youDogMessagesSegment === "group") {
+        scrollYouDogChatThreadToEnd(els.youDogContentSlot());
+      }
+      return;
+    }
+    youDogMainTab = next;
+    syncYouDogLegacyChatSubScreen();
+    youDogScreen = "feed";
+    youDogDetailPostId = null;
+    youDogProfileSpeakerRef = null;
+    youDogPostMenuPostId = null;
+    if (next !== "messages") {
+      youDogChatParticipantPanelOpen = false;
+      youDogChatSelectMode = false;
+      youDogChatSelectedMsgIds = [];
+      youDogChatSettingsOpen = false;
+      youDogChatMoreOpen = false;
+      youDogChatQuoteDraft = null;
+      hideYouDogChatMsgActionBubble();
+      if (youDogActivityScreen === "dm") {
+        youDogActivityScreen = "hub";
+        youDogActivityDmRef = null;
+      }
+    }
+    if (next !== "home" && youDogActivityScreen === "compose") {
+      closeYouDogActivityCompose();
+    }
+    if (next === "messages" && youDogMessagesSegment === "group" && !isYouDogChatReady()) {
+      openYouDogChatSetupModal();
+    }
+    renderYouDogScreen(els.youDogContentSlot());
+    if (next === "messages" && youDogMessagesSegment === "group") {
+      scrollYouDogChatThreadToEnd(els.youDogContentSlot());
+    }
   }
 
   function setYouDogNextGenChar(charId) {
@@ -38553,16 +40841,24 @@
     overviewSubView = null;
     youDogPostMenuPostId = null;
     youDogParticipantPanelOpen = false;
-    youDogChatSubScreen = "feed";
+    youDogMainTab = "home";
+    youDogHomeSegment = "feed";
+    youDogMessagesSegment = "group";
+    syncYouDogLegacyChatSubScreen();
     youDogChatParticipantPanelOpen = false;
     closeYouDogGenPick();
     youDogChatSelectMode = false;
     youDogChatSelectedMsgIds = [];
     youDogChatSettingsOpen = false;
     youDogChatMoreOpen = false;
+    youDogActivityScreen = "hub";
+    youDogActivityHubTab = "dm-list";
+    youDogActivityDmRef = null;
+    youDogActivityComposeDraft = "";
     youDogScreen = "feed";
     youDogDetailPostId = null;
     youDogProfileSpeakerRef = null;
+    youDogProfileSegment = "likes";
     youDogNavFrom = "feed";
     if (!location.hash.startsWith("#/story") && location.hash !== "#/tab/overview") {
       location.hash = "#/tab/overview";
@@ -38697,61 +40993,43 @@
   function renderYouDogPersonaModal() {
     const pick = els.youDogPersonaPick();
     if (!pick) return;
-    pick.innerHTML = "";
-    const options = getAllYouDogSelfPersonaOptions();
-    if (!options.length) {
-      pick.innerHTML =
-        '<p class="you-dog-persona-empty">还没有「我的形象」，请先在剧情中设定主角。</p>';
-      return;
-    }
-    const alias = ensureYouDogGlobalAnonAlias();
-    const aliasInput = alias.replace(/^@/, "");
-    const optionsHtml = options
-      .map(function (opt) {
-        const on = youDogUserCharId === opt.charId;
-        const avInner = opt.avatarUrl
-          ? '<img src="' + escapeHtml(opt.avatarUrl) + '" alt="" />'
-          : escapeHtml(String(opt.char.name || "?").slice(0, 1));
-        const avCls = "you-dog-persona-option__av avatar" + (opt.avatarUrl ? " avatar--has-image" : "");
-        return (
-          '<button type="button" class="you-dog-persona-option' +
-          (on ? " is-active" : "") +
-          '" data-you-dog-persona-select="' +
-          escapeHtml(opt.charId) +
-          '">' +
-          '<span class="' +
-          avCls +
-          '">' +
-          avInner +
-          "</span>" +
-          '<span class="you-dog-persona-option__meta">' +
-          '<span class="you-dog-persona-option__name">' +
-          escapeHtml(opt.char.name || "我的形象") +
-          "</span>" +
-          '<span class="you-dog-persona-option__plot">《' +
-          escapeHtml(opt.plotTitle) +
-          "》</span></span>" +
-          (on
-            ? '<span class="you-dog-persona-option__badge" aria-hidden="true">当前</span>'
-            : "") +
-          "</button>"
-        );
-      })
-      .join("");
+    const profile = ensureYouDogUserProfile();
+    const aliasInput = (profile.anonAlias || "").replace(/^@/, "");
+    const avInner = profile.avatarUrl
+      ? '<img src="' + escapeHtml(profile.avatarUrl) + '" alt="" />'
+      : escapeHtml(String(profile.nickname || "?").slice(0, 1));
+    const avCls = "you-dog-user-profile__av avatar" + (profile.avatarUrl ? " avatar--has-image" : "");
     pick.innerHTML =
+      '<p class="you-dog-persona-sheet__hint you-dog-persona-sheet__hint--top">在此从零创建你在「你才是狗」中的身份，与剧情库「我的形象」无关；角色只会读取以下信息。</p>' +
+      '<div class="you-dog-user-profile">' +
+      '<label class="you-dog-user-profile__avatar-slot">' +
+      '<input type="file" accept="image/*" class="you-dog-user-profile__file" id="you-dog-profile-avatar-file" hidden />' +
+      '<span class="' +
+      avCls +
+      '">' +
+      avInner +
+      "</span>" +
+      '<span class="you-dog-user-profile__avatar-hint">点击上传头像</span></label>' +
+      '<label class="field"><span class="field__label">昵称（群聊显示名）</span>' +
+      '<input type="text" id="you-dog-profile-nickname" class="field__input" value="' +
+      escapeHtml(profile.nickname || "") +
+      '" maxlength="24" placeholder="群里的称呼" autocomplete="off" /></label>' +
+      '<label class="field"><span class="field__label">真名</span>' +
+      '<input type="text" id="you-dog-profile-realname" class="field__input" value="' +
+      escapeHtml(profile.realName || "") +
+      '" maxlength="24" placeholder="你的真名（角色不可见）" autocomplete="off" /></label>' +
+      '<label class="field"><span class="field__label">人设</span>' +
+      '<textarea id="you-dog-profile-persona" class="field__input" rows="4" maxlength="800" placeholder="性格、说话习惯、与角色的关系等…">' +
+      escapeHtml(profile.persona || "") +
+      "</textarea></label>" +
       '<div class="you-dog-persona-alias">' +
-      '<label class="you-dog-persona-alias__label" for="you-dog-persona-alias-input">匿名马甲（全部剧情共用）</label>' +
+      '<label class="you-dog-persona-alias__label" for="you-dog-profile-alias-input">树洞匿名马甲</label>' +
       '<div class="you-dog-persona-alias__row">' +
       '<span class="you-dog-persona-alias__at" aria-hidden="true">@</span>' +
-      '<input type="text" id="you-dog-persona-alias-input" class="field__input you-dog-persona-alias__input" value="' +
+      '<input type="text" id="you-dog-profile-alias-input" class="field__input you-dog-persona-alias__input" value="' +
       escapeHtml(aliasInput) +
-      '" maxlength="24" placeholder="嗅友3847" autocomplete="off" />' +
-      '<button type="button" class="btn btn--secondary btn--pill you-dog-persona-alias__save" data-you-dog-persona-alias-save>保存</button>' +
-      "</div></div>" +
-      '<p class="you-dog-persona-sheet__hint you-dog-persona-sheet__hint--top">选择与发帖角色无关的互动身份；马甲名对所有「我的形象」生效。</p>' +
-      '<div class="you-dog-persona-options">' +
-      optionsHtml +
-      "</div>" +
+      '" maxlength="24" placeholder="嗅友3847" autocomplete="off" /></div></div>' +
+      '<button type="button" class="btn btn--primary btn--pill you-dog-user-profile__save" data-you-dog-profile-save>保存身份</button></div>' +
       buildYouDogFeedSpeakerPoolSectionHtml();
   }
 
@@ -63969,22 +66247,27 @@
   if (els.modalYouDogPersona()) {
     els.modalYouDogPersona().addEventListener("click", function (e) {
       if (e.target.id === "modal-you-dog-persona") closeYouDogPersonaModal();
-      const selectBtn = e.target.closest("[data-you-dog-persona-select]");
-      if (selectBtn) {
-        youDogUserCharId = String(selectBtn.getAttribute("data-you-dog-persona-select") || "").trim() || null;
-        schedulePersistNarrative();
-        renderYouDogPersonaModal();
-        renderYouDogScreen(els.youDogContentSlot());
-        return;
-      }
-      if (e.target.closest("[data-you-dog-persona-alias-save]")) {
-        const input = document.getElementById("you-dog-persona-alias-input");
-        if (input && saveYouDogGlobalAnonAlias(input.value)) {
-          showToast("马甲已更新", "success");
-          renderYouDogPersonaModal();
+      if (e.target.closest("[data-you-dog-profile-save]")) {
+        if (saveYouDogUserProfileFromDom()) {
+          showToast("身份已保存", "success");
+          closeYouDogPersonaModal();
           renderYouDogScreen(els.youDogContentSlot());
         }
       }
+    });
+    els.modalYouDogPersona().addEventListener("change", async function (e) {
+      const fileInput = e.target.closest("#you-dog-profile-avatar-file");
+      if (!fileInput || !fileInput.files || !fileInput.files[0]) return;
+      try {
+        const url = await readImageAsCompressedDataURL(fileInput.files[0], 512, 380000);
+        youDogUserProfile.avatarUrl = url;
+        schedulePersistNarrative();
+        renderYouDogPersonaModal();
+        showToast("头像已更新", "success");
+      } catch (_err) {
+        showToast("图片处理失败", "error");
+      }
+      fileInput.value = "";
     });
   }
   document.addEventListener("change", function (e) {
@@ -64043,12 +66326,6 @@
   if (els.modalYouDogChatSetup()) {
     els.modalYouDogChatSetup().addEventListener("click", function (e) {
       if (e.target.id === "modal-you-dog-chat-setup") closeYouDogChatSetupModal();
-      const personaBtn = e.target.closest("[data-you-dog-chat-setup-persona]");
-      if (personaBtn && youDogChatSetupDraft) {
-        youDogChatSetupDraft.userCharId =
-          String(personaBtn.getAttribute("data-you-dog-chat-setup-persona") || "").trim() || null;
-        renderYouDogChatSetupModal();
-      }
     });
   }
   if (els.youDogChatPersonaClose()) {
@@ -64057,21 +66334,21 @@
   if (els.modalYouDogChatPersona()) {
     els.modalYouDogChatPersona().addEventListener("click", function (e) {
       if (e.target.id === "modal-you-dog-chat-persona") closeYouDogChatPersonaModal();
-      const selectBtn = e.target.closest("[data-you-dog-chat-persona-select]");
-      if (selectBtn) {
-        youDogChatUserCharId = String(selectBtn.getAttribute("data-you-dog-chat-persona-select") || "").trim() || null;
-        schedulePersistNarrative();
-        renderYouDogChatPersonaModal();
-        renderYouDogScreen(els.youDogContentSlot());
-      }
     });
   }
   document.addEventListener("keydown", function (e) {
     if (e.key !== "Enter" || e.isComposing || e.shiftKey) return;
-    const input = e.target.closest("[data-you-dog-chat-input]");
-    if (!input || !input.closest("#you-dog-content-slot")) return;
-    e.preventDefault();
-    sendYouDogChatMessage(els.youDogContentSlot());
+    const chatInput = e.target.closest("[data-you-dog-chat-input]");
+    if (chatInput && chatInput.closest("#you-dog-content-slot")) {
+      e.preventDefault();
+      sendYouDogChatMessage(els.youDogContentSlot());
+      return;
+    }
+    const dmInput = e.target.closest("[data-you-dog-activity-dm-input]");
+    if (dmInput && dmInput.closest("#you-dog-content-slot")) {
+      e.preventDefault();
+      void sendYouDogActivityDmMessage(els.youDogContentSlot());
+    }
   });
   document.addEventListener("click", function (e) {
     const slot = e.target.closest("#you-dog-content-slot");
@@ -64094,6 +66371,79 @@
 
     if (e.target.closest("[data-you-dog-chat-toggle]")) {
       handleYouDogChatToggle();
+      return;
+    }
+
+    const activityDm = e.target.closest("[data-you-dog-activity-dm]");
+    if (activityDm) {
+      openYouDogActivityDm(activityDm.getAttribute("data-you-dog-activity-dm"), slot);
+      return;
+    }
+
+    const activityHubTab = e.target.closest("[data-you-dog-activity-hub-tab]");
+    if (activityHubTab) {
+      const tab = activityHubTab.getAttribute("data-you-dog-activity-hub-tab") || "dm-list";
+      if (tab === "forum") switchYouDogHomeSegment("forum");
+      else if (tab === "dm-list") switchYouDogMessagesSegment("dm");
+      return;
+    }
+
+    const homeSegBtn = e.target.closest("[data-you-dog-home-segment]");
+    if (homeSegBtn) {
+      switchYouDogHomeSegment(homeSegBtn.getAttribute("data-you-dog-home-segment") || "feed");
+      return;
+    }
+
+    const messagesSegBtn = e.target.closest("[data-you-dog-messages-segment]");
+    if (messagesSegBtn) {
+      switchYouDogMessagesSegment(messagesSegBtn.getAttribute("data-you-dog-messages-segment") || "group");
+      return;
+    }
+
+    const profileSegBtn = e.target.closest("[data-you-dog-profile-segment]");
+    if (profileSegBtn) {
+      const seg = profileSegBtn.getAttribute("data-you-dog-profile-segment") || "likes";
+      if (seg === "likes" || seg === "bookmarks") {
+        youDogProfileSegment = seg;
+        renderYouDogScreen(slot);
+      }
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-activity-compose-open]")) {
+      openYouDogActivityCompose(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-activity-compose-submit]")) {
+      submitYouDogActivityCompose(slot);
+      return;
+    }
+
+    const activityTag = e.target.closest("[data-you-dog-activity-compose-tag]");
+    if (activityTag) {
+      youDogActivityComposeTag = activityTag.getAttribute("data-you-dog-activity-compose-tag") || "tree";
+      renderYouDogScreen(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-activity-dm-send]")) {
+      void sendYouDogActivityDmMessage(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-activity-dm-generate]")) {
+      void generateYouDogActivityProactiveDms(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-activity-dm-char-generate]")) {
+      void generateYouDogActivityDmProactive(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-activity-batch-replies]")) {
+      void generateYouDogActivityBatchReplies(slot);
       return;
     }
 
@@ -64305,6 +66655,10 @@
         if (deleteYouDogPost(pid)) {
           if (youDogScreen === "post" && youDogDetailPostId === pid) {
             youDogScreen = youDogNavFrom === "profile" ? "profile" : "feed";
+            if (youDogNavFrom === "forum") {
+              youDogMainTab = "home";
+              youDogHomeSegment = "forum";
+            }
             youDogDetailPostId = null;
           }
           renderYouDogScreen(slot);
@@ -64366,7 +66720,11 @@
       openYouDogPostDetail(
         slot,
         openPostBtn.getAttribute("data-you-dog-open-post"),
-        youDogScreen === "profile" ? "profile" : "feed"
+        youDogScreen === "profile"
+          ? "profile"
+          : youDogMainTab === "home" && youDogHomeSegment === "forum"
+            ? "activity"
+            : "feed"
       );
       return;
     }
@@ -64406,6 +66764,39 @@
         target.checked = !target.checked;
       }
       return;
+    }
+
+    if (target.matches("[data-grudge-book-diary-photo-add]")) {
+      const slot = target.closest("#grudge-book-content-slot");
+      if (!slot) return;
+      const nav = getGrudgeBookNav(slot);
+      const file = target.files && target.files[0];
+      target.value = "";
+      if (!file) return;
+      void (async function () {
+        try {
+          const url = await readImageAsCompressedDataURL(
+            file,
+            GRUDGE_BOOK_DIARY_PHOTO_MAX_SIDE,
+            GRUDGE_BOOK_DIARY_PHOTO_MAX_CHARS
+          );
+          nav.composeDraft = readGrudgeBookComposeDraftFromDom(slot);
+          if (!Array.isArray(nav.composeDraft.photos)) nav.composeDraft.photos = [];
+          if (nav.composeDraft.photos.length >= GRUDGE_BOOK_DIARY_PHOTOS_MAX) {
+            showToast("最多上传 " + GRUDGE_BOOK_DIARY_PHOTOS_MAX + " 张照片。", "info");
+            return;
+          }
+          nav.composeDraft.photos = nav.composeDraft.photos.concat([url]);
+          renderGrudgeBookScreen(slot);
+        } catch (err) {
+          showToast(
+            err && err.message === "big"
+              ? "图片压缩后仍过大，请换一张更小的图。"
+              : "无法读取该图片，请换 JPG/PNG 等常见格式试试。",
+            "warning"
+          );
+        }
+      })();
     }
   });
   document.addEventListener("click", function (e) {
@@ -64560,13 +66951,17 @@
         nav.screen = "detail";
         renderGrudgeBookScreen(slot);
       } else if (nav.screen === "compose") {
-        nav.screen = "list";
+        nav.screen = nav.editingId ? "detail" : "list";
         nav.composeDraft = null;
         nav.editingId = null;
         renderGrudgeBookScreen(slot);
       } else if (nav.screen === "detail") {
-        nav.screen = "list";
+        nav.screen = nav.historyReturn ? "history" : "list";
+        nav.historyReturn = false;
         nav.detailId = null;
+        renderGrudgeBookScreen(slot);
+      } else if (nav.screen === "history") {
+        nav.screen = "list";
         renderGrudgeBookScreen(slot);
       } else {
         closeOverviewGrudgeBookView();
@@ -64581,6 +66976,13 @@
 
     if (e.target.closest("[data-grudge-book-pick]")) {
       openGrudgeBookHolderModal({ mode: "first" });
+      return;
+    }
+
+    if (e.target.closest("[data-grudge-book-history]")) {
+      nav.screen = "history";
+      nav.detailId = null;
+      renderGrudgeBookScreen(slot);
       return;
     }
 
@@ -64605,10 +67007,42 @@
     const bookBtn = e.target.closest("[data-grudge-book-book]");
     if (bookBtn) {
       const val = bookBtn.getAttribute("data-grudge-book-book");
-      if (val === "grudge" || val === "merit") {
+      if (val === "grudge" || val === "merit" || val === "diary") {
         grudgeBookActiveBook = val;
         nav.screen = "list";
         nav.detailId = null;
+        schedulePersistNarrative();
+        renderGrudgeBookScreen(slot);
+      }
+      return;
+    }
+
+    const historyPerspBtn = e.target.closest("[data-grudge-book-history-persp]");
+    if (historyPerspBtn) {
+      nav.historyFilterPersp = historyPerspBtn.getAttribute("data-grudge-book-history-persp") || "all";
+      renderGrudgeBookScreen(slot);
+      return;
+    }
+
+    const historyTypeBtn = e.target.closest("[data-grudge-book-history-type]");
+    if (historyTypeBtn) {
+      nav.historyFilterType = historyTypeBtn.getAttribute("data-grudge-book-history-type") || "all";
+      renderGrudgeBookScreen(slot);
+      return;
+    }
+
+    const historyOpenBtn = e.target.closest("[data-grudge-book-history-open]");
+    if (historyOpenBtn) {
+      const entryId = historyOpenBtn.getAttribute("data-grudge-book-history-open");
+      const bundle = getGrudgeBookBundle();
+      const hit = bundle && entryId ? findGrudgeBookEntry(bundle, entryId) : null;
+      if (hit) {
+        grudgeBookViewPerspective = hit.side === "character" ? "character" : "user";
+        grudgeBookActiveBook =
+          hit.list === "merits" ? "merit" : hit.list === "diaries" ? "diary" : "grudge";
+        nav.detailId = entryId;
+        nav.screen = "detail";
+        nav.historyReturn = true;
         schedulePersistNarrative();
         renderGrudgeBookScreen(slot);
       }
@@ -64645,12 +67079,28 @@
       const draft = readGrudgeBookComposeDraftFromDom(slot);
       nav.composeDraft = draft;
       const editingId = nav.editingId;
-      if (saveGrudgeBookEntryFromDraft(slot, draft, editingId)) {
+      const saved =
+        draft.bookType === "diary"
+          ? saveGrudgeBookDiaryFromDraft(slot, draft, editingId)
+          : saveGrudgeBookEntryFromDraft(slot, draft, editingId);
+      if (saved) {
         nav.screen = "list";
         nav.composeDraft = null;
         nav.editingId = null;
         nav.detailId = editingId || null;
         if (nav.detailId) nav.screen = "detail";
+        renderGrudgeBookScreen(slot);
+      }
+      return;
+    }
+
+    const photoRemoveBtn = e.target.closest("[data-grudge-book-diary-photo-remove]");
+    if (photoRemoveBtn) {
+      const idx = parseInt(photoRemoveBtn.getAttribute("data-grudge-book-diary-photo-remove"), 10);
+      nav.composeDraft = readGrudgeBookComposeDraftFromDom(slot);
+      if (Array.isArray(nav.composeDraft.photos) && idx >= 0 && idx < nav.composeDraft.photos.length) {
+        nav.composeDraft.photos = nav.composeDraft.photos.slice();
+        nav.composeDraft.photos.splice(idx, 1);
         renderGrudgeBookScreen(slot);
       }
       return;
@@ -64673,15 +67123,25 @@
       const hit = bundle && nav.detailId ? findGrudgeBookEntry(bundle, nav.detailId) : null;
       if (hit && hit.side === "user") {
         nav.editingId = hit.entry.id;
-        nav.composeDraft = {
-          party: hit.entry.party,
-          relationship: hit.entry.relationship,
-          time: hit.entry.time,
-          place: hit.entry.place,
-          event: hit.entry.event,
-          intensity: hit.entry.intensity,
-          bookType: hit.list === "merits" ? "merit" : "grudge",
-        };
+        if (hit.list === "diaries") {
+          nav.composeDraft = {
+            title: hit.entry.title || "",
+            mood: hit.entry.mood || "",
+            content: hit.entry.content || "",
+            photos: Array.isArray(hit.entry.photos) ? hit.entry.photos.slice() : [],
+            bookType: "diary",
+          };
+        } else {
+          nav.composeDraft = {
+            party: hit.entry.party,
+            relationship: hit.entry.relationship,
+            time: hit.entry.time,
+            place: hit.entry.place,
+            event: hit.entry.event,
+            intensity: hit.entry.intensity,
+            bookType: hit.list === "merits" ? "merit" : "grudge",
+          };
+        }
         nav.screen = "compose";
         renderGrudgeBookScreen(slot);
       }

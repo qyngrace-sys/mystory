@@ -27436,6 +27436,36 @@ html[data-theme="dark"] .collect-history-empty {
   background: #9bb8d4;
 }
 
+.pass-note-progress__dot--confession.is-active,
+.pass-note-progress__dot--confession.is-done {
+  background: #d4a8c8;
+}
+
+.pass-note-progress__dot--hypothetical.is-active,
+.pass-note-progress__dot--hypothetical.is-done {
+  background: #a8b8e8;
+}
+
+.pass-note-progress__dot--preference.is-active,
+.pass-note-progress__dot--preference.is-done {
+  background: #e8a8b8;
+}
+
+.pass-note-progress__dot--association.is-active,
+.pass-note-progress__dot--association.is-done {
+  background: #88c8a8;
+}
+
+.pass-note-progress__dot--scenario.is-active,
+.pass-note-progress__dot--scenario.is-done {
+  background: #d4b888;
+}
+
+.pass-note-progress__dot--memory.is-active,
+.pass-note-progress__dot--memory.is-done {
+  background: #c8b898;
+}
+
 .pass-note-progress__dot--compose.is-active,
 .pass-note-progress__dot--compose.is-done {
   background: #e8d48a;
@@ -27694,6 +27724,42 @@ html[data-theme="dark"] .collect-history-empty {
   --pn-paper: #f2f7fc;
   --pn-ink: #2a3540;
   --pn-accent: #9bb8d4;
+}
+
+.pass-note-slip--type-confession {
+  --pn-paper: #f5eef8;
+  --pn-ink: #3a2e38;
+  --pn-accent: #d4a8c8;
+}
+
+.pass-note-slip--type-hypothetical {
+  --pn-paper: #eef4ff;
+  --pn-ink: #2a3048;
+  --pn-accent: #a8b8e8;
+}
+
+.pass-note-slip--type-preference {
+  --pn-paper: #fff0f3;
+  --pn-ink: #402830;
+  --pn-accent: #e8a8b8;
+}
+
+.pass-note-slip--type-association {
+  --pn-paper: #f0f8f5;
+  --pn-ink: #284038;
+  --pn-accent: #88c8a8;
+}
+
+.pass-note-slip--type-scenario {
+  --pn-paper: #fff8ee;
+  --pn-ink: #403020;
+  --pn-accent: #d4b888;
+}
+
+.pass-note-slip--type-memory {
+  --pn-paper: #faf6f0;
+  --pn-ink: #3a3428;
+  --pn-accent: #c8b898;
 }
 
 .pass-note-slip--type-compose {
@@ -28306,6 +28372,36 @@ html[data-theme="dark"] .pass-note-archive-subtitle {
   color: color-mix(in srgb, #4a7399 85%, var(--accent));
 }
 
+.pass-note-archive-card--type-confession .pass-note-archive-card__icon {
+  background: color-mix(in srgb, #d4a8c8 18%, var(--surface));
+  color: color-mix(in srgb, #9a5880 85%, var(--accent));
+}
+
+.pass-note-archive-card--type-hypothetical .pass-note-archive-card__icon {
+  background: color-mix(in srgb, #a8b8e8 18%, var(--surface));
+  color: color-mix(in srgb, #5a6a99 85%, var(--accent));
+}
+
+.pass-note-archive-card--type-preference .pass-note-archive-card__icon {
+  background: color-mix(in srgb, #e8a8b8 18%, var(--surface));
+  color: color-mix(in srgb, #a85868 85%, var(--accent));
+}
+
+.pass-note-archive-card--type-association .pass-note-archive-card__icon {
+  background: color-mix(in srgb, #88c8a8 18%, var(--surface));
+  color: color-mix(in srgb, #3a8868 85%, var(--accent));
+}
+
+.pass-note-archive-card--type-scenario .pass-note-archive-card__icon {
+  background: color-mix(in srgb, #d4b888 18%, var(--surface));
+  color: color-mix(in srgb, #9a7840 85%, var(--accent));
+}
+
+.pass-note-archive-card--type-memory .pass-note-archive-card__icon {
+  background: color-mix(in srgb, #c8b898 18%, var(--surface));
+  color: color-mix(in srgb, #887050 85%, var(--accent));
+}
+
 .pass-note-archive-card--type-compose .pass-note-archive-card__icon {
   background: color-mix(in srgb, #e8d48a 18%, var(--surface));
   color: color-mix(in srgb, #a8892f 85%, var(--accent));
@@ -28401,6 +28497,76 @@ html[data-theme="dark"] .pass-note-archive-subtitle {
     transparent 0 10px,
     color-mix(in srgb, #9bb8d4 25%, transparent) 10px 11px
   );
+  opacity: 0.65;
+}
+
+.pass-note-record-card--type-confession .pass-note-record-card__slip {
+  background: #f5eef8;
+}
+
+.pass-note-record-card--type-confession .pass-note-record-card__slip-pattern--grid {
+  background-image:
+    linear-gradient(color-mix(in srgb, #d4a8c8 18%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, #d4a8c8 18%, transparent) 1px, transparent 1px);
+  background-size: 10px 10px;
+  opacity: 0.65;
+}
+
+.pass-note-record-card--type-hypothetical .pass-note-record-card__slip {
+  background: #eef4ff;
+}
+
+.pass-note-record-card--type-hypothetical .pass-note-record-card__slip-pattern--dots {
+  background-image: radial-gradient(circle at center, color-mix(in srgb, #a8b8e8 35%, transparent) 1.2px, transparent 1.2px);
+  background-size: 10px 10px;
+  opacity: 0.7;
+}
+
+.pass-note-record-card--type-preference .pass-note-record-card__slip {
+  background: #fff0f3;
+}
+
+.pass-note-record-card--type-preference .pass-note-record-card__slip-pattern--doodle {
+  background-image: repeating-linear-gradient(
+    108deg,
+    transparent 0 12px,
+    color-mix(in srgb, #e8a8b8 18%, transparent) 12px 13px
+  );
+  opacity: 0.65;
+}
+
+.pass-note-record-card--type-association .pass-note-record-card__slip {
+  background: #f0f8f5;
+}
+
+.pass-note-record-card--type-association .pass-note-record-card__slip-pattern--flowers {
+  background-image: radial-gradient(circle at 50% 50%, color-mix(in srgb, #88c8a8 30%, transparent) 1.5px, transparent 2px);
+  background-size: 14px 14px;
+  opacity: 0.6;
+}
+
+.pass-note-record-card--type-scenario .pass-note-record-card__slip {
+  background: #fff8ee;
+}
+
+.pass-note-record-card--type-scenario .pass-note-record-card__slip-pattern--lines {
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent 0 10px,
+    color-mix(in srgb, #d4b888 25%, transparent) 10px 11px
+  );
+  opacity: 0.65;
+}
+
+.pass-note-record-card--type-memory .pass-note-record-card__slip {
+  background: #faf6f0;
+}
+
+.pass-note-record-card--type-memory .pass-note-record-card__slip-pattern--grid {
+  background-image:
+    linear-gradient(color-mix(in srgb, #c8b898 18%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, #c8b898 18%, transparent) 1px, transparent 1px);
+  background-size: 10px 10px;
   opacity: 0.65;
 }
 
@@ -28811,7 +28977,10 @@ html[data-theme="dark"] .pass-note-archive-subtitle {
   padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
 }
 
-.you-dog-app__body:has(> .you-dog-chat) {
+.you-dog-app__body:has(> .you-dog-hub),
+.you-dog-app__body:has(> .you-dog-activity--hub),
+.you-dog-app__body:has(> .you-dog-activity--dm),
+.you-dog-app__body:has(> .you-dog-activity--compose) {
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -29050,6 +29219,357 @@ html[data-theme="dark"] .you-dog-feed__pill-wrap .filter-pill--manage {
 
 .you-dog-tabs__item--stub {
   opacity: 0.45;
+}
+
+/* 你才是狗 · 四 Tab 底栏 */
+.you-dog-app--tabbed {
+  background: color-mix(in srgb, var(--accent) 7%, #1a1520);
+}
+
+html[data-theme="light"] .you-dog-app--tabbed {
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg));
+}
+
+.you-dog-app--tabbed .you-dog-app__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.you-dog-tab-bar {
+  display: flex;
+  flex-shrink: 0;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  backdrop-filter: blur(12px);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  z-index: 9;
+}
+
+.you-dog-tab-bar__item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 8px 4px 10px;
+  border: none;
+  background: transparent;
+  color: var(--muted2);
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+  position: relative;
+}
+
+.you-dog-tab-bar__item--on {
+  color: var(--accent);
+}
+
+.you-dog-tab-bar__item--on .you-dog-tab-bar__icon {
+  stroke: var(--accent);
+  transform: translateY(-1px);
+}
+
+.you-dog-tab-bar__icon {
+  display: block;
+  opacity: 0.85;
+}
+
+.you-dog-tab-bar__label {
+  line-height: 1.1;
+}
+
+.you-dog-tab-bar--three .you-dog-tab-bar__item {
+  padding: 9px 6px 11px;
+}
+
+.you-dog-tab-bar--three .you-dog-tab-bar__label {
+  font-size: 0.72rem;
+}
+
+.you-dog-tab-bar__badge {
+  position: absolute;
+  top: 6px;
+  right: calc(50% - 18px);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.you-dog-tab-bar__badge--pulse {
+  animation: you-dog-tab-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes you-dog-tab-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+}
+
+/* 你才是狗 · 玩场 */
+.you-dog-playground {
+  padding: 12px 14px 20px;
+}
+
+.you-dog-playground__heading {
+  margin: 16px 0 6px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.you-dog-playground__hint {
+  margin: 0 0 12px;
+  font-size: 0.76rem;
+  color: var(--muted2);
+}
+
+.you-dog-playground__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.you-dog-playground__game-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px 12px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.you-dog-playground__game-card:active {
+  transform: scale(0.98);
+}
+
+.you-dog-playground__game-emoji {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.you-dog-playground__game-title {
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.you-dog-playground__game-desc {
+  font-size: 0.68rem;
+  color: var(--muted2);
+  line-height: 1.35;
+}
+
+.you-dog-playground__resume {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.you-dog-playground__resume-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: you-dog-tab-pulse 1.4s ease-in-out infinite;
+}
+
+.you-dog-playground__banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 0.78rem;
+}
+
+.you-dog-playground__game-name {
+  font-weight: 700;
+}
+
+.you-dog-playground__watchers {
+  color: var(--muted2);
+}
+
+.you-dog-playground__progress {
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--border));
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+
+.you-dog-playground__progress > span {
+  display: block;
+  height: 100%;
+  width: var(--ydpg-progress, 0%);
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #fff));
+  border-radius: inherit;
+  transition: width 0.35s ease;
+}
+
+.you-dog-playground__stage {
+  padding: 16px 14px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  margin-bottom: 12px;
+}
+
+.you-dog-playground__stage-head {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
+  margin-bottom: 8px;
+}
+
+.you-dog-playground__stage-summary {
+  margin: 0 0 10px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.you-dog-playground__stage-body,
+.you-dog-playground__log-body {
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  color: color-mix(in srgb, var(--text) 88%, transparent);
+}
+
+.you-dog-playground__stage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.you-dog-playground__generating,
+.you-dog-playground__empty {
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--muted2);
+  font-size: 0.86rem;
+}
+
+.you-dog-playground__log-item {
+  margin-bottom: 8px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 10%, var(--border));
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  overflow: hidden;
+}
+
+.you-dog-playground__log-item summary {
+  padding: 10px 12px;
+  font-size: 0.76rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.you-dog-playground__log-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.you-dog-playground__log-item[open] summary {
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 8%, var(--border));
+}
+
+.you-dog-playground__log-item .you-dog-playground__log-body,
+.you-dog-playground__log-item .you-dog-playground__stage-actions {
+  padding: 0 12px 12px;
+}
+
+.you-dog-playground__feed-suggest {
+  display: block;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  color: color-mix(in srgb, var(--accent) 75%, var(--text));
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.you-dog-playground__history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.you-dog-playground__history-row {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 10%, var(--border));
+}
+
+.you-dog-playground__history-title {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--accent) 65%, var(--text));
+  margin-bottom: 4px;
+}
+
+.you-dog-playground__history-summary {
+  font-size: 0.76rem;
+  color: var(--muted2);
+  line-height: 1.4;
+}
+
+.you-dog-profile__replay {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 10%, var(--border));
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+  margin-bottom: 8px;
+}
+
+.you-dog-profile__replay-title {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.you-dog-profile__replay-text {
+  font-size: 0.78rem;
+  color: var(--muted2);
+  line-height: 1.4;
 }
 
 .you-dog-feed {
@@ -30248,6 +30768,311 @@ html[data-theme="dark"] .you-dog-post__menu-item {
   overflow: hidden;
 }
 
+/* 你才是狗 · 我的 */
+.you-dog-hub--profile {
+  background: color-mix(in srgb, var(--accent) 4%, var(--bg));
+}
+
+.you-dog-profile-hero {
+  flex-shrink: 0;
+  margin: 0;
+  background: var(--surface);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 10%, var(--border));
+}
+
+.you-dog-profile-hero__banner {
+  height: 72px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 42%, #fff),
+    color-mix(in srgb, var(--accent) 18%, var(--bg))
+  );
+}
+
+.you-dog-profile-hero__main {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 0 16px;
+  margin-top: -28px;
+}
+
+.you-dog-profile-hero__avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 3px solid var(--surface);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 24%, var(--surface)),
+    color-mix(in srgb, var(--accent) 8%, var(--bg))
+  );
+  color: color-mix(in srgb, var(--accent) 85%, var(--text));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.35rem;
+  font-weight: 800;
+  flex-shrink: 0;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.you-dog-profile-hero__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.you-dog-profile-hero__info {
+  flex: 1;
+  min-width: 0;
+  padding-bottom: 4px;
+}
+
+.you-dog-profile-hero__name {
+  margin: 0 0 2px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.you-dog-profile-hero__anon {
+  margin: 0 0 4px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--accent) 72%, var(--text));
+}
+
+.you-dog-profile-hero__persona {
+  margin: 0;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: var(--muted2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.you-dog-profile-hero__persona--empty {
+  font-style: italic;
+  opacity: 0.85;
+}
+
+.you-dog-profile-hero__stats {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px 0;
+}
+
+.you-dog-profile-hero__stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 0.76rem;
+  color: var(--muted2);
+}
+
+.you-dog-profile-hero__stat strong {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.you-dog-profile-hero__stat-divider {
+  width: 1px;
+  height: 14px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--border));
+}
+
+.you-dog-profile-hero__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 14px 16px 16px;
+}
+
+.you-dog-profile-hero__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.you-dog-profile-hero__action:active {
+  transform: scale(0.98);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+
+.you-dog-hub__panel--profile {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: color-mix(in srgb, var(--accent) 3%, var(--bg));
+}
+
+.you-dog-profile-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.you-dog-profile-post-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 16px;
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 8%, var(--border));
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.you-dog-profile-post-row:active {
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+
+.you-dog-profile-post-row__avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: color-mix(in srgb, var(--accent) 82%, var(--text));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 20%, var(--surface)),
+    color-mix(in srgb, var(--accent) 6%, var(--bg))
+  );
+}
+
+.you-dog-profile-post-row__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.you-dog-profile-post-row__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.you-dog-profile-post-row__anon {
+  font-size: 0.84rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.you-dog-profile-post-row__tag {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--accent) 78%, var(--text));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+}
+
+.you-dog-profile-post-row__text {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--text) 88%, transparent);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.you-dog-profile-post-row__meta {
+  font-size: 0.7rem;
+  color: var(--muted2);
+}
+
+.you-dog-profile-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  padding: 40px 28px 48px;
+  text-align: center;
+}
+
+.you-dog-profile-empty__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 12px;
+  border-radius: 50%;
+  font-size: 1.35rem;
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
+}
+
+.you-dog-profile-empty__title {
+  margin: 0 0 6px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.you-dog-profile-empty__hint {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--muted2);
+}
+
+html[data-theme="dark"] .you-dog-profile-hero,
+html[data-theme="dark"] .you-dog-profile-post-row {
+  background: color-mix(in srgb, var(--surface) 96%, #fff 4%);
+}
+
+html[data-theme="dark"] .you-dog-profile-hero__banner {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 35%, #1c1724),
+    color-mix(in srgb, var(--accent) 12%, #121018)
+  );
+}
+
+html[data-theme="dark"] .you-dog-profile-hero__action {
+  background: color-mix(in srgb, var(--accent) 10%, #2a2436);
+  border-color: color-mix(in srgb, var(--accent) 20%, #3a3348);
+}
+
 .you-dog-chat-stub {
   display: flex;
   flex-direction: column;
@@ -31295,4 +32120,640 @@ html[data-theme="dark"] .you-dog-chat-sys__text {
   font-size: 0.9rem;
   line-height: 1.55;
   color: var(--gb-page-muted, var(--muted2));
+}
+
+/* 恩怨本 · 剧情选择弹层（对齐图二列表样式） */
+#modal-grudge-book-holder .modal-sheet--grudge-book-holder {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+#modal-grudge-book-holder .phone-holder-body {
+  gap: 12px;
+  padding-top: 4px;
+}
+
+#modal-grudge-book-holder .phone-holder-hint {
+  font-size: 0.78rem;
+  color: color-mix(in srgb, var(--accent) 42%, var(--muted2));
+  text-align: center;
+}
+
+#modal-grudge-book-holder .phone-holder-plot-list {
+  max-height: min(58vh, 440px);
+  gap: 10px;
+  padding: 2px 0 4px;
+}
+
+#modal-grudge-book-holder .phone-holder-plot-row {
+  border-radius: 16px;
+  padding: 14px 16px;
+  background: color-mix(in srgb, var(--surface) 90%, var(--accent) 10%);
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
+}
+
+#modal-grudge-book-holder .phone-holder-plot-row.is-current {
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+#modal-grudge-book-holder .phone-holder-plot-row__title {
+  font-size: 0.9rem;
+  font-weight: 650;
+  white-space: normal;
+  line-height: 1.45;
+}
+
+.grudge-book-seg--book .grudge-book-seg__btn {
+  font-size: 0.76rem;
+  padding: 8px 6px;
+}
+
+.grudge-book-screen--diary {
+  --gb-page-bg: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--accent) 6%, var(--surface)) 0%,
+    color-mix(in srgb, var(--accent) 10%, var(--surface)) 52%,
+    color-mix(in srgb, var(--accent) 14%, var(--surface)) 100%
+  );
+  --gb-page-ink: color-mix(in srgb, var(--accent) 66%, var(--text));
+  --gb-page-muted: color-mix(in srgb, var(--gb-page-ink) 54%, transparent);
+  --gb-accent: color-mix(in srgb, var(--accent) 88%, #6b5b7a);
+  --gb-accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --gb-spine: color-mix(in srgb, var(--accent) 28%, var(--surface));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 5%, var(--surface)) 0%,
+    color-mix(in srgb, var(--accent) 11%, var(--surface)) 100%
+  );
+  color: var(--gb-page-ink);
+}
+
+.grudge-book-screen--diary .grudge-book-notebook__page {
+  background-image: linear-gradient(
+    transparent 27px,
+    color-mix(in srgb, var(--accent) 8%, transparent) 28px
+  );
+  background-size: 100% 28px;
+}
+
+.grudge-book-entry-card__mood,
+.grudge-book-entry-card__photos,
+.grudge-book-entry-card__time {
+  font-size: 0.72rem;
+  color: var(--gb-page-muted, var(--muted2));
+}
+
+.grudge-book-entry-card__mood {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gb-accent, var(--accent)) 12%, transparent);
+}
+
+.grudge-book-compose--diary,
+.grudge-book-detail--diary {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.grudge-book-diary-photos {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.grudge-book-diary-photo {
+  position: relative;
+  margin: 0;
+  aspect-ratio: 1;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--gb-border, var(--border)) 80%, transparent);
+  background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%);
+}
+
+.grudge-book-diary-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.grudge-book-diary-photo--add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.grudge-book-diary-photo__add-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--gb-page-muted, var(--muted2));
+}
+
+.grudge-book-diary-photo__remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.52);
+  color: #fff;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.grudge-book-diary-photo__hint {
+  margin: 8px 0 0;
+  font-size: 0.72rem;
+  color: var(--gb-page-muted, var(--muted2));
+}
+
+.grudge-book-detail__diary-text {
+  white-space: pre-wrap;
+  line-height: 1.65;
+}
+
+.grudge-book-header__history {
+  color: inherit;
+}
+
+.grudge-book-screen--history {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 6%, var(--surface)) 0%,
+    color-mix(in srgb, var(--accent) 12%, var(--surface)) 100%
+  );
+  color: color-mix(in srgb, var(--accent) 68%, var(--text));
+}
+
+.grudge-book-history-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 10px;
+  flex-shrink: 0;
+}
+
+.grudge-book-history-filter {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.grudge-book-history-filter__btn {
+  flex: 1 0 auto;
+  min-width: 0;
+  border: none;
+  border-radius: 999px;
+  padding: 7px 10px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  background: transparent;
+  color: color-mix(in srgb, var(--accent) 48%, var(--muted2));
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.grudge-book-history-filter__btn.is-active {
+  background: color-mix(in srgb, var(--accent) 82%, var(--surface));
+  color: var(--accent-contrast, #fff);
+}
+
+.grudge-book-history-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.grudge-book-history-item {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.grudge-book-history-item__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.grudge-book-history-item__tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.grudge-book-history-item__tag {
+  font-size: 0.68rem;
+  font-weight: 650;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.grudge-book-history-item__tag--grudge {
+  background: color-mix(in srgb, #c45c5c 16%, transparent);
+}
+
+.grudge-book-history-item__tag--merit {
+  background: color-mix(in srgb, #5c9a72 16%, transparent);
+}
+
+.grudge-book-history-item__tag--diary {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.grudge-book-history-item__time {
+  font-size: 0.68rem;
+  color: var(--muted2);
+  flex-shrink: 0;
+}
+
+.grudge-book-history-item__preview {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--accent) 58%, var(--text));
+}
+
+.grudge-book-empty--history {
+  padding: 28px 12px;
+  text-align: center;
+}
+
+/* 你才是狗 · 活动 */
+.you-dog-activity {
+  padding: 0;
+}
+
+/* 你才是狗 · 首页/消息统一分区 */
+.you-dog-hub {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.you-dog-hub__panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.you-dog-segments,
+.you-dog-activity-segments {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  background: color-mix(in srgb, var(--surface) 98%, transparent);
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+
+.you-dog-segments__item,
+.you-dog-activity-segments__item {
+  padding: 11px 8px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted2);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.you-dog-segments__item.is-active,
+.you-dog-activity-segments__item.is-active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.you-dog-hub__panel:has(> .you-dog-feed) {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.you-dog-hub__panel:has(> .you-dog-chat),
+.you-dog-hub__panel:has(> .you-dog-activity-chat-list),
+.you-dog-hub__panel:has(> .you-dog-activity-forum) {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.you-dog-hub__panel--profile {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.you-dog-hub__panel .you-dog-feed {
+  flex: 1;
+  min-height: 0;
+}
+
+.you-dog-hub__panel .you-dog-chat,
+.you-dog-hub__panel .you-dog-activity-chat-list,
+.you-dog-hub__panel .you-dog-activity-forum {
+  flex: 1;
+  min-height: 0;
+}
+
+.you-dog-activity--hub {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.you-dog-activity__panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.you-dog-activity-chat-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+
+.you-dog-activity-chat-list .phone-wechat__list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.you-dog-activity-chat-list__row {
+  position: relative;
+}
+
+.you-dog-activity-chat-list__av img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.you-dog-activity-chat-list__badge {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fa5151;
+}
+
+.you-dog-activity-chat-list__empty {
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.you-dog-activity__empty-hint {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--muted2);
+}
+
+.you-dog-activity-forum {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #f5f5f5;
+}
+
+.you-dog-activity-forum .phone-forum__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.you-dog-activity-forum .phone-forum__list {
+  min-height: 100%;
+}
+
+.you-dog-activity--compose {
+  min-height: 100%;
+  background: #f5f5f5;
+}
+
+.you-dog-activity-compose-page {
+  padding: 14px 16px 24px;
+}
+
+.you-dog-activity-compose-page__hint {
+  margin: 0 0 14px;
+  font-size: 0.76rem;
+  color: #888;
+  line-height: 1.5;
+}
+
+.you-dog-activity-compose-page__field {
+  display: block;
+  margin-bottom: 14px;
+}
+
+.you-dog-activity-compose-page__label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.you-dog-activity-compose-page__input {
+  width: 100%;
+  min-height: 180px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #fff;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.you-dog-activity-compose-page__submit {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.you-dog-activity--dm {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+}
+
+.you-dog-activity-dm__thread {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.you-dog-activity-dm__msg {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 92%;
+}
+
+.you-dog-activity-dm__msg--user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.you-dog-activity-dm__av {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.you-dog-activity-dm__bubble {
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 12%, var(--border));
+  font-size: 0.82rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.you-dog-activity-dm__msg--user .you-dog-activity-dm__bubble {
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+}
+
+.you-dog-activity-dm__composer {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.you-dog-activity-dm__input {
+  flex: 1;
+  min-height: 36px;
+  resize: none;
+}
+
+.you-dog-activity-dm__send {
+  flex-shrink: 0;
+  align-self: flex-end;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.you-dog-activity-dm__empty,
+.you-dog-activity-dm__generating {
+  text-align: center;
+  color: var(--muted2);
+  font-size: 0.78rem;
+  padding: 24px 12px;
+}
+
+.you-dog-activity-compose__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.you-dog-activity-compose__tag {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.you-dog-activity-compose__tag.is-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent);
+}
+
+.you-dog-activity-compose__input {
+  width: 100%;
+  min-height: 120px;
+  margin-bottom: 8px;
+}
+
+.you-dog-user-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.you-dog-user-profile__avatar-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.you-dog-user-profile__av {
+  width: 72px;
+  height: 72px;
+}
+
+.you-dog-user-profile__avatar-hint {
+  font-size: 0.72rem;
+  color: var(--muted2);
+}
+
+.you-dog-user-profile--summary p {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
 }
