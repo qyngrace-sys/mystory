@@ -3205,8 +3205,8 @@
   let youDogScreen = "feed";
   let youDogDetailPostId = null;
   let youDogProfileSpeakerRef = null;
-  /** 我的页分段：likes 喜欢 | bookmarks 收藏 */
-  let youDogProfileSegment = "likes";
+  /** 我的页分段：posts 动态 | likes 喜欢 | bookmarks 收藏 */
+  let youDogProfileSegment = "posts";
   let youDogNavFrom = "feed";
   /** 你才是狗推特数据：key = plotId */
   let youDogTwitterData = {};
@@ -3252,6 +3252,14 @@
   /** 活动 hub 子页：dm-list 微信私聊列表 | forum 论坛动态 */
   let youDogActivityHubTab = "dm-list";
   let youDogActivityDmRef = null;
+  let youDogActivityDmSelectMode = false;
+  let youDogActivityDmSelectedMsgIds = [];
+  /** @type {{ msgId: string, text: string, authorName: string }|null} */
+  let youDogActivityDmQuoteDraft = null;
+  let youDogActivityDmMsgActionContext = null;
+  let youDogActivityDmLongPressTimer = null;
+  /** @type {{ x: number, y: number, msgId: string, anchor: Element }|null} */
+  let youDogActivityDmLongPressStart = null;
   let youDogActivityGenerating = false;
   let youDogActivityComposeDraft = "";
   let youDogActivityComposeTag = "tree";
@@ -36100,6 +36108,7 @@
     if (youDogMainTab === "messages" && youDogActivityScreen === "dm") {
       youDogActivityScreen = "hub";
       youDogActivityDmRef = null;
+      clearYouDogActivityDmInteractionState();
       renderYouDogScreen(slot);
       return;
     }
@@ -38065,6 +38074,44 @@
     );
   }
 
+  function buildYouDogProfileUserPostCardHtml(post) {
+    if (!post) return "";
+    const tagLabel = getYouDogSectionLabel(resolveYouDogSectionId(post.tag));
+    const postIdEsc = escapeHtml(String(post.id || ""));
+    const likeCount = post.likes ? post.likes.length : 0;
+    const commentCount = post.comments ? post.comments.length : 0;
+    const socialHtml = buildYouDogPostSocialHtml(post);
+    return (
+      '<article class="you-dog-profile-post-card">' +
+      '<div class="you-dog-profile-post-card__head">' +
+      '<span class="you-dog-profile-post-row__tag">' +
+      escapeHtml(tagLabel) +
+      "</span>" +
+      '<span class="you-dog-profile-post-row__meta">' +
+      escapeHtml(String(post.time || "")) +
+      "</span></div>" +
+      '<button type="button" class="you-dog-profile-post-card__open" data-you-dog-open-post="' +
+      postIdEsc +
+      '">' +
+      '<p class="you-dog-profile-post-card__text">' +
+      escapeHtml(String(post.text || "")) +
+      "</p>" +
+      (likeCount || commentCount
+        ? '<div class="you-dog-profile-post-card__stats">' +
+          "<span>♥ " +
+          likeCount +
+          "</span><span>💬 " +
+          commentCount +
+          "</span></div>"
+        : "") +
+      "</button>" +
+      (socialHtml
+        ? '<div class="you-dog-profile-post-card__comments">' + socialHtml + "</div>"
+        : "") +
+      "</article>"
+    );
+  }
+
   function buildYouDogProfileHtml() {
     const posts = getYouDogMergedPosts();
     const liked = posts.filter(function (p) {
@@ -38073,6 +38120,7 @@
     const bookmarked = posts.filter(function (p) {
       return p && p.userSavedBookmark;
     });
+    const userPosts = getYouDogPostsBySpeaker(YOU_DOG_USER_PROFILE_REF);
     const profile = ensureYouDogUserProfile();
     const personaLabel = profile.nickname || "未设置";
     const userAnon = getYouDogCurrentUserAnonId();
@@ -38086,20 +38134,35 @@
     const personaHtml = personaPreview
       ? escapeHtml(personaPreview)
       : '<span class="you-dog-profile-hero__persona--empty">完善人设后，角色会按此理解你</span>';
-    const activeList = youDogProfileSegment === "bookmarks" ? bookmarked : liked;
+    const activeList =
+      youDogProfileSegment === "bookmarks"
+        ? bookmarked
+        : youDogProfileSegment === "likes"
+          ? liked
+          : userPosts;
     const emptyTitle =
-      youDogProfileSegment === "bookmarks" ? "还没有收藏的帖子" : "还没有喜欢的帖子";
+      youDogProfileSegment === "bookmarks"
+        ? "还没有收藏的帖子"
+        : youDogProfileSegment === "likes"
+          ? "还没有喜欢的帖子"
+          : "还没有发过动态";
     const emptyHint =
       youDogProfileSegment === "bookmarks"
         ? "在树洞或动态里收藏后会出现在这里"
-        : "在树洞或动态里点赞后会出现在这里";
+        : youDogProfileSegment === "likes"
+          ? "在树洞或动态里点赞后会出现在这里"
+          : "在首页「动态」里发帖后会出现在这里";
 
     function postRows(list) {
       if (!list.length) {
         return (
           '<div class="you-dog-profile-empty">' +
           '<span class="you-dog-profile-empty__icon" aria-hidden="true">' +
-          (youDogProfileSegment === "bookmarks" ? "☆" : "♡") +
+          (youDogProfileSegment === "bookmarks"
+            ? "☆"
+            : youDogProfileSegment === "likes"
+              ? "♡"
+              : "✎") +
           "</span>" +
           '<p class="you-dog-profile-empty__title">' +
           escapeHtml(emptyTitle) +
@@ -38107,6 +38170,17 @@
           '<p class="you-dog-profile-empty__hint">' +
           escapeHtml(emptyHint) +
           "</p></div>"
+        );
+      }
+      if (youDogProfileSegment === "posts") {
+        return (
+          '<div class="you-dog-profile-list you-dog-profile-list--posts">' +
+          list
+            .map(function (p) {
+              return buildYouDogProfileUserPostCardHtml(p);
+            })
+            .join("") +
+          "</div>"
         );
       }
       return (
@@ -38165,6 +38239,10 @@
       "</p></div></div>" +
       '<div class="you-dog-profile-hero__stats">' +
       '<span class="you-dog-profile-hero__stat"><strong>' +
+      escapeHtml(String(userPosts.length)) +
+      '</strong><span>动态</span></span>' +
+      '<span class="you-dog-profile-hero__stat-divider" aria-hidden="true"></span>' +
+      '<span class="you-dog-profile-hero__stat"><strong>' +
       escapeHtml(String(liked.length)) +
       '</strong><span>喜欢</span></span>' +
       '<span class="you-dog-profile-hero__stat-divider" aria-hidden="true"></span>' +
@@ -38180,6 +38258,7 @@
       "管理剧情</button></div></div>" +
       buildYouDogSegmentBarHtml(
         [
+          { id: "posts", label: "动态" },
           { id: "likes", label: "喜欢" },
           { id: "bookmarks", label: "收藏" },
         ],
@@ -40236,26 +40315,51 @@
     );
   }
 
-  function buildYouDogActivityDmMessageHtml(msg) {
+  function buildYouDogActivityDmMessageHtml(msg, memberRef) {
     if (!msg) return "";
+    const ref = String(memberRef || youDogActivityDmRef || "").trim();
     const isUser = msg.role === "user";
-    const avatarUrl = isUser ? getYouDogUserAvatarUrl() : getYouDogChatMemberAvatarUrl(youDogActivityDmRef);
-    const label = isUser ? getYouDogUserDisplayNickname() : getYouDogActivityMemberLabel(youDogActivityDmRef);
+    const selected = youDogActivityDmSelectMode && youDogActivityDmSelectedMsgIds.indexOf(msg.id) >= 0;
+    const avatarUrl = isUser ? getYouDogUserAvatarUrl() : getYouDogChatMemberAvatarUrl(ref);
+    const label = isUser ? getYouDogUserDisplayNickname() : getYouDogActivityMemberLabel(ref);
     const initial = label ? Array.from(label)[0] : "?";
     const avInner = avatarUrl
       ? '<img src="' + escapeHtml(avatarUrl) + '" alt="" />'
       : escapeHtml(initial);
     const avCls = "avatar you-dog-activity-dm__av" + (avatarUrl ? " avatar--has-image" : "");
+    let quoteHtml = "";
+    if (msg.quote && String(msg.quote.text || "").trim()) {
+      quoteHtml =
+        '<div class="you-dog-activity-dm__msg-quote">' +
+        '<span class="you-dog-activity-dm__msg-quote-author">' +
+        escapeHtml(String(msg.quote.authorName || "").trim() || "引用") +
+        "</span>" +
+        '<span class="you-dog-activity-dm__msg-quote-text">' +
+        escapeHtml(String(msg.quote.text || "").trim()) +
+        "</span></div>";
+    }
+    const selectBtn = youDogActivityDmSelectMode
+      ? '<button type="button" class="you-dog-activity-dm__msg-select' +
+        (selected ? " is-selected" : "") +
+        '" data-you-dog-activity-dm-select-msg="' +
+        escapeHtml(msg.id) +
+        '" aria-label="选择消息"></button>'
+      : "";
     return (
       '<div class="you-dog-activity-dm__msg' +
       (isUser ? " you-dog-activity-dm__msg--user" : "") +
+      (selected ? " you-dog-activity-dm__msg--selected" : "") +
+      '" data-you-dog-activity-dm-msg-id="' +
+      escapeHtml(msg.id) +
       '">' +
+      selectBtn +
       '<span class="' +
       avCls +
       '">' +
       avInner +
       "</span>" +
-      '<div class="you-dog-activity-dm__bubble">' +
+      '<div class="you-dog-activity-dm__bubble" data-you-dog-activity-dm-bubble>' +
+      quoteHtml +
       escapeHtml(String(msg.text || "")) +
       "</div></div>"
     );
@@ -40265,7 +40369,11 @@
     const ref = String(memberRef || "").trim();
     const session = getYouDogActivityDmSession(ref);
     const msgs = session.messages || [];
-    let threadHtml = msgs.map(buildYouDogActivityDmMessageHtml).join("");
+    let threadHtml = msgs
+      .map(function (m) {
+        return buildYouDogActivityDmMessageHtml(m, ref);
+      })
+      .join("");
     if (!threadHtml) {
       threadHtml =
         '<div class="you-dog-activity-dm__empty"><p>和 ' +
@@ -40275,20 +40383,34 @@
     if (youDogActivityGenerating) {
       threadHtml += '<div class="you-dog-activity-dm__generating">对方正在输入…</div>';
     }
+    const composerDisabled = youDogActivityGenerating || youDogActivityDmSelectMode;
+    const quoteBarHtml = youDogActivityDmQuoteDraft
+      ? '<div class="you-dog-activity-dm__quote" data-you-dog-activity-dm-quote-bar>' +
+        '<span class="you-dog-activity-dm__quote-body">' +
+        '<span class="you-dog-activity-dm__quote-author">' +
+        escapeHtml(youDogActivityDmQuoteDraft.authorName || "引用") +
+        "</span>" +
+        '<span class="you-dog-activity-dm__quote-text">' +
+        escapeHtml(youDogActivityDmQuoteDraft.text || "") +
+        "</span></span>" +
+        '<button type="button" class="you-dog-activity-dm__quote-clear" data-you-dog-activity-dm-quote-clear aria-label="取消引用">×</button></div>'
+      : "";
     return (
       '<div class="you-dog-activity you-dog-activity--dm">' +
       '<div class="you-dog-activity-dm__thread" data-you-dog-activity-dm-thread>' +
       threadHtml +
       "</div>" +
       '<div class="you-dog-activity-dm__composer">' +
+      quoteBarHtml +
+      '<div class="you-dog-activity-dm__composer-row">' +
       '<textarea class="you-dog-activity-dm__input" data-you-dog-activity-dm-input rows="1" maxlength="' +
       YOU_DOG_ACTIVITY_DM_TEXT_MAX +
       '" placeholder="发消息…"' +
-      (youDogActivityGenerating ? " disabled" : "") +
+      (composerDisabled ? " disabled" : "") +
       "></textarea>" +
       '<button type="button" class="you-dog-activity-dm__send" data-you-dog-activity-dm-send aria-label="发送"' +
-      (youDogActivityGenerating ? " disabled" : "") +
-      ">发送</button></div></div>"
+      (composerDisabled ? " disabled" : "") +
+      ">发送</button></div></div></div>"
     );
   }
 
@@ -40308,6 +40430,18 @@
       youDogActivityGenerating || youDogRepliesGenerating || youDogBatchRepliesGenerating;
     const dmGenLoading = youDogActivityGenerating ? " you-dog-app__action-btn--loading" : "";
     if (youDogActivityScreen === "dm") {
+      const selectActive = youDogActivityDmSelectMode;
+      const selectedCount = youDogActivityDmSelectedMsgIds.length;
+      const selectLabel =
+        selectActive && selectedCount ? "删除已选(" + selectedCount + ")" : "选择消息";
+      const selectCls =
+        "phone-app__bar-action phone-wechat-chat-action phone-wechat-chat-action--select" +
+        (selectActive ? " phone-wechat-chat-action--active" : "") +
+        (selectActive && selectedCount ? " phone-wechat-chat-action--delete-ready" : "");
+      const selectIcon =
+        selectActive && selectedCount
+          ? '<svg class="icon-linear" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>'
+          : '<svg class="icon-linear" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>';
       return (
         '<div class="you-dog-app__actions star-header__actions">' +
         '<button type="button" class="you-dog-app__action-btn you-dog-app__action-btn--accent' +
@@ -40316,6 +40450,17 @@
         (busy ? " disabled" : "") +
         ">" +
         buildPhoneWechatStarIconSvg() +
+        "</button>" +
+        '<button type="button" class="' +
+        selectCls.trim() +
+        '" data-you-dog-activity-dm-select-toggle aria-label="' +
+        escapeHtml(selectLabel) +
+        '" title="' +
+        escapeHtml(selectLabel) +
+        '"' +
+        (busy ? " disabled" : "") +
+        ">" +
+        selectIcon +
         "</button>" +
         buildYouDogPersonaHeaderHtml() +
         "</div>"
@@ -40377,25 +40522,283 @@
     youDogMainTab = "messages";
     youDogMessagesSegment = "dm";
     youDogActivityScreen = "dm";
+    clearYouDogActivityDmInteractionState();
     youDogActivityDmRef = ref;
     markYouDogChatScrollToEndPending();
     renderYouDogScreen(slot || els.youDogContentSlot());
   }
 
-  function appendYouDogActivityDmUserMessage(text) {
+  function appendYouDogActivityDmUserMessage(text, quoteDraft) {
     const ref = youDogActivityDmRef;
     if (!ref) return false;
     const trimmed = capYouDogActivityDmText(text);
     if (!trimmed) return false;
     const session = getYouDogActivityDmSession(ref);
-    session.messages.push({
+    const quoteSrc = quoteDraft || youDogActivityDmQuoteDraft;
+    const payload = {
       id: uid("ydadm"),
       role: "user",
       text: trimmed,
       time: Date.now(),
-    });
+    };
+    if (quoteSrc && String(quoteSrc.text || "").trim()) {
+      payload.quote = {
+        text: String(quoteSrc.text || "").trim().slice(0, 120),
+        authorName: String(quoteSrc.authorName || "").trim(),
+      };
+    }
+    session.messages.push(payload);
     schedulePersistNarrative();
     return true;
+  }
+
+  function getYouDogActivityDmMessageById(memberRef, msgId) {
+    const id = String(msgId || "").trim();
+    if (!id) return null;
+    const session = getYouDogActivityDmSession(memberRef);
+    return (session.messages || []).find(function (m) {
+      return m && m.id === id;
+    });
+  }
+
+  function getYouDogActivityDmMessageAuthorName(msg, memberRef) {
+    if (!msg) return "";
+    if (msg.role === "user") return "我";
+    return getYouDogActivityMemberLabel(memberRef);
+  }
+
+  function deleteYouDogActivityDmMessagesByIds(memberRef, ids) {
+    const ref = String(memberRef || "").trim();
+    if (!ref) return 0;
+    const set = new Set(
+      (ids || []).map(function (id) {
+        return String(id || "").trim();
+      })
+    );
+    if (!set.size) return 0;
+    const session = getYouDogActivityDmSession(ref);
+    const before = session.messages.length;
+    session.messages = session.messages.filter(function (m) {
+      return m && !set.has(m.id);
+    });
+    if (before !== session.messages.length) schedulePersistNarrative();
+    return before - session.messages.length;
+  }
+
+  function clearYouDogActivityDmInteractionState() {
+    youDogActivityDmSelectMode = false;
+    youDogActivityDmSelectedMsgIds = [];
+    youDogActivityDmQuoteDraft = null;
+    hideYouDogActivityDmMsgActionBubble();
+  }
+
+  function clearYouDogActivityDmLongPress() {
+    if (youDogActivityDmLongPressTimer) {
+      clearTimeout(youDogActivityDmLongPressTimer);
+      youDogActivityDmLongPressTimer = null;
+    }
+    youDogActivityDmLongPressStart = null;
+  }
+
+  function ensureYouDogActivityDmMsgActionBubbleUi() {
+    const mount = document.getElementById("app-shell") || document.body;
+    let bubble = document.getElementById("you-dog-activity-dm-msg-action-bubble");
+    if (!bubble) {
+      bubble = document.createElement("div");
+      bubble.id = "you-dog-activity-dm-msg-action-bubble";
+      bubble.className = "story-selection-bubble you-dog-chat-msg-action-bubble";
+      bubble.hidden = true;
+      bubble.innerHTML =
+        '<button type="button" data-you-dog-activity-dm-msg-action="quote">' +
+        '<svg class="icon-linear story-selection-bubble__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10h10a4 4 0 014 4v7"/><path d="M3 10l4-4"/><path d="M7 6L3 10l4 4"/></svg>' +
+        '<span class="story-selection-bubble__label">引用</span>' +
+        "</button>" +
+        '<button type="button" data-you-dog-activity-dm-msg-action="knock">' +
+        '<svg class="icon-linear story-selection-bubble__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M21 12a8 8 0 01-8 8H8l-5 3V8a8 8 0 018-8h8a8 8 0 018 8z"/></svg>' +
+        '<span class="story-selection-bubble__label">敲敲</span>' +
+        "</button>" +
+        '<button type="button" data-you-dog-activity-dm-msg-action="delete">' +
+        '<svg class="icon-linear story-selection-bubble__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>' +
+        '<span class="story-selection-bubble__label">删除</span>' +
+        "</button>";
+      mount.appendChild(bubble);
+    } else if (bubble.parentElement !== mount) {
+      mount.appendChild(bubble);
+    }
+    return bubble;
+  }
+
+  function hideYouDogActivityDmMsgActionBubble() {
+    const bubble = document.getElementById("you-dog-activity-dm-msg-action-bubble");
+    if (bubble) bubble.hidden = true;
+    youDogActivityDmMsgActionContext = null;
+  }
+
+  function showYouDogActivityDmMsgActionBubble(anchorEl, msgId) {
+    const ref = youDogActivityDmRef;
+    if (!ref) return;
+    const msg = getYouDogActivityDmMessageById(ref, msgId);
+    if (!msg || !anchorEl) return;
+    const bubble = ensureYouDogActivityDmMsgActionBubbleUi();
+    youDogActivityDmMsgActionContext = { msgId: msg.id, anchorEl: anchorEl };
+    const knockBtn = bubble.querySelector('[data-you-dog-activity-dm-msg-action="knock"]');
+    if (knockBtn) {
+      knockBtn.hidden = msg.role === "user";
+    }
+    const rect = anchorEl.getBoundingClientRect();
+    const shellRect = getYouDogChatActionBubbleBounds();
+    bubble.hidden = false;
+    const w = bubble.offsetWidth || 120;
+    const h = bubble.offsetHeight || 44;
+    const margin = 8;
+    let left = rect.left + rect.width / 2 - w / 2;
+    left = Math.max(shellRect.left + margin, Math.min(left, shellRect.right - w - margin));
+    let top = rect.top - h - 10;
+    if (top < shellRect.top + margin) {
+      top = Math.min(rect.bottom + 10, shellRect.bottom - h - margin);
+    }
+    bubble.style.left = Math.round(left) + "px";
+    bubble.style.top = Math.round(top) + "px";
+  }
+
+  function setYouDogActivityDmQuoteFromMessage(msgId) {
+    const ref = youDogActivityDmRef;
+    if (!ref) return;
+    const msg = getYouDogActivityDmMessageById(ref, msgId);
+    if (!msg) return;
+    youDogActivityDmQuoteDraft = {
+      msgId: msg.id,
+      text: String(msg.text || "").trim().slice(0, 120),
+      authorName: getYouDogActivityDmMessageAuthorName(msg, ref),
+    };
+    renderYouDogScreen(els.youDogContentSlot());
+    const slot = els.youDogContentSlot();
+    const input = slot && slot.querySelector("[data-you-dog-activity-dm-input]");
+    if (input) {
+      try {
+        input.focus({ preventScroll: true });
+      } catch (_eFocus) {
+        input.focus();
+      }
+    }
+  }
+
+  function clearYouDogActivityDmQuoteDraft() {
+    youDogActivityDmQuoteDraft = null;
+  }
+
+  function toggleYouDogActivityDmSelectMode(slot) {
+    youDogActivityDmSelectMode = !youDogActivityDmSelectMode;
+    youDogActivityDmSelectedMsgIds = [];
+    hideYouDogActivityDmMsgActionBubble();
+    renderYouDogScreen(slot || els.youDogContentSlot());
+  }
+
+  async function handleYouDogActivityDmSelectDelete(slot) {
+    const ref = youDogActivityDmRef;
+    if (!ref) return;
+    if (!youDogActivityDmSelectMode) {
+      toggleYouDogActivityDmSelectMode(slot);
+      return;
+    }
+    if (!youDogActivityDmSelectedMsgIds.length) {
+      toggleYouDogActivityDmSelectMode(slot);
+      return;
+    }
+    const ok = await showConfirm("确定删除选中的 " + youDogActivityDmSelectedMsgIds.length + " 条消息？");
+    if (!ok) return;
+    deleteYouDogActivityDmMessagesByIds(ref, youDogActivityDmSelectedMsgIds);
+    youDogActivityDmSelectMode = false;
+    youDogActivityDmSelectedMsgIds = [];
+    renderYouDogScreen(slot || els.youDogContentSlot());
+    showToast("已删除选中消息", "success");
+  }
+
+  function bindYouDogActivityDmLongPressHandlers() {
+    if (document.documentElement.dataset.youDogActivityDmLongPressBound) return;
+    document.documentElement.dataset.youDogActivityDmLongPressBound = "1";
+
+    function inYouDogActivityDmBubbleTarget(el) {
+      if (!el || !el.closest) return null;
+      const slot = el.closest("#you-dog-content-slot");
+      if (!slot || youDogActivityScreen !== "dm" || !youDogActivityDmRef || youDogActivityDmSelectMode) return null;
+      const bubble = el.closest("[data-you-dog-activity-dm-bubble]");
+      if (!bubble || !slot.contains(bubble)) return null;
+      const msgEl = bubble.closest("[data-you-dog-activity-dm-msg-id]");
+      if (!msgEl) return null;
+      const msgId = msgEl.getAttribute("data-you-dog-activity-dm-msg-id");
+      const msg = getYouDogActivityDmMessageById(youDogActivityDmRef, msgId);
+      if (!msg) return null;
+      return { bubble: bubble, msgId: msgId };
+    }
+
+    document.addEventListener(
+      "pointerdown",
+      function (e) {
+        if (e.button != null && e.button !== 0) return;
+        const hit = inYouDogActivityDmBubbleTarget(e.target);
+        clearYouDogActivityDmLongPress();
+        if (!hit) return;
+        youDogActivityDmLongPressStart = { x: e.clientX, y: e.clientY, msgId: hit.msgId, anchor: hit.bubble };
+        youDogActivityDmLongPressTimer = setTimeout(function () {
+          youDogActivityDmLongPressTimer = null;
+          if (!youDogActivityDmLongPressStart) return;
+          showYouDogActivityDmMsgActionBubble(youDogActivityDmLongPressStart.anchor, youDogActivityDmLongPressStart.msgId);
+          youDogActivityDmLongPressStart = null;
+        }, YOU_DOG_CHAT_LONG_PRESS_MS);
+      },
+      { passive: true }
+    );
+
+    document.addEventListener(
+      "pointermove",
+      function (e) {
+        if (!youDogActivityDmLongPressStart) return;
+        const dx = e.clientX - youDogActivityDmLongPressStart.x;
+        const dy = e.clientY - youDogActivityDmLongPressStart.y;
+        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) clearYouDogActivityDmLongPress();
+      },
+      { passive: true }
+    );
+
+    document.addEventListener("pointerup", clearYouDogActivityDmLongPress);
+    document.addEventListener("pointercancel", clearYouDogActivityDmLongPress);
+
+    document.addEventListener("contextmenu", function (e) {
+      const hit = inYouDogActivityDmBubbleTarget(e.target);
+      if (!hit) return;
+      e.preventDefault();
+      clearYouDogActivityDmLongPress();
+      showYouDogActivityDmMsgActionBubble(hit.bubble, hit.msgId);
+    });
+
+    document.addEventListener("click", function (e) {
+      const actionBtn = e.target.closest("[data-you-dog-activity-dm-msg-action]");
+      if (actionBtn) {
+        const ctx = youDogActivityDmMsgActionContext;
+        const action = actionBtn.getAttribute("data-you-dog-activity-dm-msg-action");
+        const ref = youDogActivityDmRef;
+        if (ctx && ctx.msgId && ref) {
+          const msg = getYouDogActivityDmMessageById(ref, ctx.msgId);
+          if (action === "quote") setYouDogActivityDmQuoteFromMessage(ctx.msgId);
+          else if (action === "knock") {
+            if (msg && msg.role !== "user") void openKnockFromYouDogMemberRef(ref);
+          } else if (action === "delete") {
+            void showConfirm("确定删除这条消息？", "删除消息").then(function (ok) {
+              if (!ok) return;
+              deleteYouDogActivityDmMessagesByIds(ref, [ctx.msgId]);
+              renderYouDogScreen(els.youDogContentSlot());
+              showToast("已删除", "success");
+            });
+          }
+        }
+        hideYouDogActivityDmMsgActionBubble();
+        return;
+      }
+      if (e.target.closest("#you-dog-activity-dm-msg-action-bubble")) return;
+      if (e.target.closest("[data-you-dog-activity-dm-bubble]")) return;
+      hideYouDogActivityDmMsgActionBubble();
+    });
   }
 
   function buildYouDogActivityDmPrompt(memberRef, userText) {
@@ -40488,6 +40891,7 @@
       return;
     }
     appendYouDogActivityDmUserMessage(text);
+    youDogActivityDmQuoteDraft = null;
     if (input) input.value = "";
     renderYouDogScreen(root);
     scrollYouDogActivityDmToEnd(root);
@@ -40730,7 +41134,7 @@
       return '<svg class="you-dog-tab-bar__icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M4 10.5L12 4l8 6.5V20a1 1 0 01-1 1h-5v-6H10v6H5a1 1 0 01-1-1v-9.5z"/></svg>';
     }
     if (tabId === "messages") {
-      return '<svg class="you-dog-tab-bar__icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M21 12a8 8 0 01-8 8H8l-5 3V8a8 8 0 018-8h8a8 8 0 018 8z"/><path d="M8 12h8"/></svg>';
+      return '<svg class="you-dog-tab-bar__icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/><path d="M8 10h8"/><path d="M8 14h5"/></svg>';
     }
     return '<svg class="you-dog-tab-bar__icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M6 20v-1a6 6 0 0112 0v1"/></svg>';
   }
@@ -41077,6 +41481,7 @@
     youDogActivityHubTab = segment === "dm" ? "dm-list" : "forum";
     youDogActivityScreen = "hub";
     youDogActivityDmRef = null;
+    clearYouDogActivityDmInteractionState();
     syncYouDogLegacyChatSubScreen();
     if (segment === "group" && !isYouDogChatReady()) {
       openYouDogChatSetupModal();
@@ -41124,6 +41529,7 @@
       if (youDogActivityScreen === "dm") {
         youDogActivityScreen = "hub";
         youDogActivityDmRef = null;
+        clearYouDogActivityDmInteractionState();
       }
     }
     if (next !== "home" && youDogActivityScreen === "compose") {
@@ -41203,11 +41609,12 @@
     youDogActivityScreen = "hub";
     youDogActivityHubTab = "dm-list";
     youDogActivityDmRef = null;
+    clearYouDogActivityDmInteractionState();
     youDogActivityComposeDraft = "";
     youDogScreen = "feed";
     youDogDetailPostId = null;
     youDogProfileSpeakerRef = null;
-    youDogProfileSegment = "likes";
+    youDogProfileSegment = "posts";
     youDogNavFrom = "feed";
     if (!location.hash.startsWith("#/story") && location.hash !== "#/tab/overview") {
       location.hash = "#/tab/overview";
@@ -66770,8 +67177,8 @@
 
     const profileSegBtn = e.target.closest("[data-you-dog-profile-segment]");
     if (profileSegBtn) {
-      const seg = profileSegBtn.getAttribute("data-you-dog-profile-segment") || "likes";
-      if (seg === "likes" || seg === "bookmarks") {
+      const seg = profileSegBtn.getAttribute("data-you-dog-profile-segment") || "posts";
+      if (seg === "posts" || seg === "likes" || seg === "bookmarks") {
         youDogProfileSegment = seg;
         renderYouDogScreen(slot);
       }
@@ -66797,6 +67204,27 @@
 
     if (e.target.closest("[data-you-dog-activity-dm-send]")) {
       void sendYouDogActivityDmMessage(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-activity-dm-select-toggle]")) {
+      void handleYouDogActivityDmSelectDelete(slot);
+      return;
+    }
+
+    if (e.target.closest("[data-you-dog-activity-dm-quote-clear]")) {
+      clearYouDogActivityDmQuoteDraft();
+      renderYouDogScreen(slot);
+      return;
+    }
+
+    const dmSelectMsg = e.target.closest("[data-you-dog-activity-dm-select-msg]");
+    if (dmSelectMsg && youDogActivityDmSelectMode) {
+      const mid = dmSelectMsg.getAttribute("data-you-dog-activity-dm-select-msg");
+      const idx = youDogActivityDmSelectedMsgIds.indexOf(mid);
+      if (idx >= 0) youDogActivityDmSelectedMsgIds.splice(idx, 1);
+      else youDogActivityDmSelectedMsgIds.push(mid);
+      renderYouDogScreen(slot);
       return;
     }
 
@@ -67106,7 +67534,11 @@
 
     const gotoPost = e.target.closest("[data-you-dog-goto-post]");
     if (gotoPost) {
-      openYouDogPostDetail(slot, gotoPost.getAttribute("data-you-dog-goto-post"), "feed");
+      openYouDogPostDetail(
+        slot,
+        gotoPost.getAttribute("data-you-dog-goto-post"),
+        youDogScreen === "profile" || youDogMainTab === "profile" ? "profile" : "feed"
+      );
       return;
     }
   });
@@ -69572,6 +70004,7 @@
   bindBackupFileInput();
   bindHorizontalScrollAxisLock();
   bindYouDogChatLongPressHandlers();
+  bindYouDogActivityDmLongPressHandlers();
   bindSettingsDelegation();
   bindNav();
   bindApiHeartFloat();
