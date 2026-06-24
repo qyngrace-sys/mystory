@@ -3829,9 +3829,10 @@
   async function generateYouDogSurveyGroupResponses(slot, surveyId) {
     const survey = getYouDogSurvey(surveyId);
     if (!survey || youDogSurveyGenerating) return;
-    const refs = getYouDogActivityMemberRefs();
+    const refs = getYouDogChatSpeakerPoolRefs();
     if (!refs.length) {
-      showToast("群里还没有可填写问卷的角色", "warning");
+      showToast("请先在身份设置里勾选参与发言的角色。", "warning");
+      openYouDogChatPersonaModal();
       return;
     }
     youDogSurveyGenerating = true;
@@ -36286,15 +36287,28 @@
     youDogChatSpeakerPoolRefs = youDogChatSpeakerPoolRefs.filter(function (ref) {
       return candidateSet.has(ref);
     });
-    if (!youDogChatSpeakerPoolRefs.length && candidates.length) {
-      youDogChatSpeakerPoolRefs = candidates.slice();
-    }
     youDogChatParticipantIds = youDogChatSpeakerPoolRefs.slice();
   }
 
   function getYouDogChatSpeakerPoolRefs() {
     sanitizeYouDogChatSpeakerPoolRefs();
     return youDogChatSpeakerPoolRefs.slice();
+  }
+
+  function resolveYouDogChatPoolMemberRef(rawRef, poolRefs) {
+    const ref = String(rawRef || "").trim();
+    if (!ref) return "";
+    const pool = Array.isArray(poolRefs) ? poolRefs.filter(Boolean) : getYouDogChatSpeakerPoolRefs();
+    const set = new Set(pool);
+    if (set.has(ref)) return ref;
+    const parsed = parseYouDogChatMemberRef(ref);
+    if (parsed && set.has(parsed.memberRef)) return parsed.memberRef;
+    let charMatch = "";
+    pool.forEach(function (memberRef) {
+      const p = parseYouDogChatMemberRef(memberRef);
+      if (p && p.charId === ref) charMatch = memberRef;
+    });
+    return charMatch;
   }
 
   function toggleYouDogChatSpeakerPoolRef(ref, enabled) {
@@ -38282,9 +38296,10 @@
         return;
       }
       sanitizeYouDogChatState();
-      const refs = getYouDogAllChatMemberRefs();
+      const refs = getYouDogChatSpeakerPoolRefs();
       if (!refs.length) {
-        showToast("群聊还没有成员。", "warning");
+        showToast("请先在身份设置里勾选参与发言的角色。", "warning");
+        openYouDogChatPersonaModal();
         return;
       }
       youDogGenPickDraft = resolveYouDogGenPickDraftFromLast(refs, "chat");
@@ -39198,9 +39213,16 @@
     return lines.join("\n");
   }
 
-  function buildYouDogChatMembersTagBlock(data) {
+  function buildYouDogChatMembersTagBlock(data, allowedRefs) {
     const dataObj = data || ensureYouDogChatData();
+    const allowed =
+      Array.isArray(allowedRefs) && allowedRefs.length
+        ? new Set(allowedRefs.filter(Boolean))
+        : null;
     return (dataObj.members || [])
+      .filter(function (m) {
+        return m && (!allowed || allowed.has(m.memberRef));
+      })
       .map(function (m) {
         const cat = getYouDogChatCategory(m.categoryId, dataObj);
         const ch = getCharById(m.charId);
@@ -39487,14 +39509,15 @@
       "",
       buildYouDogUserProfilePromptBlock(),
       "",
-      "【群成员与标签（角色只见标签，不见真名）】",
-      buildYouDogChatMembersTagBlock(data),
+      "【群成员与标签（角色只见标签，不见真名；仅含发言角色池）】",
+      buildYouDogChatMembersTagBlock(data, poolRefs),
       "",
       "【发言角色池（JSON 中 memberRef 只能来自以下列表）】",
       poolLabels.length ? poolLabels.join("\n") : "（无）",
       "",
       "【本批发言规则】",
-      "根据下方群聊最近记录，从角色池中决定本批谁该开口；不必全员每批都说话，同一人可连发多条短消息。" +
+      "严禁替未勾选进发言角色池的成员生成消息；JSON 中 memberRef 只能来自上方角色池列表，不得使用池外成员。" +
+        "根据下方群聊最近记录，从角色池中决定本批谁该开口；不必全员每批都说话，同一人可连发多条短消息。" +
         "被 @、话题相关、性格接梗、有人刚说完想回嘴等情况优先；" +
         "本批须生成 " +
         YOU_DOG_CHAT_MSGS_PER_BATCH_MIN +
@@ -39544,14 +39567,16 @@
 
   function appendYouDogChatMessages(parsed, batchId, data, allowedRefs) {
     const dataObj = data || ensureYouDogChatData();
-    const allowed = new Set(
-      Array.isArray(allowedRefs) && allowedRefs.length ? allowedRefs : getYouDogAllChatMemberRefs()
-    );
+    const pool =
+      Array.isArray(allowedRefs) && allowedRefs.length
+        ? allowedRefs
+        : getYouDogChatSpeakerPoolRefs();
+    const allowed = new Set(pool.filter(Boolean));
     const list = parsed && Array.isArray(parsed.messages) ? parsed.messages : [];
     let added = 0;
     list.forEach(function (raw) {
-      const memberRef = String((raw && raw.memberRef) || "").trim();
-      if (!allowed.has(memberRef)) return;
+      const memberRef = resolveYouDogChatPoolMemberRef(raw && raw.memberRef, pool);
+      if (!memberRef || !allowed.has(memberRef)) return;
       const tag = getYouDogChatMemberTag(memberRef, dataObj);
       const msg = normalizeYouDogChatMessage(
         {
@@ -40157,7 +40182,7 @@
 
   function buildYouDogChatParticipantPanelHtml() {
     const data = ensureYouDogChatData();
-    const activeSet = new Set(youDogChatParticipantIds);
+    const activeSet = new Set(getYouDogChatSpeakerPoolRefs());
     const rows = (data.members || [])
       .map(function (m) {
         const cand = getAllYouDogChatMemberCandidates().find(function (c) {
@@ -40595,9 +40620,6 @@
     closeYouDogChatSetupModal();
     renderYouDogScreen(els.youDogContentSlot());
     showToast(isReopen ? "群设置已更新" : "群聊已建立", "success");
-    if (!isReopen) {
-      void generateYouDogChat(els.youDogContentSlot());
-    }
     youDogChatSetupDraft = null;
   }
 
