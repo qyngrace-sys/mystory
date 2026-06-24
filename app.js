@@ -2281,6 +2281,12 @@
   const PHONE_PLOT_REF_TURN_LIMIT = 3;
   /** 查手机生成：引用记忆条数 */
   const PHONE_PLOT_MEMORY_REF_LIMIT = 3;
+  /** 查手机微信：user 提示送入 API 的字数上限（过长易触发 Gemini 拦截） */
+  const PHONE_WECHAT_API_USER_MAX_CHARS = 14000;
+  /** 查手机微信：虚构创作声明（降低内容安全误拦） */
+  const PHONE_WECHAT_FICTION_RULE =
+    "【创作声明】本任务为互动叙事产品中的虚构手机界面模拟，人物与对白均为文学创作，与真实个人无关。" +
+    "请生成日常、温和、符合大众阅读习惯的微信聊天 JSON；避免色情、血腥、自伤、违法等敏感细节，可用含蓄表达。";
   /** 你才是狗：引用最近剧情轮数 */
   const YOU_DOG_PLOT_REF_TURN_LIMIT = 1;
   /** 你才是狗：引用记忆条数 */
@@ -2362,9 +2368,11 @@
     "活动私聊里用户是普通朋友/网友，不是恋爱攻略对象：禁止暧昧撩拨、土味情话、占有欲、壁咚式告白、" +
     "「你只能是我的」类台词；可以真诚关心、吐槽互损、请教意见、分享日常，语气自然像熟人私聊。" +
     "结合用户人设理解其性格与处境，但不要把每条消息都写成在「追」用户。";
-  /** 活动私聊：批量主动消息最少/最多角色数 */
-  const YOU_DOG_ACTIVITY_PROACTIVE_DM_MIN = 1;
-  const YOU_DOG_ACTIVITY_PROACTIVE_DM_MAX = 3;
+  /** 活动私聊：批量主动消息最少角色数 / 每人最少条数 */
+  const YOU_DOG_ACTIVITY_PROACTIVE_DM_MIN = 5;
+  const YOU_DOG_ACTIVITY_PROACTIVE_MSGS_PER_CHAR = 3;
+  /** 活动私聊：单条消息字数上限（独立于群聊短句） */
+  const YOU_DOG_ACTIVITY_DM_TEXT_MAX = 800;
   /** 嗅闻博客：发帖风格参考（仅供语感，禁止照抄） */
   const YOU_DOG_FEED_STYLE_HINT =
     "语感参考（勿照抄）：「姐姐今天布置的任务是自己训练完去吃晚饭散步…她说晚上会给我打视频，嘿嘿」；" +
@@ -3239,6 +3247,8 @@
   let youDogChatSubScreen = "feed";
   /** 活动：hub | dm | compose */
   let youDogActivityScreen = "hub";
+  /** 打开群聊/私聊界面后滚到最新消息 */
+  let youDogPendingChatScrollToEnd = false;
   /** 活动 hub 子页：dm-list 微信私聊列表 | forum 论坛动态 */
   let youDogActivityHubTab = "dm-list";
   let youDogActivityDmRef = null;
@@ -3474,13 +3484,19 @@
     return truncateCharsWithEllipsis(trimmed, 72);
   }
 
+  function capYouDogActivityDmText(text) {
+    return String(text || "").trim().slice(0, YOU_DOG_ACTIVITY_DM_TEXT_MAX);
+  }
+
   function pickYouDogActivityProactiveDmRefs() {
     const refs = getYouDogActivityMemberRefs();
     if (!refs.length) return [];
-    const max = Math.min(YOU_DOG_ACTIVITY_PROACTIVE_DM_MAX, refs.length);
-    const min = Math.min(YOU_DOG_ACTIVITY_PROACTIVE_DM_MIN, max);
-    const count = min >= max ? max : min + Math.floor(Math.random() * (max - min + 1));
-    return shuffleYouDogArray(refs).slice(0, count);
+    const shuffled = shuffleYouDogArray(refs);
+    const count =
+      shuffled.length >= YOU_DOG_ACTIVITY_PROACTIVE_DM_MIN
+        ? YOU_DOG_ACTIVITY_PROACTIVE_DM_MIN
+        : shuffled.length;
+    return shuffled.slice(0, count);
   }
 
   function buildYouDogActivityDmHistoryBlock(memberRef, limit) {
@@ -3522,7 +3538,9 @@
       "",
       buildYouDogUserProfilePromptBlock(),
       "",
-      "【本批须发私聊的角色（每人恰好 1 条，memberRef 只能来自下列）】",
+      "【本批须发私聊的角色（memberRef 只能来自下列；每人至少 " +
+      YOU_DOG_ACTIVITY_PROACTIVE_MSGS_PER_CHAR +
+      " 条，同一角色可连发短句）】",
       poolLabels.join("\n"),
       "",
       buildYouDogActivityProactiveDmTopicRule(),
@@ -3551,8 +3569,14 @@
       lines.push("");
     });
     lines.push(
-      "角色主动开口找用户私聊，不要求用户先说话；口语 1~3 句，8~80 字。" +
-        "\n只输出 JSON：{\"messages\":[{\"memberRef\":\"plotId:charId\",\"text\":\"...\"}]}"
+      "角色主动开口找用户私聊，不要求用户先说话；每条口语 1~3 句，8~120 字；" +
+        "同一角色多条消息须按发送顺序排列，像连发几句。" +
+        "\n只输出 JSON：{\"messages\":[{\"memberRef\":\"plotId:charId\",\"text\":\"...\"}, ...]}",
+      "\n本批共 " +
+        refs.length +
+        " 位角色，合计至少 " +
+        refs.length * YOU_DOG_ACTIVITY_PROACTIVE_MSGS_PER_CHAR +
+        " 条消息。"
     );
     return lines.join("\n");
   }
@@ -3592,32 +3616,65 @@
       lines.push("");
     }
     lines.push(
-      "角色主动开口找用户私聊，不要求用户先说话；口语 1~3 句，8~80 字。" +
-        '\n只输出 JSON：{"text":"..."}'
+      "角色主动开口找用户私聊，不要求用户先说话；须生成 " +
+        YOU_DOG_ACTIVITY_PROACTIVE_MSGS_PER_CHAR +
+        " 条，按发送顺序排列，每条口语 1~3 句，8~120 字。" +
+        '\n只输出 JSON：{"messages":[{"text":"..."},{"text":"..."},{"text":"..."}]}'
     );
     return lines.join("\n");
   }
 
-  function appendYouDogActivityProactiveDmMessages(parsed, allowedRefs) {
-    const allowed = new Set((allowedRefs || []).filter(Boolean));
-    const list = parsed && Array.isArray(parsed.messages) ? parsed.messages : [];
+  function appendYouDogActivityDmCharMessages(memberRef, rawTexts, baseTime) {
+    const ref = String(memberRef || "").trim();
+    if (!ref) return 0;
+    const session = getYouDogActivityDmSession(ref);
+    const list = Array.isArray(rawTexts) ? rawTexts : rawTexts != null ? [rawTexts] : [];
+    const t0 = typeof baseTime === "number" ? baseTime : Date.now();
     let added = 0;
-    list.forEach(function (raw) {
-      const ref = String((raw && raw.memberRef) || "").trim();
-      if (!allowed.has(ref)) return;
-      const text = String((raw && raw.text) || "").trim();
+    list.forEach(function (item, idx) {
+      const text = capYouDogActivityDmText(typeof item === "string" ? item : item && item.text);
       if (!text) return;
-      const session = getYouDogActivityDmSession(ref);
       session.messages.push({
         id: uid("ydadm"),
         role: "char",
-        text: text.slice(0, YOU_DOG_CHAT_TEXT_MAX),
-        time: Date.now(),
+        text: text,
+        time: t0 + idx * 4,
       });
       added++;
     });
     if (added) schedulePersistNarrative();
     return added;
+  }
+
+  function appendYouDogActivityProactiveDmMessages(parsed, allowedRefs) {
+    const allowed = new Set((allowedRefs || []).filter(Boolean));
+    const list = parsed && Array.isArray(parsed.messages) ? parsed.messages : [];
+    const perChar = {};
+    allowed.forEach(function (ref) {
+      perChar[ref] = 0;
+    });
+    let msgCount = 0;
+    const baseTime = Date.now();
+    list.forEach(function (raw, idx) {
+      const ref = String((raw && raw.memberRef) || "").trim();
+      if (!allowed.has(ref)) return;
+      const text = capYouDogActivityDmText(raw && raw.text);
+      if (!text) return;
+      const session = getYouDogActivityDmSession(ref);
+      session.messages.push({
+        id: uid("ydadm"),
+        role: "char",
+        text: text,
+        time: baseTime + idx * 4,
+      });
+      perChar[ref] = (perChar[ref] || 0) + 1;
+      msgCount++;
+    });
+    const charCount = Object.keys(perChar).filter(function (ref) {
+      return perChar[ref] > 0;
+    }).length;
+    if (msgCount) schedulePersistNarrative();
+    return { msgCount: msgCount, charCount: charCount, perChar: perChar };
   }
 
   function youDogOnChatTab() {
@@ -11687,6 +11744,17 @@
     return { text: "", finishReason: choice ? String(choice.finish_reason || choice.finishReason || "") : "" };
   }
 
+  function isApiContentSafetyBlock(err) {
+    const raw = String((err && err.rawBody) || (err && err.message) || "").toLowerCase();
+    return (
+      raw.indexOf("prohibited_content") >= 0 ||
+      raw.indexOf("prohibited content") >= 0 ||
+      raw.indexOf("content_filter") >= 0 ||
+      raw.indexOf("blocked by gemini") >= 0 ||
+      (raw.indexOf("safety") >= 0 && raw.indexOf("block") >= 0)
+    );
+  }
+
   function formatApiHttpError(status, rawText) {
     const slice = String(rawText || "").slice(0, 480);
     let friendly = "";
@@ -11700,6 +11768,13 @@
       if (emLc.indexOf("empty_response") >= 0 || emLc.indexOf("empty response") >= 0) {
         friendly =
           "中转返回「Gemini 无正文」：多为提示过长、内容安全拦截或模型名与站点不匹配。网页已自动缩短上下文并重试；若仍失败请核对模型名、减少世界书/总结，或换线路。";
+      } else if (
+        emLc.indexOf("prohibited") >= 0 ||
+        emLc.indexOf("content_filter") >= 0 ||
+        emLc.indexOf("blocked by gemini") >= 0
+      ) {
+        friendly =
+          "模型内容安全策略拦截了本次请求（PROHIBITED_CONTENT）。网页已自动简化提示并重试；若仍失败，请减少剧情中的敏感描写、缩短世界书/总结，或更换模型/线路。";
       }
     } catch (_e) {}
     if (friendly) return friendly;
@@ -12089,11 +12164,13 @@
           (firstErr && firstErr.code === "empty_response") ||
           raw.indexOf("empty_response") >= 0 ||
           raw.indexOf("empty response") >= 0;
-        if (!alreadyRetried && isEmpty) {
+        const isContentBlock = isApiContentSafetyBlock(firstErr);
+        if (!alreadyRetried && (isEmpty || isContentBlock)) {
           const merged = mergeSystemIntoUserMessages(messages);
           const retryMax = Math.min(maxTokens, Math.max(1024, Math.round(maxTokens * 0.88)));
+          const retryTemp = Math.min(temperature, isContentBlock ? 0.55 : 0.62);
           try {
-            const result = await callChatCompletionOnce(cfg, merged, Math.min(temperature, 0.62), retryMax);
+            const result = await callChatCompletionOnce(cfg, merged, retryTemp, retryMax);
             ok = true;
             return result;
           } catch (retryErr) {
@@ -12279,6 +12356,194 @@
       );
     }
     return history;
+  }
+
+  /** 查手机微信：user 提示过长时优先保留尾部生成规则，压缩剧情/设定头部 */
+  function capPhoneWechatUserPromptForApi(userPrompt) {
+    const maxC = PHONE_WECHAT_API_USER_MAX_CHARS;
+    let s = String(userPrompt || "");
+    if (charCountForApiPrompt(s) <= maxC) return s;
+
+    function capFromMarker(marker, keepTailEnd) {
+      const idx = s.indexOf(marker);
+      if (idx < 0) return null;
+      const head = s.slice(0, idx);
+      const tail = s.slice(idx);
+      const headLen = charCountForApiPrompt(head);
+      if (headLen >= maxC) return null;
+      const tailBudget = Math.max(400, maxC - headLen);
+      return head + (keepTailEnd ? truncateTailCharsWithEllipsis(tail, tailBudget) : truncateCharsWithEllipsis(tail, tailBudget));
+    }
+
+    let capped = capFromMarker("\n\n【相关记忆", true);
+    if (capped && charCountForApiPrompt(capped) <= maxC) return capped;
+    if (capped) s = capped;
+
+    capped = capFromMarker("\n\n【最近 ", true);
+    if (capped && charCountForApiPrompt(capped) <= maxC) return capped;
+    if (capped) s = capped;
+
+    capped = capFromMarker("\n\n【阶段总结", false);
+    if (capped && charCountForApiPrompt(capped) <= maxC) return capped;
+    if (capped) s = capped;
+
+    capped = capFromMarker("\n\n【剧情 · 其他角色设定摘要】", false);
+    if (capped && charCountForApiPrompt(capped) <= maxC) return capped;
+
+    return truncateTailCharsWithEllipsis(s, maxC);
+  }
+
+  function trimPhonePromptBlock(text, maxChars) {
+    return truncateCharsWithEllipsis(String(text || "").trim(), maxChars || 360);
+  }
+
+  function buildPhoneWechatSlimPlotContextLines(plot, holder) {
+    const protagonist = getCharById(plot.protagonistId);
+    const protagName = protagonist && protagonist.name ? String(protagonist.name).trim() : "主角";
+    return {
+      protagName: protagName,
+      lines: [
+        PHONE_WECHAT_FICTION_RULE,
+        "",
+        "【手机持有者（虚构人物）】",
+        trimPhonePromptBlock(buildPhoneHolderProfileBlock(holder, plot), 360),
+        "",
+        "【主视角主角】真名：" + protagName + "（微信备注可不同）",
+        "",
+        "【剧情背景】互动叙事中的虚构日常；对白须温和、生活化、适合大众阅读，避免亲密、暴力、违法等敏感细节。",
+      ],
+    };
+  }
+
+  function buildPhoneWechatPromptSlim(plot, holder) {
+    const ctx = buildPhoneWechatSlimPlotContextLines(plot, holder);
+    const lines = ["请为「查手机·微信」生成完整 JSON 数据。", ""];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push(
+      "生成要求：\n" +
+        "1. 输出唯一 JSON：{\"chats\":[...]}。\n" +
+        "2. chats 至少 4 条：含与主角「" +
+        ctx.protagName +
+        "」的私聊（isProtagonistChat:true），另至少 3 条其他日常会话。\n" +
+        "3. 每条 chat：id、name、preview≤24字、time、messages（4～12 条；side 为 in/out）。\n" +
+        "4. 对白像真实微信日常闲聊，单条 text ≤80 字；禁止 [微笑] 等方括号表情。"
+    );
+    return lines.join("\n");
+  }
+
+  function buildPhoneWechatRegeneratePromptSlim(plot, holder, existing) {
+    const ctx = buildPhoneWechatSlimPlotContextLines(plot, holder);
+    const chats = (existing && existing.chats) || [];
+    const lines = [
+      "请根据已有微信数据增量追加新内容（虚构日常聊天）；不要删除已有会话。",
+      "",
+    ];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【已有会话摘要（勿删）】");
+    chats.forEach(function (c) {
+      if (!c) return;
+      lines.push(
+        "- id=" +
+          c.id +
+          "，name=" +
+          (c.name || "") +
+          (c.isProtagonistChat ? "（主角私聊）" : "") +
+          "，preview=" +
+          (c.preview || "")
+      );
+    });
+    lines.push("");
+    lines.push(
+      '输出 JSON：{"appendToChats":[{"id":"已有id","messages":[仅新增]}],"newChats":[...]} 或 {"chats":[...]} 仅追加。\n' +
+        "对白须日常温和，单条 text ≤80 字；side 为 in（对方）或 out（持有者）。"
+    );
+    return lines.join("\n");
+  }
+
+  function buildPhoneWechatSingleChatPromptSlim(plot, holder, chat) {
+    const ctx = buildPhoneWechatSlimPlotContextLines(plot, holder);
+    const holderName = holder && holder.name ? String(holder.name).trim() : "手机持有者";
+    const lines = ["请为以下单个微信会话追加新消息（虚构日常聊天）。", ""];
+    lines.push.apply(lines, ctx.lines);
+    lines.push("");
+    lines.push("【当前会话】id=" + chat.id + "，name=" + chat.name);
+    const hist = formatPhoneWechatMessagesForPrompt(chat.messages, 4, holderName, chat.name);
+    if (hist) {
+      lines.push("最近消息：");
+      lines.push(hist);
+    }
+    lines.push("");
+    lines.push(
+      '输出 JSON：{"messages":[{"side":"in或out","text":"..."}],"preview":"可选","time":"可选"}\n' +
+        "仅追加 4～8 条日常对白，单条 ≤80 字。"
+    );
+    return lines.join("\n");
+  }
+
+  function buildPhoneWechatSystemPrompt(isRegenerate, slim) {
+    const base = isRegenerate
+      ? "你是中文互动叙事助手。根据用户提供的剧情与已有微信数据，增量追加微信聊天 JSON。\n" +
+        "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+        '优先格式：{"appendToChats":[{"id":"已有id","messages":[仅新增消息],"preview":"可选","time":"可选"}],"newChats":[{"id":"新id","name":"...","preview":"...","time":"...","messages":[...]}]}\n' +
+        "也可使用 {\"chats\":[...]}，但须保持 id 不变且 messages 仅追加新内容。\n" +
+        "side 只能是 in 或 out：in=各会话 name 对方（左/白），out=手机持有者（右/绿）；须覆盖多个会话，禁止整次只更新一个会话。"
+      : "你是中文互动叙事助手。根据用户提供的剧情、人设、记忆与总结，生成「查手机·微信」界面用的 JSON。\n" +
+        "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
+        '格式：{"chats":[{"id":"唯一英文id","name":"列表名","preview":"预览","time":"时间","messages":[{"side":"in或out","text":"消息"}]}]}\n' +
+        "side 只能是 in 或 out：in=各会话 name 对方（左/白），out=手机持有者（右/绿）；同一段对话须交替使用。";
+    const safety =
+      (slim ? "【精简模式】仅生成日常、温和、生活化的虚构微信对白，避免任何可能触发内容审核的描写。\n" : "") +
+      PHONE_WECHAT_FICTION_RULE;
+    return safety + "\n\n" + base;
+  }
+
+  async function callPhoneWechatChatCompletion(systemPrompt, userPrompt, temperature, maxTokens, genOpts) {
+    const cappedUser = capPhoneWechatUserPromptForApi(userPrompt);
+    return callChatCompletion(
+      [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: cappedUser },
+      ],
+      temperature,
+      maxTokens,
+      genOpts
+    );
+  }
+
+  async function callPhoneWechatChatCompletionWithSafetyRetry(
+    plot,
+    holder,
+    existing,
+    isRegenerate,
+    buildFullPrompt,
+    buildSlimPrompt,
+    temperature,
+    maxTokens,
+    genOpts
+  ) {
+    const fullPrompt = buildFullPrompt();
+    try {
+      return await callPhoneWechatChatCompletion(
+        buildPhoneWechatSystemPrompt(isRegenerate, false),
+        fullPrompt,
+        temperature,
+        maxTokens,
+        genOpts
+      );
+    } catch (firstErr) {
+      if (!isApiContentSafetyBlock(firstErr)) throw firstErr;
+      showToast("内容安全拦截，已简化上下文重试…", "info");
+      const slimPrompt = buildSlimPrompt();
+      return await callPhoneWechatChatCompletion(
+        buildPhoneWechatSystemPrompt(isRegenerate, true),
+        slimPrompt,
+        Math.min(temperature, 0.62),
+        Math.min(maxTokens, 4096),
+        Object.assign({}, genOpts || {}, { geminiMergedRetry: true })
+      );
+    }
   }
 
   /**
@@ -14387,6 +14652,7 @@
       }
     } else if (v === "you-dog") {
       sanitizeYouDogState();
+      markYouDogChatScrollToEndIfVisible();
       renderYouDogScreen(els.youDogContentSlot());
       if (!youDogPlotIds.length) openYouDogHolderModal({ mode: "first" });
     } else if (v === "grudge-book") {
@@ -19174,7 +19440,7 @@
     knockPartnerCharId = partnerId;
     knockSubScreen = "chat-detail";
     resetKnockTransientUiState();
-    renderKnockScreen(els.knockContentSlot());
+    renderKnockScreen(els.knockContentSlot(), { scrollToEnd: true });
   }
 
   function switchKnockMainTab(tab) {
@@ -21702,6 +21968,15 @@
     if (thread) thread.scrollTop = thread.scrollHeight;
   }
 
+  function scrollKnockThreadToEndDeferred(slot) {
+    if (!slot) return;
+    function apply() {
+      scrollKnockThreadToEnd(slot);
+    }
+    apply();
+    requestAnimationFrame(apply);
+  }
+
   function saveKnockThreadScroll(slot) {
     const thread = slot && slot.querySelector("[data-knock-thread]");
     return thread ? thread.scrollTop : 0;
@@ -21756,7 +22031,7 @@
     fillKnockSetupFormFields(slot);
     restoreKnockComposerDraft(slot, composerDraft);
     if (opts.scrollToEnd) {
-      scrollKnockThreadToEnd(slot);
+      scrollKnockThreadToEndDeferred(slot);
     } else if (threadScrollTop != null) {
       restoreKnockThreadScroll(slot, threadScrollTop);
     }
@@ -23061,8 +23336,10 @@
     else if (overviewSubView === "todo") renderTaskTodoScreen(els.todoContentSlot());
     else if (overviewSubView === "radio") renderRadioScreen(els.radioContentSlot());
     else if (overviewSubView === "pass-note") renderPassNoteScreen(els.passNoteContentSlot());
-    else if (overviewSubView === "you-dog") renderYouDogScreen(els.youDogContentSlot());
-    else if (overviewSubView === "grudge-book") renderGrudgeBookScreen(els.grudgeBookContentSlot());
+    else if (overviewSubView === "you-dog") {
+      markYouDogChatScrollToEndIfVisible();
+      renderYouDogScreen(els.youDogContentSlot());
+    } else if (overviewSubView === "grudge-book") renderGrudgeBookScreen(els.grudgeBookContentSlot());
     if (els.modalAssistantProfile() && !els.modalAssistantProfile().hidden) {
       renderAssistantProfileModal();
     }
@@ -25693,7 +25970,10 @@
     if (overviewSubView === "pass-note") renderPassNoteScreen(els.passNoteContentSlot());
     if (overviewSubView === "grudge-book") renderGrudgeBookScreen(els.grudgeBookContentSlot());
     if (overviewSubView === "radio") renderRadioScreen(els.radioContentSlot());
-    if (overviewSubView === "you-dog") renderYouDogScreen(els.youDogContentSlot());
+    if (overviewSubView === "you-dog") {
+      markYouDogChatScrollToEndIfVisible();
+      renderYouDogScreen(els.youDogContentSlot());
+    }
     if (opts.toast !== false) {
       showToast(
         "已切换为《" + (plot.title || "未命名") + "》· " + (focusChar.name || "角色"),
@@ -25750,7 +26030,10 @@
       if (slot) renderFanworkScreen(slot);
     } else if (overviewSubView === "you-dog") {
       const slot = els.youDogContentSlot();
-      if (slot) renderYouDogScreen(slot);
+      if (slot) {
+        markYouDogChatScrollToEndIfVisible();
+        renderYouDogScreen(slot);
+      }
     } else if (overviewSubView === "phone" && phoneHolderPlotId === pid) {
       const slot = els.phoneContentSlot();
       if (slot) renderPhoneScreen(slot);
@@ -38931,12 +39214,55 @@
       youDogChatGenerating = false;
       renderYouDogScreen(slot || els.youDogContentSlot());
       scrollYouDogChatThreadToEnd(slot || els.youDogContentSlot());
+      scheduleYouDogChatThreadsScrollToEnd(slot || els.youDogContentSlot());
     }
   }
 
   function scrollYouDogChatThreadToEnd(slot) {
     const thread = slot && slot.querySelector("[data-you-dog-chat-thread]");
     if (thread) thread.scrollTop = thread.scrollHeight;
+  }
+
+  function scrollYouDogActivityDmToEnd(slot) {
+    const thread = slot && slot.querySelector("[data-you-dog-activity-dm-thread]");
+    if (thread) thread.scrollTop = thread.scrollHeight;
+  }
+
+  function shouldYouDogAutoScrollChatToEnd() {
+    if (youDogMainTab !== "messages") return false;
+    if (youDogActivityScreen === "dm" && youDogActivityDmRef) return true;
+    return youDogMessagesSegment === "group" && isYouDogChatReady();
+  }
+
+  function markYouDogChatScrollToEndPending() {
+    youDogPendingChatScrollToEnd = true;
+  }
+
+  function markYouDogChatScrollToEndIfVisible() {
+    if (shouldYouDogAutoScrollChatToEnd()) markYouDogChatScrollToEndPending();
+  }
+
+  function scheduleYouDogChatThreadsScrollToEnd(slot) {
+    if (!slot) return;
+    function run() {
+      scrollYouDogChatThreadToEnd(slot);
+      scrollYouDogActivityDmToEnd(slot);
+    }
+    run();
+    requestAnimationFrame(function () {
+      run();
+      requestAnimationFrame(run);
+    });
+    [50, 150, 400].forEach(function (ms) {
+      setTimeout(run, ms);
+    });
+    slot
+      .querySelectorAll("[data-you-dog-chat-thread] img, [data-you-dog-activity-dm-thread] img")
+      .forEach(function (img) {
+        if (img.complete) return;
+        img.addEventListener("load", run, { once: true });
+        img.addEventListener("error", run, { once: true });
+      });
   }
 
   function saveYouDogChatThreadScroll(slot) {
@@ -39955,7 +40281,9 @@
       threadHtml +
       "</div>" +
       '<div class="you-dog-activity-dm__composer">' +
-      '<textarea class="you-dog-activity-dm__input" data-you-dog-activity-dm-input rows="1" placeholder="发消息…"' +
+      '<textarea class="you-dog-activity-dm__input" data-you-dog-activity-dm-input rows="1" maxlength="' +
+      YOU_DOG_ACTIVITY_DM_TEXT_MAX +
+      '" placeholder="发消息…"' +
       (youDogActivityGenerating ? " disabled" : "") +
       "></textarea>" +
       '<button type="button" class="you-dog-activity-dm__send" data-you-dog-activity-dm-send aria-label="发送"' +
@@ -39984,7 +40312,7 @@
         '<div class="you-dog-app__actions star-header__actions">' +
         '<button type="button" class="you-dog-app__action-btn you-dog-app__action-btn--accent' +
         dmGenLoading +
-        '" data-you-dog-activity-dm-char-generate aria-label="生成消息" title="生成角色主动消息"' +
+        '" data-you-dog-activity-dm-char-generate aria-label="生成消息" title="生成角色主动连发3条消息"' +
         (busy ? " disabled" : "") +
         ">" +
         buildPhoneWechatStarIconSvg() +
@@ -40028,7 +40356,7 @@
       '<div class="you-dog-app__actions star-header__actions">' +
       '<button type="button" class="you-dog-app__action-btn you-dog-app__action-btn--accent' +
       dmGenLoading +
-      '" data-you-dog-activity-dm-generate aria-label="生成私聊" title="随机几位角色主动发私聊"' +
+      '" data-you-dog-activity-dm-generate aria-label="生成私聊" title="随机5位角色各发3条私聊"' +
       (busy ? " disabled" : "") +
       ">" +
       buildPhoneWechatStarIconSvg() +
@@ -40050,24 +40378,20 @@
     youDogMessagesSegment = "dm";
     youDogActivityScreen = "dm";
     youDogActivityDmRef = ref;
+    markYouDogChatScrollToEndPending();
     renderYouDogScreen(slot || els.youDogContentSlot());
-  }
-
-  function scrollYouDogActivityDmToEnd(slot) {
-    const thread = slot && slot.querySelector("[data-you-dog-activity-dm-thread]");
-    if (thread) thread.scrollTop = thread.scrollHeight;
   }
 
   function appendYouDogActivityDmUserMessage(text) {
     const ref = youDogActivityDmRef;
     if (!ref) return false;
-    const trimmed = String(text || "").trim();
+    const trimmed = capYouDogActivityDmText(text);
     if (!trimmed) return false;
     const session = getYouDogActivityDmSession(ref);
     session.messages.push({
       id: uid("ydadm"),
       role: "user",
-      text: trimmed.slice(0, YOU_DOG_CHAT_TEXT_MAX),
+      text: trimmed,
       time: Date.now(),
     });
     schedulePersistNarrative();
@@ -40139,14 +40463,9 @@
       const parsed = parseAssistantJsonObject(raw);
       const reply = String((parsed && parsed.text) || "").trim();
       if (!reply) throw new Error("未能生成回复");
-      const session = getYouDogActivityDmSession(ref);
-      session.messages.push({
-        id: uid("ydadm"),
-        role: "char",
-        text: reply.slice(0, YOU_DOG_CHAT_TEXT_MAX),
-        time: Date.now(),
-      });
-      schedulePersistNarrative();
+      if (!appendYouDogActivityDmCharMessages(ref, [reply], Date.now())) {
+        throw new Error("未能生成回复");
+      }
     } catch (err) {
       console.error(err);
       showToast(err && err.message ? err.message : "生成回复失败", "error", 4200);
@@ -40154,7 +40473,7 @@
       clearGenCallContext();
       youDogActivityGenerating = false;
       renderYouDogScreen(slot || els.youDogContentSlot());
-      scrollYouDogActivityDmToEnd(slot || els.youDogContentSlot());
+      scheduleYouDogChatThreadsScrollToEnd(slot || els.youDogContentSlot());
     }
   }
 
@@ -40172,6 +40491,7 @@
     if (input) input.value = "";
     renderYouDogScreen(root);
     scrollYouDogActivityDmToEnd(root);
+    scheduleYouDogChatThreadsScrollToEnd(root);
     await generateYouDogActivityDmReply(root, text);
   }
 
@@ -40191,10 +40511,18 @@
       showToast("还没有可私聊的角色。", "warning");
       return;
     }
+    const allRefs = getYouDogActivityMemberRefs();
     youDogActivityGenerating = true;
     renderYouDogScreen(slot || els.youDogContentSlot());
     try {
-      showToast("正在生成私聊…", "info");
+      if (allRefs.length < YOU_DOG_ACTIVITY_PROACTIVE_DM_MIN) {
+        showToast(
+          "群成员不足 " + YOU_DOG_ACTIVITY_PROACTIVE_DM_MIN + " 人，将为全部 " + refs.length + " 位角色生成",
+          "info"
+        );
+      } else {
+        showToast("正在生成私聊…", "info");
+      }
       const _genCtx = beginGenCall("you-dog-activity-proactive-dms", { slot: slot, refs: refs });
       const raw = await callChatCompletion(
         [
@@ -40202,19 +40530,29 @@
             role: "system",
             content:
               "你是中文互动叙事助手。生成活动私聊中角色主动找用户的消息 JSON。\n" +
+              YOU_DOG_ACTIVITY_DM_FRIEND_RULE +
+              "\n" +
               YOU_DOG_EMOJI_STYLE_RULE +
               "\n只输出一个 JSON 对象。",
           },
           { role: "user", content: buildYouDogActivityProactiveDmBatchPrompt(refs) },
         ],
         0.86,
-        2048,
+        4096,
         chatApiOptsFromGen(_genCtx)
       );
       const parsed = parseAssistantJsonObject(raw);
-      const added = appendYouDogActivityProactiveDmMessages(parsed, refs);
-      if (!added) throw new Error("未能生成有效的私聊内容");
-      showToast("已有 " + added + " 位角色发来私聊", "success");
+      const result = appendYouDogActivityProactiveDmMessages(parsed, refs);
+      if (!result.msgCount) throw new Error("未能生成有效的私聊内容");
+      const shortChars = refs.filter(function (ref) {
+        return (result.perChar[ref] || 0) < YOU_DOG_ACTIVITY_PROACTIVE_MSGS_PER_CHAR;
+      });
+      let toast =
+        "已为 " + result.charCount + " 位角色生成 " + result.msgCount + " 条私聊";
+      if (shortChars.length) {
+        toast += "（部分角色条数不足 " + YOU_DOG_ACTIVITY_PROACTIVE_MSGS_PER_CHAR + " 条）";
+      }
+      showToast(toast, shortChars.length ? "warning" : "success");
     } catch (err) {
       console.error(err);
       showToast(err && err.message ? err.message : "生成私聊失败", "error", 4200);
@@ -40244,27 +40582,33 @@
             role: "system",
             content:
               "你是中文互动叙事助手。生成活动私聊中角色主动找用户的消息 JSON。\n" +
+              YOU_DOG_ACTIVITY_DM_FRIEND_RULE +
+              "\n" +
               YOU_DOG_EMOJI_STYLE_RULE +
               "\n只输出一个 JSON 对象。",
           },
           { role: "user", content: buildYouDogActivitySingleProactiveDmPrompt(ref) },
         ],
         0.86,
-        1024,
+        2048,
         chatApiOptsFromGen(_genCtx)
       );
       const parsed = parseAssistantJsonObject(raw);
-      const reply = String((parsed && parsed.text) || "").trim();
-      if (!reply) throw new Error("未能生成消息");
-      const session = getYouDogActivityDmSession(ref);
-      session.messages.push({
-        id: uid("ydadm"),
-        role: "char",
-        text: reply.slice(0, YOU_DOG_CHAT_TEXT_MAX),
-        time: Date.now(),
-      });
-      schedulePersistNarrative();
-      showToast("已生成新消息", "success");
+      let texts = [];
+      if (parsed && Array.isArray(parsed.messages)) {
+        texts = parsed.messages.map(function (m) {
+          return m && m.text;
+        });
+      } else if (parsed && parsed.text) {
+        texts = [parsed.text];
+      }
+      const added = appendYouDogActivityDmCharMessages(ref, texts, Date.now());
+      if (!added) throw new Error("未能生成消息");
+      if (added < YOU_DOG_ACTIVITY_PROACTIVE_MSGS_PER_CHAR) {
+        showToast("已生成 " + added + " 条消息（未达 " + YOU_DOG_ACTIVITY_PROACTIVE_MSGS_PER_CHAR + " 条）", "warning");
+      } else {
+        showToast("已生成 " + added + " 条消息", "success");
+      }
     } catch (err) {
       console.error(err);
       showToast(err && err.message ? err.message : "生成消息失败", "error", 4200);
@@ -40272,7 +40616,7 @@
       clearGenCallContext();
       youDogActivityGenerating = false;
       renderYouDogScreen(slot || els.youDogContentSlot());
-      scrollYouDogActivityDmToEnd(slot || els.youDogContentSlot());
+      scheduleYouDogChatThreadsScrollToEnd(slot || els.youDogContentSlot());
     }
   }
 
@@ -40685,14 +41029,15 @@
     };
   }
 
-  function restoreYouDogBodyScroll(slot, saved) {
+  function restoreYouDogBodyScroll(slot, saved, opts) {
     if (!slot || !saved) return;
+    const skipChatThread = !!(opts && opts.skipChatThread);
     function apply() {
       const body = slot.querySelector(".you-dog-app__body");
       if (body && typeof saved.bodyScrollTop === "number") {
         body.scrollTop = saved.bodyScrollTop;
       }
-      if (typeof saved.chatThreadScrollTop === "number") {
+      if (!skipChatThread && typeof saved.chatThreadScrollTop === "number") {
         restoreYouDogChatThreadScroll(slot, saved.chatThreadScrollTop);
       }
     }
@@ -40704,9 +41049,12 @@
     if (!slot) return;
     const savedScroll = saveYouDogBodyScroll(slot);
     const pageScrollY = window.scrollY || window.pageYOffset || 0;
+    const scrollChatToEnd = youDogPendingChatScrollToEnd;
+    youDogPendingChatScrollToEnd = false;
     sanitizeYouDogState();
     slot.innerHTML = buildYouDogShellHtml();
-    restoreYouDogBodyScroll(slot, savedScroll);
+    restoreYouDogBodyScroll(slot, savedScroll, scrollChatToEnd ? { skipChatThread: true } : null);
+    if (scrollChatToEnd) scheduleYouDogChatThreadsScrollToEnd(slot);
     if ((window.scrollY || window.pageYOffset || 0) !== pageScrollY) {
       window.scrollTo(0, pageScrollY);
     }
@@ -40733,8 +41081,8 @@
     if (segment === "group" && !isYouDogChatReady()) {
       openYouDogChatSetupModal();
     }
+    if (segment === "group") markYouDogChatScrollToEndPending();
     renderYouDogScreen(els.youDogContentSlot());
-    if (segment === "group") scrollYouDogChatThreadToEnd(els.youDogContentSlot());
   }
 
   function switchYouDogMainTab(tab) {
@@ -40753,8 +41101,9 @@
       !youDogProfileSpeakerRef &&
       !youDogDetailPostId
     ) {
-      if (next === "messages" && youDogMessagesSegment === "group") {
-        scrollYouDogChatThreadToEnd(els.youDogContentSlot());
+      if (next === "messages" && shouldYouDogAutoScrollChatToEnd()) {
+        markYouDogChatScrollToEndPending();
+        renderYouDogScreen(els.youDogContentSlot());
       }
       return;
     }
@@ -40783,10 +41132,10 @@
     if (next === "messages" && youDogMessagesSegment === "group" && !isYouDogChatReady()) {
       openYouDogChatSetupModal();
     }
-    renderYouDogScreen(els.youDogContentSlot());
     if (next === "messages" && youDogMessagesSegment === "group") {
-      scrollYouDogChatThreadToEnd(els.youDogContentSlot());
+      markYouDogChatScrollToEndPending();
     }
+    renderYouDogScreen(els.youDogContentSlot());
   }
 
   function setYouDogNextGenChar(charId) {
@@ -41935,10 +42284,10 @@
     lines.push(buildPhoneStoryDatePromptBlock(plot));
     lines.push("");
     lines.push("【所在剧情 · 我的形象（主视角主角）真名：" + protagName + "】");
-    lines.push(identityBlocks.identitySelfBlock || "未设定");
+    lines.push(trimPhonePromptBlock(identityBlocks.identitySelfBlock || "未设定", 520));
     lines.push("");
     lines.push("【剧情 · 其他角色设定摘要】");
-    lines.push(identityBlocks.identityOthersBlock || "未设定");
+    lines.push(trimPhonePromptBlock(identityBlocks.identityOthersBlock || "未设定", 520));
     if (summaryBlock) {
       lines.push("");
       lines.push(
@@ -41961,7 +42310,7 @@
 
   function buildPhoneWechatPrompt(plot, holder) {
     const ctx = buildPhoneWechatPlotContextBlocks(plot, holder);
-    const lines = ["请为「查手机·微信」生成完整 JSON 数据。", ""];
+    const lines = ["请为「查手机·微信」生成完整 JSON 数据。", PHONE_WECHAT_FICTION_RULE, ""];
     lines.push.apply(lines, ctx.lines);
     lines.push("");
     lines.push(
@@ -41985,6 +42334,7 @@
     const protagChat = findPhoneWechatProtagonistChat(chats);
     const lines = [
       "请根据最新剧情，在「已有微信数据」基础上增量更新；不要删除或覆盖已有聊天记录，只追加新内容。",
+      PHONE_WECHAT_FICTION_RULE,
       "",
     ];
     lines.push.apply(lines, ctx.lines);
@@ -57758,6 +58108,7 @@
     const holderName = holder && holder.name ? String(holder.name).trim() : "手机持有者";
     const lines = [
       "请根据最新剧情，为「查手机·微信」中以下单个会话追加新消息；不要重复或改写已有内容，只在末尾追加。",
+      PHONE_WECHAT_FICTION_RULE,
       "",
     ];
     lines.push.apply(lines, ctx.lines);
@@ -57832,20 +58183,21 @@
     try {
       showToast("正在生成「" + (target.chat.name || "会话") + "」的新消息…", "info");
       const _genCtx = beginGenCall("phone-wechat-chat", { slot: slot, chatId: id, chat: target.chat });
-      const systemPrompt =
-        "你是中文互动叙事助手。根据用户提供的剧情与单个微信会话上下文，增量追加该会话消息 JSON。\n" +
-        "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
-        '格式：{"messages":[{"side":"in或out","text":"..."}],"preview":"可选","time":"可选"}\n' +
-        "side 只能是 in 或 out：in=会话对方（左/白），out=手机持有者（右/绿）；禁止全部标 in，须按发言者交替。";
-      const userPrompt = buildPhoneWechatSingleChatPrompt(plot, holder, target.chat);
-      const raw = await callChatCompletion(
-        [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        0.78,
-        4096
-      , chatApiOptsFromGen(_genCtx));
+      const raw = await callPhoneWechatChatCompletionWithSafetyRetry(
+        plot,
+        holder,
+        null,
+        true,
+        function () {
+          return buildPhoneWechatSingleChatPrompt(plot, holder, target.chat);
+        },
+        function () {
+          return buildPhoneWechatSingleChatPromptSlim(plot, holder, target.chat);
+        },
+        0.74,
+        4096,
+        chatApiOptsFromGen(_genCtx)
+      );
       const parsed = parseAssistantJsonObject(raw);
       if (!mergePhoneWechatSingleChatAppend(target.chat, parsed, holder)) {
         throw new Error("未能解析有效的新消息");
@@ -57885,27 +58237,25 @@
     try {
       showToast(isRegenerate ? "正在追加微信内容…" : "正在生成微信内容…", "info");
       const _genCtx = beginGenCall("phone-wechat-list", { slot: slot });
-      const systemPrompt = isRegenerate
-        ? "你是中文互动叙事助手。根据用户提供的剧情与已有微信数据，增量追加微信聊天 JSON。\n" +
-          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
-          '优先格式：{"appendToChats":[{"id":"已有id","messages":[仅新增消息],"preview":"可选","time":"可选"}],"newChats":[{"id":"新id","name":"...","preview":"...","time":"...","messages":[...]}]}\n' +
-          "也可使用 {\"chats\":[...]}，但须保持 id 不变且 messages 仅追加新内容。\n" +
-          "side 只能是 in 或 out：in=各会话 name 对方（左/白），out=手机持有者（右/绿）；须覆盖多个会话，禁止整次只更新一个会话。"
-        : "你是中文互动叙事助手。根据用户提供的剧情、人设、记忆与总结，生成「查手机·微信」界面用的 JSON。\n" +
-          "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
-          '格式：{"chats":[{"id":"唯一英文id","name":"列表名","preview":"预览","time":"时间","messages":[{"side":"in或out","text":"消息"}]}]}\n' +
-          "side 只能是 in 或 out：in=各会话 name 对方（左/白），out=手机持有者（右/绿）；同一段对话须交替使用。";
-      const userPrompt = isRegenerate
-        ? buildPhoneWechatRegeneratePrompt(plot, holder, existing)
-        : buildPhoneWechatPrompt(plot, holder);
-      const raw = await callChatCompletion(
-        [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        0.78,
-        8192
-      , chatApiOptsFromGen(_genCtx));
+      const raw = await callPhoneWechatChatCompletionWithSafetyRetry(
+        plot,
+        holder,
+        existing,
+        isRegenerate,
+        function () {
+          return isRegenerate
+            ? buildPhoneWechatRegeneratePrompt(plot, holder, existing)
+            : buildPhoneWechatPrompt(plot, holder);
+        },
+        function () {
+          return isRegenerate
+            ? buildPhoneWechatRegeneratePromptSlim(plot, holder, existing)
+            : buildPhoneWechatPromptSlim(plot, holder);
+        },
+        0.74,
+        8192,
+        chatApiOptsFromGen(_genCtx)
+      );
       const parsed = parseAssistantJsonObject(raw);
       const bundle = isRegenerate
         ? mergePhoneWechatIncrement(existing, parsed, plot, holder)
@@ -58527,12 +58877,27 @@
     renderPhoneScreen(slot);
   }
 
+  function scrollPhoneWechatThreadToEnd(slot) {
+    const thread = slot && slot.querySelector(".phone-wechat__thread");
+    if (thread) thread.scrollTop = thread.scrollHeight;
+  }
+
+  function scrollPhoneWechatThreadToEndDeferred(slot) {
+    if (!slot) return;
+    function apply() {
+      scrollPhoneWechatThreadToEnd(slot);
+    }
+    apply();
+    requestAnimationFrame(apply);
+  }
+
   function openPhoneWechatChat(slot, chatId) {
     const nav = getPhoneNav(slot);
     resetPhoneWechatChatUi(nav);
     nav.screen = "wechat-chat";
     nav.chatId = String(chatId || "").trim();
     renderPhoneScreen(slot);
+    scrollPhoneWechatThreadToEndDeferred(slot);
   }
 
   function commitPhoneWechatEditMode(slot, exitMode) {
@@ -58893,6 +59258,7 @@
       nav[k] = patch[k];
     });
     renderPhoneScreen(slot);
+    if (nav.screen === "wechat-chat") scrollPhoneWechatThreadToEndDeferred(slot);
   }
 
   function buildGenCallOptsCore(kind, params) {
@@ -64332,8 +64698,10 @@
       else if (overviewSubView === "todo") renderTaskTodoScreen(els.todoContentSlot());
       else if (overviewSubView === "radio") renderRadioScreen(els.radioContentSlot());
       else if (overviewSubView === "pass-note") renderPassNoteScreen(els.passNoteContentSlot());
-      else if (overviewSubView === "you-dog") renderYouDogScreen(els.youDogContentSlot());
-      else if (overviewSubView === "grudge-book") renderGrudgeBookScreen(els.grudgeBookContentSlot());
+      else if (overviewSubView === "you-dog") {
+        markYouDogChatScrollToEndIfVisible();
+        renderYouDogScreen(els.youDogContentSlot());
+      } else if (overviewSubView === "grudge-book") renderGrudgeBookScreen(els.grudgeBookContentSlot());
     }
     if (els.modalAssistantProfile() && !els.modalAssistantProfile().hidden) {
       renderAssistantProfileModal();

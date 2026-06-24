@@ -32636,7 +32636,8 @@ html[data-theme="dark"] .you-dog-chat-sys__text {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  max-width: 92%;
+  max-width: 88%;
+  min-width: 0;
 }
 
 .you-dog-activity-dm__msg--user {
@@ -32651,6 +32652,9 @@ html[data-theme="dark"] .you-dog-chat-sys__text {
 }
 
 .you-dog-activity-dm__bubble {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
   padding: 8px 12px;
   border-radius: 14px;
   background: color-mix(in srgb, var(--accent) 8%, var(--surface));
@@ -32659,6 +32663,7 @@ html[data-theme="dark"] .you-dog-chat-sys__text {
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .you-dog-activity-dm__msg--user .you-dog-activity-dm__bubble {
@@ -32676,7 +32681,9 @@ html[data-theme="dark"] .you-dog-chat-sys__text {
 .you-dog-activity-dm__input {
   flex: 1;
   min-height: 36px;
+  max-height: 120px;
   resize: none;
+  line-height: 1.45;
 }
 
 .you-dog-activity-dm__send {
