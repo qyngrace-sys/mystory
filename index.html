@@ -1270,6 +1270,30 @@
       </div>
     </div>
 
+    <div id="modal-you-dog-survey" class="overlay overlay--dim" hidden>
+      <div class="modal-sheet modal-sheet--compact modal-sheet--you-dog-survey">
+        <div class="sheet-handle"></div>
+        <div class="modal-header">
+          <h2 class="modal-title">发问卷</h2>
+          <button type="button" class="icon-btn" id="you-dog-survey-close" aria-label="关闭">
+            <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="modal-body you-dog-survey-modal">
+          <p class="field__hint you-dog-survey-modal__hint">每行一题，将自动排版为问卷。发到群里时，角色填写后会私发给你；私聊里则直接回复问卷。</p>
+          <label class="field">
+            <span class="field__label">问卷标题</span>
+            <input type="text" id="you-dog-survey-title" class="field__input" maxlength="40" placeholder="例如：平行世界摸底调查" />
+          </label>
+          <label class="field">
+            <span class="field__label">问题（每行一题）</span>
+            <textarea id="you-dog-survey-questions" class="field__input field__textarea you-dog-survey-modal__questions" rows="8" placeholder="你觉得自己头顶的标签准吗？&#10;你怎么看待群主？&#10;……"></textarea>
+          </label>
+          <button type="button" class="btn btn--primary btn--pill" id="you-dog-survey-submit">发送问卷</button>
+        </div>
+      </div>
+    </div>
+
     <div id="modal-you-dog-chat-setup" class="overlay overlay--dim" hidden>
       <div class="modal-sheet modal-sheet--phone-holder modal-sheet--you-dog-chat-setup">
         <div class="sheet-handle"></div>

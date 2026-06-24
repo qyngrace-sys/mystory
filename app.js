@@ -2408,6 +2408,13 @@
   const YOU_DOG_CHAT_SUMMARY_MAX_CHARS = 800;
   const YOU_DOG_CHAT_OPENING_MSG_THRESHOLD = 15;
   const YOU_DOG_CHAT_DISCOVERY_MSG_THRESHOLD = 40;
+  /** 群聊破冰叙事节拍：0 标签困惑 → 1 @用户质疑标签 → 2 猜用户真名 → 3 连锁「你也认识」 → 4 试探交流 */
+  const YOU_DOG_CHAT_OPENING_BEAT_MAX = 4;
+  /** 问卷：标题/单题/答案字数与题数上限 */
+  const YOU_DOG_SURVEY_TITLE_MAX = 40;
+  const YOU_DOG_SURVEY_QUESTION_MAX = 120;
+  const YOU_DOG_SURVEY_ANSWER_MAX = 220;
+  const YOU_DOG_SURVEY_MAX_QUESTIONS = 12;
   const YOU_DOG_CHAT_DEFAULT_CATEGORIES = [
     { id: "ydc-cat-owner", name: "群主", color: "#FF6B6B" },
     { id: "ydc-cat-core", name: "核心", color: "#FFB347" },
@@ -3264,7 +3271,7 @@
   let youDogActivityComposeDraft = "";
   let youDogActivityComposeTag = "tree";
   /** @type {{ dmSessions: Record<string, { messages: object[] }> }} */
-  let youDogActivityData = { dmSessions: {} };
+  let youDogActivityData = { dmSessions: {}, surveys: {}, surveyResponses: {} };
   /** 嗅闻博客群聊：群数据 */
   let youDogChatData = null;
   /** 嗅闻博客群聊：参与生成的 memberRef 列表（兼容旧存档） */
@@ -3287,6 +3294,10 @@
   let youDogChatSetupStep = "tag";
   /** @type {{ memberTagNames: Record<string,string>, groupName: string, participantIds: string[], userCharId: string|null, isReopen?: boolean }} */
   let youDogChatSetupDraft = null;
+  /** 问卷弹层目标：group 群聊 | dm 私聊 */
+  let youDogSurveyModalTarget = "group";
+  let youDogSurveyComposeDraft = { title: "", questions: "" };
+  let youDogSurveyGenerating = false;
 
   const YOU_DOG_DEFAULT_SECTIONS = [
     {
@@ -3390,10 +3401,16 @@
 
   function sanitizeYouDogActivityState() {
     if (!youDogActivityData || typeof youDogActivityData !== "object") {
-      youDogActivityData = { dmSessions: {} };
+      youDogActivityData = { dmSessions: {}, surveys: {}, surveyResponses: {} };
     }
     if (!youDogActivityData.dmSessions || typeof youDogActivityData.dmSessions !== "object") {
       youDogActivityData.dmSessions = {};
+    }
+    if (!youDogActivityData.surveys || typeof youDogActivityData.surveys !== "object") {
+      youDogActivityData.surveys = {};
+    }
+    if (!youDogActivityData.surveyResponses || typeof youDogActivityData.surveyResponses !== "object") {
+      youDogActivityData.surveyResponses = {};
     }
     if (
       youDogActivityScreen !== "hub" &&
@@ -3475,6 +3492,11 @@
     if (!msgs.length) return "点击开始聊天";
     const last = msgs[msgs.length - 1];
     const prefix = last && last.role === "user" ? "我: " : "";
+    if (last && last.kind === "survey") {
+      const survey = getYouDogSurvey(last.surveyId);
+      return truncateCharsWithEllipsis(prefix + (survey ? buildYouDogSurveyDisplayText(survey) : "📋 问卷"), 42);
+    }
+    if (last && last.kind === "survey_reply") return truncateCharsWithEllipsis(prefix + "📋 问卷回复", 42);
     return truncateCharsWithEllipsis(prefix + String((last && last.text) || ""), 42);
   }
 
@@ -3494,6 +3516,470 @@
 
   function capYouDogActivityDmText(text) {
     return String(text || "").trim().slice(0, YOU_DOG_ACTIVITY_DM_TEXT_MAX);
+  }
+
+  function ensureYouDogSurveysStore() {
+    sanitizeYouDogActivityState();
+    return youDogActivityData.surveys;
+  }
+
+  function parseYouDogSurveyQuestionsFromText(text) {
+    return String(text || "")
+      .split(/\n/)
+      .map(function (line) {
+        return truncateCharsWithEllipsis(
+          String(line || "")
+            .replace(/^\s*\d+[\.\)、]\s*/, "")
+            .trim(),
+          YOU_DOG_SURVEY_QUESTION_MAX
+        );
+      })
+      .filter(Boolean)
+      .slice(0, YOU_DOG_SURVEY_MAX_QUESTIONS);
+  }
+
+  function normalizeYouDogSurvey(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const questions = Array.isArray(raw.questions)
+      ? raw.questions
+          .map(function (q) {
+            return truncateCharsWithEllipsis(String(q || "").trim(), YOU_DOG_SURVEY_QUESTION_MAX);
+          })
+          .filter(Boolean)
+          .slice(0, YOU_DOG_SURVEY_MAX_QUESTIONS)
+      : [];
+    if (!questions.length) return null;
+    const title = truncateCharsWithEllipsis(String(raw.title || "问卷").trim() || "问卷", YOU_DOG_SURVEY_TITLE_MAX);
+    return {
+      id: String(raw.id || uid("yds")).trim(),
+      title: title,
+      questions: questions,
+      createdAt: typeof raw.createdAt === "number" ? raw.createdAt : Date.now(),
+      scope: String(raw.scope || "group").trim() === "dm" ? "dm" : "group",
+      dmTargetRef: String(raw.dmTargetRef || "").trim(),
+    };
+  }
+
+  function getYouDogSurvey(surveyId) {
+    const id = String(surveyId || "").trim();
+    if (!id) return null;
+    sanitizeYouDogActivityState();
+    const hit = youDogActivityData.surveys[id];
+    return hit ? normalizeYouDogSurvey(hit) : null;
+  }
+
+  function createYouDogSurvey(title, questionsText, opts) {
+    opts = opts && typeof opts === "object" ? opts : {};
+    const questions = parseYouDogSurveyQuestionsFromText(questionsText);
+    if (!questions.length) return null;
+    const survey = normalizeYouDogSurvey({
+      title: title,
+      questions: questions,
+      scope: opts.scope || "group",
+      dmTargetRef: opts.dmTargetRef || "",
+    });
+    if (!survey) return null;
+    ensureYouDogSurveysStore()[survey.id] = survey;
+    schedulePersistNarrative();
+    return survey;
+  }
+
+  function buildYouDogSurveyDisplayText(survey) {
+    if (!survey) return "📋 问卷";
+    return "📋 " + survey.title + "（" + survey.questions.length + " 题）";
+  }
+
+  function normalizeYouDogSurveyAnswers(survey, rawAnswers) {
+    if (!survey || !Array.isArray(survey.questions)) return [];
+    const list = Array.isArray(rawAnswers) ? rawAnswers : [];
+    return survey.questions.map(function (q, idx) {
+      const item = list[idx];
+      let answer = "";
+      if (item && typeof item === "object") answer = String(item.a || item.answer || item.text || "").trim();
+      else answer = String(item || "").trim();
+      return {
+        q: q,
+        a: truncateCharsWithEllipsis(answer || "…", YOU_DOG_SURVEY_ANSWER_MAX),
+      };
+    });
+  }
+
+  function formatYouDogSurveyReplyText(survey, answers) {
+    if (!survey) return "📋 问卷回复";
+    const lines = ["【" + survey.title + " · 已填写】"];
+    (answers || []).forEach(function (row, idx) {
+      lines.push(idx + 1 + ". " + (row.q || "?"));
+      lines.push("   答：" + (row.a || "…"));
+    });
+    return lines.join("\n");
+  }
+
+  function buildYouDogSurveyCardInnerHtml(survey, opts) {
+    opts = opts && typeof opts === "object" ? opts : {};
+    if (!survey) return "";
+    const isReply = opts.mode === "reply";
+    const answers = Array.isArray(opts.answers) ? opts.answers : [];
+    if (isReply) {
+      const qaHtml = answers
+        .map(function (row, idx) {
+          return (
+            '<div class="you-dog-survey-card__qa">' +
+            '<div class="you-dog-survey-card__q">' +
+            escapeHtml(String(idx + 1) + ". " + (row.q || "")) +
+            "</div>" +
+            '<div class="you-dog-survey-card__a">' +
+            escapeHtml(String(row.a || "…")) +
+            "</div></div>"
+          );
+        })
+        .join("");
+      return (
+        '<div class="you-dog-survey-card you-dog-survey-card--reply">' +
+        '<div class="you-dog-survey-card__head">' +
+        '<span class="you-dog-survey-card__icon" aria-hidden="true">📋</span>' +
+        '<span class="you-dog-survey-card__title">' +
+        escapeHtml(survey.title) +
+        " · 已填写</span></div>" +
+        '<div class="you-dog-survey-card__qa-list">' +
+        qaHtml +
+        "</div></div>"
+      );
+    }
+    const listHtml = survey.questions
+      .map(function (q, idx) {
+        return (
+          '<li class="you-dog-survey-card__item">' +
+          '<span class="you-dog-survey-card__num">' +
+          escapeHtml(String(idx + 1)) +
+          ".</span>" +
+          '<span class="you-dog-survey-card__qtext">' +
+          escapeHtml(q) +
+          "</span></li>"
+        );
+      })
+      .join("");
+    const hintHtml = opts.showHint
+      ? '<p class="you-dog-survey-card__hint">角色填写后将通过私聊发回给你，不会出现在群里</p>'
+      : opts.showDmHint
+        ? '<p class="you-dog-survey-card__hint">请填写后发送问卷回复</p>'
+        : "";
+    return (
+      '<div class="you-dog-survey-card">' +
+      '<div class="you-dog-survey-card__head">' +
+      '<span class="you-dog-survey-card__icon" aria-hidden="true">📋</span>' +
+      '<span class="you-dog-survey-card__title">' +
+      escapeHtml(survey.title) +
+      "</span>" +
+      '<span class="you-dog-survey-card__count">' +
+      escapeHtml(String(survey.questions.length) + " 题") +
+      "</span></div>" +
+      '<ol class="you-dog-survey-card__list">' +
+      listHtml +
+      "</ol>" +
+      hintHtml +
+      "</div>"
+    );
+  }
+
+  function buildYouDogSurveyComposerBtnHtml(target, disabled) {
+    return (
+      '<button type="button" class="you-dog-composer__survey-btn" data-you-dog-survey-open="' +
+      escapeHtml(target) +
+      '" aria-label="发问卷" title="发问卷"' +
+      (disabled ? " disabled" : "") +
+      '><svg class="icon-linear" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/></svg></button>'
+    );
+  }
+
+  function appendYouDogChatUserSurvey(surveyId) {
+    const survey = getYouDogSurvey(surveyId);
+    const data = ensureYouDogChatData();
+    if (!survey || !isYouDogUserProfileReady()) return false;
+    const msg = normalizeYouDogChatMessage(
+      {
+        id: uid("ydcm"),
+        kind: "survey",
+        memberRef: YOU_DOG_USER_PROFILE_REF,
+        surveyId: survey.id,
+        text: buildYouDogSurveyDisplayText(survey),
+        time: "刚刚",
+      },
+      data
+    );
+    if (!msg) return false;
+    data.messages.push(msg);
+    schedulePersistNarrative();
+    return true;
+  }
+
+  function appendYouDogActivityDmUserSurvey(memberRef, surveyId) {
+    const ref = String(memberRef || "").trim();
+    const survey = getYouDogSurvey(surveyId);
+    if (!ref || !survey) return false;
+    const session = getYouDogActivityDmSession(ref);
+    session.messages.push({
+      id: uid("ydadm"),
+      role: "user",
+      kind: "survey",
+      surveyId: survey.id,
+      text: buildYouDogSurveyDisplayText(survey),
+      time: Date.now(),
+    });
+    schedulePersistNarrative();
+    return true;
+  }
+
+  function appendYouDogSurveyDmCharReply(memberRef, surveyId, rawAnswers) {
+    const ref = String(memberRef || "").trim();
+    const survey = getYouDogSurvey(surveyId);
+    if (!ref || !survey) return false;
+    const answers = normalizeYouDogSurveyAnswers(survey, rawAnswers);
+    sanitizeYouDogActivityState();
+    if (!youDogActivityData.surveyResponses[surveyId]) {
+      youDogActivityData.surveyResponses[surveyId] = {};
+    }
+    youDogActivityData.surveyResponses[surveyId][ref] = {
+      answers: answers,
+      respondedAt: Date.now(),
+    };
+    const session = getYouDogActivityDmSession(ref);
+    session.messages.push({
+      id: uid("ydadm"),
+      role: "char",
+      kind: "survey_reply",
+      surveyId: survey.id,
+      surveyAnswers: answers,
+      text: formatYouDogSurveyReplyText(survey, answers),
+      time: Date.now(),
+    });
+    schedulePersistNarrative();
+    return true;
+  }
+
+  function buildYouDogSurveyResponsePrompt(survey, memberRefs) {
+    const refs = Array.isArray(memberRefs) ? memberRefs.filter(Boolean) : [];
+    const lines = [
+      "请让以下角色分别填写用户问卷，并以 JSON 返回每人的答案。",
+      YOU_DOG_PARALLEL_WORLD_RULE,
+      YOU_DOG_ACTIVITY_DM_FRIEND_RULE,
+      "",
+      buildYouDogUserProfilePromptBlock(),
+      "",
+      "【问卷】",
+      "标题：" + survey.title,
+    ];
+    survey.questions.forEach(function (q, idx) {
+      lines.push(idx + 1 + ". " + q);
+    });
+    lines.push("");
+    lines.push("【须填写的角色（memberRef 须来自此列表）】");
+    refs.forEach(function (ref) {
+      const parsed = parseYouDogChatMemberRef(ref);
+      if (!parsed) return;
+      const plot = plots.find(function (p) {
+        return p.id === parsed.plotId;
+      });
+      if (!plot) return;
+      lines.push("════ " + getYouDogActivityMemberLabel(ref) + "（memberRef=" + ref + "）════");
+      lines.push(buildYouDogChatPlotContextBlock(plot, parsed.charId));
+      lines.push("");
+    });
+    lines.push(
+      "要求：每人按人设真诚填写，口语自然，每题 1~3 句；答案须与角色性格、剧情一致。" +
+        "禁止在群里回复，只输出私聊问卷结果。" +
+        '\n只输出 JSON：{"responses":[{"memberRef":"plotId:charId","answers":[{"q":"题目原文","a":"回答"}]}]}'
+    );
+    return lines.join("\n");
+  }
+
+  function buildYouDogSurveyDmResponsePrompt(survey, memberRef) {
+    const ref = String(memberRef || "").trim();
+    const parsed = parseYouDogChatMemberRef(ref);
+    const plot = parsed
+      ? plots.find(function (p) {
+          return p.id === parsed.plotId;
+        })
+      : null;
+    const lines = [
+      "请让该角色填写用户私聊发来的问卷，并以 JSON 返回答案。",
+      YOU_DOG_PARALLEL_WORLD_RULE,
+      YOU_DOG_ACTIVITY_DM_FRIEND_RULE,
+      "",
+      buildYouDogUserProfilePromptBlock(),
+      "",
+      "【问卷】",
+      "标题：" + survey.title,
+    ];
+    survey.questions.forEach(function (q, idx) {
+      lines.push(idx + 1 + ". " + q);
+    });
+    lines.push("");
+    if (plot && parsed) {
+      lines.push("════ " + getYouDogActivityMemberLabel(ref) + " · 性格参考 ════");
+      lines.push(buildYouDogChatPlotContextBlock(plot, parsed.charId));
+      lines.push("");
+    }
+    lines.push(
+      "要求：按人设真诚填写，口语自然，每题 1~3 句。" +
+        '\n只输出 JSON：{"answers":[{"q":"题目原文","a":"回答"}]}'
+    );
+    return lines.join("\n");
+  }
+
+  async function generateYouDogSurveyGroupResponses(slot, surveyId) {
+    const survey = getYouDogSurvey(surveyId);
+    if (!survey || youDogSurveyGenerating) return;
+    const refs = getYouDogActivityMemberRefs();
+    if (!refs.length) {
+      showToast("群里还没有可填写问卷的角色", "warning");
+      return;
+    }
+    youDogSurveyGenerating = true;
+    renderYouDogScreen(slot || els.youDogContentSlot());
+    try {
+      showToast("角色正在填写问卷，完成后会私发给你…", "info");
+      const _genCtx = beginGenCall("you-dog-survey-group", { slot: slot, surveyId: surveyId });
+      const raw = await callChatCompletion(
+        [
+          {
+            role: "system",
+            content:
+              "你是中文互动叙事助手。生成角色填写问卷的 JSON。\n" +
+              YOU_DOG_ACTIVITY_DM_FRIEND_RULE +
+              "\n只输出一个 JSON 对象，不要用 markdown 代码围栏。",
+          },
+          { role: "user", content: buildYouDogSurveyResponsePrompt(survey, refs) },
+        ],
+        0.86,
+        8192,
+        chatApiOptsFromGen(_genCtx)
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      const list = parsed && Array.isArray(parsed.responses) ? parsed.responses : [];
+      const allowed = new Set(refs);
+      let added = 0;
+      list.forEach(function (item) {
+        const ref = String((item && item.memberRef) || "").trim();
+        if (!allowed.has(ref)) return;
+        if (appendYouDogSurveyDmCharReply(ref, surveyId, item && item.answers)) added++;
+      });
+      if (!added) throw new Error("未能生成有效的问卷回复");
+      showToast("已有 " + added + " 位角色通过私聊发回问卷", "success");
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "问卷回复生成失败", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      youDogSurveyGenerating = false;
+      renderYouDogScreen(slot || els.youDogContentSlot());
+    }
+  }
+
+  async function generateYouDogSurveyDmResponse(slot, surveyId, memberRef) {
+    const survey = getYouDogSurvey(surveyId);
+    const ref = String(memberRef || "").trim();
+    if (!survey || !ref || youDogSurveyGenerating) return;
+    youDogSurveyGenerating = true;
+    renderYouDogScreen(slot || els.youDogContentSlot());
+    try {
+      showToast("对方正在填写问卷…", "info");
+      const _genCtx = beginGenCall("you-dog-survey-dm", { slot: slot, surveyId: surveyId, memberRef: ref });
+      const raw = await callChatCompletion(
+        [
+          {
+            role: "system",
+            content:
+              "你是中文互动叙事助手。生成角色填写问卷的 JSON。\n" +
+              YOU_DOG_ACTIVITY_DM_FRIEND_RULE +
+              "\n只输出一个 JSON 对象。",
+          },
+          { role: "user", content: buildYouDogSurveyDmResponsePrompt(survey, ref) },
+        ],
+        0.85,
+        4096,
+        chatApiOptsFromGen(_genCtx)
+      );
+      const parsed = parseAssistantJsonObject(raw);
+      if (!appendYouDogSurveyDmCharReply(ref, surveyId, parsed && parsed.answers)) {
+        throw new Error("未能生成问卷回复");
+      }
+      showToast("已收到问卷回复", "success");
+    } catch (err) {
+      console.error(err);
+      showToast(err && err.message ? err.message : "问卷回复生成失败", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      youDogSurveyGenerating = false;
+      renderYouDogScreen(slot || els.youDogContentSlot());
+      scrollYouDogActivityDmToEnd(slot || els.youDogContentSlot());
+      scheduleYouDogChatThreadsScrollToEnd(slot || els.youDogContentSlot());
+    }
+  }
+
+  function openYouDogSurveyModal(target) {
+    youDogSurveyModalTarget = target === "dm" ? "dm" : "group";
+    youDogSurveyComposeDraft = { title: "", questions: "" };
+    const modal = els.modalYouDogSurvey();
+    const titleEl = els.youDogSurveyTitle();
+    const questionsEl = els.youDogSurveyQuestions();
+    if (titleEl) titleEl.value = "";
+    if (questionsEl) questionsEl.value = "";
+    if (modal) modal.hidden = false;
+  }
+
+  function closeYouDogSurveyModal() {
+    const modal = els.modalYouDogSurvey();
+    if (modal) modal.hidden = true;
+    youDogSurveyComposeDraft = { title: "", questions: "" };
+  }
+
+  async function submitYouDogSurveyFromModal(slot) {
+    if (youDogSurveyGenerating) return;
+    if (!isYouDogUserProfileReady()) {
+      showToast("请先完善你的身份（昵称与人设）。", "warning");
+      openYouDogPersonaModal();
+      return;
+    }
+    const titleEl = els.youDogSurveyTitle();
+    const questionsEl = els.youDogSurveyQuestions();
+    const title = titleEl ? String(titleEl.value || "").trim() : "";
+    const questionsText = questionsEl ? String(questionsEl.value || "").trim() : "";
+    if (!questionsText) {
+      showToast("请至少输入一个问题（每行一题）", "warning");
+      return;
+    }
+    const target = youDogSurveyModalTarget === "dm" ? "dm" : "group";
+    const dmRef = youDogActivityDmRef;
+    if (target === "dm" && !dmRef) {
+      showToast("请先进入私聊", "warning");
+      return;
+    }
+    if (target === "group" && !isYouDogChatReady()) {
+      showToast("请先建立群聊", "warning");
+      openYouDogChatSetupModal();
+      return;
+    }
+    const survey = createYouDogSurvey(title, questionsText, {
+      scope: target,
+      dmTargetRef: target === "dm" ? dmRef : "",
+    });
+    if (!survey) {
+      showToast("问卷格式无效", "warning");
+      return;
+    }
+    closeYouDogSurveyModal();
+    const root = slot || els.youDogContentSlot();
+    if (target === "group") {
+      appendYouDogChatUserSurvey(survey.id);
+      renderYouDogScreen(root);
+      scrollYouDogChatThreadToEnd(root);
+      await generateYouDogSurveyGroupResponses(root, survey.id);
+    } else {
+      appendYouDogActivityDmUserSurvey(dmRef, survey.id);
+      renderYouDogScreen(root);
+      scrollYouDogActivityDmToEnd(root);
+      await generateYouDogSurveyDmResponse(root, survey.id, dmRef);
+    }
   }
 
   function pickYouDogActivityProactiveDmRefs() {
@@ -3939,6 +4425,11 @@
     youDogCommentClose: () => document.getElementById("you-dog-comment-close"),
     youDogCommentInput: () => document.getElementById("you-dog-comment-input"),
     youDogCommentSubmit: () => document.getElementById("you-dog-comment-submit"),
+    modalYouDogSurvey: () => document.getElementById("modal-you-dog-survey"),
+    youDogSurveyClose: () => document.getElementById("you-dog-survey-close"),
+    youDogSurveyTitle: () => document.getElementById("you-dog-survey-title"),
+    youDogSurveyQuestions: () => document.getElementById("you-dog-survey-questions"),
+    youDogSurveySubmit: () => document.getElementById("you-dog-survey-submit"),
     modalYouDogChatSetup: () => document.getElementById("modal-you-dog-chat-setup"),
     youDogChatSetupClose: () => document.getElementById("you-dog-chat-setup-close"),
     youDogChatSetupBack: () => document.getElementById("you-dog-chat-setup-back"),
@@ -11291,11 +11782,19 @@
           return typeof id === "string" && id.trim();
         });
       }
-      youDogActivityData = { dmSessions: {} };
+      youDogActivityData = { dmSessions: {}, surveys: {}, surveyResponses: {} };
       if (o.youDogActivityData && typeof o.youDogActivityData === "object") {
         youDogActivityData.dmSessions =
           o.youDogActivityData.dmSessions && typeof o.youDogActivityData.dmSessions === "object"
             ? o.youDogActivityData.dmSessions
+            : {};
+        youDogActivityData.surveys =
+          o.youDogActivityData.surveys && typeof o.youDogActivityData.surveys === "object"
+            ? o.youDogActivityData.surveys
+            : {};
+        youDogActivityData.surveyResponses =
+          o.youDogActivityData.surveyResponses && typeof o.youDogActivityData.surveyResponses === "object"
+            ? o.youDogActivityData.surveyResponses
             : {};
       }
       sanitizeYouDogActivityState();
@@ -38381,6 +38880,26 @@
         mentions: [],
       };
     }
+    if (kind === "survey") {
+      const surveyId = String(raw.surveyId || "").trim();
+      const memberRef = String(raw.memberRef || "").trim();
+      if (!surveyId || !memberRef) return null;
+      const survey = getYouDogSurvey(surveyId);
+      const preview = survey ? buildYouDogSurveyDisplayText(survey) : "📋 问卷";
+      return {
+        id: String(raw.id || uid("ydcm")).trim(),
+        kind: "survey",
+        batchId: String(raw.batchId || "").trim() || null,
+        memberRef: memberRef,
+        surveyId: surveyId,
+        text: preview.slice(0, YOU_DOG_CHAT_TEXT_MAX),
+        time: String(raw.time || "刚刚").trim(),
+        tagName: "",
+        tagColor: "",
+        mentions: [],
+        quote: null,
+      };
+    }
     const text = String(raw.text || "").trim();
     if (!text) return null;
     const memberRef = String(raw.memberRef || "").trim();
@@ -38450,6 +38969,10 @@
         : [],
       messages: [],
       phase: phase,
+      openingBeat:
+        typeof raw.openingBeat === "number" && raw.openingBeat >= 0
+          ? Math.min(YOU_DOG_CHAT_OPENING_BEAT_MAX, Math.floor(raw.openingBeat))
+          : 0,
       lastBatchId: raw.lastBatchId != null && String(raw.lastBatchId).trim() ? String(raw.lastBatchId).trim() : null,
     };
     draft.messages = Array.isArray(raw.messages)
@@ -38475,6 +38998,7 @@
     if (!Array.isArray(youDogChatData.kickedRefs)) youDogChatData.kickedRefs = [];
     if (!Array.isArray(youDogChatData.messages)) youDogChatData.messages = [];
     if (!youDogChatData.phase) youDogChatData.phase = "opening";
+    if (typeof youDogChatData.openingBeat !== "number") youDogChatData.openingBeat = 0;
     return youDogChatData;
   }
 
@@ -38712,6 +39236,26 @@
           String(m.memberRef || "").indexOf("user:") === 0
             ? "用户"
             : getYouDogChatMemberDisplayName(m.memberRef);
+        if (m.kind === "survey" && m.surveyId) {
+          const survey = getYouDogSurvey(m.surveyId);
+          if (survey) {
+            const qLines = survey.questions
+              .map(function (q, idx) {
+                return "  " + (idx + 1) + ". " + q;
+              })
+              .join("\n");
+            return (
+              "- " +
+              who +
+              tag +
+              "：📋问卷「" +
+              survey.title +
+              "」\n" +
+              qLines +
+              "\n  （填写结果将私发给用户，勿在群里回复）"
+            );
+          }
+        }
         return "- " + who + tag + "：" + truncateCharsWithEllipsis(m.text || "", 120);
       })
       .join("\n");
@@ -38723,6 +39267,145 @@
 
   function getYouDogTwitterPersonaRealName() {
     return getYouDogUserRealName();
+  }
+
+  function getYouDogChatCharMessages(data) {
+    const dataObj = data || ensureYouDogChatData();
+    return (dataObj.messages || []).filter(function (m) {
+      return m && m.kind !== "system" && String(m.memberRef || "").indexOf("user:") !== 0;
+    });
+  }
+
+  function messageMentionsYouDogChatUser(msg) {
+    if (!msg) return false;
+    const userName = getYouDogChatUserDisplayName();
+    const text = String(msg.text || "");
+    if (text.indexOf("@" + userName) >= 0) return true;
+    const mentions = msg.mentions;
+    if (!Array.isArray(mentions)) return false;
+    return mentions.some(function (x) {
+      const m = String(x || "").replace(/^@/, "").trim();
+      return m === userName;
+    });
+  }
+
+  function scanYouDogChatOpeningBeat(data) {
+    const msgs = getYouDogChatCharMessages(data);
+    if (!msgs.length) return 0;
+    const allText = msgs
+      .map(function (m) {
+        return String(m.text || "");
+      })
+      .join("\n");
+    const realName = getYouDogTwitterPersonaRealName();
+    let beat = 0;
+    if (
+      /标签|头顶|什么群|谁拉|打的|整活群|莫名其妙|什么鬼|谁给|这颜色|tag/i.test(allText) ||
+      msgs.length >= 4
+    ) {
+      beat = 1;
+    }
+    if (msgs.some(messageMentionsYouDogChatUser)) beat = Math.max(beat, 2);
+    if (
+      realName &&
+      allText.indexOf(realName) >= 0 &&
+      /胡闹|搞事|整活|恶作剧|是你|难道|不会吧|在搞|整的/.test(allText)
+    ) {
+      beat = Math.max(beat, 3);
+    }
+    if (/你怎么也认识|你也认识|你也知道|巧了我也|我也认识|怎么知道的|你俩认识|你也听过/.test(allText)) {
+      beat = Math.max(beat, 4);
+    }
+    return Math.min(beat, YOU_DOG_CHAT_OPENING_BEAT_MAX);
+  }
+
+  function syncYouDogChatOpeningBeat(data, persist) {
+    const dataObj = data || ensureYouDogChatData();
+    const scanned = scanYouDogChatOpeningBeat(dataObj);
+    const stored =
+      typeof dataObj.openingBeat === "number" ? dataObj.openingBeat : 0;
+    const next = Math.max(stored, scanned);
+    if (next !== dataObj.openingBeat) {
+      dataObj.openingBeat = next;
+      if (persist !== false) schedulePersistNarrative();
+    }
+    return dataObj.openingBeat;
+  }
+
+  function rescanYouDogChatOpeningBeat(data, persist) {
+    const dataObj = data || ensureYouDogChatData();
+    const next = scanYouDogChatOpeningBeat(dataObj);
+    if (next !== dataObj.openingBeat) {
+      dataObj.openingBeat = next;
+      if (persist !== false) schedulePersistNarrative();
+    }
+    return dataObj.openingBeat;
+  }
+
+  function buildYouDogChatOpeningArcInstruction(data) {
+    const dataObj = data || ensureYouDogChatData();
+    const charMsgs = getYouDogChatCharMessages(dataObj);
+    const userName = getYouDogChatUserDisplayName();
+    const realName = getYouDogTwitterPersonaRealName();
+    const beat = syncYouDogChatOpeningBeat(dataObj, false);
+    const realNameLine = realName
+      ? "「" + realName + "」"
+      : "某个听起来像真名的称呼（可从用户资料真名字段推断）";
+
+    if (!charMsgs.length) {
+      return (
+        "【首轮破冰 · 完整叙事弧（须在本批内按顺序推进）】\n" +
+        "背景：群刚建立，角色互不相识，只能看见彼此头顶的彩色标签名，禁止直呼角色真名。\n" +
+        "本批 " +
+        YOU_DOG_CHAT_MSGS_PER_BATCH_MIN +
+        "～" +
+        YOU_DOG_CHAT_MSGS_PER_BATCH_MAX +
+        " 条须分段推进：\n" +
+        "① 前约 5～8 条：陆续冒泡——困惑「这什么群」「谁拉的」「头上标签什么鬼」；互相用标签称呼并质疑标签含义（「你凭什么叫核心」「野路子是骂人的吗」）。\n" +
+        "② 中约 4～6 条：多人 @「" +
+        userName +
+        "」（群主）追问谁打的标签、什么意思、是不是恶作剧；仍用标签互称。\n" +
+        "③ 1～2 条：须安排一次——某角色大胆问：「是不是 " +
+        realNameLine +
+        " 在胡闹/搞事？」（破冰阶段唯一可直呼用户真名的例外）。\n" +
+        "④ 约 3～5 条：其他角色震惊接续——「你怎么也认识 " +
+        realNameLine +
+        "？」「巧了我也…」「你也知道 TA？」；仍不暴露各自真名，只表现为对用户真名的熟悉。\n" +
+        "⑤ 余下：进一步试探闲聊、互怼或继续 @群主 要解释；留出空间等用户亲自发言推进。\n" +
+        "禁止整批都在重复同一句质问；像真实群聊，有人短反应「？」「草」「离谱」。"
+      );
+    }
+
+    const beatHints = [
+      "【破冰续写 · 标签困惑】\n" +
+        "继续标签话题：角色仍互不相识，用标签称呼；可吐槽标签颜色/含义，困惑谁建的群。\n" +
+        "本批逐步增加 @「" +
+        userName +
+        "」追问标签来源；不要跳到真名怀疑。",
+      "【破冰续写 · @群主质疑标签】\n" +
+        "本批重点：更多角色 @「" +
+        userName +
+        "」——谁给打的标签、什么意思、是不是整活；互相仍用标签互怼。\n" +
+        "若历史里尚未出现真名怀疑，本批不要提前说出用户真名。",
+      "【破冰续写 · 真名怀疑】\n" +
+        "若历史里尚未出现：本批须安排且仅安排一次——某角色问「是不是 " +
+        realNameLine +
+        " 在胡闹/搞事？」。\n" +
+        "其他人先震惊「你怎么知道这名字」，但不要整批都在讨论这一件事。",
+      "【破冰续写 · 连锁震惊】\n" +
+        "真名已抛出。本批让 2～4 个角色接续「你怎么也认识 " +
+        realNameLine +
+        "？」「你也认识？」式反应；仍不暴露角色彼此真名。\n" +
+        "然后可聊点日常或继续 @群主，等待用户接话。",
+      "【破冰续写 · 试探交流】\n" +
+        "真名风波稍平；角色进一步试探性闲聊、接梗、互损，仍用标签称呼。\n" +
+        "可偶尔 @「" +
+        userName +
+        "」要解释，但勿再重复整轮「是不是 " +
+        realNameLine +
+        " 胡闹」——把推进权留给用户发言。",
+    ];
+    return beatHints[Math.min(beat, YOU_DOG_CHAT_OPENING_BEAT_MAX)] || beatHints[beatHints.length - 1];
   }
 
   function updateYouDogChatPhase(persist) {
@@ -38738,12 +39421,14 @@
       youDogChatData.phase = next;
       if (persist !== false) schedulePersistNarrative();
     }
+    if ((youDogChatData.phase || "opening") === "opening") {
+      syncYouDogChatOpeningBeat(youDogChatData, persist);
+    }
   }
 
   function buildYouDogChatPhaseInstruction(data) {
     const dataObj = data || ensureYouDogChatData();
     const phase = dataObj.phase || "opening";
-    const twitterName = getYouDogTwitterPersonaRealName();
     const userName = getYouDogChatUserDisplayName();
     const batchSizeHint =
       "本批目标 " +
@@ -38756,13 +39441,9 @@
       return (
         "【本批剧本 · 破冰阶段】\n" +
         toneHint +
-        "\n角色互不认识，只能看到对方头顶的彩色标签；禁止直呼真名，用标签称呼。\n" +
-        "可偶尔 @用户（群昵称：" +
-        userName +
-        "），但不必每条都 @；大部分消息可以是闲聊、吐槽、接梗。\n" +
-        "若历史里尚未出现，本批可穿插一次：某角色质疑「是不是 " +
-        twitterName +
-        " 在胡闹」，其他人接话——仅此一次即可，不要整批都在讨论这件事。\n" +
+        "\n角色互不相识，只能看到对方头顶的彩色标签；互相用标签称呼，禁止直呼角色真名。\n" +
+        buildYouDogChatOpeningArcInstruction(dataObj) +
+        "\n" +
         batchSizeHint
       );
     }
@@ -38770,9 +39451,12 @@
       return (
         "【本批剧本 · 平行世界觉醒】\n" +
         toneHint +
-        "\n角色开始怀疑彼此是平行世界的同类，用标签互怼、互嘲、较劲，像普通男生宿舍/网友群。\n" +
-        "可聊任何日常话题（游戏、外卖、天气、段子）；偶尔聊各自世界的事，但禁止人人每句都在汇报剧情或与用户相关的事。\n" +
-        "仍用标签称呼，偶尔 @用户。" +
+        "\n破冰阶段已发生过：标签互怼、@「" +
+        userName +
+        "」、有人猜过用户真名、其他人表示「你也认识」。\n" +
+        "角色开始怀疑彼此是平行世界的同类，仍用标签互怼互嘲，像普通网友群。\n" +
+        "可聊日常（游戏、外卖、天气、段子）；偶尔聊各自世界的事，但禁止人人每句都在汇报剧情。\n" +
+        "仍用标签称呼，偶尔 @用户；等用户主动发言时可自然接话、追问细节。" +
         batchSizeHint
       );
     }
@@ -38842,6 +39526,11 @@
     if (opts.userText) {
       lines.push("【用户刚发送】");
       lines.push(getYouDogChatUserDisplayName() + "：" + String(opts.userText).trim());
+      if ((data.phase || "opening") === "opening") {
+        lines.push(
+          "用户已亲自接话/解释；角色须顺着用户透露的信息自然追问、半信半疑或接梗，勿重头再来一轮标签困惑或真名怀疑。"
+        );
+      }
       lines.push("");
     }
     lines.push(
@@ -38884,6 +39573,7 @@
     });
     dataObj.lastBatchId = batchId;
     updateYouDogChatPhase(false);
+    syncYouDogChatOpeningBeat(dataObj, false);
     schedulePersistNarrative();
     return added;
   }
@@ -38931,6 +39621,7 @@
     });
     data.lastBatchId = lastWithBatch ? lastWithBatch.batchId : null;
     updateYouDogChatPhase(false);
+    rescanYouDogChatOpeningBeat(data, false);
     schedulePersistNarrative();
     return before - data.messages.length;
   }
@@ -38948,6 +39639,7 @@
       return m && !set.has(m.id);
     });
     updateYouDogChatPhase(false);
+    rescanYouDogChatOpeningBeat(data, false);
     schedulePersistNarrative();
     return before - data.messages.length;
   }
@@ -39255,20 +39947,30 @@
     try {
       showToast(opts.regenerateBatch ? "正在重生成上一轮…" : "正在生成群聊…", "info");
       const _genCtx = beginGenCall("you-dog-chat", { slot: slot });
+      const isOpening = (data.phase || "opening") === "opening";
+      const isFirstBatch = !getYouDogChatCharMessages(data).length;
       const systemPrompt =
         "你是中文互动叙事助手。生成「嗅闻博客·平行世界群聊」JSON。\n" +
         YOU_DOG_PARALLEL_WORLD_RULE +
         "\n" +
         YOU_DOG_CHAT_TONE_RULE +
-        "\n角色互不认识，只见头顶标签；禁止输出角色真名（标签名可以）。\n" +
+        "\n角色彼此素不相识，只见头顶彩色标签；禁止输出角色真名（标签名可以）。\n" +
+        (isOpening
+          ? "破冰阶段例外：可有一次让某角色猜用户真名是否在胡闹，随后其他人可表示「你怎么也认识 TA」；" +
+            "除此以外仍不可直呼角色真名，角色之间仍互不认识。\n"
+          : "") +
+        (isOpening && isFirstBatch
+          ? "首轮须按剧本顺序：标签困惑 → @群主质疑标签 → 猜用户真名 → 连锁震惊 → 试探交流。\n"
+          : "") +
         "memberRef 格式为 plotId:charId；仅输出角色池中成员的消息。\n" +
         "根据群聊上文从角色池决定本批谁发言，不必全员每批都开口；同一人可连发多条短消息。\n" +
-        "像普通微信群闲聊，大部分消息一两句即可，不必每条都聊剧情或与用户相关的事。\n" +
+        "被 @、刚被质疑标签、刚猜完真名等情况优先接话。\n" +
         "本批须生成 " +
         YOU_DOG_CHAT_MSGS_PER_BATCH_MIN +
         "～" +
         YOU_DOG_CHAT_MSGS_PER_BATCH_MAX +
         " 条消息。\n" +
+        "mentions 数组可含 @群主昵称；text 里也可写 @昵称。\n" +
         "只输出一个 JSON 对象，不要用 markdown 代码围栏。";
       const userPrompt = buildYouDogChatUserPrompt({ userText: opts.userText, poolRefs: poolRefs });
       const raw = await callChatCompletion(
@@ -39393,7 +40095,14 @@
       }
     }
     let textHtml = escapeHtml(String(msg.text || ""));
-    textHtml = textHtml.replace(/@([^\s@，。！？]+)/g, '<span class="you-dog-chat-mention">@$1</span>');
+    if (msg.kind === "survey" && msg.surveyId) {
+      const survey = getYouDogSurvey(msg.surveyId);
+      if (survey) {
+        textHtml = buildYouDogSurveyCardInnerHtml(survey, { showHint: isUser });
+      }
+    } else {
+      textHtml = textHtml.replace(/@([^\s@，。！？]+)/g, '<span class="you-dog-chat-mention">@$1</span>');
+    }
     let quoteHtml = "";
     if (msg.quote && String(msg.quote.text || "").trim()) {
       quoteHtml =
@@ -39642,7 +40351,10 @@
     if (youDogChatGenerating) {
       threadHtml += '<div class="you-dog-chat__generating">正在生成群聊…</div>';
     }
-    const composerDisabled = youDogChatGenerating || youDogChatSelectMode;
+    if (youDogSurveyGenerating) {
+      threadHtml += '<div class="you-dog-chat__generating">角色正在填写问卷，完成后会私发给你…</div>';
+    }
+    const composerDisabled = youDogChatGenerating || youDogChatSelectMode || youDogSurveyGenerating;
     const quoteBarHtml = youDogChatQuoteDraft
       ? '<div class="you-dog-chat__quote" data-you-dog-chat-quote-bar>' +
         '<span class="you-dog-chat__quote-body">' +
@@ -39662,6 +40374,7 @@
       '<div class="you-dog-chat__composer">' +
       quoteBarHtml +
       '<div class="you-dog-chat__composer-row">' +
+      buildYouDogSurveyComposerBtnHtml("group", composerDisabled) +
       '<textarea class="you-dog-chat__input" data-you-dog-chat-input rows="1" placeholder="发言…"' +
       (composerDisabled ? " disabled" : "") +
       "></textarea>" +
@@ -39859,6 +40572,8 @@
       });
     const prevMessages = youDogChatSetupDraft.isReopen && youDogChatData ? youDogChatData.messages || [] : [];
     const prevPhase = youDogChatSetupDraft.isReopen && youDogChatData ? youDogChatData.phase : "opening";
+    const prevOpeningBeat =
+      youDogChatSetupDraft.isReopen && youDogChatData ? youDogChatData.openingBeat || 0 : 0;
     const prevBatch = youDogChatSetupDraft.isReopen && youDogChatData ? youDogChatData.lastBatchId : null;
     const isReopen = youDogChatSetupDraft.isReopen;
     youDogChatData = normalizeYouDogChatData({
@@ -39869,6 +40584,7 @@
       kickedRefs: prevKicked,
       messages: prevMessages,
       phase: prevPhase,
+      openingBeat: prevOpeningBeat,
       lastBatchId: prevBatch,
     });
     youDogMainTab = "messages";
@@ -40345,6 +41061,23 @@
         escapeHtml(msg.id) +
         '" aria-label="选择消息"></button>'
       : "";
+    let bubbleHtml = "";
+    if (msg.kind === "survey" && msg.surveyId) {
+      const survey = getYouDogSurvey(msg.surveyId);
+      if (survey) {
+        bubbleHtml = buildYouDogSurveyCardInnerHtml(survey, {
+          showHint: isUser && survey.scope === "group",
+          showDmHint: isUser && survey.scope === "dm",
+        });
+      }
+    } else if (msg.kind === "survey_reply" && msg.surveyId) {
+      const survey = getYouDogSurvey(msg.surveyId);
+      bubbleHtml = buildYouDogSurveyCardInnerHtml(survey, {
+        mode: "reply",
+        answers: msg.surveyAnswers || normalizeYouDogSurveyAnswers(survey, []),
+      });
+    }
+    if (!bubbleHtml) bubbleHtml = escapeHtml(String(msg.text || ""));
     return (
       '<div class="you-dog-activity-dm__msg' +
       (isUser ? " you-dog-activity-dm__msg--user" : "") +
@@ -40360,7 +41093,7 @@
       "</span>" +
       '<div class="you-dog-activity-dm__bubble" data-you-dog-activity-dm-bubble>' +
       quoteHtml +
-      escapeHtml(String(msg.text || "")) +
+      bubbleHtml +
       "</div></div>"
     );
   }
@@ -40383,7 +41116,10 @@
     if (youDogActivityGenerating) {
       threadHtml += '<div class="you-dog-activity-dm__generating">对方正在输入…</div>';
     }
-    const composerDisabled = youDogActivityGenerating || youDogActivityDmSelectMode;
+    if (youDogSurveyGenerating) {
+      threadHtml += '<div class="you-dog-activity-dm__generating">正在填写问卷…</div>';
+    }
+    const composerDisabled = youDogActivityGenerating || youDogActivityDmSelectMode || youDogSurveyGenerating;
     const quoteBarHtml = youDogActivityDmQuoteDraft
       ? '<div class="you-dog-activity-dm__quote" data-you-dog-activity-dm-quote-bar>' +
         '<span class="you-dog-activity-dm__quote-body">' +
@@ -40403,6 +41139,7 @@
       '<div class="you-dog-activity-dm__composer">' +
       quoteBarHtml +
       '<div class="you-dog-activity-dm__composer-row">' +
+      buildYouDogSurveyComposerBtnHtml("dm", composerDisabled) +
       '<textarea class="you-dog-activity-dm__input" data-you-dog-activity-dm-input rows="1" maxlength="' +
       YOU_DOG_ACTIVITY_DM_TEXT_MAX +
       '" placeholder="发消息…"' +
@@ -67089,6 +67826,19 @@
       if (e.target.id === "modal-you-dog-comment") closeYouDogCommentModal();
     });
   }
+  if (els.youDogSurveyClose()) {
+    els.youDogSurveyClose().addEventListener("click", closeYouDogSurveyModal);
+  }
+  if (els.youDogSurveySubmit()) {
+    els.youDogSurveySubmit().addEventListener("click", function () {
+      void submitYouDogSurveyFromModal(els.youDogContentSlot());
+    });
+  }
+  if (els.modalYouDogSurvey()) {
+    els.modalYouDogSurvey().addEventListener("click", function (e) {
+      if (e.target.id === "modal-you-dog-survey") closeYouDogSurveyModal();
+    });
+  }
   if (els.youDogChatSetupClose()) {
     els.youDogChatSetupClose().addEventListener("click", closeYouDogChatSetupModal);
   }
@@ -67281,6 +68031,13 @@
 
     if (e.target.closest("[data-you-dog-chat-send]")) {
       sendYouDogChatMessage(slot);
+      return;
+    }
+
+    const surveyOpenBtn = e.target.closest("[data-you-dog-survey-open]");
+    if (surveyOpenBtn) {
+      if (youDogSurveyGenerating) return;
+      openYouDogSurveyModal(surveyOpenBtn.getAttribute("data-you-dog-survey-open") || "group");
       return;
     }
 

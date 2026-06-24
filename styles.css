@@ -31449,6 +31449,141 @@ html[data-theme="dark"] .you-dog-chat__quote {
   align-items: flex-end;
 }
 
+.you-dog-composer__survey-btn,
+.you-dog-activity-dm__composer-row .you-dog-composer__survey-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  color: color-mix(in srgb, var(--accent) 72%, var(--text));
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.you-dog-composer__survey-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.you-dog-composer__survey-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.you-dog-survey-modal__hint {
+  margin: 0 0 12px;
+}
+
+.you-dog-survey-modal__questions {
+  min-height: 140px;
+}
+
+.you-dog-survey-card {
+  text-align: left;
+  max-width: 100%;
+}
+
+.you-dog-survey-card__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.you-dog-survey-card__icon {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.you-dog-survey-card__title {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.you-dog-survey-card__count {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--muted2);
+}
+
+.you-dog-survey-card__list {
+  margin: 0;
+  padding: 0 0 0 1.15em;
+  list-style: none;
+}
+
+.you-dog-survey-card__item {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--text) 90%, transparent);
+}
+
+.you-dog-survey-card__item:last-child {
+  margin-bottom: 0;
+}
+
+.you-dog-survey-card__num {
+  flex-shrink: 0;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
+}
+
+.you-dog-survey-card__qtext {
+  min-width: 0;
+  word-break: break-word;
+}
+
+.you-dog-survey-card__hint {
+  margin: 8px 0 0;
+  font-size: 0.66rem;
+  line-height: 1.4;
+  color: var(--muted2);
+}
+
+.you-dog-survey-card--reply .you-dog-survey-card__qa-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.you-dog-survey-card__qa {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--accent) 10%, var(--border));
+}
+
+.you-dog-survey-card__q {
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.4;
+  margin-bottom: 4px;
+  color: color-mix(in srgb, var(--text) 82%, transparent);
+}
+
+.you-dog-survey-card__a {
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.you-dog-chat-msg__bubble .you-dog-survey-card,
+.you-dog-activity-dm__bubble .you-dog-survey-card {
+  min-width: min(100%, 240px);
+}
+
 .you-dog-chat__input {
   flex: 1;
   min-height: 36px;
