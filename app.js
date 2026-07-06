@@ -1345,15 +1345,51 @@
     }
   }
 
+  function isNativeAppShell() {
+    try {
+      if (typeof window.Capacitor !== "undefined" && window.Capacitor.isNativePlatform) {
+        return window.Capacitor.isNativePlatform();
+      }
+    } catch (_eCap) {}
+    var ua = typeof navigator !== "undefined" && navigator.userAgent ? navigator.userAgent : "";
+    return /Android.*wv|Capacitor|Cordova/i.test(ua);
+  }
+
+  async function isZipFileByMagic(file) {
+    if (!file || typeof file.slice !== "function") return false;
+    try {
+      const head = await file.slice(0, 4).arrayBuffer();
+      const u = new Uint8Array(head);
+      return u.length >= 2 && u[0] === 0x50 && u[1] === 0x4b;
+    } catch (_eMagic) {
+      return false;
+    }
+  }
+
+  async function loadBackupZipFromFile(file) {
+    const JSZip = getBackupLib();
+    if (!JSZip) throw new Error("JSZIP_MISSING");
+    try {
+      return await JSZip.loadAsync(file);
+    } catch (_eDirect) {
+      if (typeof file.arrayBuffer !== "function") throw _eDirect;
+      const buf = await file.arrayBuffer();
+      return await JSZip.loadAsync(buf);
+    }
+  }
+
   function isLikelyBackupZipFile(file) {
     if (!file || typeof file.size !== "number" || file.size <= 0) return false;
     const name = String(file.name || "").toLowerCase();
     if (/\.zip$/i.test(name)) return true;
+    if (/hj-backup/i.test(name)) return true;
     const mime = String(file.type || "").toLowerCase();
     return (
+      !mime ||
       mime === "application/zip" ||
       mime === "application/x-zip-compressed" ||
-      mime === "application/octet-stream"
+      mime === "application/octet-stream" ||
+      mime === "application/x-zip"
     );
   }
 
@@ -1727,6 +1763,10 @@
 
   async function applyBackupFromZipFile(file) {
     if (!file) return;
+    if (!(await isZipFileByMagic(file))) {
+      showToast("请选择有效的 ZIP 备份文件。", "error");
+      return;
+    }
     if (!isLikelyBackupZipFile(file)) {
       showToast("请选择 ZIP 格式的备份文件。", "error");
       return;
@@ -1742,7 +1782,7 @@
     }
     showToast("正在导入备份，请稍候…", "info", 120000);
     try {
-      const zip = await JSZip.loadAsync(file);
+      const zip = await loadBackupZipFromFile(file);
       const manifestEntry = zipGetFileInsensitive(zip, "manifest.json");
       const storageEntry = zipGetFileInsensitive(zip, "localStorage.json");
       if (!storageEntry) {
@@ -2064,8 +2104,29 @@
       const backupFile = input.files && input.files[0];
       input.value = "";
       if (!backupFile) return;
-      void applyBackupFromZipFile(backupFile);
+      void (async function () {
+        const ok = await showConfirm(
+          "导入后会清空并覆盖当前所有本地内容（剧情、角色、世界书、助手聊天、API 与外观设置）。确认继续吗？",
+          "导入备份并覆盖"
+        );
+        if (!ok) return;
+        await applyBackupFromZipFile(backupFile);
+      })();
     });
+  }
+
+  function openBackupFilePicker() {
+    const picker = document.getElementById("backup-file-input");
+    if (!picker) {
+      showToast("无法打开文件选择器，请刷新页面后重试。", "error");
+      return;
+    }
+    picker.value = "";
+    try {
+      picker.click();
+    } catch (_eClick) {
+      showToast("无法打开文件选择器，请检查应用文件访问权限。", "error");
+    }
   }
 
   function bindSettingsDelegation() {
@@ -2130,16 +2191,17 @@
         void exportFullBackup();
       }
       if (btn.id === "btn-backup-import") {
+        if (isNativeAppShell()) {
+          openBackupFilePicker();
+          return;
+        }
         void (async function () {
           const ok = await showConfirm(
             "导入后会清空并覆盖当前所有本地内容（剧情、角色、世界书、助手聊天、API 与外观设置）。确认继续吗？",
             "导入备份并覆盖"
           );
           if (!ok) return;
-          const picker = document.getElementById("backup-file-input");
-          if (!picker) return;
-          picker.value = "";
-          picker.click();
+          openBackupFilePicker();
         })();
       }
       if (btn.id === "btn-clear-user-data") {

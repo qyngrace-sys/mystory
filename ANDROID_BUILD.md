@@ -137,6 +137,21 @@ play/
 3. **首次安装 APK** 后，建议也上传一份 OTA 包，方便已安装用户与线上一致。
 4. 若需更换 App 图标，用 Android Studio 的 Image Asset 工具，源图：`icons/app-icon.png`。
 5. 发布 **Release 签名 APK** 需在 Android Studio 配置 keystore（`Build → Generate Signed Bundle / APK`）。
+6. **App 内导入备份**：Android 上须先选 ZIP 文件再确认覆盖（避免文件选择器被系统拦截）；备份文件名含 `hj-backup` 或 `.zip` 均可识别。
+
+## 已安装 App 如何更新（热更新，无需重装 APK）
+
+1. 改完代码后递增 `index.html` 里的 `app.js?v=` 版本号
+2. 本地执行：
+   ```bash
+   npm run build:web
+   npm run build:ota
+   ```
+3. 将以下文件上传到 GitHub Pages **mystory 仓库根目录**（与 index.html 同级）：
+   - `index.html`、`app.js`、`styles.css` 等（网页版同步更新）
+   - `dist/ota-bundle.zip` → 重命名为 `ota-bundle.zip`
+   - `ota-update.json`
+4. 用户**关闭并重新打开 App**，启动时会自动下载并应用更新
 
 ## 重新安装 APK 的情况
 

@@ -1778,12 +1778,12 @@
           </svg>
         </button>
         <div id="toast-container" class="toast-container" aria-live="polite"></div>
-        <input type="file" id="backup-file-input" accept=".zip,application/zip,application/x-zip-compressed" hidden />
+        <input type="file" id="backup-file-input" class="sr-only" accept=".zip,application/zip,application/x-zip-compressed,application/octet-stream,*/*" tabindex="-1" aria-hidden="true" />
   </div>
     </div>
   </div>
 
   <script src="jszip.min.js?v=1"></script>
-    <script src="app.js?v=162"></script>
+    <script src="app.js?v=163"></script>
 </body>
 </html>
