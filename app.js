@@ -75,10 +75,6 @@
     "--wb-tag-fg",
     "--wb-tag-border",
   ];
-  /** 状态栏右侧自定义文案（默认装饰性网名，可点击修改） */
-  const STORAGE_STATUS_BAR_RIGHT = "hj-status-bar-right-v1";
-  const STATUS_BAR_RIGHT_DEFAULT = "⋆*ℰ𝓁ℯ𝒸𝓉𝓇ℴ𝓃𝒾𝒸 ℒℴ𝓋ℯ𝓇⋆•";
-
   const STORAGE_API_CONFIGS = "hj-api-configs-v1";
   const STORAGE_ACTIVE_API_ID = "hj-active-api-id-v1";
   const STORAGE_SECONDARY_API_ID = "hj-secondary-api-id-v1";
@@ -812,11 +808,23 @@
     };
   }
 
+  var toastHideTimers = [];
+
+  function clearToasts() {
+    toastHideTimers.forEach(function (timerId) {
+      clearTimeout(timerId);
+    });
+    toastHideTimers = [];
+    const container = document.getElementById("toast-container");
+    if (container) container.replaceChildren();
+  }
+
   function showToast(message, type, duration) {
     type = type || "info";
     duration = duration == null ? 6000 : duration;
     const container = document.getElementById("toast-container");
     if (!container) return;
+    clearToasts();
     const toast = document.createElement("div");
     toast.className = "toast toast--" + type;
     toast.textContent = message;
@@ -824,12 +832,16 @@
     requestAnimationFrame(function () {
       toast.classList.add("toast--show");
     });
-    setTimeout(function () {
-      toast.classList.remove("toast--show");
+    toastHideTimers.push(
       setTimeout(function () {
-        if (toast.parentNode) toast.parentNode.removeChild(toast);
-      }, 300);
-    }, duration);
+        toast.classList.remove("toast--show");
+        toastHideTimers.push(
+          setTimeout(function () {
+            if (toast.parentNode) toast.parentNode.removeChild(toast);
+          }, 300)
+        );
+      }, duration)
+    );
   }
 
   function idbOpen() {
@@ -1319,7 +1331,7 @@
   }
 
   async function exportFullBackup() {
-    showToast("正在打包备份，请稍候…", "info", 120000);
+    showToast("正在打包备份，请稍候…", "info", 30000);
     await flushPersistNarrativeAwaitForBackup();
     persistAssistantState();
     persistApiConfigs();
@@ -1355,31 +1367,137 @@
     return /Android.*wv|Capacitor|Cordova/i.test(ua);
   }
 
-  async function isZipFileByMagic(file) {
-    if (!file || typeof file.slice !== "function") return false;
+  async function readFileAsArrayBuffer(source) {
+    if (!source) throw new Error("BACKUP_READ_FAILED");
+    if (source instanceof ArrayBuffer) return source;
+    if (ArrayBuffer.isView(source)) {
+      return source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength);
+    }
+    if (typeof source.arrayBuffer === "function") {
+      try {
+        return await source.arrayBuffer();
+      } catch (_eAb) {}
+    }
+    return await new Promise(function (resolve, reject) {
+      try {
+        const reader = new FileReader();
+        reader.onload = function () {
+          if (reader.result instanceof ArrayBuffer) resolve(reader.result);
+          else reject(new Error("BACKUP_READ_FAILED"));
+        };
+        reader.onerror = function () {
+          reject(reader.error || new Error("BACKUP_READ_FAILED"));
+        };
+        reader.readAsArrayBuffer(source);
+      } catch (eRead) {
+        reject(eRead);
+      }
+    });
+  }
+
+  function base64ToArrayBuffer(b64) {
+    const bin = atob(String(b64 || ""));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  async function pickBackupZipViaNativePlugin() {
     try {
-      const head = await file.slice(0, 4).arrayBuffer();
-      const u = new Uint8Array(head);
-      return u.length >= 2 && u[0] === 0x50 && u[1] === 0x4b;
-    } catch (_eMagic) {
-      return false;
+      const cap = typeof window !== "undefined" ? window.Capacitor : null;
+      const FP = cap && cap.Plugins ? cap.Plugins.FilePicker : null;
+      if (!FP || typeof FP.pickFiles !== "function") return null;
+      const result = await FP.pickFiles({
+        types: ["application/zip", "application/x-zip-compressed", "application/octet-stream"],
+        limit: 1,
+        readData: true,
+      });
+      const f = result && result.files && result.files[0];
+      if (!f) return null;
+      if (f.blob instanceof Blob) return f.blob;
+      if (f.data) {
+        const buf = base64ToArrayBuffer(f.data);
+        return new Blob([buf], { type: f.mimeType || "application/zip" });
+      }
+      return null;
+    } catch (_ePick) {
+      return null;
+    }
+  }
+
+  function zipListEntryNames(zip) {
+    try {
+      return Object.keys(zip.files || {}).filter(function (n) {
+        const meta = zip.files[n];
+        return meta && !meta.dir;
+      });
+    } catch (_eList) {
+      return [];
+    }
+  }
+
+  async function loadBackupZipFromArrayBuffer(buf) {
+    const JSZip = getBackupLib();
+    if (!JSZip) throw new Error("JSZIP_MISSING");
+    try {
+      return await JSZip.loadAsync(buf);
+    } catch (_eZip) {
+      throw new Error("BACKUP_ZIP_PARSE_FAILED");
     }
   }
 
   async function loadBackupZipFromFile(file) {
-    const JSZip = getBackupLib();
-    if (!JSZip) throw new Error("JSZIP_MISSING");
-    try {
-      return await JSZip.loadAsync(file);
-    } catch (_eDirect) {
-      if (typeof file.arrayBuffer !== "function") throw _eDirect;
-      const buf = await file.arrayBuffer();
-      return await JSZip.loadAsync(buf);
+    const buf = await readFileAsArrayBuffer(file);
+    return loadBackupZipFromArrayBuffer(buf);
+  }
+
+  async function verifyImportedNarrative(importedNar) {
+    if (!importedNar || !narrativeBlobHasContent(importedNar)) return true;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      let verifyNar = null;
+      try {
+        verifyNar = await idbGetNarrativeJson();
+      } catch (_eIdb) {}
+      if (!verifyNar) {
+        try {
+          verifyNar = localStorage.getItem(STORAGE_NARRATIVE);
+        } catch (_eLs) {}
+      }
+      if (verifyNar && narrativeBlobHasContent(verifyNar)) return true;
+      await new Promise(function (r) {
+        window.setTimeout(r, 100 * (attempt + 1));
+      });
     }
+    return false;
+  }
+
+  async function confirmAndApplyBackupFile(source) {
+    const ok = await showConfirm(
+      "导入后会清空并覆盖当前所有本地内容（剧情、角色、世界书、助手聊天、API 与外观设置）。确认继续吗？",
+      "导入备份并覆盖"
+    );
+    if (!ok) return;
+    await applyBackupFromZipFile(source);
+  }
+
+  async function openBackupImportFlow() {
+    if (isNativeAppShell()) {
+      showToast("请选择备份 ZIP 文件…", "info", 3000);
+      const picked = await pickBackupZipViaNativePlugin();
+      if (picked) {
+        await confirmAndApplyBackupFile(picked);
+        return;
+      }
+    }
+    openBackupFilePicker();
   }
 
   function isLikelyBackupZipFile(file) {
-    if (!file || typeof file.size !== "number" || file.size <= 0) return false;
+    if (!file) return false;
+    var size = typeof file.size === "number" ? file.size : 0;
+    if (size <= 0 && file instanceof Blob) size = file.size || 0;
+    if (size > BACKUP_IMPORT_MAX_SIZE) return false;
+    if (size <= 0) return true;
     const name = String(file.name || "").toLowerCase();
     if (/\.zip$/i.test(name)) return true;
     if (/hj-backup/i.test(name)) return true;
@@ -1690,11 +1808,11 @@
       .toLowerCase();
     const names = Object.keys(zip.files || {});
     for (let i = 0; i < names.length; i++) {
-      const name = names[i];
-      const meta = zip.files[name];
+      const name = names[i].replace(/\\/g, "/");
+      const meta = zip.files[names[i]];
       if (!meta || meta.dir) continue;
       const base = name.split("/").pop().toLowerCase();
-      if (base === wantBase) return zip.file(name);
+      if (base === wantBase) return zip.file(names[i]);
     }
     return null;
   }
@@ -1763,16 +1881,8 @@
 
   async function applyBackupFromZipFile(file) {
     if (!file) return;
-    if (!(await isZipFileByMagic(file))) {
-      showToast("请选择有效的 ZIP 备份文件。", "error");
-      return;
-    }
     if (!isLikelyBackupZipFile(file)) {
       showToast("请选择 ZIP 格式的备份文件。", "error");
-      return;
-    }
-    if (file.size > BACKUP_IMPORT_MAX_SIZE) {
-      showToast("备份文件过大（超过 100MB），请确认后重试。", "error");
       return;
     }
     const JSZip = getBackupLib();
@@ -1780,18 +1890,40 @@
       showToast("备份依赖未加载，请刷新页面后重试。", "error");
       return;
     }
-    showToast("正在导入备份，请稍候…", "info", 120000);
+    showToast("正在导入备份，请稍候…", "info", 30000);
     try {
-      const zip = await loadBackupZipFromFile(file);
+      let buf;
+      try {
+        buf = await readFileAsArrayBuffer(file);
+      } catch (_eRead) {
+        throw new Error("BACKUP_READ_FAILED");
+      }
+      if (!buf || buf.byteLength < 22) {
+        throw new Error("BACKUP_ZIP_EMPTY");
+      }
+      const head = new Uint8Array(buf, 0, Math.min(4, buf.byteLength));
+      if (head.length < 2 || head[0] !== 0x50 || head[1] !== 0x4b) {
+        throw new Error("BACKUP_ZIP_PARSE_FAILED");
+      }
+      if (buf.byteLength > BACKUP_IMPORT_MAX_SIZE) {
+        throw new Error("BACKUP_FILE_TOO_LARGE");
+      }
+      const zip = await loadBackupZipFromArrayBuffer(buf);
       const manifestEntry = zipGetFileInsensitive(zip, "manifest.json");
       const storageEntry = zipGetFileInsensitive(zip, "localStorage.json");
       if (!storageEntry) {
-        throw new Error("BACKUP_FILE_MISSING");
+        const names = zipListEntryNames(zip).slice(0, 8).join("、");
+        throw new Error("BACKUP_FILE_MISSING" + (names ? ":" + names : ""));
       }
       var storageRaw = await storageEntry.async("string");
       var narrativeFromStorage = extractNarrativeFromBackupStorageRaw(storageRaw);
       var snapshotParseRaw = stripBackupStorageNarrativeKeysFromJsonRaw(storageRaw);
-      const snapshot = parseBackupStorageJson(snapshotParseRaw);
+      let snapshot;
+      try {
+        snapshot = parseBackupStorageJson(snapshotParseRaw);
+      } catch (_eSnap) {
+        throw new Error("BACKUP_STORAGE_INVALID");
+      }
       var importedNar = await readBestNarrativeFromZipEntries(zipCollectNarrativeFileEntries(zip));
       importedNar = pickBetterNarrativeRawForImport(narrativeFromStorage, importedNar);
       if (backupStorageRawHintsNarrative(storageRaw) && !importedNar) {
@@ -1799,7 +1931,11 @@
       }
       let manifest;
       if (manifestEntry) {
-        manifest = JSON.parse(stripJsonUtf8Bom(await manifestEntry.async("string")));
+        try {
+          manifest = JSON.parse(stripJsonUtf8Bom(await manifestEntry.async("string")));
+        } catch (_eMan) {
+          throw new Error("BACKUP_MANIFEST_INVALID");
+        }
       } else {
         if (!Object.keys(snapshot).length && !importedNar) {
           throw new Error("BACKUP_FILE_MISSING");
@@ -1817,19 +1953,8 @@
       delete snapshot[STORAGE_NARRATIVE_SYNC_AT];
       restoreBackupLocalStorageSnapshot(snapshot);
       await applyImportedNarrativeJson(importedNar);
-      if (importedNar && narrativeBlobHasContent(importedNar)) {
-        let verifyNar = null;
-        try {
-          verifyNar = await idbGetNarrativeJson();
-        } catch (_eVerify) {}
-        if (!verifyNar) {
-          try {
-            verifyNar = localStorage.getItem(STORAGE_NARRATIVE);
-          } catch (_eLsVerify) {}
-        }
-        if (!verifyNar || !narrativeBlobHasContent(verifyNar)) {
-          throw new Error("BACKUP_NARRATIVE_PERSIST_FAILED");
-        }
+      if (!(await verifyImportedNarrative(importedNar))) {
+        throw new Error("BACKUP_NARRATIVE_PERSIST_FAILED");
       }
       /**
        * 必须立刻禁止持久化并向磁盘 flush：否则会话内存仍是「导入前」的空数据，
@@ -1837,13 +1962,15 @@
        */
       suppressUserDataPersistence = true;
       flushPersistNarrative();
-      const fontEntry = zipGetFileInsensitive(zip, "userFont.bin");
-      if (fontEntry) {
-        const fontBuffer = await fontEntry.async("arraybuffer");
-        await idbPutFont(fontBuffer);
-      } else {
-        await idbDeleteFont();
-      }
+      try {
+        const fontEntry = zipGetFileInsensitive(zip, "userFont.bin");
+        if (fontEntry) {
+          const fontBuffer = await fontEntry.async("arraybuffer");
+          await idbPutFont(fontBuffer);
+        } else {
+          await idbDeleteFont();
+        }
+      } catch (_eFont) {}
       try {
         await idbDeleteAllExtraAssets();
         const idbManifestEntry = zipGetFileInsensitive(zip, BACKUP_IDB_ASSETS_MANIFEST);
@@ -1877,8 +2004,10 @@
       if (e && e.message === "BACKUP_MANIFEST_INVALID") {
         msg =
           "导入备份失败：备份格式与当前版本不兼容（或 manifest 损坏）。请确认是本应用导出的 hj-backup。";
-      } else if (e && e.message === "BACKUP_FILE_MISSING") {
-        msg = "导入备份失败：ZIP 内缺少可用的 localStorage.json。";
+      } else if (e && String(e.message || "").indexOf("BACKUP_FILE_MISSING") === 0) {
+        msg = "导入备份失败：ZIP 内缺少 localStorage.json。";
+        var extra = String(e.message || "").split(":")[1];
+        if (extra) msg += "（包内文件：" + extra + "）";
       } else if (e && e.message === "BACKUP_STORAGE_INVALID") {
         msg = "导入备份失败：localStorage.json 格式不正确。";
       } else if (e && e.message === "BACKUP_NARRATIVE_INVALID") {
@@ -1891,6 +2020,14 @@
           "导入备份失败：浏览器本地存储空间不足（剧情数据较大）。请刷新后重试，或换用支持 IndexedDB 的浏览器。";
       } else if (e && e.message === "BACKUP_NARRATIVE_PERSIST_FAILED") {
         msg = "导入备份失败：剧情数据无法写入本地，请刷新页面后重试。";
+      } else if (e && e.message === "BACKUP_READ_FAILED") {
+        msg = "导入备份失败：无法读取所选文件，请换用文件管理器重新选择 ZIP。";
+      } else if (e && e.message === "BACKUP_ZIP_PARSE_FAILED") {
+        msg = "导入备份失败：ZIP 解压失败，请确认文件完整且是本应用导出的备份。";
+      } else if (e && e.message === "BACKUP_ZIP_EMPTY") {
+        msg = "导入备份失败：文件为空或过小。";
+      } else if (e && e.message === "BACKUP_FILE_TOO_LARGE") {
+        msg = "导入备份失败：备份文件过大（超过 100MB）。";
       } else if (e && e.name === "QuotaExceededError") {
         msg = "导入备份失败：浏览器本地存储空间不足，请清理后重试。";
       }
@@ -2035,9 +2172,7 @@
   }
 
   function tickStatusClock() {
-    const el = document.getElementById("status-time");
     const timeText = formatClockTime(new Date());
-    if (el) el.textContent = timeText;
     document.querySelectorAll(".phone-home__clock").forEach(function (clockEl) {
       clockEl.textContent = timeText;
     });
@@ -2046,53 +2181,9 @@
     });
   }
 
-  function getStatusBarRightLabel() {
-    try {
-      const v = localStorage.getItem(STORAGE_STATUS_BAR_RIGHT);
-      if (v != null && v !== "") return v;
-    } catch (e) {}
-    return STATUS_BAR_RIGHT_DEFAULT;
-  }
-
-  function applyStatusBarRightLabel() {
-    const el = document.getElementById("status-custom-label");
-    if (!el || el.tagName !== "INPUT") return;
-    el.value = getStatusBarRightLabel();
-  }
-
-  function bindStatusBarRightEdit() {
-    const input = document.getElementById("status-custom-label");
-    if (!input || input.tagName !== "INPUT" || input.dataset.bound) return;
-    input.dataset.bound = "1";
-    let snapshot = input.value;
-    input.addEventListener("focus", function () {
-      snapshot = this.value;
-    });
-    input.addEventListener("keydown", function (e) {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        this.blur();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        this.value = snapshot;
-        this.blur();
-      }
-    });
-    input.addEventListener("blur", function () {
-      const t = String(this.value || "").trim();
-      try {
-        if (t) localStorage.setItem(STORAGE_STATUS_BAR_RIGHT, t);
-        else localStorage.removeItem(STORAGE_STATUS_BAR_RIGHT);
-      } catch (e) {}
-      this.value = getStatusBarRightLabel();
-    });
-  }
-
   function initStatusBar() {
     tickStatusClock();
     setInterval(tickStatusClock, 1000);
-    applyStatusBarRightLabel();
-    bindStatusBarRightEdit();
   }
 
   function bindBackupFileInput() {
@@ -2104,14 +2195,7 @@
       const backupFile = input.files && input.files[0];
       input.value = "";
       if (!backupFile) return;
-      void (async function () {
-        const ok = await showConfirm(
-          "导入后会清空并覆盖当前所有本地内容（剧情、角色、世界书、助手聊天、API 与外观设置）。确认继续吗？",
-          "导入备份并覆盖"
-        );
-        if (!ok) return;
-        await applyBackupFromZipFile(backupFile);
-      })();
+      void confirmAndApplyBackupFile(backupFile);
     });
   }
 
@@ -2191,18 +2275,7 @@
         void exportFullBackup();
       }
       if (btn.id === "btn-backup-import") {
-        if (isNativeAppShell()) {
-          openBackupFilePicker();
-          return;
-        }
-        void (async function () {
-          const ok = await showConfirm(
-            "导入后会清空并覆盖当前所有本地内容（剧情、角色、世界书、助手聊天、API 与外观设置）。确认继续吗？",
-            "导入备份并覆盖"
-          );
-          if (!ok) return;
-          openBackupFilePicker();
-        })();
+        void openBackupImportFlow();
       }
       if (btn.id === "btn-clear-user-data") {
         void (async function () {

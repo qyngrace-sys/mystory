@@ -29,9 +29,8 @@
   --main-scroll-pad-end: calc(40px + env(safe-area-inset-bottom, 0px));
   /** 助手底栏垂直微调；0 配合留白由 padding 控制，更接近参考稿分层 */
   --assistant-bottom-nudge-y: 0px;
-  --status-h: 32px;
-  /** 顶部模拟状态栏总占位（与 .status-bar 上下 padding + min-height 一致），供全屏层与顶栏对齐 */
-  --shell-status-offset: calc(max(10px, env(safe-area-inset-top, 0px)) + var(--status-h) + 6px);
+  /** 全屏层顶栏与系统状态栏安全区对齐 */
+  --shell-status-offset: max(8px, env(safe-area-inset-top, 0px));
   /** 状态栏与主界面顶栏共用底色，随 --bg / 主题色板同步 */
   --shell-chrome-bg: var(--bg);
   --overlay-scrim: rgba(33, 33, 38, 0.58);
@@ -315,94 +314,6 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
   background: var(--shell-chrome-bg);
 }
 
-.status-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px 6px;
-  padding-top: max(10px, env(safe-area-inset-top, 0px));
-  min-height: var(--status-h);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--text);
-  flex-shrink: 0;
-  position: relative;
-  /** 低于 .overlay(140)，底色透出 app-shell / 遮罩，避免单独混色造成色差 */
-  z-index: 125;
-  background: transparent;
-  pointer-events: none;
-}
-
-.status-bar .status-time,
-.status-bar .status-right {
-  pointer-events: auto;
-}
-
-/* 与状态栏右侧装饰网名风格协调：用手写/花体类西文字体渲染时间 */
-.status-time {
-  font-family:
-    "Segoe Script",
-    "Brush Script MT",
-    "Lucida Handwriting",
-    "Apple Chancery",
-    "Snell Roundhand",
-    cursive;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  font-variant-numeric: tabular-nums;
-}
-
-.status-right {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-.status-custom-label {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0 0 0 4px;
-  min-width: 0;
-  width: 100%;
-  max-width: 100%;
-  border: none;
-  background: none;
-  font: inherit;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--muted);
-  text-align: right;
-  cursor: text;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.status-custom-label:focus,
-.status-custom-label:focus-visible {
-  overflow-x: auto;
-  text-overflow: clip;
-}
-
-.status-custom-label:focus {
-  outline: none;
-}
-
-.status-custom-label:focus-visible {
-  box-shadow: 0 0 0 1px var(--border);
-  border-radius: 3px;
-}
-
 .main-scroll {
   flex: 1;
   min-width: 0;
@@ -410,7 +321,7 @@ html[data-theme="dark"] .glass-hero .btn--inverse {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 8px 16px var(--main-scroll-pad-end);
+  padding: max(8px, env(safe-area-inset-top, 0px)) 16px var(--main-scroll-pad-end);
   background: var(--shell-chrome-bg);
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
@@ -17411,7 +17322,6 @@ html[data-theme="dark"] .phone-holder-plot-row.is-current {
 .layer-full--story .layer-header {
   background: var(--shell-chrome-bg);
   border-bottom: 1px solid var(--border);
-  /* 真状态栏已由 .status-bar 浮在全屏层之上，此处不再叠一层「假刘海」内边距 */
   padding-top: 8px;
 }
 
@@ -17429,7 +17339,7 @@ html[data-theme="dark"] .phone-holder-plot-row.is-current {
 
 .layer-full--story {
   background: var(--shell-chrome-bg);
-  /* 内容从状态栏下缘开始，避免剧情顶栏被时间/签名行挡住 */
+  /* 内容从系统状态栏安全区下缘开始 */
   padding-top: var(--shell-status-offset);
   box-sizing: border-box;
 }
@@ -20554,7 +20464,7 @@ html[data-theme="dark"] .backup-action-btn {
 .gen-ready-banner {
   position: absolute;
   left: 50%;
-  top: calc(max(8px, env(safe-area-inset-top, 0px)) + var(--status-h) + 8px);
+  top: calc(max(8px, env(safe-area-inset-top, 0px)) + 8px);
   transform: translateX(-50%) translateY(-12px);
   z-index: 10050;
   display: inline-flex;
@@ -20628,7 +20538,7 @@ html[data-theme="dark"] .gen-ready-banner {
   right: auto;
   bottom: auto;
   transform: translateX(-50%);
-  top: calc(max(10px, env(safe-area-inset-top, 0px)) + var(--status-h) + 10px);
+  top: calc(max(10px, env(safe-area-inset-top, 0px)) + 10px);
   z-index: 10000;
   pointer-events: none;
   display: flex;

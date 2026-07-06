@@ -8,6 +8,7 @@
     "build:capacitor-js": "vite build --config vite.capacitor.config.mjs",
     "build:web": "npm run sync:www && npm run build:capacitor-js",
     "build:ota": "node scripts/build-ota-bundle.js",
+    "icons:android": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-android-icons.ps1",
     "cap:sync": "npm run build:web && npx cap sync android",
     "cap:open": "npx cap open android",
     "android:debug": "npm run cap:sync && cd android && gradlew.bat assembleDebug",
@@ -19,6 +20,7 @@
     "@capacitor/core": "^7.2.0",
     "@capacitor/filesystem": "^7.1.1",
     "@capacitor/network": "^7.0.1",
+    "@capawesome/capacitor-file-picker": "^7.2.0",
     "@capgo/capacitor-updater": "^7.2.6"
   },
   "devDependencies": {
@@ -31,7 +33,7 @@
     "vite": "^6.3.5"
   },
   "appVersion": {
-    "web": "163",
+    "web": "165",
     "android": "1.0.0"
   },
   "ota": {

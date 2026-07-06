@@ -135,7 +135,7 @@ play/
 1. **GitHub Pages 网页版**仍使用根目录 `index.html`（带 CDN 字体）；**APK 专用** `www/index.html` 由 `sync-www.js` 自动生成（本地字体、OTA 启动页）。
 2. **未打包** `vendor/sherpa-ncnn/`（约 141MB，主程序未引用），以控制 APK 体积。
 3. **首次安装 APK** 后，建议也上传一份 OTA 包，方便已安装用户与线上一致。
-4. 若需更换 App 图标，用 Android Studio 的 Image Asset 工具，源图：`icons/app-icon.png`。
+4. 若需更换 App 图标，将 1024×1024 PNG 放到 `assets/icon-source.png`，运行 `npm run icons:android`，再在 Android Studio 重新 Build APK。
 5. 发布 **Release 签名 APK** 需在 Android Studio 配置 keystore（`Build → Generate Signed Bundle / APK`）。
 6. **App 内导入备份**：Android 上须先选 ZIP 文件再确认覆盖（避免文件选择器被系统拦截）；备份文件名含 `hj-backup` 或 `.zip` 均可识别。
 
