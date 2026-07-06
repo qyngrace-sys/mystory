@@ -2902,6 +2902,7 @@ html[data-theme="dark"] .workbench-glyph {
 .overview-subview .grudge-book-header__generate,
 .overview-subview .radio-shell__bar > .icon-btn:last-child,
 .overview-subview .task-todo__calendar,
+.overview-subview .task-todo__focus,
 .overview-subview .task-todo__gen,
 .overview-subview .you-dog-app__actions .you-dog-app__action-btn:not(.you-dog-app__action-btn--text),
 .overview-subview .you-dog-app__actions .you-dog-app__avatar-btn,
@@ -2939,6 +2940,7 @@ html[data-theme="dark"] .workbench-glyph {
 .overview-subview .grudge-book-header__generate:active:not(:disabled),
 .overview-subview .radio-shell__bar > .icon-btn:last-child:active,
 .overview-subview .task-todo__calendar:active:not(:disabled),
+.overview-subview .task-todo__focus:active:not(:disabled),
 .overview-subview .task-todo__gen:active:not(:disabled),
 .overview-subview .you-dog-app__actions .you-dog-app__action-btn:not(.you-dog-app__action-btn--text):active:not(:disabled),
 .overview-subview .you-dog-app__actions .you-dog-app__avatar-btn:active,
@@ -2962,6 +2964,7 @@ html[data-theme="dark"] .workbench-glyph {
 .overview-subview .grudge-book-header__generate svg,
 .overview-subview .radio-shell__bar > .icon-btn:last-child svg,
 .overview-subview .task-todo__calendar svg,
+.overview-subview .task-todo__focus svg,
 .overview-subview .task-todo__gen svg,
 .overview-subview .you-dog-app__actions .you-dog-app__action-btn:not(.you-dog-app__action-btn--text) svg,
 .overview-subview .you-dog-app__actions--chat .phone-app__bar-action svg,
@@ -14097,6 +14100,48 @@ html[data-theme="dark"] .phone-album-detail__edit:focus {
   color: #666;
 }
 
+.you-dog-chat-settings__pending-hint {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: #6c5ce7;
+  background: rgba(108, 92, 231, 0.08);
+}
+
+.you-dog-chat-settings__pending-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #6c5ce7;
+  background: rgba(108, 92, 231, 0.12);
+  margin-bottom: 2px;
+}
+
+.you-dog-chat-settings__member-row--pending {
+  background: rgba(108, 92, 231, 0.04);
+}
+
+.you-dog-chat-setup-member--pending .you-dog-chat-setup-member__name {
+  color: #6c5ce7;
+}
+
+.you-dog-chat-setup-member__pending {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #6c5ce7;
+  background: rgba(108, 92, 231, 0.12);
+  vertical-align: middle;
+}
+
 .you-dog-chat-settings__member-row {
   display: flex;
   align-items: center;
@@ -18127,6 +18172,8 @@ html[data-theme="dark"] .story-scroll-nav__btn {
 }
 
 .story-turn-group {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 100px;
   border-top: 2px solid var(--border);
   border-bottom: 2px solid var(--border);
   padding: 10px 0;
@@ -25489,6 +25536,7 @@ html[data-theme="dark"] .collect-history-empty {
 
 .task-todo__back,
 .task-todo__calendar,
+.task-todo__focus,
 .task-todo__gen,
 .task-todo__context {
   border: none;
@@ -25561,8 +25609,39 @@ html[data-theme="dark"] .collect-history-empty {
   border: none;
 }
 
+.task-todo__focus {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  border: none;
+  position: relative;
+}
+
+.task-todo__focus.is-active {
+  color: color-mix(in srgb, var(--accent) 75%, var(--text));
+}
+
+.task-todo__focus-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bg) 80%, transparent);
+}
+
 .task-todo__calendar.is-disabled,
 .task-todo__calendar:disabled,
+.task-todo__focus.is-disabled,
+.task-todo__focus:disabled,
 .task-todo__gen.is-disabled,
 .task-todo__gen:disabled {
   opacity: 0.4;
@@ -25594,17 +25673,18 @@ html[data-theme="dark"] .collect-history-empty {
 .task-todo__split {
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
   padding: 4px 10px 8px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  align-items: start;
 }
 
 .task-todo-pane {
-  min-height: 0;
+  width: 100%;
+  min-width: 0;
+  flex-shrink: 0;
   overflow: visible;
   display: flex;
   flex-direction: column;
@@ -26223,17 +26303,59 @@ html[data-theme="dark"] .collect-history-empty {
 }
 
 .todo-calendar-detail__cols {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .todo-calendar-detail__col {
-  padding: 10px;
-  border-radius: 10px;
+  padding: 12px;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--bg) 55%, var(--surface));
   border: 1px solid var(--border);
   min-width: 0;
+}
+
+.todo-calendar-detail__body {
+  position: relative;
+  padding-bottom: 4px;
+}
+
+.todo-calendar-detail__body.is-collapsed .todo-calendar-detail__diary-item {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.todo-calendar-detail__expand {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%);
+  color: var(--muted);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+}
+
+.todo-calendar-detail__expand:active {
+  opacity: 0.7;
+}
+
+.todo-calendar-detail__body.is-expanded {
+  padding-bottom: 32px;
+}
+
+.todo-calendar-detail__body.is-collapsed {
+  padding-bottom: 32px;
 }
 
 .todo-calendar-detail__who {
@@ -26316,6 +26438,312 @@ html[data-theme="dark"] .collect-history-empty {
   display: block;
   width: 100%;
   margin-top: 12px;
+}
+
+.todo-calendar-detail__focus {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.todo-calendar-detail__focus-title {
+  margin: 0 0 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.04em;
+}
+
+.todo-calendar-focus__none {
+  margin: 0;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.todo-calendar-focus__summary {
+  margin: 0 0 8px;
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+
+.todo-calendar-focus__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.todo-calendar-focus__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 12%, var(--border));
+}
+
+.todo-calendar-focus__name {
+  font-size: 0.72rem;
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-calendar-focus__dur {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
+}
+
+.modal-sheet--todo-focus {
+  max-height: min(88vh, 640px);
+}
+
+.todo-focus-slot {
+  padding: 0 16px 20px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.todo-focus__tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 16px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg) 50%, var(--surface));
+  border: 1px solid var(--border);
+}
+
+.todo-focus__tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.todo-focus__tab.is-active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.todo-focus__panel {
+  flex: 1;
+  min-height: 0;
+}
+
+.todo-focus-timer__label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.todo-focus-timer__input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 0.82rem;
+  background: var(--surface);
+  color: var(--text);
+  margin-bottom: 20px;
+}
+
+.todo-focus-timer__input:disabled {
+  opacity: 0.65;
+}
+
+.todo-focus-timer__display {
+  font-size: 2.6rem;
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  line-height: 1.1;
+  margin-bottom: 8px;
+  transition: color 0.2s ease;
+}
+
+.todo-focus-timer__display.is-running {
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+}
+
+.todo-focus-timer__hint {
+  margin: 0 0 24px;
+  text-align: center;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.todo-focus-timer__actions {
+  display: flex;
+  gap: 10px;
+}
+
+.todo-focus-timer__btn {
+  flex: 1;
+}
+
+.todo-focus-timer__btn--stop {
+  background: color-mix(in srgb, var(--text) 6%, var(--surface));
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.todo-focus-review__periods {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.todo-focus-review__period {
+  flex: 1;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 7px 10px;
+  border-radius: 999px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.todo-focus-review__period.is-active {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  color: var(--text);
+}
+
+.todo-focus-review__range {
+  margin: 0 0 12px;
+  font-size: 0.65rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.todo-focus-review__stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.todo-focus-review__stat {
+  padding: 12px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 40%, var(--surface));
+  text-align: center;
+}
+
+.todo-focus-review__stat-val {
+  display: block;
+  font-size: 1rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.todo-focus-review__stat-label {
+  font-size: 0.62rem;
+  color: var(--muted);
+}
+
+.todo-focus-review__scroll {
+  max-height: 240px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.todo-focus-review__empty {
+  margin: 0;
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.todo-focus-review__day {
+  margin-bottom: 12px;
+}
+
+.todo-focus-review__day-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  padding: 0 2px;
+}
+
+.todo-focus-review__day-date {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.todo-focus-review__day-total {
+  font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.todo-focus-review__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.todo-focus-review__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.todo-focus-review__item-name {
+  font-size: 0.72rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-focus-review__item-dur {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--accent) 65%, var(--text));
 }
 
 .task-todo-say-item {
@@ -26412,19 +26840,6 @@ html[data-theme="dark"] .collect-history-empty {
     font-size: 0.74rem;
   }
 
-  .task-todo__split {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto;
-    gap: 8px;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .task-todo-pane {
-    min-height: 0;
-    max-height: none;
-  }
-
   .task-todo-pane-intro {
     flex-shrink: 0;
   }
@@ -26452,7 +26867,8 @@ html[data-theme="dark"] .collect-history-empty {
   }
 
   .task-todo__back,
-  .task-todo__calendar {
+  .task-todo__calendar,
+  .task-todo__focus {
     width: 34px;
     height: 34px;
   }
@@ -31287,7 +31703,7 @@ html[data-theme="dark"] .you-dog-profile-hero__action {
 }
 
 .you-dog-chat-msg__bubble {
-  max-width: 72%;
+  max-width: min(78vw, 320px);
   padding: 10px 12px;
   border-radius: 6px;
   background: var(--surface);
@@ -31295,6 +31711,7 @@ html[data-theme="dark"] .you-dog-profile-hero__action {
   font-size: 0.88rem;
   line-height: 1.45;
   word-break: break-word;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
   color: var(--text);
   -webkit-user-select: none;
@@ -31587,7 +32004,7 @@ html[data-theme="dark"] .you-dog-chat__quote {
 .you-dog-chat__input {
   flex: 1;
   min-height: 36px;
-  max-height: 120px;
+  max-height: 200px;
   resize: none;
   border-radius: 6px;
   border: 1px solid color-mix(in srgb, var(--accent) 12%, var(--border));
@@ -32854,7 +33271,7 @@ html[data-theme="dark"] .you-dog-chat-sys__text {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  max-width: 88%;
+  max-width: 92%;
   min-width: 0;
 }
 
@@ -32916,9 +33333,9 @@ html[data-theme="dark"] .you-dog-chat-sys__text {
 }
 
 .you-dog-activity-dm__bubble {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
-  max-width: 100%;
+  max-width: min(78vw, 320px);
   padding: 10px 12px;
   border-radius: 6px;
   background: var(--surface);
@@ -33002,7 +33419,7 @@ html[data-theme="dark"] .you-dog-chat-sys__text {
   flex: 1;
   min-width: 0;
   min-height: 36px;
-  max-height: 120px;
+  max-height: 200px;
   resize: none;
   border-radius: 6px;
   border: 1px solid color-mix(in srgb, var(--accent) 12%, var(--border));

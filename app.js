@@ -2304,7 +2304,8 @@
     "表情须自然参差使用：约一半帖子/回复可完全不加 emoji；其余最多 1~2 个，可嵌在句中或单独成句，" +
     "禁止人人都在段末堆 emoji、禁止每段末尾固定加一个表情；" +
     "同一批内不同角色习惯应不同（有人爱用有人从不用）；" +
-    "禁止 [微笑]、[捂脸]、[表情] 等方括号表情文字。";
+    "表达情绪请直接用 Unicode emoji（如 😊😂🥺）或颜文字（如 (´·ω·`)）；" +
+    "严禁 [微笑]、[柴犬叹气]、[捂脸] 等方括号表情文字（微信/QQ 占位符，界面无法显示）。";
   /** 嗅闻博客：批量生成评论 */
   const YOU_DOG_BATCH_REPLIES_POST_LIMIT = 10;
   const YOU_DOG_BATCH_REPLIES_COMMENTS_PER_POST_MIN = 4;
@@ -2328,7 +2329,18 @@
   const YOU_DOG_PARALLEL_WORLD_RULE =
     "嗅闻博客与内置群聊均为平行世界：各角色仅以匿名马甲在此交流分享，彼此素不相识，" +
     "不会也不应暴露真实姓名、剧情身份，不可认出对方是谁；" +
-    "互动须按陌生网友关系，不可直呼真名、不可假装线下熟人、不可提「我们剧情里」「上次那件事」等跨线熟人梗。";
+    "互动须按陌生网友关系，不可直呼真名、不可假装线下熟人、不可提「我们剧情里」「上次那件事」等跨线熟人梗。" +
+    "各角色不在同一现实世界：不能约定线下见面、帮对方点外卖/寄快递/代付、同城碰头、上门探望等任何需跨世界实体完成的行动；" +
+    "若聊到此类话题，须以网友口吻带过（如「咱又不在一个城市」「线上说说得了」），不可当真执行或承诺。";
+  /** 群聊 ↔ 私聊：同一角色发言记忆互通 */
+  const YOU_DOG_GROUP_DM_SYNC_RULE =
+    "群聊与私聊记忆互通：每位角色须清楚记得自己在两个频道里说过的原话、立场与态度。" +
+    "群聊里某标签角色说了某话，该角色在私聊里仍认定「这是我自己说的」，不可当作别人说的、不可装作没说过或推翻原话；" +
+    "私聊里对用户说过的话，该角色本人记得（群友不知情，但本人不可失忆）；" +
+    "生成某角色发言前，须核对下方其群聊/私聊发言摘录，保持口径与人设一致，禁止张冠李戴。";
+  /** 群聊↔私聊互通：每位角色摘录条数上限 */
+  const YOU_DOG_GROUP_DM_SYNC_GROUP_SELF_LIMIT = 10;
+  const YOU_DOG_GROUP_DM_SYNC_DM_LIMIT = 10;
   /** 博客生成时参考群聊（偶发、可完全不提） */
   const YOU_DOG_FEED_FROM_CHAT_HINT =
     "下方群聊摘录仅作背景：本批 10 条里最多 0～1 条可隐约相关，其余全部写日常碎碎念；" +
@@ -2372,7 +2384,7 @@
   const YOU_DOG_ACTIVITY_PROACTIVE_DM_MIN = 5;
   const YOU_DOG_ACTIVITY_PROACTIVE_MSGS_PER_CHAR = 3;
   /** 活动私聊：单条消息字数上限（独立于群聊短句） */
-  const YOU_DOG_ACTIVITY_DM_TEXT_MAX = 800;
+  const YOU_DOG_ACTIVITY_DM_TEXT_MAX = 2000;
   /** 嗅闻博客：发帖风格参考（仅供语感，禁止照抄） */
   const YOU_DOG_FEED_STYLE_HINT =
     "语感参考（勿照抄）：「姐姐今天布置的任务是自己训练完去吃晚饭散步…她说晚上会给我打视频，嘿嘿」；" +
@@ -2401,7 +2413,10 @@
   /** 嗅闻博客群聊：每批最少/最多消息数 */
   const YOU_DOG_CHAT_MSGS_PER_BATCH_MIN = 16;
   const YOU_DOG_CHAT_MSGS_PER_BATCH_MAX = 24;
+  /** 群聊 AI 生成单条字数上限 */
   const YOU_DOG_CHAT_TEXT_MAX = 120;
+  /** 群聊用户手动发送字数上限 */
+  const YOU_DOG_CHAT_USER_TEXT_MAX = 2000;
   const YOU_DOG_CHAT_GROUP_NAME_MAX = 24;
   const YOU_DOG_CHAT_CATEGORY_NAME_MAX = 8;
   const YOU_DOG_CHAT_PROFILE_MAX_CHARS = 600;
@@ -2739,6 +2754,10 @@
     { id: "documentary", label: "Documentary (纪实)" },
   ];
   const VISUAL_REF_IMAGE_MAX = 3;
+  /** 参考图优先锁定五官与角度，尽量还原上传照片 */
+  const VISUAL_REF_FIDELITY_CLAUSE =
+    " Uploaded reference photos are the primary anchor for facial likeness AND pose when angle-matched. Closely match face shape, eye spacing, nose bridge, lip shape, jawline, hairline, hairstyle, hair color, skin tone, head angle, gaze direction, and facial expression from the best-matching reference. When multiple references show different angles, treat each ref as the guide for its respective angle while keeping identity consistent. Scene description controls outfit, location, and background—not the person's face or head angle unless no matching reference exists.";
+  const VISUAL_REF_ANGLE_SLOT_DEFAULTS = ["front", "three_quarter", "profile"];
   const DEFAULT_VISUAL_CELEBRITY_LOOKALIKE = "";
   const CELEBRITY_FACE_BLUEPRINTS = {
     朴宝剑: {
@@ -2751,12 +2770,16 @@
     "handsome East Asian male face, balanced oval proportions, clear fair skin, warm expressive eyes, refined nose, natural lips, thick dark hair with modern styling, photogenic sincere expression";
   const LEGACY_VISUAL_APPEARANCE_PROMPT_V2 =
     "Use the uploaded reference photos as the identity anchor. Reconstruct the same face across angles with consistent facial proportions, eye shape, nose bridge, lips, jawline, cheekbones, skin tone, hairstyle, hair volume, parting, and overall temperament. Preserve distinctive features from the reference; the celebrity lookalike is only a loose facial-structure guide, not a different person. Render as an authentic smartphone portrait—front-camera selfie or rear-camera portrait with phone-lens characteristics: slight wide-angle edge distortion, natural skin texture with visible pores and fine facial hair, believable asymmetry, auto-exposure, mild noise or JPEG compression, casual imperfect framing. No studio lighting, no beauty-filter smoothing, no DSLR bokeh, no 85mm portrait look.";
+  const LEGACY_VISUAL_APPEARANCE_PROMPT_V3 =
+    "Use uploaded reference photos as the only identity anchor: match facial proportions, eye shape, nose bridge, lips, jawline, cheekbones, skin tone, hairstyle, hair volume, parting, and temperament precisely. The result must be the same person from the photos, not a generic model. Render as a flattering authentic smartphone portrait—front-camera selfie or rear-camera portrait with phone-lens characteristics: slight wide-angle edge distortion, luminous natural skin with fine pores, believable asymmetry, auto-exposure, mild noise or JPEG compression, casual imperfect framing. Handsome photogenic beauty, soft flattering light on face. No studio lighting, no heavy beauty-filter plastic skin, no DSLR bokeh, no 85mm portrait look.";
   const LEGACY_VISUAL_APPEARANCE_PROMPT =
     "Use the uploaded reference photos as the identity anchor. Reconstruct the same face across angles with consistent facial proportions, eye shape, nose bridge, lips, jawline, cheekbones, skin tone, hairstyle, hair volume, parting, and overall temperament. Preserve distinctive features from the reference and the celebrity lookalike only as a loose structural guide, not a different person. Ultra-realistic skin texture with natural pores and fine facial hair, believable asymmetry, soft natural light, 85mm lens, shallow depth of field, documentary-grade portrait realism.";
   const LEGACY_VISUAL_DAILY_PROMPT =
     "Create a lived-in smartphone photo that feels like a real moment from a character's day, not a stock image. Keep the environment grounded, specific, and tied to the current剧情/关系/情绪: where the person is, what they are doing, what time of day it feels like, and what detail proves this is that exact moment. Favor candid framing, natural light, practical objects, subtle motion, and imperfect realism over beauty-shot polish. Include location clues, weather, reflections, clutter, and emotional atmosphere when relevant, shot like an authentic phone snapshot with realistic texture and depth.";
   const DEFAULT_VISUAL_APPEARANCE_PROMPT =
-    "Use uploaded reference photos as the only identity anchor: match facial proportions, eye shape, nose bridge, lips, jawline, cheekbones, skin tone, hairstyle, hair volume, parting, and temperament precisely. The result must be the same person from the photos, not a generic model. Render as a flattering authentic smartphone portrait—front-camera selfie or rear-camera portrait with phone-lens characteristics: slight wide-angle edge distortion, luminous natural skin with fine pores, believable asymmetry, auto-exposure, mild noise or JPEG compression, casual imperfect framing. Handsome photogenic beauty, soft flattering light on face. No studio lighting, no heavy beauty-filter plastic skin, no DSLR bokeh, no 85mm portrait look.";
+    "Use uploaded reference photos as the primary anchor: match facial proportions, eye shape, nose bridge, lips, jawline, cheekbones, skin tone, hairstyle, hair volume, parting, temperament, head angle, gaze, and expression—the same person as the photos, not a generic model." +
+    VISUAL_REF_FIDELITY_CLAUSE +
+    " Render as a flattering authentic smartphone portrait—front-camera selfie or rear-camera portrait with phone-lens characteristics: slight wide-angle edge distortion, luminous natural skin with fine pores, believable asymmetry, auto-exposure, mild noise or JPEG compression, casual imperfect framing. Handsome photogenic beauty, soft flattering light on face. No studio lighting, no heavy beauty-filter plastic skin, no DSLR bokeh, no 85mm portrait look.";
   const DEFAULT_VISUAL_DAILY_PROMPT =
     "Create a lived-in rear-camera smartphone photo like a viral social-media check-in snapshot—not a stock image or professional photography. Scenes may include café food, street snacks, travel landmarks, café interiors, natural landscapes, city skylines, or everyday street corners, styled like popular influencer check-in photos online. Keep the environment grounded and tied to the current plot, relationship, and mood: where the person is, what they are doing, time of day, and the one detail that proves this exact moment. Favor candid phone framing, natural ambient light, auto white balance, slight lens distortion, mild grain or JPEG compression, imperfect composition, reflections, clutter, and emotional atmosphere. Phone rear-camera realism only—no DSLR, no cinematic grading, no overly polished beauty-shot look.";
   let ttsSettings = {
@@ -2774,6 +2797,9 @@
   let storyTtsPlayingAv = null;
   let storyTtsObjectUrl = null;
   const storyTtsBlobMemoryCache = new Map();
+  const STORY_TTS_MEM_CACHE_MAX = 20;
+  let storyTtsPlayGeneration = 0;
+  let collectTtsFetchInFlight = false;
   let wbFilter = "all";
   let plotFilter = "all";
   let charFilter = "all";
@@ -2918,6 +2944,7 @@
       celebrityLookalike: DEFAULT_VISUAL_CELEBRITY_LOOKALIKE,
       visionCacheKey: "",
       visionCacheText: "",
+      visionPerPhotoMeta: [],
     },
     dailyRef: {
       imageDataUrls: [],
@@ -3066,6 +3093,20 @@
   let taskTodoCalendarYear = null;
   let taskTodoCalendarMonth = null;
   let taskTodoCalendarSelectedKey = null;
+  /** 日历回顾：角色 / 用户区块是否展开 */
+  let taskTodoCalendarExpanded = { char: false, user: false };
+  /** 专注计时：idle | running | paused */
+  let taskTodoFocusState = {
+    status: "idle",
+    name: "",
+    segmentStartedAt: null,
+    accumulatedMs: 0,
+  };
+  let taskTodoFocusTickTimer = null;
+  /** 专注回顾：week | month | year */
+  let taskTodoFocusReviewPeriod = "week";
+  /** 专注弹窗当前页：timer | review */
+  let taskTodoFocusModalTab = "timer";
 
   /** 电台：剧情 id */
   let radioPlotId = null;
@@ -3294,6 +3335,8 @@
   let youDogChatSetupStep = "tag";
   /** @type {{ memberTagNames: Record<string,string>, groupName: string, participantIds: string[], userCharId: string|null, isReopen?: boolean }} */
   let youDogChatSetupDraft = null;
+  /** 群聊：随剧情新增、尚未完成标签设置的角色 memberRef */
+  let youDogChatPendingTagRefs = [];
   /** 问卷弹层目标：group 群聊 | dm 私聊 */
   let youDogSurveyModalTarget = "group";
   let youDogSurveyComposeDraft = { title: "", questions: "" };
@@ -3423,6 +3466,37 @@
       youDogActivityHubTab = "dm-list";
     }
     ensureYouDogActivityBundle();
+    sanitizeYouDogActivityDmSessions();
+  }
+
+  function sanitizeYouDogActivityDmSessions() {
+    if (!isYouDogChatReady()) {
+      if (youDogActivityData && youDogActivityData.dmSessions) {
+        youDogActivityData.dmSessions = {};
+      }
+      return;
+    }
+    const validSet = new Set(getYouDogActivityMemberRefs());
+    Object.keys(youDogActivityData.dmSessions || {}).forEach(function (ref) {
+      if (!validSet.has(ref)) delete youDogActivityData.dmSessions[ref];
+    });
+    if (
+      youDogActivityDmRef &&
+      !validSet.has(youDogActivityDmRef)
+    ) {
+      youDogActivityDmRef = null;
+      if (youDogActivityScreen === "dm") youDogActivityScreen = "hub";
+      clearYouDogActivityDmInteractionState();
+    }
+    Object.keys(youDogActivityData.dmSessions || {}).forEach(function (ref) {
+      const session = youDogActivityData.dmSessions[ref];
+      if (!session || !Array.isArray(session.messages)) return;
+      session.messages.forEach(function (m) {
+        if (!m || !m.text) return;
+        const cleaned = stripYouDogBracketEmoji(m.text);
+        if (cleaned) m.text = cleaned.slice(0, YOU_DOG_ACTIVITY_DM_TEXT_MAX);
+      });
+    });
   }
 
   function ensureYouDogActivityBundle() {
@@ -3433,6 +3507,15 @@
     const bundle = youDogTwitterData[key];
     if (!Array.isArray(bundle.posts)) bundle.posts = [];
     if (!bundle.anonIdMap || typeof bundle.anonIdMap !== "object") bundle.anonIdMap = {};
+    (bundle.posts || []).forEach(function (p) {
+      if (!p) return;
+      if (p.text) p.text = stripYouDogBracketEmoji(p.text);
+      if (Array.isArray(p.comments)) {
+        p.comments.forEach(function (c) {
+          if (c && c.text) c.text = stripYouDogBracketEmoji(c.text);
+        });
+      }
+    });
     return bundle;
   }
 
@@ -3458,15 +3541,44 @@
 
   function getYouDogActivityDmSession(memberRef) {
     const ref = String(memberRef || "").trim();
-    if (!ref) return { messages: [] };
+    if (!ref) return { messages: [], lastReadAt: 0 };
     sanitizeYouDogActivityState();
     if (!youDogActivityData.dmSessions[ref]) {
-      youDogActivityData.dmSessions[ref] = { messages: [] };
+      youDogActivityData.dmSessions[ref] = { messages: [], lastReadAt: 0 };
     }
     if (!Array.isArray(youDogActivityData.dmSessions[ref].messages)) {
       youDogActivityData.dmSessions[ref].messages = [];
     }
+    if (typeof youDogActivityData.dmSessions[ref].lastReadAt !== "number") {
+      youDogActivityData.dmSessions[ref].lastReadAt = 0;
+    }
     return youDogActivityData.dmSessions[ref];
+  }
+
+  function hasYouDogActivityDmUnread(memberRef) {
+    const session = getYouDogActivityDmSession(memberRef);
+    const msgs = session.messages || [];
+    if (!msgs.length) return false;
+    const lastReadAt = typeof session.lastReadAt === "number" ? session.lastReadAt : 0;
+    return msgs.some(function (m) {
+      if (!m || m.role !== "char") return false;
+      const t = Number(m.time);
+      return Number.isFinite(t) && t > lastReadAt;
+    });
+  }
+
+  function markYouDogActivityDmRead(memberRef) {
+    const ref = String(memberRef || "").trim();
+    if (!ref) return;
+    const session = getYouDogActivityDmSession(ref);
+    session.lastReadAt = Date.now();
+    schedulePersistNarrative();
+  }
+
+  function syncYouDogActivityDmReadIfViewing(memberRef) {
+    const ref = String(memberRef || "").trim();
+    if (!ref || youDogActivityScreen !== "dm" || youDogActivityDmRef !== ref) return;
+    markYouDogActivityDmRead(ref);
   }
 
   function getYouDogActivityMemberLabel(memberRef) {
@@ -3515,7 +3627,10 @@
   }
 
   function capYouDogActivityDmText(text) {
-    return String(text || "").trim().slice(0, YOU_DOG_ACTIVITY_DM_TEXT_MAX);
+    return sanitizeChatBracketEmojiText(text)
+      .replace(/[ \t]{2,}/g, " ")
+      .trim()
+      .slice(0, YOU_DOG_ACTIVITY_DM_TEXT_MAX);
   }
 
   function ensureYouDogSurveysStore() {
@@ -3761,6 +3876,7 @@
     const lines = [
       "请让以下角色分别填写用户问卷，并以 JSON 返回每人的答案。",
       YOU_DOG_PARALLEL_WORLD_RULE,
+      YOU_DOG_GROUP_DM_SYNC_RULE,
       YOU_DOG_ACTIVITY_DM_FRIEND_RULE,
       "",
       buildYouDogUserProfilePromptBlock(),
@@ -3782,7 +3898,7 @@
       if (!plot) return;
       lines.push("════ " + getYouDogActivityMemberLabel(ref) + "（memberRef=" + ref + "）════");
       lines.push(buildYouDogChatPlotContextBlock(plot, parsed.charId));
-      lines.push("");
+      appendYouDogGroupDmSyncForMember(lines, ref);
     });
     lines.push(
       "要求：每人按人设真诚填写，口语自然，每题 1~3 句；答案须与角色性格、剧情一致。" +
@@ -3803,6 +3919,7 @@
     const lines = [
       "请让该角色填写用户私聊发来的问卷，并以 JSON 返回答案。",
       YOU_DOG_PARALLEL_WORLD_RULE,
+      YOU_DOG_GROUP_DM_SYNC_RULE,
       YOU_DOG_ACTIVITY_DM_FRIEND_RULE,
       "",
       buildYouDogUserProfilePromptBlock(),
@@ -3818,6 +3935,7 @@
       lines.push("════ " + getYouDogActivityMemberLabel(ref) + " · 性格参考 ════");
       lines.push(buildYouDogChatPlotContextBlock(plot, parsed.charId));
       lines.push("");
+      appendYouDogGroupDmSyncForMember(lines, ref);
     }
     lines.push(
       "要求：按人设真诚填写，口语自然，每题 1~3 句。" +
@@ -3860,8 +3978,8 @@
       const allowed = new Set(refs);
       let added = 0;
       list.forEach(function (item) {
-        const ref = String((item && item.memberRef) || "").trim();
-        if (!allowed.has(ref)) return;
+        const ref = resolveYouDogChatPoolMemberRef(item && item.memberRef, refs);
+        if (!ref || !allowed.has(ref)) return;
         if (appendYouDogSurveyDmCharReply(ref, surveyId, item && item.answers)) added++;
       });
       if (!added) throw new Error("未能生成有效的问卷回复");
@@ -4007,6 +4125,63 @@
       .join("\n");
   }
 
+  function buildYouDogMemberGroupSaysBlock(memberRef, limit) {
+    const ref = String(memberRef || "").trim();
+    if (!ref) return "";
+    const data = ensureYouDogChatData();
+    const cap = typeof limit === "number" ? limit : YOU_DOG_GROUP_DM_SYNC_GROUP_SELF_LIMIT;
+    const msgs = (data.messages || [])
+      .filter(function (m) {
+        return m && m.kind !== "system" && m.memberRef === ref;
+      })
+      .slice(-cap);
+    if (!msgs.length) return "";
+    return msgs
+      .map(function (m) {
+        const tag = m.tagName ? "「" + m.tagName + "」" : "";
+        return "- 我" + tag + "（群聊）：" + truncateCharsWithEllipsis(m.text || "", 120);
+      })
+      .join("\n");
+  }
+
+  function buildYouDogMemberDmSaysBlock(memberRef, limit) {
+    const ref = String(memberRef || "").trim();
+    if (!ref) return "";
+    const session = getYouDogActivityDmSession(ref);
+    const cap = typeof limit === "number" ? limit : YOU_DOG_GROUP_DM_SYNC_DM_LIMIT;
+    const msgs = (session.messages || [])
+      .filter(function (m) {
+        return m && m.role === "char" && m.kind !== "survey_reply";
+      })
+      .slice(-cap);
+    if (!msgs.length) return "";
+    return msgs
+      .map(function (m) {
+        return "- 我（私聊对用户）：" + truncateCharsWithEllipsis(m.text || "", 100);
+      })
+      .join("\n");
+  }
+
+  function appendYouDogGroupDmSyncForMember(lines, memberRef) {
+    const ref = String(memberRef || "").trim();
+    if (!ref) return false;
+    const label = getYouDogActivityMemberLabel(ref);
+    const groupSays = buildYouDogMemberGroupSaysBlock(ref);
+    const dmSays = buildYouDogMemberDmSaysBlock(ref);
+    if (!groupSays && !dmSays) return false;
+    lines.push("【" + label + " · 群聊/私聊记忆（生成该角色发言时须一致，不可失忆或张冠李戴）】");
+    if (groupSays) {
+      lines.push("该角色自己在群聊说过：");
+      lines.push(groupSays);
+    }
+    if (dmSays) {
+      lines.push("该角色自己在私聊对用户说过（群友不知道，但该角色本人记得）：");
+      lines.push(dmSays);
+    }
+    lines.push("");
+    return true;
+  }
+
   function buildYouDogActivityProactiveDmTopicRule() {
     return (
       "每条消息主题从以下类型中自然选取（不同角色可不同类型，不必统一）：\n" +
@@ -4028,6 +4203,7 @@
     const lines = [
       "请为「你才是狗·活动私聊」生成一批角色主动找用户私聊的消息 JSON。",
       YOU_DOG_PARALLEL_WORLD_RULE,
+      YOU_DOG_GROUP_DM_SYNC_RULE,
       YOU_DOG_ACTIVITY_DM_FRIEND_RULE,
       YOU_DOG_CHAT_TONE_RULE,
       "",
@@ -4043,7 +4219,7 @@
     ];
     const groupHistory = buildYouDogChatHistoryBlock(data, 24);
     if (groupHistory) {
-      lines.push("【群聊最近记录（可衔接，勿照搬）】");
+      lines.push("【群聊最近记录（须衔接，勿照搬；各角色须记得自己在群里的原话）】");
       lines.push(groupHistory);
       lines.push("");
     }
@@ -4056,6 +4232,7 @@
       if (!plot) return;
       lines.push("════ " + getYouDogActivityMemberLabel(memberRef) + " · 性格参考 ════");
       lines.push(buildYouDogChatPlotContextBlock(plot, parsed.charId));
+      appendYouDogGroupDmSyncForMember(lines, memberRef);
       const dmHistory = buildYouDogActivityDmHistoryBlock(memberRef, 6);
       if (dmHistory) {
         lines.push("【与该用户已有私聊（须衔接，勿重复）】");
@@ -4087,6 +4264,7 @@
     const lines = [
       "请为「你才是狗·活动私聊」生成角色主动找用户私聊的一条消息 JSON。",
       YOU_DOG_PARALLEL_WORLD_RULE,
+      YOU_DOG_GROUP_DM_SYNC_RULE,
       YOU_DOG_ACTIVITY_DM_FRIEND_RULE,
       YOU_DOG_CHAT_TONE_RULE,
       "",
@@ -4098,9 +4276,10 @@
       buildYouDogActivityProactiveDmTopicRule(),
       "",
     ];
+    appendYouDogGroupDmSyncForMember(lines, memberRef);
     const groupHistory = buildYouDogChatHistoryBlock(data, 20);
     if (groupHistory) {
-      lines.push("【群聊最近记录（可衔接，勿照搬）】");
+      lines.push("【群聊最近记录（须衔接，勿照搬；该角色须记得自己在群里的原话）】");
       lines.push(groupHistory);
       lines.push("");
     }
@@ -4470,6 +4649,9 @@
     modalTodoCalendar: () => document.getElementById("modal-todo-calendar"),
     todoCalendarSlot: () => document.getElementById("todo-calendar-slot"),
     todoCalendarClose: () => document.getElementById("todo-calendar-close"),
+    modalTodoFocus: () => document.getElementById("modal-todo-focus"),
+    todoFocusSlot: () => document.getElementById("todo-focus-slot"),
+    todoFocusClose: () => document.getElementById("todo-focus-close"),
     modalCollectHolder: () => document.getElementById("modal-collect-holder"),
     collectHolderClose: () => document.getElementById("collect-holder-close"),
     collectHolderStepBack: () => document.getElementById("collect-holder-step-back"),
@@ -5298,6 +5480,7 @@
     feed.addEventListener("click", function (e) {
       const speakAv = e.target.closest(".story-msg__avatar--speakable");
       if (!speakAv || !feed.contains(speakAv)) return;
+      if (speakAv.classList.contains("story-msg__avatar--speak-loading")) return;
       e.stopPropagation();
       e.preventDefault();
       const plotId = String(speakAv.getAttribute("data-story-speak-plot-id") || "").trim();
@@ -8621,6 +8804,18 @@
         if (typeof parsed.appearanceRef.visionCacheText === "string") {
           visualImageSettings.appearanceRef.visionCacheText = parsed.appearanceRef.visionCacheText;
         }
+        if (Array.isArray(parsed.appearanceRef.visionPerPhotoMeta)) {
+          visualImageSettings.appearanceRef.visionPerPhotoMeta = parsed.appearanceRef.visionPerPhotoMeta
+            .slice(0, VISUAL_REF_IMAGE_MAX)
+            .map(function (entry) {
+              if (!entry || typeof entry !== "object") return { angle: "", angleLabel: "", features: "" };
+              return {
+                angle: String(entry.angle || "").trim(),
+                angleLabel: String(entry.angleLabel || "").trim(),
+                features: String(entry.features || "").trim(),
+              };
+            });
+        }
       }
       if (parsed.dailyRef && typeof parsed.dailyRef === "object") {
         if (Array.isArray(parsed.dailyRef.imageDataUrls)) {
@@ -8668,6 +8863,19 @@
         visualImageSettings.appearanceRef.visionCacheText = "";
         migrated = true;
       }
+      if (appearancePrompt === LEGACY_VISUAL_APPEARANCE_PROMPT_V3.trim()) {
+        visualImageSettings.appearanceRef.prompt = DEFAULT_VISUAL_APPEARANCE_PROMPT;
+        visualImageSettings.appearanceRef.visionCacheKey = "";
+        visualImageSettings.appearanceRef.visionCacheText = "";
+        migrated = true;
+      }
+      if (/Do NOT copy reference head angle/i.test(appearancePrompt)) {
+        visualImageSettings.appearanceRef.prompt = DEFAULT_VISUAL_APPEARANCE_PROMPT;
+        visualImageSettings.appearanceRef.visionCacheKey = "";
+        visualImageSettings.appearanceRef.visionCacheText = "";
+        visualImageSettings.appearanceRef.visionPerPhotoMeta = [];
+        migrated = true;
+      }
       const dailyPrompt = String(visualImageSettings.dailyRef.prompt || "").trim();
       if (dailyPrompt === LEGACY_VISUAL_DAILY_PROMPT.trim()) {
         visualImageSettings.dailyRef.prompt = DEFAULT_VISUAL_DAILY_PROMPT;
@@ -8692,6 +8900,9 @@
             celebrityLookalike: String(visualImageSettings.appearanceRef.celebrityLookalike || "").trim(),
             visionCacheKey: String(visualImageSettings.appearanceRef.visionCacheKey || ""),
             visionCacheText: String(visualImageSettings.appearanceRef.visionCacheText || ""),
+            visionPerPhotoMeta: Array.isArray(visualImageSettings.appearanceRef.visionPerPhotoMeta)
+              ? visualImageSettings.appearanceRef.visionPerPhotoMeta.slice(0, VISUAL_REF_IMAGE_MAX)
+              : [],
           },
           dailyRef: {
             imageDataUrls: getVisualRefImages("daily").slice(0, VISUAL_REF_IMAGE_MAX),
@@ -8831,7 +9042,7 @@
 
   function buildVisualRefVisionCacheKey(urls) {
     return (
-      "v2-multi-ref|" +
+      "v4-ref-match|" +
       urls
         .map(function (u, i) {
           const s = String(u || "");
@@ -8841,25 +9052,191 @@
     );
   }
 
+  function normalizeVisualRefAngle(raw) {
+    const s = String(raw || "").trim().toLowerCase();
+    if (!s) return "";
+    if (/^(front|front-facing|frontal|正脸|正面)/.test(s)) return "front";
+    if (/^(three_quarter|three-quarter|3\/4|四分之三|半侧)/.test(s)) return "three_quarter";
+    if (/^(profile|side|侧脸|侧面|纯侧)/.test(s)) return "profile";
+    if (/^(candid|friend|他拍|后置|third-person)/.test(s)) return "candid";
+    return "";
+  }
+
+  function visualRefAngleLabelEn(angle) {
+    if (angle === "front") return "front-facing selfie";
+    if (angle === "three_quarter") return "3/4 turn portrait";
+    if (angle === "profile") return "side profile";
+    if (angle === "candid") return "friend-taken candid (他拍)";
+    return "portrait";
+  }
+
+  function detectVisualShotAngleFromText(text) {
+    const t = String(text || "");
+    if (/纯侧|侧脸|侧面照|side profile|clean side profile|profile shot/i.test(t)) return "profile";
+    if (/3\/4|四分之三|半侧|three.quarter|three-quarter/i.test(t)) return "three_quarter";
+    if (/他拍|朋友帮|friend.taken|candid portrait|后置拍|third.person/i.test(t)) return "candid";
+    if (/正脸|正面|front.selfie|front-facing|front camera selfie/i.test(t)) return "front";
+    if (/自拍/i.test(t)) return "front";
+    return "";
+  }
+
+  function getAppearanceRefAngleMeta() {
+    const ref = getVisualRefObj("appearance");
+    const urls = getVisualRefImages("appearance");
+    const meta = ref && Array.isArray(ref.visionPerPhotoMeta) ? ref.visionPerPhotoMeta : [];
+    return urls.map(function (_u, i) {
+      const entry = meta[i] && typeof meta[i] === "object" ? meta[i] : {};
+      const angle = normalizeVisualRefAngle(entry.angle) || VISUAL_REF_ANGLE_SLOT_DEFAULTS[i] || "front";
+      const angleLabel = String(entry.angleLabel || "").trim() || visualRefAngleLabelEn(angle);
+      return {
+        index: i,
+        angle: angle,
+        angleLabel: angleLabel,
+        features: String(entry.features || "").trim(),
+      };
+    });
+  }
+
+  function scoreVisualRefAngleMatch(refAngle, desiredAngle) {
+    if (!desiredAngle) return 0;
+    if (refAngle === desiredAngle) return 10;
+    if (desiredAngle === "three_quarter" && refAngle === "front") return 5;
+    if (desiredAngle === "profile" && refAngle === "three_quarter") return 5;
+    if (desiredAngle === "candid" && (refAngle === "front" || refAngle === "three_quarter")) return 4;
+    return 0;
+  }
+
+  function resolveAppearanceRefSelection(sceneText) {
+    const urls = getVisualRefImages("appearance");
+    const n = urls.length;
+    const perPhoto = getAppearanceRefAngleMeta();
+    const desired = detectVisualShotAngleFromText(sceneText);
+    if (!n) {
+      return { refCount: 0, indices: [], primaryIndex: 0, desiredAngle: desired, angleConstraint: "", perPhoto: [] };
+    }
+    if (n === 1) {
+      const only = perPhoto[0] || { index: 0, angle: "front", angleLabel: "front-facing selfie", features: "" };
+      return {
+        refCount: 1,
+        indices: [0],
+        primaryIndex: 0,
+        desiredAngle: only.angle,
+        angleConstraint:
+          " SINGLE REFERENCE CONSTRAINT: Only one reference photo was uploaded (" +
+          only.angleLabel +
+          "). Generate ONLY at this exact head angle, gaze direction, facial expression, and camera framing as ref-0—ignore any scene text that suggests a different angle. Face must look like the same person in the uploaded photo.",
+        perPhoto: perPhoto,
+      };
+    }
+    let primaryIndex = 0;
+    if (desired) {
+      let bestScore = -1;
+      perPhoto.forEach(function (p, i) {
+        const score = scoreVisualRefAngleMatch(p.angle, desired);
+        if (score > bestScore) {
+          bestScore = score;
+          primaryIndex = i;
+        }
+      });
+    } else {
+      const frontIdx = perPhoto.findIndex(function (p) {
+        return p.angle === "front";
+      });
+      primaryIndex = frontIdx >= 0 ? frontIdx : 0;
+    }
+    const mappingParts = perPhoto.map(function (p) {
+      return "ref-" + p.index + " (" + p.angleLabel + "): use as pose and face guide when generating " + p.angle + " shots";
+    });
+    return {
+      refCount: n,
+      indices: perPhoto.map(function (_p, i) {
+        return i;
+      }),
+      primaryIndex: primaryIndex,
+      desiredAngle: desired || perPhoto[primaryIndex].angle,
+      angleConstraint:
+        " MULTI-REFERENCE MAPPING: " +
+        n +
+        " angle references uploaded. " +
+        mappingParts.join("; ") +
+        ". For this generation, prioritize ref-" +
+        primaryIndex +
+        " as the primary angle match" +
+        (desired ? " (" + desired + ")" : "") +
+        ". Keep facial identity consistent; match head angle and expression from the best-matching reference.",
+      perPhoto: perPhoto,
+    };
+  }
+
+  function orderAppearanceRefBlobsBySelection(blobList, selection) {
+    const blobs = Array.isArray(blobList) ? blobList.filter(Boolean) : [];
+    if (!selection || !blobs.length || selection.primaryIndex <= 0) return blobs;
+    const pi = selection.primaryIndex;
+    if (pi >= blobs.length) return blobs;
+    const out = blobs.slice();
+    const primary = out.splice(pi, 1)[0];
+    out.unshift(primary);
+    return out;
+  }
+
+  function parseVisualRefVisionAnalysisResponse(text, photoCount) {
+    const raw = String(text || "").trim();
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "");
+    try {
+      const parsed = JSON.parse(cleaned);
+      if (parsed && typeof parsed.combined === "string" && parsed.combined.trim()) {
+        const photos = Array.isArray(parsed.photos) ? parsed.photos : [];
+        return { combined: parsed.combined.trim(), photos: photos };
+      }
+    } catch (_e) {}
+    return { combined: raw, photos: [] };
+  }
+
+  function normalizeVisionPerPhotoMeta(photos, photoCount) {
+    const count = Number(photoCount) || 0;
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      const entry = photos[i] && typeof photos[i] === "object" ? photos[i] : {};
+      const angle = normalizeVisualRefAngle(entry.angle) || VISUAL_REF_ANGLE_SLOT_DEFAULTS[i] || "front";
+      out.push({
+        angle: angle,
+        angleLabel: String(entry.angleLabel || entry.angleEn || "").trim() || visualRefAngleLabelEn(angle),
+        features: String(entry.features || "").trim(),
+      });
+    }
+    return out;
+  }
+
+  function buildAppearanceRefMatchClause(selection) {
+    const sel = selection || resolveAppearanceRefSelection("");
+    let clause = buildAllRefsIdentityClause(sel.refCount);
+    if (sel.angleConstraint) clause += sel.angleConstraint;
+    return clause;
+  }
+
   function buildAllRefsIdentityClause(refCount) {
     const n = Number(refCount) || 0;
-    if (n <= 0) return "";
-    if (n === 1) {
-      return " Study the attached reference photo carefully before generating.";
-    }
-    return (
+    if (n <= 0) return VISUAL_REF_FIDELITY_CLAUSE;
+    let clause =
       " You are given " +
       n +
-      " reference photos of the same person (labeled ref-0 through ref-" +
+      " reference photo(s) of the same person (labeled ref-0 through ref-" +
       (n - 1) +
-      "). Examine EVERY attached reference image and synthesize facial identity across all angles and lighting—do not rely on only the first photo."
-    );
+      ").";
+    if (n > 1) {
+      clause +=
+        " Examine EVERY attached reference. Each photo may show a different angle—use the matching ref as the pose and face guide for that angle while keeping identity consistent across all.";
+    } else {
+      clause +=
+        " This is the only reference—reproduce this person's face, head angle, gaze, and expression as closely as possible; do not change to a different angle.";
+    }
+    return clause + VISUAL_REF_FIDELITY_CLAUSE;
   }
 
   function buildSceneOutfitRichnessSuffix() {
     return (
       " Render rich, specific scene and styling detail: name concrete clothing items (fabric, color, fit, layers, accessories), hairstyle as styled for this moment, and a vivid background with readable environmental objects, textures, depth, and ambient light." +
-      " Outfit, pose, and location follow the scene description, not the reference photo wardrobe or setting."
+      " Outfit, location, and background follow the scene description; face, head angle, gaze, and expression follow the uploaded reference photo(s)."
     );
   }
 
@@ -8868,6 +9245,7 @@
     if (!ref) return;
     ref.visionCacheKey = "";
     ref.visionCacheText = "";
+    if (refKey === "appearance") ref.visionPerPhotoMeta = [];
   }
 
   function getCelebrityFaceBlueprint(celebrityName) {
@@ -8935,12 +9313,13 @@
     ).trim();
     let identity =
       refCount > 0
-        ? "CRITICAL IDENTITY LOCK — Recreate the exact same person from " +
+        ? "CRITICAL IDENTITY LOCK — Recreate the same person from " +
           refCount +
-          " uploaded reference photo(s). Match face shape, eyes, nose, lips, jaw, hair, skin tone precisely." +
+          " uploaded reference photo(s). Match face shape, eyes, nose, lips, jaw, hair, skin tone." +
           buildAllRefsIdentityClause(refCount)
         : "CRITICAL IDENTITY LOCK — " + DEFAULT_CELEBRITY_FACE_BLUEPRINT + ".";
-    if (visionDesc) identity += " Reference face analysis: " + visionDesc + ".";
+    if (visionDesc) identity += " Facial identity synthesized from all references: " + visionDesc + ".";
+    identity += buildMainCharacterPhysiquePrompt();
     identity +=
       " Flattering photogenic smartphone beauty portrait, luminous clear skin, soft natural light on face.";
     const looseHint = getOptionalLooseAestheticHint("appearance");
@@ -8973,11 +9352,19 @@
     return String((ref && ref.prompt) || fallback || "").trim();
   }
 
+  /** 生图时优先用视觉分析合并的多图五官描述，避免模型只看第一张参考图 */
+  function getVisualRefVisionOrPrompt(refKey) {
+    const ref = getVisualRefObj(refKey);
+    const cached = String((ref && ref.visionCacheText) || "").trim();
+    if (cached.length >= 24) return cached;
+    return getVisualRefManualPrompt(refKey);
+  }
+
   async function craftSelfieImageApiPrompt(internalPrompt, celebrityName) {
     const internal = String(internalPrompt || "").trim();
     if (!internal) return internal;
     const refCount = getVisualRefImages("appearance").length;
-    const visionDesc = getVisualRefManualPrompt("appearance");
+    const visionDesc = getVisualRefVisionOrPrompt("appearance");
     const scenePart = stripCelebrityNamesFromPrompt(internal, celebrityName);
 
     if (visionDesc.length >= 40) {
@@ -8985,13 +9372,14 @@
         refCount >= 1
           ? "CRITICAL — Same person as the " +
             refCount +
-            " attached reference photo(s). Face identity: " +
+            " attached reference photo(s). Facial identity: " +
             visionDesc +
-            ". Reproduce this exact individual; do not drift to a generic face." +
+            ". Preserve this individual's features; do not drift to a generic face." +
             buildAllRefsIdentityClause(refCount)
-          : "Face identity: " + visionDesc + ". Reproduce this exact individual; do not drift to a generic face.";
+          : "Face identity: " + visionDesc + ". Preserve this individual's features; do not drift to a generic face.";
       const looseHint = getOptionalLooseAestheticHint("appearance");
       if (looseHint) identity += looseHint;
+      identity += buildMainCharacterPhysiquePrompt();
       return sandwichIdentityPrompt(identity, truncateCharsWithEllipsis(scenePart, 520));
     }
 
@@ -9070,6 +9458,7 @@
             DEFAULT_VISUAL_APPEARANCE_PROMPT,
             LEGACY_VISUAL_APPEARANCE_PROMPT,
             LEGACY_VISUAL_APPEARANCE_PROMPT_V2,
+            LEGACY_VISUAL_APPEARANCE_PROMPT_V3,
           ];
     return defaults.some(function (d) {
       return p === String(d || "").trim();
@@ -9130,17 +9519,25 @@
   async function buildGptImageEditsSelfiePrompt(sceneOpts) {
     sceneOpts = sceneOpts || {};
     const refCount = getVisualRefImages("appearance").length;
-    const visionDesc = getVisualRefManualPrompt("appearance");
+    const visionDesc = getVisualRefVisionOrPrompt("appearance");
+    const sceneText = [sceneOpts.snapLine, sceneOpts.chatContext, sceneOpts.regenerateDirection]
+      .map(function (s) {
+        return String(s || "").trim();
+      })
+      .filter(Boolean)
+      .join("; ");
+    const refSelection = resolveAppearanceRefSelection(sceneText);
     const parts = [
-      "Generate a photorealistic smartphone portrait of the EXACT SAME PERSON shown across all " +
+      "Generate a photorealistic smartphone portrait of the SAME PERSON shown across all " +
         refCount +
         " attached reference photo(s)." +
-        buildAllRefsIdentityClause(refCount) +
-        " Face identity is the absolute highest priority: match face shape, eye spacing, nose bridge, lip shape, jawline, hairline, hairstyle, hair color, and skin tone precisely from every reference photo. Do not invent a different or generic face.",
+        buildAppearanceRefMatchClause(refSelection) +
+        " Face identity is the highest priority: closely match face shape, eye spacing, nose bridge, lip shape, jawline, hairline, hairstyle, hair color, skin tone, head angle, gaze, and expression from the best-matching reference photo.",
     ];
     if (visionDesc) {
-      parts.push("Facial identity from references: " + truncateCharsWithEllipsis(visionDesc, 400) + ".");
+      parts.push("Facial identity synthesized from all references: " + truncateCharsWithEllipsis(visionDesc, 400) + ".");
     }
+    parts.push(buildMainCharacterPhysiquePrompt());
     const charName = String(sceneOpts.charName || "").trim();
     const userName = String(sceneOpts.userName || "").trim();
     if (charName) {
@@ -9160,17 +9557,14 @@
     const regenerateDirection = String(sceneOpts.regenerateDirection || "").trim();
     if (regenerateDirection) {
       parts.push(
-        "Adjust only pose/expression/lighting/outfit: " +
+        "Adjust outfit/lighting/background as directed: " +
           truncateCharsWithEllipsis(regenerateDirection, 200) +
-          ". Keep the same face from reference photos."
+          ". Keep facial identity, head angle, gaze, and expression from the best-matching reference photo."
       );
     }
     const looseHint = getOptionalLooseAestheticHint("appearance");
     if (looseHint) parts.push(looseHint);
-    parts.push(
-      "Eye-level phone portrait (selfie, side profile, or friend-taken candid—no death angles), natural ambient light, authentic smartphone photo realism."
-    );
-    parts.push(buildSceneOutfitRichnessSuffix());
+    parts.push(buildFlexiblePhonePhotoFramingSuffix(refSelection));
     return parts.join(" ");
   }
 
@@ -9178,17 +9572,27 @@
     sceneOpts = sceneOpts || {};
     const cfg = cfgOverride || resolveVisualImageApiConfig();
     const celebrity = getVisualRefCelebrityLookalike("appearance");
+    const sceneText = [sceneOpts.snapLine, sceneOpts.chatContext, internalPrompt, sceneOpts.regenerateDirection]
+      .map(function (s) {
+        return String(s || "").trim();
+      })
+      .filter(Boolean)
+      .join("; ");
+    const refSelection = resolveAppearanceRefSelection(sceneText);
+    const appearanceBlobs = orderAppearanceRefBlobsBySelection(
+      getVisualRefImageBlobList("appearance"),
+      refSelection
+    );
     const appearanceB64 = getVisualRefImageBase64List("appearance");
     if (hasVisualRefImagesForAnalysis("appearance")) {
       showToast("正在用参考图生成自拍…", "info", 3600);
     }
 
-    const appearanceBlobs = getVisualRefImageBlobList("appearance");
     if (cfg && appearanceBlobs.length && isGptImageModel(cfg.model)) {
       try {
         const editsPrompt = await buildGptImageEditsSelfiePrompt(sceneOpts);
         showToast("正在用参考图锁定人脸（gpt-image edits）…", "info", 3600);
-        return await postVisualImageEditsWithRefs(cfg, editsPrompt, appearanceBlobs);
+        return await postVisualImageEditsWithRefs(cfg, editsPrompt, appearanceBlobs, { inputFidelity: "high" });
       } catch (editsErr) {
         console.warn("callSelfieVisualImageGeneration edits", editsErr);
         if (appearanceBlobs.length) {
@@ -9218,16 +9622,19 @@
     if (!looseHint) {
       return (
         out +
-        " Use uploaded reference photos as the sole identity anchor; preserve the same person across every generation. Outfit, mood, and atmosphere follow the scene, not the reference photo styling."
+        " Use uploaded reference photos as the primary anchor; preserve the same person's facial features, head angle, and expression from the best-matching reference." +
+        VISUAL_REF_FIDELITY_CLAUSE +
+        " Outfit, mood, and atmosphere follow the scene; face and pose follow the reference photo(s)."
       );
     }
-    return out + looseHint + " Reference photos remain the primary identity anchor; outfit and scene follow the chat moment.";
+    return out + looseHint + " Reference photos anchor facial likeness and angle; outfit and scene follow the chat moment.";
   }
 
   function buildMainCharacterPhysiquePrompt() {
     return (
-      " Body: athletic male with broad shoulders, narrow waist, defined V-taper torso (宽肩窄腰);" +
-      " lean toned musculature naturally visible under clothing, fit and proportionate, not exaggerated bodybuilder bulk."
+      " Body: moderately muscular athletic male build with noticeably broad shoulders, solid chest, and defined upper back;" +
+      " narrow waist with clear V-taper torso (宽肩窄腰); healthy fit physique with visible muscle tone under clothing." +
+      " Avoid slim, lanky, narrow-shouldered, or underweight body types—not bodybuilder bulk, but clearly sturdy and appropriately built."
     );
   }
 
@@ -9244,16 +9651,17 @@
     return out;
   }
 
-  function buildUploadedFaceIdentityPrompt(visionDesc) {
+  function buildUploadedFaceIdentityPrompt(visionDesc, refSelection) {
     const refCount = getVisualRefImages("appearance").length;
     const vision = String(visionDesc || "").trim();
+    const selection = refSelection || resolveAppearanceRefSelection("");
     let out = "";
     if (refCount > 0) {
       out =
-        "HIGHEST PRIORITY — Generate the exact same person shown in the " +
+        "HIGHEST PRIORITY — Generate the same person from the " +
         refCount +
-        " uploaded reference photo(s). Lock identity: same face shape, eye spacing, nose bridge, lip shape, jawline, hairline, hairstyle, hair color, skin tone. Reference photos are the sole identity source; do not drift to a generic or different face." +
-        buildAllRefsIdentityClause(refCount);
+        " uploaded reference photo(s). Lock facial identity and pose: face shape, eye spacing, nose bridge, lip shape, jawline, hairline, hairstyle, hair color, skin tone, head angle, gaze, and expression." +
+        buildAppearanceRefMatchClause(selection);
       if (vision) out += " Facial features synthesized from all reference photos: " + vision + ".";
     } else {
       out =
@@ -9269,18 +9677,41 @@
     return out;
   }
 
-  function buildCelebrityFaceIdentityPrompt() {
-    return buildUploadedFaceIdentityPrompt(getVisualRefManualPrompt("appearance"));
+  function buildCelebrityFaceIdentityPrompt(sceneText) {
+    return buildUploadedFaceIdentityPrompt(
+      getVisualRefVisionOrPrompt("appearance"),
+      resolveAppearanceRefSelection(sceneText || "")
+    );
   }
 
-  function buildFlexiblePhonePhotoFramingSuffix() {
-    return (
-      " Eye-level smartphone portrait only: camera at subject eye height or up to 10° above, never bird's-eye overhead, never low-angle worm's-eye or dramatic chin-up death angle." +
-      " Allowed framing: front-camera selfie, slight 3/4 turn, clean side profile, or friend-taken candid portrait (他拍) at standing/sitting height—natural distance, subject may look at camera or away." +
+  function buildFlexiblePhonePhotoFramingSuffix(refSelection) {
+    const selection = refSelection || resolveAppearanceRefSelection("");
+    const n = selection.refCount || 0;
+    let framing =
+      " Eye-level smartphone portrait only: camera at subject eye height or up to 10° above, never bird's-eye overhead, never low-angle worm's-eye or dramatic chin-up death angle.";
+    if (n === 1 && selection.perPhoto && selection.perPhoto[0]) {
+      const angle = selection.perPhoto[0].angle;
+      const angleMap = {
+        front: " Match the single uploaded reference: front-facing phone selfie at eye level, same head angle and gaze as ref-0.",
+        three_quarter:
+          " Match the single uploaded reference: slight 3/4 turn phone portrait at eye level, same head angle as ref-0.",
+        profile: " Match the single uploaded reference: clean side profile at eye level, same head angle as ref-0.",
+        candid:
+          " Match the single uploaded reference: friend-taken candid portrait (他拍) at natural distance, same framing as ref-0.",
+      };
+      framing += angleMap[angle] || " Match the single uploaded reference photo's head angle and framing exactly.";
+    } else if (n > 1) {
+      framing +=
+        " Use the reference photo that matches the intended shot angle (front selfie, 3/4 turn, side profile, or friend-taken candid). Do not invent angles that have no matching reference.";
+    } else {
+      framing +=
+        " Allowed framing: front-camera selfie, slight 3/4 turn, clean side profile, or friend-taken candid portrait (他拍) at standing/sitting height—natural distance, subject may look at camera or away.";
+    }
+    framing +=
       " Natural ambient light, auto exposure, mild noise or JPEG compression, casual imperfect framing." +
       buildSceneOutfitRichnessSuffix() +
-      visualImageStylePromptSuffix()
-    );
+      visualImageStylePromptSuffix();
+    return framing;
   }
 
   async function analyzeVisualRefImagesWithVision(refKey) {
@@ -9294,7 +9725,7 @@
     const isAppearance = refKey === "appearance";
     const imageParts = buildVisualRefImagePartsForVision(refKey);
     const systemContent = isAppearance
-      ? "你是专业人像分析师。用户上传多张同一人物的参考照片（可能含正脸、侧脸、他拍等不同角度）。你必须逐张查看每一张参考图，再综合全部角度写一段英文文生图描述。内容仅限：脸型、颧骨、下颌、眼型、鼻型、唇形、发型、发色、肤色、肩宽腰细体型（宽肩窄腰 V 型躯干）；若不同照片展示了侧脸或半脸，须分别提取并合并为同一人的完整特征。禁止只依据第一张图。不要描述衣着、场景、氛围、姿态或表情。不要提及任何明星、艺人或公众人物姓名。描述应适用于手机自拍/手机人像，不要写专业相机镜头参数。只输出描述正文，不要标题、不要 markdown、不要中文。"
+      ? "你是专业人像分析师。用户上传多张同一人物的参考照片（可能含正脸、侧脸、他拍等不同角度）。你必须逐张查看每一张参考图，再综合全部角度输出 JSON。字段：combined（英文，合并全部角度的五官与体型描述，供文生图使用）；photos（数组，与参考图顺序一致，每项含 index、angle（front|three_quarter|profile|candid 之一）、angleLabel（英文角度说明）、features（英文，该张图的五官特征摘要））。combined 内容仅限：脸型、颧骨、下颌、眼型、鼻型、唇形、发型、发色、肤色、体型（宽肩壮实、适度肌肉感、宽肩窄腰 V 型躯干，避免瘦弱窄肩）；须合并全部角度为同一人的完整特征，禁止只依据第一张。不要描述衣着、场景、氛围。不要提及任何明星、艺人或公众人物姓名。不要写专业相机镜头参数。只输出合法 JSON，不要 markdown、不要中文。"
       : "你是场景与影像分析师。用户上传多张日常/环境参考照片。请逐张查看并综合这些图，用英文写一段精确的场景与影像风格描述：rear-camera 手机快照特征，包括地点类型、光线、色调、构图、氛围、常见打卡元素（美食、街景、自然风光、城市景色等）与材质。只描述照片里的场景与影像风格，不要描述人物五官或身份。只输出描述正文，不要标题、不要 markdown、不要中文。";
     const userContent = [
       {
@@ -9303,8 +9734,11 @@
           "以下为 " +
           urls.length +
           " 张参考图（" +
-          (isAppearance ? "同一人物不同角度；请逐张分析后合并，勿只看第一张" : "场景/环境参考；请逐张分析后合并") +
-          "）。请合并成一条统一的英文描述，供后续 images/generations 使用。",
+          (isAppearance
+            ? "同一人物不同角度；请逐张分析每张的角度类型与五官特征，再合并；后续生图将尽量还原各参考图的角度与五官"
+            : "场景/环境参考；请逐张分析后合并") +
+          "）。请输出供后续 images/generations 使用的描述。" +
+          (isAppearance ? " 输出 JSON：{combined, photos:[{index, angle, angleLabel, features}, ...]}。" : ""),
       },
     ];
     urls.forEach(function (_url, i) {
@@ -9324,7 +9758,16 @@
         900,
         { apiConfigId: getWorkbenchApiId(), skipGenPaw: true }
       );
-      const desc = String(text || "").trim();
+      let desc = "";
+      if (isAppearance) {
+        const parsedVision = parseVisualRefVisionAnalysisResponse(text, urls.length);
+        desc = String(parsedVision.combined || "").trim();
+        if (desc.length >= 24) {
+          ref.visionPerPhotoMeta = normalizeVisionPerPhotoMeta(parsedVision.photos, urls.length);
+        }
+      } else {
+        desc = String(text || "").trim();
+      }
       if (desc.length >= 24) {
         ref.visionCacheKey = cacheKey;
         ref.visionCacheText = desc;
@@ -9342,8 +9785,9 @@
     return appendVisualCelebrityLookalikeToPrompt(manual, "appearance");
   }
 
-  async function buildPhotoAnchoredSelfieIdentityBlock() {
-    return buildUploadedFaceIdentityPrompt(getVisualRefManualPrompt("appearance"));
+  async function buildPhotoAnchoredSelfieIdentityBlock(sceneText) {
+    const selection = resolveAppearanceRefSelection(sceneText || "");
+    return buildUploadedFaceIdentityPrompt(getVisualRefVisionOrPrompt("appearance"), selection);
   }
 
   async function resolveVisualDailyPromptBase() {
@@ -9357,22 +9801,29 @@
   async function buildKnockSelfieGenerationPrompt(partnerChar, opts) {
     opts = opts || {};
     const name = String((partnerChar && partnerChar.name) || "the character").trim();
-    let prompt = await buildPhotoAnchoredSelfieIdentityBlock();
+    const chatContext = String(opts.chatContext || "").trim();
+    const snapLine = String(opts.snapLine || "").trim();
+    const sceneText = [snapLine, chatContext, opts.regenerateDirection]
+      .map(function (s) {
+        return String(s || "").trim();
+      })
+      .filter(Boolean)
+      .join("; ");
+    const refSelection = resolveAppearanceRefSelection(sceneText);
+    let prompt = await buildPhotoAnchoredSelfieIdentityBlock(sceneText);
     const userChar = getCharById(knockUserCharId);
     const userName = String((userChar && userChar.name) || "用户").trim() || "用户";
     prompt += buildMainCharacterPhotoSubjectPrompt(name, userName);
     prompt += " Subject: " + name + ".";
-    const chatContext = String(opts.chatContext || "").trim();
     if (chatContext) {
       prompt +=
         " Current moment outfit, location, mood, and background details (from chat only): " +
         truncateCharsWithEllipsis(chatContext, 480) +
         ".";
     }
-    const snapLine = String(opts.snapLine || "").trim();
     if (snapLine) {
       prompt +=
-        " Intended shot (face identity always from reference photos; scene details): " +
+        " Intended shot (face and angle from best-matching reference photo; scene details from chat): " +
         truncateCharsWithEllipsis(snapLine, 360) +
         ".";
     }
@@ -9381,9 +9832,9 @@
       prompt +=
         " User adjustment: " +
         truncateCharsWithEllipsis(regenerateDirection, 220) +
-        ". Keep the same face from reference photos; adjust pose, expression, lighting, outfit, or mood only.";
+        ". Keep facial identity, head angle, gaze, and expression from the best-matching reference photo; adjust outfit, lighting, or background as directed.";
     }
-    if (!opts.omitStyleSuffix) prompt += buildFlexiblePhonePhotoFramingSuffix();
+    if (!opts.omitStyleSuffix) prompt += buildFlexiblePhonePhotoFramingSuffix(refSelection);
     return prompt;
   }
 
@@ -9645,11 +10096,18 @@
     const dailyB64 = opts.useDailyRef ? getVisualRefImageBase64List("daily") : [];
     const refB64 = appearanceB64.length ? appearanceB64 : dailyB64;
     const requireRef = !!opts.requireRef || refB64.length > 0;
-    const refBlobList = appearanceB64.length
+    let refBlobList = appearanceB64.length
       ? getVisualRefImageBlobList("appearance")
       : dailyB64.length
         ? getVisualRefImageBlobList("daily")
         : [];
+    if (opts.useAppearanceRef && refBlobList.length) {
+      const sceneText = String(baseBody.prompt || "").trim();
+      refBlobList = orderAppearanceRefBlobsBySelection(
+        refBlobList,
+        resolveAppearanceRefSelection(sceneText)
+      );
+    }
 
     if (requireRef && refBlobList.length && isGptImageModel(cfg.model) && !opts.skipGptImageEdits) {
       try {
@@ -9658,7 +10116,9 @@
           "info",
           3600
         );
-        return await postVisualImageEditsWithRefs(cfg, baseBody.prompt, refBlobList);
+        return await postVisualImageEditsWithRefs(cfg, baseBody.prompt, refBlobList, {
+          inputFidelity: "high",
+        });
       } catch (editsErr) {
         console.warn("postVisualImageEditsWithRefs", editsErr);
         if (opts.useAppearanceRef && appearanceB64.length) {
@@ -9747,7 +10207,7 @@
     return (
       "\n\n【发图·仅主要角色】你可在合适时机发照片（手机自拍、手机随手拍的眼前景象），像真人微信一样克制，不要频繁发图；整段对话里通常 0～1 条 <<<SNAP>>> 即可，不要连续多轮都发。" +
       "格式：单独一行 <<<SNAP>>>简短画面描述（中文或英文均可）<<<SNAP>>>，可与 <<<BUBBLE>>> 文字气泡混发。" +
-      "自拍是你本人（主要角色）出镜，宽肩窄腰健美体型，镜头与眼睛平齐或略高，禁止俯拍仰拍等死亡角度；允许正脸、3/4侧脸、纯侧脸或他拍（朋友帮忙拍）等自然手机人像。景象是你此刻用手机后置镜头拍下、眼前看到的（不是用户那边）。" +
+      "自拍是你本人（主要角色）出镜，宽肩窄腰健美体型，镜头与眼睛平齐或略高，禁止俯拍仰拍等死亡角度。若外貌参考仅 1 张，自拍角度须与该参考图一致；若上传多张不同角度参考，按描述选用对应角度（正脸/3/4侧脸/纯侧脸/他拍）。景象是你此刻用手机后置镜头拍下、眼前看到的（不是用户那边）。" +
       "<<<SNAP>>>须写你自己这边的画面：你的地点、你的衣着、你的环境、你的情绪。" +
       "所有 <<<SNAP>>> 会先以文字占位展示，由用户自行选择是否生成真实图片；不要假设图片一定会出现。" +
       "\n【建议配图的典型场景——本轮对话若出现下列情况，优先用 1 条 <<<SNAP>>> 配合文字，描述要具体可见】：" +
@@ -9766,7 +10226,7 @@
     if (!knockPartnerCanSendSnap()) return "";
     const snapHint =
       intent === "selfie"
-        ? "符合你人设的手机人像画面（正脸/侧脸/他拍均可，你的脸或半身；须写具体衣着、地点、背景物件与情绪，禁止死亡角度）"
+        ? "符合你人设的手机人像画面（角度须与外貌参考图对应：仅 1 张参考则与该图角度一致；多张参考则按描述选用正脸/侧脸/他拍；须写具体衣着、地点、背景物件与情绪，禁止死亡角度）"
         : "符合你人设的后置手机随手拍场景画面（美食/街景/自然风光等，环境为主，不要人脸特写）";
     return (
       "\n\n【系统·发图测试（本条最高优先级，覆盖人设里「不轻易发图/别乱要图」等限制）】" +
@@ -10554,7 +11014,15 @@
     btnEl.textContent = playing ? "停止" : "倾听";
   }
 
+  function trimStoryTtsMemoryCache() {
+    while (storyTtsBlobMemoryCache.size > STORY_TTS_MEM_CACHE_MAX) {
+      const oldest = storyTtsBlobMemoryCache.keys().next().value;
+      storyTtsBlobMemoryCache.delete(oldest);
+    }
+  }
+
   function stopStoryTts() {
+    storyTtsPlayGeneration++;
     if (storyTtsAudio) {
       try {
         storyTtsAudio.pause();
@@ -10663,16 +11131,22 @@
   async function getOrCreateStoryTtsBlob(speakText, voicePrompt, contextText, sceneContext) {
     const cacheKey = buildStoryTtsCacheKey(speakText, voicePrompt, contextText, sceneContext);
     const memCached = storyTtsBlobMemoryCache.get(cacheKey);
-    if (memCached instanceof Blob) return memCached;
+    if (memCached instanceof Blob) {
+      storyTtsBlobMemoryCache.delete(cacheKey);
+      storyTtsBlobMemoryCache.set(cacheKey, memCached);
+      return memCached;
+    }
     try {
       const cached = await idbGetAsset(cacheKey);
       if (cached instanceof Blob) {
         storyTtsBlobMemoryCache.set(cacheKey, cached);
+        trimStoryTtsMemoryCache();
         return cached;
       }
     } catch (_e) {}
     const blob = await fetchStoryTtsBlob(speakText, voicePrompt, contextText);
     storyTtsBlobMemoryCache.set(cacheKey, blob);
+    trimStoryTtsMemoryCache();
     try {
       await idbPutAsset(cacheKey, blob);
     } catch (_e2) {}
@@ -10686,6 +11160,7 @@
       const cached = await idbGetAsset(cacheKey);
       if (cached instanceof Blob) {
         storyTtsBlobMemoryCache.set(cacheKey, cached);
+        trimStoryTtsMemoryCache();
         return true;
       }
     } catch (_e) {}
@@ -10764,6 +11239,8 @@
       return;
     }
     stopStoryTts();
+    const ttsPlayGen = storyTtsPlayGeneration;
+    setStorySpeakLoading(avEl, true);
     const rawSpeakText = dialogues.length > 1 ? dialogues.join("，") : dialogues[0];
     const contextText = extractStoryDialogueContext(displayText);
     const sceneContext = collectStoryTtsSceneContext(plot, turnIndex, lineIndex);
@@ -10776,9 +11253,17 @@
       addressee: addressee,
     });
     const isCached = await storyTtsBlobIsCached(speakText, voicePrompt, contextText, sceneContext);
-    if (!isCached) setStorySpeakLoading(avEl, true);
+    if (ttsPlayGen !== storyTtsPlayGeneration) {
+      setStorySpeakLoading(avEl, false);
+      return;
+    }
+    if (isCached) setStorySpeakLoading(avEl, false);
     try {
       const blob = await getOrCreateStoryTtsBlob(speakText, voicePrompt, contextText, sceneContext);
+      if (ttsPlayGen !== storyTtsPlayGeneration) {
+        setStorySpeakLoading(avEl, false);
+        return;
+      }
       const objUrl = URL.createObjectURL(blob);
       storyTtsObjectUrl = objUrl;
       storyTtsAudio = new Audio(objUrl);
@@ -10834,6 +11319,8 @@
       return;
     }
     stopStoryTts();
+    const ttsPlayGen = storyTtsPlayGeneration;
+    setFavoriteListenLoading(btnEl, true);
     const rawSpeakText = dialogues.length > 1 ? dialogues.join("，") : dialogues[0];
     const contextText = extractStoryDialogueContext(item.content);
     const sceneContext = "";
@@ -10849,9 +11336,21 @@
     const isCached =
       hadSavedAudio ||
       (await storyTtsBlobIsCached(speakText, voicePrompt, contextText, sceneContext));
-    if (!isCached) setFavoriteListenLoading(btnEl, true);
+    if (ttsPlayGen !== storyTtsPlayGeneration) {
+      setFavoriteListenLoading(btnEl, false);
+      plotFavoriteTtsPlayingId = null;
+      plotFavoriteTtsBtn = null;
+      return;
+    }
+    if (isCached) setFavoriteListenLoading(btnEl, false);
     try {
       const blob = await getOrCreateStoryTtsBlob(speakText, voicePrompt, contextText, sceneContext);
+      if (ttsPlayGen !== storyTtsPlayGeneration) {
+        setFavoriteListenLoading(btnEl, false);
+        plotFavoriteTtsPlayingId = null;
+        plotFavoriteTtsBtn = null;
+        return;
+      }
       if (item.ttsAudioKey !== cacheKey) {
         item.ttsAudioKey = cacheKey;
         schedulePersistNarrative();
@@ -11218,6 +11717,9 @@
       youDogMessagesSegment: youDogMessagesSegment || "group",
       youDogChatSubScreen: youDogOnChatTab() ? "chat" : "feed",
       youDogChatData: youDogChatData || null,
+      youDogChatPendingTagRefs: Array.isArray(youDogChatPendingTagRefs)
+        ? youDogChatPendingTagRefs.slice()
+        : [],
       youDogChatParticipantIds: Array.isArray(youDogChatParticipantIds) ? youDogChatParticipantIds.slice() : [],
       youDogChatSpeakerPoolRefs: Array.isArray(youDogChatSpeakerPoolRefs)
         ? youDogChatSpeakerPoolRefs.slice()
@@ -11745,6 +12247,12 @@
       normalizeYouDogMainTabLayout();
       syncYouDogLegacyChatSubScreen();
       youDogChatData = normalizeYouDogChatData(o.youDogChatData);
+      youDogChatPendingTagRefs = [];
+      if (Array.isArray(o.youDogChatPendingTagRefs)) {
+        youDogChatPendingTagRefs = o.youDogChatPendingTagRefs.filter(function (ref) {
+          return typeof ref === "string" && ref.trim();
+        });
+      }
       youDogChatParticipantIds = [];
       if (Array.isArray(o.youDogChatParticipantIds)) {
         youDogChatParticipantIds = o.youDogChatParticipantIds.filter(function (id) {
@@ -13617,7 +14125,8 @@
     return root + "/images/edits";
   }
 
-  function buildVisualImageEditsFormData(model, prompt, blobList, imageFieldName) {
+  function buildVisualImageEditsFormData(model, prompt, blobList, imageFieldName, opts) {
+    opts = opts || {};
     const formData = new FormData();
     const modelName = String(model || "").trim();
     const refCount = Array.isArray(blobList) ? blobList.filter(Boolean).length : 0;
@@ -13629,7 +14138,7 @@
     formData.append("n", "1");
     formData.append("size", "1024x1024");
     if (/gpt-image-1/i.test(modelName) && !/gpt-image-2/i.test(modelName)) {
-      formData.append("input_fidelity", "high");
+      formData.append("input_fidelity", String(opts.inputFidelity || "high").trim() || "high");
     }
     if (/gpt-image/i.test(modelName)) {
       formData.append("quality", "high");
@@ -13676,14 +14185,15 @@
     }
   }
 
-  async function postVisualImageEditsWithRefs(cfg, prompt, blobList) {
+  async function postVisualImageEditsWithRefs(cfg, prompt, blobList, opts) {
+    opts = opts || {};
     const blobs = Array.isArray(blobList) ? blobList.filter(Boolean) : [];
     if (!blobs.length) throw new Error("无参考图");
     const fieldVariants = ["image[]", "image"];
     let lastErr = null;
     for (let fi = 0; fi < fieldVariants.length; fi++) {
       const field = fieldVariants[fi];
-      const formData = buildVisualImageEditsFormData(cfg.model, prompt, blobs, field);
+      const formData = buildVisualImageEditsFormData(cfg.model, prompt, blobs, field, opts);
       try {
         let result = await postVisualImageEditsRequest(cfg.endpoint, cfg.apiKey, formData);
         let resp = result.resp;
@@ -14650,7 +15160,7 @@
     return parts.join("\n");
   }
 
-  /** 小狗饭/续写等：以剧情内人设为准（含 myCharacterOverride、characterOverrides） */
+  /** 点星各应用 / 续写等：以剧情内人设为准（含 myCharacterOverride、characterOverrides），无覆盖时再回退角色库。 */
   function buildCharacterProfileFromPlot(plot, characterId) {
     const cid = String(characterId || "").trim();
     if (!cid) return "";
@@ -14667,6 +15177,32 @@
     const ov = getPlotCharacterOverride(plot, cid);
     if (ov && ov.profile) return String(ov.profile).trim();
     return buildCharacterProfileFromLibrary(ch);
+  }
+
+  function hasPlotCharacterProfileOverride(plot, characterId) {
+    if (!plot || !characterId) return false;
+    ensurePlotExtendedState(plot);
+    const cid = String(characterId);
+    if (cid === String(plot.protagonistId || "")) {
+      return !!(plot.myCharacterOverride && String(plot.myCharacterOverride.profile || "").trim());
+    }
+    const ov = getPlotCharacterOverride(plot, characterId);
+    return !!(ov && String(ov.profile || "").trim());
+  }
+
+  function buildPlotCharacterPersonaBlock(plot, char, label, maxFieldLen) {
+    if (!char) return "";
+    const cap = typeof maxFieldLen === "number" && maxFieldLen > 0 ? maxFieldLen : 0;
+    function trimField(s) {
+      const t = String(s || "").trim();
+      if (!t) return "";
+      return cap ? truncateCharsWithEllipsis(t, cap) : t;
+    }
+    const profile = trimField(
+      plot ? buildCharacterProfileFromPlot(plot, char.id) : buildCharacterProfileFromLibrary(char)
+    );
+    if (!profile) return "";
+    return "【" + label + "·" + String(char.name || "未命名").trim() + "】\n" + profile;
   }
 
   function getEffectiveIdentityBlocks(plot) {
@@ -15987,7 +16523,8 @@
   }
 
   const CHAT_BRACKET_EMOJI_PROMPT_LINE =
-    "表达情绪请直接用 Unicode emoji（如 😊😂🥺），禁止输出 [微笑]、[捂脸] 等方括号表情文字。";
+    "表达情绪请直接用 Unicode emoji（如 😊😂🥺）或颜文字（如 (´·ω·`)）；" +
+    "严禁 [微笑]、[柴犬叹气]、[捂脸] 等方括号表情文字（微信/QQ 占位符，界面无法显示）。";
 
   const CHAT_BRACKET_EMOJI_MAP = {
     微笑: "😊",
@@ -16106,16 +16643,49 @@
     献吻: "😘",
     左太极: "☯️",
     右太极: "☯️",
+    叹气: "(´-ω-`)",
+    叹息: "(´-ω-`)",
+    长叹: "(´-ω-`)",
+    柴犬: "🐕",
+    柴犬叹气: "(´·ω·`)",
+    狗头: "🐶",
+    狗子: "🐕",
+    小狗: "🐕",
+    猫咪: "🐱",
+    猫猫: "🐱",
+    无语: "🤦",
+    翻白眼: "🙄",
+    裂开: "🫠",
+    苦涩: "😮‍💨",
+    叹气脸: "😮‍💨",
   };
 
+  function resolveChatBracketEmojiFallback(name) {
+    const n = String(name || "").trim();
+    if (!n) return "";
+    if (/柴犬.*叹|叹.*柴犬/.test(n)) return "(´·ω·`)";
+    if (/叹气|叹息|长叹/.test(n)) return "(´-ω-`)";
+    if (/柴犬|狗子|小狗|狗头/.test(n)) return "🐕";
+    if (/猫|喵/.test(n)) return "🐱";
+    if (/笑|哈/.test(n)) return "😊";
+    if (/哭|泪|呜呜/.test(n)) return "😢";
+    if (/怒|气|发火/.test(n)) return "😤";
+    if (/捂脸|尴尬|无语/.test(n)) return "🤦";
+    if (/爱心|喜欢|示爱/.test(n)) return "❤️";
+    if (/点赞|棒棒|^强$/.test(n)) return "👍";
+    if (/^(ok|OK)$/i.test(n)) return "👌";
+    return "";
+  }
+
   function sanitizeChatBracketEmojiText(text) {
-    return String(text || "").replace(/\[([^\[\]]{1,16})\]/g, function (_match, rawName) {
+    return String(text || "").replace(/\[([^\[\]]{1,20})\]/g, function (_match, rawName) {
       const name = String(rawName || "").trim();
       if (!name) return "";
       if (Object.prototype.hasOwnProperty.call(CHAT_BRACKET_EMOJI_MAP, name)) {
         return CHAT_BRACKET_EMOJI_MAP[name];
       }
-      return "";
+      const fallback = resolveChatBracketEmojiFallback(name);
+      return fallback || "";
     });
   }
 
@@ -16681,7 +17251,9 @@
       });
       return parsed.length;
     }
-    const fallback = String(raw || "").trim() || "…";
+    const fallback = sanitizeChatBracketEmojiText(String(raw || "").trim())
+      .replace(/\s{2,}/g, " ")
+      .trim() || "…";
     rec.messages.push({
       role: "assistant",
       content: truncateCharsWithEllipsis(fallback, 500),
@@ -17253,6 +17825,8 @@
       return;
     }
     stopKnockTts();
+    const ttsPlayGen = storyTtsPlayGeneration;
+    if (avEl) setKnockAvatarTtsState(avEl, true, false);
     const partnerChar = getKnockPartnerCharById(knockPartnerCharId);
     const model = String(ttsSettings.model || "speech-2.8-hd").trim() || "speech-2.8-hd";
     const speakText = enrichStoryTtsSpeakText(hit.text, "", model);
@@ -17266,11 +17840,21 @@
     const isCached =
       hadSavedAudio ||
       (await storyTtsBlobIsCached(speakText, voicePrompt, "", sceneContext));
+    if (ttsPlayGen !== storyTtsPlayGeneration) {
+      if (avEl) setKnockAvatarTtsState(avEl, false, false);
+      return;
+    }
     knockTtsPlayingMsgIndex = hit.index;
     knockTtsPlayingAv = avEl || null;
-    if (avEl) setKnockAvatarTtsState(avEl, !isCached, false);
+    if (avEl && isCached) setKnockAvatarTtsState(avEl, false, false);
     try {
       const blob = await getOrCreateStoryTtsBlob(speakText, voicePrompt, "", sceneContext);
+      if (ttsPlayGen !== storyTtsPlayGeneration) {
+        if (avEl) setKnockAvatarTtsState(avEl, false, false);
+        knockTtsPlayingMsgIndex = null;
+        knockTtsPlayingAv = null;
+        return;
+      }
       if (rec && rec.messages[hit.index] && rec.messages[hit.index].ttsAudioKey !== cacheKey) {
         rec.messages[hit.index].ttsAudioKey = cacheKey;
         persistNarrative();
@@ -18671,8 +19255,12 @@
     );
   }
 
-  function buildKnockPersonaBlock(char, label, role, maxFieldLen) {
+  function buildKnockPersonaBlock(char, label, role, maxFieldLen, plotOpt) {
     if (!char) return "";
+    const plot = plotOpt != null ? plotOpt : getKnockPlot();
+    if (plot && hasPlotCharacterProfileOverride(plot, char.id)) {
+      return buildPlotCharacterPersonaBlock(plot, char, label, maxFieldLen);
+    }
     const persona = getKnockEffectivePersona(char, role);
     const cap = typeof maxFieldLen === "number" && maxFieldLen > 0 ? maxFieldLen : 0;
     function trimField(s) {
@@ -19642,29 +20230,111 @@
   function getKnockChatListPartners() {
     const pinnedId = getKnockPinnedPartnerId();
     const meta = getKnockSessionMetaMutable();
-    const generated = meta.generatedPartnerIds
-      .map(function (id) {
-        return getKnockPartnerCharById(id);
-      })
-      .filter(function (c) {
-        return c && c.categoryId !== CHAR_CATEGORY_SELF_ID;
-      });
     const seen = new Set();
     const out = [];
+
+    function pushPartner(c, opts) {
+      opts = opts || {};
+      if (!c || !c.id || c.categoryId === CHAR_CATEGORY_SELF_ID || seen.has(c.id)) return;
+      seen.add(c.id);
+      out.push({
+        partner: c,
+        pinned: !!opts.pinned,
+        generated: !!opts.generated,
+        plotMain: !!opts.plotMain,
+      });
+    }
+
     if (pinnedId) {
       const pinned = getCharById(pinnedId);
       if (pinned) {
-        out.push({ partner: pinned, pinned: true, generated: isKnockGeneratedPartner(pinnedId) });
-        seen.add(pinnedId);
+        pushPartner(pinned, {
+          pinned: true,
+          generated: isKnockGeneratedPartner(pinnedId),
+          plotMain: !isKnockGeneratedPartner(pinnedId),
+        });
       }
     }
-    generated.forEach(function (c) {
-      if (!seen.has(c.id)) {
-        out.push({ partner: c, pinned: false, generated: true });
-        seen.add(c.id);
-      }
+    if (knockPlotId) {
+      getKnockPartnerCandidatesForPlot(knockPlotId).forEach(function (c) {
+        pushPartner(c, {
+          pinned: c.id === pinnedId,
+          generated: isKnockGeneratedPartner(c.id),
+          plotMain: true,
+        });
+      });
+    }
+    meta.generatedPartnerIds.forEach(function (id) {
+      const c = getKnockPartnerCharById(id);
+      if (c) pushPartner(c, { generated: true });
     });
     return out;
+  }
+
+  function getKnockContactPartnerTag(item) {
+    if (!item) return "主要角色";
+    if (item.pinned) return "置顶主要角色";
+    if (item.generated) return "AI 拓展人物";
+    return "主要角色";
+  }
+
+  function buildKnockContactPersonaLine(item, format) {
+    const p = item && item.partner;
+    if (!p) return "";
+    const plot = knockPlotId ? getPlotById(knockPlotId) : null;
+    if (plot && hasPlotCharacterProfileOverride(plot, p.id)) {
+      const profile = truncateCharsWithEllipsis(buildCharacterProfileFromPlot(plot, p.id), format === "cast" ? 220 : 180);
+      const tag = getKnockContactPartnerTag(item);
+      const name = p.name || "未命名";
+      if (format === "cast") {
+        return "【" + name + "（" + tag + "）】" + profile;
+      }
+      return "- 【" + name + "】（" + tag + "）" + profile;
+    }
+    const persona = getKnockEffectivePersonaForPair(p, "partner", knockUserCharId, p.id);
+    const tag = getKnockContactPartnerTag(item);
+    const name = p.name || "未命名";
+    const traits = persona.traits || "—";
+    const style = truncateCharsWithEllipsis(persona.style || "—", 80);
+    const rel = truncateCharsWithEllipsis(p.relationships || "—", 100);
+    if (format === "cast") {
+      return (
+        "【" +
+        name +
+        "（" +
+        tag +
+        "）】性格 " +
+        traits +
+        "；外貌 " +
+        style +
+        "；关系 " +
+        rel
+      );
+    }
+    return "- 【" + name + "】（" + tag + "）性格：" + traits + "；外貌：" + style + "；关系：" + rel;
+  }
+
+  function buildKnockContactsPersonaBlock(opts) {
+    opts = opts && typeof opts === "object" ? opts : {};
+    const format = opts.format === "cast" ? "cast" : "bullet";
+    const lines = [];
+    const user = knockUserCharId ? getCharById(knockUserCharId) : null;
+    if (user && opts.includeUser !== false) {
+      const persona = getKnockEffectivePersonaForPair(user, "user", knockUserCharId, getKnockPinnedPartnerId());
+      lines.push(
+        "【我的形象】" +
+          (user.name || "未命名") +
+          "：性格 " +
+          (persona.traits || "—") +
+          "；外貌 " +
+          truncateCharsWithEllipsis(persona.style || "—", 120)
+      );
+    }
+    getKnockChatListPartners().forEach(function (item) {
+      const line = buildKnockContactPersonaLine(item, format);
+      if (line) lines.push(line);
+    });
+    return lines.length ? lines.join("\n") : "（暂无相关角色）";
   }
 
   function buildKnockExistingChatsSummaryForGenerate() {
@@ -19682,14 +20352,17 @@
         lines.push("背景：" + truncateCharsWithEllipsis(rec.contextBackground, 200));
       }
       const msgs = rec && Array.isArray(rec.messages) ? rec.messages : [];
-      if (rec && isKnockChatAwaitingPartnerReply(rec)) {
-        lines.push("（用户已发消息尚未回复；非置顶角色可视情况跳过续聊）");
+      if (!msgs.length) {
+        lines.push("（暂无消息，可生成 2～4 条 assistant 开场）");
+      } else if (rec && isKnockChatAwaitingPartnerReply(rec)) {
+        lines.push("（用户已发消息尚未回复，须生成 1～3 条 assistant 回复）");
+      } else if (msgs[msgs.length - 1] && msgs[msgs.length - 1].role === "assistant") {
+        lines.push("（末条为对方消息，用户尚未回复，本次跳过）");
       }
       msgs.slice(-6).forEach(function (m) {
         const who = m.role === "user" ? "我" : p.name || "对方";
         lines.push(who + "：" + truncateCharsWithEllipsis(formatKnockMessageContentForApi(m), 80));
       });
-      if (!msgs.length) lines.push("（暂无消息）");
     });
     return lines.length ? lines.join("\n") : "（暂无聊天记录）";
   }
@@ -19734,18 +20407,28 @@
 
   function applyKnockExistingReplies(replies) {
     const userId = knockUserCharId;
-    if (!userId || !Array.isArray(replies)) return 0;
-    let total = 0;
+    if (!userId || !Array.isArray(replies)) return { messages: 0, partners: 0 };
+    let messages = 0;
+    let partners = 0;
     replies.forEach(function (item) {
       const name = String((item && item.name) || "").trim();
       const partner = findKnockPartnerByName(name);
       if (!partner) return;
-      total += appendKnockAssistantMessagesToChat(userId, partner.id, item && item.messages);
+      const added = appendKnockAssistantMessagesToChat(userId, partner.id, item && item.messages);
+      if (added > 0) {
+        messages += added;
+        partners += 1;
+      }
     });
-    return total;
+    return { messages: messages, partners: partners };
   }
 
   function getKnockEffectivePersonaForPair(char, role, userCharId, partnerCharId) {
+    const plot = knockPlotId ? getPlotById(knockPlotId) : null;
+    if (plot && char && hasPlotCharacterProfileOverride(plot, char.id)) {
+      const profile = buildCharacterProfileFromPlot(plot, char.id);
+      return { traits: profile, style: "" };
+    }
     let ov = { traits: "", style: "" };
     const key = knockChatStorageKey(userCharId, partnerCharId);
     const rec = knockChatData[key];
@@ -19759,39 +20442,16 @@
   }
 
   function buildKnockCastBlockForPrompt() {
-    const user = knockUserCharId ? getCharById(knockUserCharId) : null;
-    const lines = [];
-    if (user) {
-      const persona = getKnockEffectivePersonaForPair(user, "user", knockUserCharId, getKnockPinnedPartnerId());
-      lines.push(
-        "【我的形象】" +
-          (user.name || "未命名") +
-          "：性格 " +
-          (persona.traits || "—") +
-          "；外貌 " +
-          truncateCharsWithEllipsis(persona.style || "—", 120)
-      );
-    }
+    const lines = [buildKnockContactsPersonaBlock({ format: "cast" })];
     getKnockChatListPartners().forEach(function (item) {
       const p = item.partner;
       if (!p) return;
-      const persona = getKnockEffectivePersonaForPair(p, "partner", knockUserCharId, p.id);
-      const tag = item.pinned ? "（置顶主要角色）" : item.generated ? "（AI 拓展人物）" : "（主要角色）";
-      lines.push(
-        "【" +
-          (p.name || "未命名") +
-          tag +
-          "】性格 " +
-          (persona.traits || "—") +
-          "；关系 " +
-          truncateCharsWithEllipsis(p.relationships || persona.style || "—", 100)
-      );
       const rec = knockChatData[knockChatStorageKey(knockUserCharId, p.id)];
       if (rec && rec.contextBackground) {
-        lines.push("  背景：" + truncateCharsWithEllipsis(rec.contextBackground, 160));
+        lines.push("  「" + (p.name || "未命名") + "」背景：" + truncateCharsWithEllipsis(rec.contextBackground, 160));
       }
     });
-    return lines.join("\n");
+    return lines.filter(Boolean).join("\n");
   }
 
   function createKnockGeneratedCharacter(raw) {
@@ -19823,9 +20483,8 @@
       showToast("请先在「我」中选择我的形象与主要聊天对象。", "warning");
       return;
     }
-    const pinnedRec = knockChatData[knockChatStorageKey(knockUserCharId, pinnedId)];
     if (!isKnockContextReady()) {
-      showToast("请先为置顶的主要角色选择剧情上下文。", "info");
+      showToast("请先在「我」中选择剧情与角色。", "info");
       switchKnockMainTab("me");
       return;
     }
@@ -19833,32 +20492,35 @@
     knockContactsGenerating = true;
     renderKnockScreen(slot || els.knockContentSlot());
     try {
-      showToast("正在生成相关人物与会话…", "info");
+      showToast("正在生成主要角色消息与新人物…", "info");
       const _genCtx = beginGenCall("knock-contacts", { slot: slot });
+      const plotBlock = buildKnockPlotContextForGenerate(userChar);
       const systemPrompt =
-        "你是中文互动叙事助手。根据已有主要角色、剧情上下文与聊天记录，为「敲敲」微信拓展 2～3 个相关新人物，并为每人生成简短聊天记录。\n" +
-        "只输出全新人物，不得改写或覆盖已有角色与聊天。\n" +
-        "严禁替用户主视角/my形象生成任何聊天消息；messages 仅含对方（assistant）发来的内容。\n" +
+        "你是中文互动叙事助手。根据剧情上下文、角色人设与已有聊天记录，为「敲敲」微信批量生成会话内容。\n" +
+        "输出 JSON 含 replies（已有角色续聊/开场）与 contacts（2～3 个全新拓展人物）。\n" +
+        "严禁替用户主视角/my形象生成任何聊天消息；messages 仅含 assistant（对方发来）。\n" +
         "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
-        '格式：{"contacts":[{"name":"姓名","gender":"男/女","traits":["标签"],"bg":"背景","style":"外貌","relationships":"与主要角色的关系","messages":[{"role":"assistant","content":"对方消息"}]}]}\n' +
-        "要求：messages 每人 2～4 条，全部为 assistant（对方发来）；人物须与现有角色关系合理，不要重名。";
-      const userPrompt =
-        buildKnockCastBlockForPrompt() +
-        "\n\n【已有聊天摘要】\n" +
-        buildKnockExistingChatsSummaryForGenerate() +
-        "\n\n请生成 contacts 数组（2～3 项）。";
+        '格式：{"replies":[{"name":"已有角色姓名","messages":[{"role":"assistant","content":"对方消息"}]}],"contacts":[{"name":"姓名","gender":"男/女","traits":["标签"],"bg":"背景","style":"外貌","relationships":"与主要角色的关系","messages":[{"role":"assistant","content":"对方消息"}]}]}\n' +
+        "replies 规则：name 须匹配已有联系人；每人 0～4 条 assistant；空会话生成 2～4 条开场；末条为用户消息时生成 1～3 条回复；末条已是 assistant 且用户未回则跳过；置顶主要角色必须尝试生成。\n" +
+        "contacts 规则：2～3 项全新人物，每人 2～4 条 assistant；不得与已有角色重名；不得改写已有角色。";
+      const userPromptParts = [];
+      if (plotBlock) userPromptParts.push(plotBlock);
+      userPromptParts.push("【角色与人设】\n" + buildKnockCastBlockForPrompt());
+      userPromptParts.push("【已有聊天摘要】\n" + buildKnockExistingChatsSummaryForGenerate());
+      userPromptParts.push("请输出 replies 与 contacts。");
       const raw = await callChatCompletion(
         [
           { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
+          { role: "user", content: userPromptParts.join("\n\n") },
         ],
         0.8,
-        4096,
+        8192,
         { apiConfigId: getWorkbenchApiId() }
       );
       const parsed = parseAssistantJsonObject(raw);
+      const replies = parsed && Array.isArray(parsed.replies) ? parsed.replies : [];
       const contacts = parsed && Array.isArray(parsed.contacts) ? parsed.contacts : [];
-      if (!contacts.length) throw new Error("未能解析有效的人物数据");
+      const replyResult = applyKnockExistingReplies(replies);
       const meta = getKnockSessionMetaMutable();
       const pinnedName = String(partnerChar.name || "").trim();
       const existingNames = collectKnockExistingContactNames();
@@ -19873,10 +20535,13 @@
         if (meta.generatedPartnerIds.indexOf(char.id) < 0) meta.generatedPartnerIds.push(char.id);
         added += 1;
       });
-      if (!added) throw new Error("未添加新人物（可能重名或解析失败）");
+      if (!replyResult.partners && !added) throw new Error("未能生成有效内容");
       meta.pinnedPartnerId = pinnedId;
       persistNarrative();
-      showToast("已生成 " + added + " 个相关人物", "success");
+      const parts = [];
+      if (replyResult.partners) parts.push("已为 " + replyResult.partners + " 位角色续聊");
+      if (added) parts.push("新增 " + added + " 位人物");
+      showToast(parts.join("，"), "success");
     } catch (err) {
       console.error(err);
       showToast(err && err.message ? err.message : "生成失败，请检查 API 配置后重试", "error", 4200);
@@ -20030,7 +20695,7 @@
         '<div class="phone-app__bar-actions knock-wechat-app__actions star-header__actions">' +
         '<button type="button" class="phone-app__bar-action phone-wechat-gen-btn' +
         loadingCls +
-        '" data-knock-chats-generate aria-label="生成/续聊相关会话" title="生成/续聊相关会话"' +
+        '" data-knock-chats-generate aria-label="生成主要角色消息与新人物" title="生成主要角色消息与新人物"' +
         disabled +
         ">" +
         buildPhoneWechatStarIconSvg() +
@@ -20085,6 +20750,25 @@
       '<div class="knock-wechat-app__body" data-knock-panel></div>' +
       buildKnockWechatTabsHtml() +
       "</div>"
+    );
+  }
+
+  function buildKnockChatListEmptyHtml() {
+    if (!knockUserCharId) {
+      return (
+        '<div class="knock-chat-list__empty"><p>请先在「我」中选择我的形象</p>' +
+        '<p class="field__hint">选定后才会出现在这里</p></div>'
+      );
+    }
+    if (!isKnockContextReady()) {
+      return (
+        '<div class="knock-chat-list__empty"><p>请先在「我」中选择剧情与角色</p>' +
+        '<p class="field__hint">选定后该剧情的主要角色会出现在这里</p></div>'
+      );
+    }
+    return (
+      '<div class="knock-chat-list__empty"><p>暂无会话</p>' +
+      '<p class="field__hint">点击右上角生成主要角色消息与新人物</p></div>'
     );
   }
 
@@ -20146,7 +20830,7 @@
             );
           })
           .join("")
-      : '<div class="knock-chat-list__empty"><p>请先在「我」中选择主要聊天对象</p><p class="field__hint">选定后才会出现在这里</p></div>';
+      : buildKnockChatListEmptyHtml();
     return (
       '<div class="knock-chat-list phone-wechat"><div class="phone-wechat__list">' +
       listHtml +
@@ -21068,15 +21752,7 @@
   }
 
   function buildKnockMomentsContactsBlock() {
-    const lines = [];
-    getKnockChatListPartners().forEach(function (item) {
-      const c = item.partner;
-      if (!c) return;
-      const tag = item.pinned ? "置顶主要角色" : item.generated ? "拓展人物" : "主要角色";
-      lines.push("- " + (c.name || "未命名") + "（" + tag + "）");
-    });
-    if (!lines.length) return "（暂无相关角色）";
-    return lines.join("\n");
+    return buildKnockContactsPersonaBlock({ includeUser: false });
   }
 
   function buildKnockMomentsPrompt(userChar) {
@@ -21095,15 +21771,16 @@
       "性格：" + (persona.traits || "—"),
       "外貌：" + (persona.style || "—"),
       "",
-      "【微信联系人参考（朋友圈作者应优先覆盖这些人物，亦可补充相关路人/同事等）】",
+      "【微信联系人参考（朋友圈作者应优先覆盖以下主要角色；可另补充 1～2 个与剧情相关路人，路人仅出现在朋友圈、不进聊天列表）】",
       buildKnockMomentsContactsBlock(),
       "",
       "要求：",
       "1. 生成 " + PHONE_MOMENTS_MIN_POSTS + "～12 条朋友圈动态，时间分布自然；",
-      "2. 正文每条不超过 " + PHONE_MOMENTS_TEXT_MAX + " 字，口语化像真实朋友圈；",
-      "3. 可含配图描述 images[{caption}]，0～9 张；",
-      "4. 点赞与评论须符合各人物性格与彼此关系；评论可互相回复，口语化像真实朋友圈。",
-      "5. 严禁以「" +
+      "2. 优先让剧情主要角色发帖与互动，动态须与最近剧情、人设一致；",
+      "3. 正文每条不超过 " + PHONE_MOMENTS_TEXT_MAX + " 字，口语化像真实朋友圈；",
+      "4. 可含配图描述 images[{caption}]，0～9 张；",
+      "5. 点赞与评论须符合各人物性格与彼此关系；评论可互相回复，口语化像真实朋友圈。",
+      "6. 严禁以「" +
         userName +
         "」（我的形象/用户主视角）为 authorName 发动态；isHolder 一律 false；动态、评论、点赞均不得替用户代发（用户将自行点赞评论）。"
     );
@@ -21124,7 +21801,7 @@
       lines.push(plotBlock, "");
     }
     lines.push(
-      "【微信联系人参考】",
+      "【微信联系人参考（优先主要角色；可补充 1～2 个剧情相关路人）】",
       buildKnockMomentsContactsBlock(),
       "",
       "【已有朋友圈（最近 " + recent.length + " 条，请勿重复）】"
@@ -21136,7 +21813,7 @@
       "",
       "请追加 " +
         PHONE_MOMENTS_MIN_POSTS +
-        " 条左右新动态，格式同首次生成（使用 newPosts 数组）。",
+        " 条左右新动态，格式同首次生成（使用 newPosts 数组）；优先主要角色，须与最近剧情一致。",
       "严禁以「" + userName + "」为 authorName 发动态或代发评论/点赞；isHolder 一律 false。"
     );
     return lines.join("\n");
@@ -21159,11 +21836,13 @@
       showToast(isRegenerate ? "正在追加朋友圈…" : "正在生成朋友圈…", "info");
       const _genCtx = beginGenCall("knock-moments", { slot: slot });
       const systemPrompt = isRegenerate
-        ? "你是中文互动叙事助手。根据角色关系与已有朋友圈数据，增量追加朋友圈 JSON。\n" +
+        ? "你是中文互动叙事助手。根据剧情、角色人设与已有朋友圈数据，增量追加朋友圈 JSON。\n" +
+          "优先让剧情主要角色发帖与互动；可补充 1～2 个与剧情相关路人（仅朋友圈展示）。\n" +
           "只输出其他角色（联系人、路人等）的动态；严禁替用户主视角/my形象发帖、评论或点赞。\n" +
           "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
           '格式：{"newPosts":[{"id":"唯一英文id","authorName":"...","text":"...","time":"...","images":[{"caption":"..."}],"likes":["..."],"comments":[{"author":"...","text":"...","replyTo":"可选"}],"isHolder":false}]}'
-        : "你是中文互动叙事助手。根据人设与角色关系，生成「敲敲·朋友圈」JSON。\n" +
+        : "你是中文互动叙事助手。根据剧情、人设与角色关系，生成「敲敲·朋友圈」JSON。\n" +
+          "优先让剧情主要角色发帖与互动；可补充 1～2 个与剧情相关路人（仅朋友圈展示）。\n" +
           "只输出其他角色（联系人、路人等）的动态；严禁替用户主视角/my形象发帖、评论或点赞。\n" +
           "只输出一个 JSON 对象，不要用 markdown 代码围栏，不要任何解释文字。\n" +
           '格式：{"posts":[{"id":"唯一英文id","authorName":"...","text":"...","time":"...","images":[{"caption":"..."}],"likes":["..."],"comments":[{"author":"...","text":"..."}],"isHolder":false}]}';
@@ -24545,6 +25224,7 @@
       playBackgroundDark: "",
     };
     plots.unshift(newPlot);
+    sanitizeYouDogState();
     flushPersistNarrative();
     renderDynamic();
     lastStoryPlotId = newPlot.id;
@@ -27362,7 +28042,7 @@
         " 有意义；内容精炼但情感到位。\n" +
         "8. photo.imagePrompt 须为英文手机人像指令：人物必须是发送者「" +
         senderName +
-        "」本人出镜（正脸/3/4侧脸/纯侧脸/他拍均可，禁止俯拍仰拍等死亡角度）；宽肩窄腰、肩宽腰细的健美体型；脸型、五官、发型、气质第一优先综合对齐设置中外貌参考图全部 1～3 张（逐张参考、勿只看第一张），再详细写具体衣着（面料/颜色/层次/配饰）、地点、背景物件、表情与光线。禁止出现「我的形象」/用户主角出镜，禁止出现任何真实明星姓名。"
+        "」本人出镜；若外貌参考仅上传 1 张，自拍角度须与该图一致；若上传多张不同角度，生成时分别对应各参考图角度；宽肩窄腰、肩宽腰细的健美体型；脸型、五官、发型、气质第一优先对齐外貌参考图（逐张参考、勿只看第一张），再详细写具体衣着（面料/颜色/层次/配饰）、地点、背景物件与光线。禁止出现「我的形象」/用户主角出镜，禁止出现任何真实明星姓名。"
     );
     return lines.join("\n");
   }
@@ -27372,9 +28052,18 @@
     const imagePrompt = String((photoDraft && photoDraft.imagePrompt) || "").trim();
     const sceneText = String((photoDraft && photoDraft.sceneText) || "").trim();
     const backText = String((photoDraft && photoDraft.backText) || "").trim();
-    let prompt = await buildPhotoAnchoredSelfieIdentityBlock();
+    let prompt = await buildPhotoAnchoredSelfieIdentityBlock(
+      [imagePrompt, sceneText, backText].filter(Boolean).join("; ")
+    );
     const appearanceRef = await resolveVisualAppearancePromptBase();
     if (appearanceRef) prompt += " " + appearanceRef;
+    const plotProfile = plot && sender ? buildCharacterProfileFromPlot(plot, sender.id) : "";
+    if (plotProfile) {
+      prompt +=
+        " Plot character appearance and personality (highest priority for look and styling): " +
+        truncateCharsWithEllipsis(plotProfile, 320) +
+        ".";
+    }
     const protagName =
       plot && plot.protagonistId
         ? String((getCharById(plot.protagonistId) && getCharById(plot.protagonistId).name) || "").trim()
@@ -27382,7 +28071,10 @@
     prompt += buildMainCharacterPhotoSubjectPrompt(name, protagName);
     prompt += " Polaroid-style keepsake photo of " + name + ".";
     if (imagePrompt) {
-      prompt += " Shot direction (highest priority for pose, outfit, and environment): " + truncateCharsWithEllipsis(imagePrompt, 420) + ".";
+      prompt +=
+        " Shot direction (outfit and environment; face angle from reference photos): " +
+        truncateCharsWithEllipsis(imagePrompt, 420) +
+        ".";
     }
     if (sceneText) {
       prompt += " Scene description (rich background and styling detail): " + truncateCharsWithEllipsis(sceneText, 320) + ".";
@@ -27393,7 +28085,9 @@
         truncateCharsWithEllipsis(backText, 140) +
         ".";
     }
-    prompt += buildFlexiblePhonePhotoFramingSuffix();
+    prompt += buildFlexiblePhonePhotoFramingSuffix(
+      resolveAppearanceRefSelection([imagePrompt, sceneText, backText].filter(Boolean).join("; "))
+    );
     return prompt;
   }
 
@@ -28016,6 +28710,7 @@
           : "";
     }
     if (!speakText) return;
+    if (collectTtsFetchInFlight) return;
     if (!resolveGlobalMinimaxVoiceId()) {
       showToast("请先在设置 → 剧情朗读中配置 MiniMax 音色", "warning");
       return;
@@ -28057,6 +28752,7 @@
     stopCollectAudio();
     const btn = slot && slot.querySelector('[data-collect-tts="' + kind + '"]');
     if (btn) btn.classList.add("is-loading");
+    collectTtsFetchInFlight = true;
     const storageKey = collectStorageKey(plot.id, sender.id);
     const ttsCacheKey = resolveCollectTtsCacheSuffix(slot, storageKey);
     try {
@@ -28110,6 +28806,8 @@
       if (btn) btn.classList.remove("is-loading");
       setCollectTtsButtonState(slot, kind, "idle");
       showToast(err && err.message ? err.message : "语音播放失败", "error");
+    } finally {
+      collectTtsFetchInFlight = false;
     }
   }
 
@@ -29394,7 +30092,7 @@
 
   function createEmptyTaskTodoDay() {
     return {
-      user: { tasks: [], diary: [] },
+      user: { tasks: [], diary: [], focusSessions: [] },
       character: {
         generated: false,
         generationRound: 0,
@@ -29404,6 +30102,30 @@
       },
       settled: false,
       settledAt: null,
+    };
+  }
+
+  function normalizeTaskTodoFocusSession(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const name = String(raw.name || "").trim();
+    const durationMs =
+      typeof raw.durationMs === "number" && raw.durationMs > 0
+        ? Math.round(raw.durationMs)
+        : 0;
+    if (!durationMs) return null;
+    const startedAt = typeof raw.startedAt === "number" ? raw.startedAt : Date.now() - durationMs;
+    const endedAt = typeof raw.endedAt === "number" ? raw.endedAt : startedAt + durationMs;
+    const dateKey =
+      typeof raw.dateKey === "string" && raw.dateKey.trim()
+        ? raw.dateKey.trim()
+        : getRealWorldDateKey();
+    return {
+      id: String(raw.id || uid("fs")),
+      name: name.slice(0, 80) || "专注",
+      durationMs: durationMs,
+      startedAt: startedAt,
+      endedAt: endedAt,
+      dateKey: dateKey,
     };
   }
 
@@ -29418,6 +30140,9 @@
       ? raw.user.diary.map(function (d) {
           return normalizeTaskTodoDiaryItem(d, "ud");
         }).filter(Boolean)
+      : [];
+    const userFocus = Array.isArray(raw.user && raw.user.focusSessions)
+      ? raw.user.focusSessions.map(normalizeTaskTodoFocusSession).filter(Boolean)
       : [];
     const charRaw = raw.character && typeof raw.character === "object" ? raw.character : {};
     const charTasks = Array.isArray(charRaw.tasks)
@@ -29436,7 +30161,7 @@
         }).filter(Boolean).slice(0, 5)
       : [];
     return {
-      user: { tasks: userTasks, diary: userDiary },
+      user: { tasks: userTasks, diary: userDiary, focusSessions: userFocus },
       character: {
         generated: !!charRaw.generated || charTasks.length > 0 || charDiary.length > 0 || charMessages.length > 0,
         generationRound:
@@ -29814,11 +30539,417 @@
     return (
       (u.tasks && u.tasks.length) ||
       (u.diary && u.diary.length) ||
+      (u.focusSessions && u.focusSessions.length) ||
       (c.tasks && c.tasks.length) ||
       (c.diary && c.diary.length) ||
       c.generated ||
       day.settled
     );
+  }
+
+  function formatTaskTodoFocusDuration(ms) {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h > 0) {
+      return (
+        String(h).padStart(2, "0") +
+        ":" +
+        String(m).padStart(2, "0") +
+        ":" +
+        String(s).padStart(2, "0")
+      );
+    }
+    return String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+  }
+
+  function getTaskTodoFocusElapsedMs() {
+    let ms = taskTodoFocusState.accumulatedMs || 0;
+    if (taskTodoFocusState.status === "running" && taskTodoFocusState.segmentStartedAt) {
+      ms += Date.now() - taskTodoFocusState.segmentStartedAt;
+    }
+    return ms;
+  }
+
+  function stopTaskTodoFocusTick() {
+    if (taskTodoFocusTickTimer) {
+      clearInterval(taskTodoFocusTickTimer);
+      taskTodoFocusTickTimer = null;
+    }
+  }
+
+  function startTaskTodoFocusTick() {
+    stopTaskTodoFocusTick();
+    taskTodoFocusTickTimer = setInterval(function () {
+      const modal = els.modalTodoFocus();
+      if (!modal || modal.hidden) return;
+      if (taskTodoFocusState.status !== "running") return;
+      const display = document.getElementById("todo-focus-timer-display");
+      if (display) {
+        display.textContent = formatTaskTodoFocusDuration(getTaskTodoFocusElapsedMs());
+      }
+    }, 1000);
+  }
+
+  function collectTaskTodoFocusSessions(bundle) {
+    if (!bundle) return [];
+    const out = [];
+    const seen = Object.create(null);
+    function pushFromDay(day, dateKey) {
+      if (!day || !day.user) return;
+      (day.user.focusSessions || []).forEach(function (s) {
+        if (!s || seen[s.id]) return;
+        seen[s.id] = true;
+        out.push({
+          id: s.id,
+          name: s.name,
+          durationMs: s.durationMs,
+          startedAt: s.startedAt,
+          endedAt: s.endedAt,
+          dateKey: s.dateKey || dateKey,
+        });
+      });
+    }
+    if (bundle.days && typeof bundle.days === "object") {
+      Object.keys(bundle.days).forEach(function (dk) {
+        pushFromDay(bundle.days[dk], dk);
+      });
+    }
+    (bundle.history || []).forEach(function (h) {
+      if (h && h.day) pushFromDay(h.day, h.dateKey);
+    });
+    out.sort(function (a, b) {
+      return (b.endedAt || 0) - (a.endedAt || 0);
+    });
+    return out;
+  }
+
+  function getTaskTodoFocusPeriodRange(period) {
+    const now = new Date();
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    let start;
+    if (period === "year") {
+      start = new Date(now.getFullYear(), 0, 1);
+    } else if (period === "month") {
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+    } else {
+      const day = now.getDay();
+      const diff = day === 0 ? 6 : day - 1;
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diff);
+    }
+    start.setHours(0, 0, 0, 0);
+    return { start: start.getTime(), end: end.getTime() };
+  }
+
+  function filterTaskTodoFocusSessionsByPeriod(sessions, period) {
+    const range = getTaskTodoFocusPeriodRange(period);
+    return sessions.filter(function (s) {
+      const t = s.endedAt || s.startedAt || 0;
+      return t >= range.start && t <= range.end;
+    });
+  }
+
+  function buildTaskTodoFocusPeriodLabel(period) {
+    const now = new Date();
+    if (period === "year") return now.getFullYear() + "年";
+    if (period === "month") return now.getFullYear() + "年" + (now.getMonth() + 1) + "月";
+    const range = getTaskTodoFocusPeriodRange("week");
+    const s = new Date(range.start);
+    const e = new Date(range.end);
+    return (s.getMonth() + 1) + "/" + s.getDate() + " – " + (e.getMonth() + 1) + "/" + e.getDate();
+  }
+
+  function saveTaskTodoFocusSession(name, durationMs) {
+    const bundle = getTaskTodoBundle();
+    if (!bundle) return;
+    const ms = Math.max(1000, Math.round(durationMs || 0));
+    const endedAt = Date.now();
+    const startedAt = endedAt - ms;
+    const dateKey = getRealWorldDateKey();
+    const day = ensureTaskTodoDay(bundle, dateKey);
+    if (!day.user.focusSessions) day.user.focusSessions = [];
+    day.user.focusSessions.push({
+      id: uid("fs"),
+      name: String(name || "").trim().slice(0, 80) || "专注",
+      durationMs: ms,
+      startedAt: startedAt,
+      endedAt: endedAt,
+      dateKey: dateKey,
+    });
+    schedulePersistNarrative();
+  }
+
+  function resetTaskTodoFocusState() {
+    stopTaskTodoFocusTick();
+    taskTodoFocusState = {
+      status: "idle",
+      name: "",
+      segmentStartedAt: null,
+      accumulatedMs: 0,
+    };
+  }
+
+  function taskTodoFocusStart(name) {
+    const label = String(name || taskTodoFocusState.name || "").trim().slice(0, 80) || "专注";
+    if (taskTodoFocusState.status === "paused") {
+      taskTodoFocusState.name = label;
+      taskTodoFocusState.status = "running";
+      taskTodoFocusState.segmentStartedAt = Date.now();
+    } else {
+      taskTodoFocusState.name = label;
+      taskTodoFocusState.status = "running";
+      taskTodoFocusState.accumulatedMs = 0;
+      taskTodoFocusState.segmentStartedAt = Date.now();
+    }
+    startTaskTodoFocusTick();
+    renderTaskTodoFocusModal();
+    const slot = els.todoContentSlot();
+    if (slot) renderTaskTodoScreen(slot);
+  }
+
+  function taskTodoFocusPause() {
+    if (taskTodoFocusState.status !== "running") return;
+    taskTodoFocusState.accumulatedMs = getTaskTodoFocusElapsedMs();
+    taskTodoFocusState.segmentStartedAt = null;
+    taskTodoFocusState.status = "paused";
+    stopTaskTodoFocusTick();
+    renderTaskTodoFocusModal();
+  }
+
+  function taskTodoFocusStop() {
+    const elapsed = getTaskTodoFocusElapsedMs();
+    if (elapsed >= 1000) {
+      saveTaskTodoFocusSession(taskTodoFocusState.name, elapsed);
+      showToast("专注已记录 · " + formatTaskTodoFocusDuration(elapsed), "success");
+    } else if (taskTodoFocusState.status !== "idle") {
+      showToast("专注时间过短，未保存", "warning");
+    }
+    resetTaskTodoFocusState();
+    renderTaskTodoFocusModal();
+    const calModal = els.modalTodoCalendar();
+    if (calModal && !calModal.hidden) renderTaskTodoCalendarModal();
+    const slot = els.todoContentSlot();
+    if (slot) renderTaskTodoScreen(slot);
+  }
+
+  function buildTaskTodoFocusTimerHtml() {
+    const elapsed = getTaskTodoFocusElapsedMs();
+    const status = taskTodoFocusState.status;
+    const running = status === "running";
+    const paused = status === "paused";
+    const active = running || paused;
+    const nameVal = escapeHtml(taskTodoFocusState.name || "");
+    const nameDisabled = running ? " disabled" : "";
+
+    return (
+      '<div class="todo-focus-timer">' +
+      '<label class="todo-focus-timer__label" for="todo-focus-name-input">专注名称</label>' +
+      '<input type="text" id="todo-focus-name-input" class="todo-focus-timer__input" maxlength="80" placeholder="例如：写稿、复习、阅读…" value="' +
+      nameVal +
+      '"' +
+      nameDisabled +
+      " />" +
+      '<div class="todo-focus-timer__display' +
+      (running ? " is-running" : "") +
+      '" id="todo-focus-timer-display" aria-live="polite">' +
+      formatTaskTodoFocusDuration(elapsed) +
+      "</div>" +
+      '<p class="todo-focus-timer__hint">' +
+      (running ? "专注进行中…" : paused ? "已暂停" : "输入名称后点击开始") +
+      "</p>" +
+      '<div class="todo-focus-timer__actions">' +
+      (!active
+        ? '<button type="button" class="btn btn--primary btn--pill todo-focus-timer__btn" data-todo-focus-start>开始</button>'
+        : running
+          ? '<button type="button" class="btn btn--secondary btn--pill todo-focus-timer__btn" data-todo-focus-pause>暂停</button>'
+          : '<button type="button" class="btn btn--primary btn--pill todo-focus-timer__btn" data-todo-focus-resume>继续</button>') +
+      (active
+        ? '<button type="button" class="btn btn--pill todo-focus-timer__btn todo-focus-timer__btn--stop" data-todo-focus-stop>结束</button>'
+        : "") +
+      "</div></div>"
+    );
+  }
+
+  function buildTaskTodoFocusReviewHtml(bundle) {
+    const period = taskTodoFocusReviewPeriod;
+    const all = collectTaskTodoFocusSessions(bundle);
+    const sessions = filterTaskTodoFocusSessionsByPeriod(all, period);
+    const totalMs = sessions.reduce(function (sum, s) {
+      return sum + (s.durationMs || 0);
+    }, 0);
+    const periodLabel = buildTaskTodoFocusPeriodLabel(period);
+    const grouped = Object.create(null);
+    sessions.forEach(function (s) {
+      const dk = s.dateKey || getRealWorldDateKey();
+      if (!grouped[dk]) grouped[dk] = [];
+      grouped[dk].push(s);
+    });
+    const dayKeys = Object.keys(grouped).sort(function (a, b) {
+      return b.localeCompare(a);
+    });
+
+    let listHtml = "";
+    if (!sessions.length) {
+      listHtml = '<p class="todo-focus-review__empty">该时段暂无专注记录</p>';
+    } else {
+      listHtml = dayKeys
+        .map(function (dk) {
+          const items = grouped[dk];
+          const dayTotal = items.reduce(function (sum, s) {
+            return sum + (s.durationMs || 0);
+          }, 0);
+          return (
+            '<section class="todo-focus-review__day">' +
+            '<header class="todo-focus-review__day-head">' +
+            '<span class="todo-focus-review__day-date">' +
+            escapeHtml(formatTaskTodoDateLabel(dk)) +
+            "</span>" +
+            '<span class="todo-focus-review__day-total">' +
+            formatTaskTodoFocusDuration(dayTotal) +
+            "</span></header>" +
+            '<ul class="todo-focus-review__list">' +
+            items
+              .map(function (s) {
+                return (
+                  '<li class="todo-focus-review__item">' +
+                  '<span class="todo-focus-review__item-name">' +
+                  escapeHtml(s.name || "专注") +
+                  "</span>" +
+                  '<span class="todo-focus-review__item-dur">' +
+                  formatTaskTodoFocusDuration(s.durationMs) +
+                  "</span></li>"
+                );
+              })
+              .join("") +
+            "</ul></section>"
+          );
+        })
+        .join("");
+    }
+
+    return (
+      '<div class="todo-focus-review">' +
+      '<div class="todo-focus-review__periods" role="tablist" aria-label="回顾周期">' +
+      ['week', 'month', 'year']
+        .map(function (p) {
+          const label = p === "week" ? "周" : p === "month" ? "月" : "年";
+          return (
+            '<button type="button" class="todo-focus-review__period' +
+            (period === p ? " is-active" : "") +
+            '" data-todo-focus-period="' +
+            p +
+            '" role="tab" aria-selected="' +
+            (period === p ? "true" : "false") +
+            '">' +
+            label +
+            "</button>"
+          );
+        })
+        .join("") +
+      "</div>" +
+      '<p class="todo-focus-review__range">' +
+      escapeHtml(periodLabel) +
+      "</p>" +
+      '<div class="todo-focus-review__stats">' +
+      '<div class="todo-focus-review__stat">' +
+      '<span class="todo-focus-review__stat-val">' +
+      formatTaskTodoFocusDuration(totalMs) +
+      "</span>" +
+      '<span class="todo-focus-review__stat-label">总时长</span></div>' +
+      '<div class="todo-focus-review__stat">' +
+      '<span class="todo-focus-review__stat-val">' +
+      sessions.length +
+      "</span>" +
+      '<span class="todo-focus-review__stat-label">次数</span></div></div>' +
+      '<div class="todo-focus-review__scroll">' +
+      listHtml +
+      "</div></div>"
+    );
+  }
+
+  function buildTaskTodoFocusModalHtml() {
+    const bundle = getTaskTodoBundle();
+    const tab = taskTodoFocusModalTab;
+    return (
+      '<div class="todo-focus">' +
+      '<div class="todo-focus__tabs" role="tablist" aria-label="专注">' +
+      '<button type="button" class="todo-focus__tab' +
+      (tab === "timer" ? " is-active" : "") +
+      '" data-todo-focus-tab="timer" role="tab" aria-selected="' +
+      (tab === "timer" ? "true" : "false") +
+      '">计时</button>' +
+      '<button type="button" class="todo-focus__tab' +
+      (tab === "review" ? " is-active" : "") +
+      '" data-todo-focus-tab="review" role="tab" aria-selected="' +
+      (tab === "review" ? "true" : "false") +
+      '">回顾</button>' +
+      "</div>" +
+      '<div class="todo-focus__panel">' +
+      (tab === "timer" ? buildTaskTodoFocusTimerHtml() : buildTaskTodoFocusReviewHtml(bundle)) +
+      "</div></div>"
+    );
+  }
+
+  function renderTaskTodoFocusModal() {
+    const slot = els.todoFocusSlot();
+    if (!slot) return;
+    slot.innerHTML = buildTaskTodoFocusModalHtml();
+    if (taskTodoFocusState.status === "running") startTaskTodoFocusTick();
+  }
+
+  function openTaskTodoFocusModal() {
+    const bundle = getTaskTodoBundle();
+    if (!bundle) {
+      showToast("请先选择剧情与角色。", "warning");
+      return;
+    }
+    const modal = els.modalTodoFocus();
+    if (modal) modal.hidden = false;
+    renderTaskTodoFocusModal();
+  }
+
+  function closeTaskTodoFocusModal() {
+    const modal = els.modalTodoFocus();
+    if (modal) modal.hidden = true;
+    stopTaskTodoFocusTick();
+    if (taskTodoFocusState.status === "running") startTaskTodoFocusTick();
+  }
+
+  function buildTaskTodoCalendarFocusHtml(sessions) {
+    if (!sessions || !sessions.length) {
+      return '<p class="todo-calendar-focus__none">无专注记录</p>';
+    }
+    const totalMs = sessions.reduce(function (sum, s) {
+      return sum + (s.durationMs || 0);
+    }, 0);
+    return (
+      '<div class="todo-calendar-focus">' +
+      '<p class="todo-calendar-focus__summary">共 ' +
+      sessions.length +
+      " 次 · " +
+      formatTaskTodoFocusDuration(totalMs) +
+      "</p>" +
+      '<ul class="todo-calendar-focus__list">' +
+      sessions
+        .map(function (s) {
+          return (
+            '<li class="todo-calendar-focus__item">' +
+            '<span class="todo-calendar-focus__name">' +
+            escapeHtml(s.name || "专注") +
+            "</span>" +
+            '<span class="todo-calendar-focus__dur">' +
+            formatTaskTodoFocusDuration(s.durationMs) +
+            "</span></li>"
+          );
+        })
+        .join("") +
+      "</ul></div>"
+    );
+  }
+
+  function resetTaskTodoCalendarExpanded() {
+    taskTodoCalendarExpanded = { char: false, user: false };
   }
 
   function openTaskTodoCalendarModal() {
@@ -29831,6 +30962,7 @@
     taskTodoCalendarYear = now.getFullYear();
     taskTodoCalendarMonth = now.getMonth();
     taskTodoCalendarSelectedKey = getRealWorldDateKey();
+    resetTaskTodoCalendarExpanded();
     const modal = els.modalTodoCalendar();
     if (modal) modal.hidden = false;
     renderTaskTodoCalendarModal();
@@ -29854,7 +30986,99 @@
     }
     taskTodoCalendarYear = y;
     taskTodoCalendarMonth = m;
+    resetTaskTodoCalendarExpanded();
     renderTaskTodoCalendarModal();
+  }
+
+  function buildTaskTodoCalendarTaskLinesHtml(tasks) {
+    if (!tasks.length) return '<p class="todo-calendar-detail__none">无任务</p>';
+    return (
+      '<ul class="todo-calendar-detail__tasks">' +
+      tasks
+        .map(function (t) {
+          return (
+            '<li class="todo-calendar-detail__task' +
+            (t.done ? " is-done" : "") +
+            '">' +
+            '<span class="todo-calendar-detail__mark">' +
+            (t.done ? "✓" : "○") +
+            "</span>" +
+            '<span class="todo-calendar-detail__task-text">' +
+            escapeHtml(t.text) +
+            "</span></li>"
+          );
+        })
+        .join("") +
+      "</ul>"
+    );
+  }
+
+  function buildTaskTodoCalendarDiaryLinesHtml(entries) {
+    if (!entries.length) return '<p class="todo-calendar-detail__none">无日记</p>';
+    return (
+      '<div class="todo-calendar-detail__diary">' +
+      entries
+        .map(function (e) {
+          return (
+            '<p class="todo-calendar-detail__diary-item">' +
+            escapeHtml(e.text) +
+            "</p>"
+          );
+        })
+        .join("") +
+      "</div>"
+    );
+  }
+
+  function buildTaskTodoCalendarPersonHtml(side, name, tasks, diary, done, total) {
+    const TASK_PREVIEW = 3;
+    const DIARY_PREVIEW = 1;
+    const expanded = !!taskTodoCalendarExpanded[side];
+    const hasMoreTasks = tasks.length > TASK_PREVIEW;
+    const hasMoreDiary = diary.length > DIARY_PREVIEW;
+    const hasLongDiary =
+      diary.length === 1 && String((diary[0] && diary[0].text) || "").length > 96;
+    const canExpand = hasMoreTasks || hasMoreDiary || hasLongDiary;
+    const visibleTasks = expanded || !hasMoreTasks ? tasks : tasks.slice(0, TASK_PREVIEW);
+    const visibleDiary = expanded || !hasMoreDiary ? diary : diary.slice(0, DIARY_PREVIEW);
+    const bodyClass =
+      "todo-calendar-detail__body" +
+      (canExpand && !expanded ? " is-collapsed" : "") +
+      (canExpand && expanded ? " is-expanded" : "");
+    const expandBtn = canExpand
+      ? '<button type="button" class="todo-calendar-detail__expand" data-todo-calendar-expand="' +
+        escapeHtml(side) +
+        '" aria-expanded="' +
+        (expanded ? "true" : "false") +
+        '" aria-label="' +
+        (expanded ? "收起" : "展开更多") +
+        '">' +
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="' +
+        (expanded ? "M18 15l-6-6-6 6" : "M6 9l6 6 6-6") +
+        '"/></svg></button>'
+      : "";
+
+    return (
+      '<section class="todo-calendar-detail__col" aria-label="' +
+      escapeHtml(name || (side === "char" ? "角色" : "我")) +
+      '">' +
+      '<h4 class="todo-calendar-detail__who">' +
+      escapeHtml(name || (side === "char" ? "角色" : "我")) +
+      "</h4>" +
+      '<p class="todo-calendar-detail__stat">任务 ' +
+      done +
+      "/" +
+      total +
+      "</p>" +
+      '<div class="' +
+      bodyClass +
+      '">' +
+      buildTaskTodoCalendarTaskLinesHtml(visibleTasks) +
+      '<p class="todo-calendar-detail__sub">心情日记</p>' +
+      buildTaskTodoCalendarDiaryLinesHtml(visibleDiary) +
+      expandBtn +
+      "</div></section>"
+    );
   }
 
   function buildTaskTodoCalendarDayDetailHtml(day, charName, userName, dateKey) {
@@ -29871,79 +31095,20 @@
     }).length;
     const charDiary = (day.character && day.character.diary) || [];
     const userDiary = (day.user && day.user.diary) || [];
-  const todayKey = getRealWorldDateKey();
+    const focusSessions = (day.user && day.user.focusSessions) || [];
+    const todayKey = getRealWorldDateKey();
     const canSettle = dateKey === todayKey && !day.settled;
-
-    function taskLines(tasks) {
-      if (!tasks.length) return '<p class="todo-calendar-detail__none">无任务</p>';
-      return (
-        '<ul class="todo-calendar-detail__tasks">' +
-        tasks
-          .map(function (t) {
-            return (
-              '<li class="todo-calendar-detail__task' +
-              (t.done ? " is-done" : "") +
-              '">' +
-              '<span class="todo-calendar-detail__mark">' +
-              (t.done ? "✓" : "○") +
-              "</span>" +
-              '<span class="todo-calendar-detail__task-text">' +
-              escapeHtml(t.text) +
-              "</span></li>"
-            );
-          })
-          .join("") +
-        "</ul>"
-      );
-    }
-
-    function diaryLines(entries) {
-      if (!entries.length) return '<p class="todo-calendar-detail__none">无日记</p>';
-      return (
-        '<div class="todo-calendar-detail__diary">' +
-        entries
-          .map(function (e) {
-            return (
-              '<p class="todo-calendar-detail__diary-item">' +
-              escapeHtml(e.text) +
-              "</p>"
-            );
-          })
-          .join("") +
-        "</div>"
-      );
-    }
 
     return (
       '<div class="todo-calendar-detail">' +
       '<div class="todo-calendar-detail__cols">' +
-      '<div class="todo-calendar-detail__col">' +
-      '<h4 class="todo-calendar-detail__who">' +
-      escapeHtml(charName || "角色") +
-      "</h4>" +
-      '<p class="todo-calendar-detail__stat">任务 ' +
-      charDone +
-      "/" +
-      charTasks.length +
-      "</p>" +
-      taskLines(charTasks) +
-      '<p class="todo-calendar-detail__sub">心情日记</p>' +
-      diaryLines(charDiary) +
+      buildTaskTodoCalendarPersonHtml("char", charName || "角色", charTasks, charDiary, charDone, charTasks.length) +
+      buildTaskTodoCalendarPersonHtml("user", userName || "我", userTasks, userDiary, userDone, userTasks.length) +
       "</div>" +
-      '<div class="todo-calendar-detail__col">' +
-      '<h4 class="todo-calendar-detail__who">' +
-      escapeHtml(userName || "我") +
-      "</h4>" +
-      '<p class="todo-calendar-detail__stat">任务 ' +
-      userDone +
-      "/" +
-      userTasks.length +
-      "</p>" +
-      taskLines(userTasks) +
-      '<p class="todo-calendar-detail__sub">心情日记</p>' +
-      diaryLines(userDiary) +
-      "</div>" +
-      "</div>" +
+      '<section class="todo-calendar-detail__focus" aria-label="专注记录">' +
+      '<h4 class="todo-calendar-detail__focus-title">专注</h4>' +
+      buildTaskTodoCalendarFocusHtml(focusSessions) +
+      "</section>" +
       (day.settled ? '<p class="todo-calendar-detail__settled">已结算</p>' : "") +
       (canSettle
         ? '<button type="button" class="btn btn--secondary btn--pill todo-calendar-detail__settle" data-todo-calendar-settle>结算今日</button>'
@@ -30320,6 +31485,8 @@
     const charName = ch ? ch.name || "角色" : "未选择角色";
     const genDisabled = generating || readonly || !plot || !ch;
     const calendarDisabled = generating || !plot || !ch;
+    const focusDisabled = generating || !plot || !ch;
+    const focusActive = taskTodoFocusState.status === "running" || taskTodoFocusState.status === "paused";
     const userTasks = (day.user && day.user.tasks) || [];
     const charTasks = (day.character && day.character.tasks) || [];
     const doneCount = userTasks.filter(function (t) {
@@ -30356,6 +31523,15 @@
       (calendarDisabled ? " disabled" : "") +
       ' aria-label="日历回顾" title="日历">' +
       '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>' +
+      "</button>" +
+      '<button type="button" class="task-todo__focus' +
+      (focusDisabled ? " is-disabled" : "") +
+      (focusActive ? " is-active" : "") +
+      '" data-todo-focus' +
+      (focusDisabled ? " disabled" : "") +
+      ' aria-label="专注" title="专注">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg>' +
+      (focusActive ? '<span class="task-todo__focus-dot" aria-hidden="true"></span>' : "") +
       "</button>" +
       '<button type="button" class="task-todo__gen phone-wechat-gen-btn' +
       (generating ? " phone-wechat-gen-btn--loading" : "") +
@@ -32438,7 +33614,7 @@
       "角色「" +
       (partnerChar.name || "TA") +
       "」将回答以下传纸条问题。请为每题生成角色本人的回答 charPreAnswer（1-3 句口语化，符合人设；题目可以很跳脱，不必贴合剧情）。\n\n" +
-      buildKnockPersonaBlock(partnerChar, "你扮演的角色", "partner", 800) +
+      buildPlotCharacterPersonaBlock(plot, partnerChar, "你扮演的角色", 800) +
       "\n\n题目：\n" +
       qLines +
       "\n\n只输出 JSON：\n" +
@@ -32476,9 +33652,9 @@
       "」刚完成一轮传纸条。\n" +
       "用户已看过角色对每道题的「先行回答」，现在需要角色针对用户的具体回答给出回应（charReply）。\n" +
       "不要重复 charPreAnswer 的内容，而是对用户答案做出反应、补充、调侃或延伸。\n\n" +
-      buildKnockPersonaBlock(partnerChar, "你扮演的角色", "partner", 800) +
+      buildPlotCharacterPersonaBlock(plot, partnerChar, "你扮演的角色", 800) +
       "\n\n" +
-      (userChar ? buildKnockPersonaBlock(userChar, "对话对象", "user", 400) + "\n\n" : "") +
+      (userChar ? buildPlotCharacterPersonaBlock(plot, userChar, "对话对象", 400) + "\n\n" : "") +
       "问答内容：\n" +
       qaLines +
       "\n\n要求：\n" +
@@ -34911,9 +36087,9 @@
       "中记录了一条内容，请扮演主要角色「" +
       (partnerChar.name || "TA") +
       "」给出 1～3 句回应。\n\n" +
-      buildKnockPersonaBlock(partnerChar, "你扮演的角色", "partner", 800) +
+      buildPlotCharacterPersonaBlock(plot, partnerChar, "你扮演的角色", 800) +
       "\n\n" +
-      (userChar ? buildKnockPersonaBlock(userChar, "记录者", "user", 400) + "\n\n" : "") +
+      (userChar ? buildPlotCharacterPersonaBlock(plot, userChar, "记录者", 400) + "\n\n" : "") +
       buildGrudgeBookPlotContextBlock(plot, partnerChar) +
       "\n\n记录内容：\n" +
       "- 当事人：" +
@@ -34956,9 +36132,9 @@
       (userChar ? "用户角色「" + (userChar.name || "我") + "」" : "对方") +
       (isMerit ? "曾让你感激的事" : "曾让你介意/记仇的事") +
       "。\n\n" +
-      buildKnockPersonaBlock(partnerChar, "你扮演的角色", "partner", 800) +
+      buildPlotCharacterPersonaBlock(plot, partnerChar, "你扮演的角色", 800) +
       "\n\n" +
-      (userChar ? buildKnockPersonaBlock(userChar, "对方", "user", 400) + "\n\n" : "") +
+      (userChar ? buildPlotCharacterPersonaBlock(plot, userChar, "对方", 400) + "\n\n" : "") +
       buildGrudgeBookPlotContextBlock(plot, partnerChar) +
       "\n\n默认双方为情侣关系，当事人可写对方名字或第三方。\n" +
       (existingLines ? "已有记录（勿重复）：\n" + existingLines + "\n\n" : "") +
@@ -35043,7 +36219,7 @@
               "」，从第一人称视角为「日记本」批量生成 1～3 篇新日记——记录" +
               (userChar ? "与「" + (userChar.name || "我") + "」" : "") +
               "相关的日常片段、心绪或碎碎念。\n\n" +
-              buildKnockPersonaBlock(partner, "你扮演的角色", "partner", 800) +
+              buildPlotCharacterPersonaBlock(plot, partner, "你扮演的角色", 800) +
               "\n\n" +
               buildGrudgeBookPlotContextBlock(plot, partner) +
               (existingLines ? "\n\n已有日记（勿重复）：\n" + existingLines : "") +
@@ -36121,7 +37297,8 @@
     return true;
   }
 
-  function sanitizeYouDogState() {
+  function sanitizeYouDogState(opts) {
+    opts = opts && typeof opts === "object" ? opts : {};
     youDogPlotIds = youDogPlotIds.filter(function (pid) {
       if (
         !plots.some(function (p) {
@@ -36132,10 +37309,13 @@
       }
       return getYouDogParticipantCandidatesForPlot(pid).length > 0;
     });
+    let addedChatMemberRefs = [];
     if (!youDogPlotIds.length) {
       youDogNextGenCharId = null;
       youDogParticipantIds = [];
-      sanitizeYouDogChatState();
+      addedChatMemberRefs = sanitizeYouDogChatState();
+      sanitizeYouDogActivityDmSessions();
+      if (!opts.silent) notifyYouDogNewChatMembers(addedChatMemberRefs);
       return;
     }
     const allIds = getYouDogAllParticipantIds();
@@ -36146,10 +37326,26 @@
     }
     ensureYouDogUserProfile();
     sanitizeYouDogSectionsState();
+    addedChatMemberRefs = sanitizeYouDogChatState();
     sanitizeYouDogFeedSpeakerPoolRefs();
-    sanitizeYouDogChatState();
     sanitizeYouDogActivityState();
     normalizeYouDogMainTabLayout();
+    if (!opts.silent) notifyYouDogNewChatMembers(addedChatMemberRefs);
+  }
+
+  function notifyYouDogNewChatMembers(addedRefs) {
+    const refs = Array.isArray(addedRefs) ? addedRefs.filter(Boolean) : [];
+    if (!refs.length || !isYouDogChatReady()) return;
+    const labels = refs.map(function (ref) {
+      return getYouDogChatMemberDisplayName(ref);
+    });
+    const preview = labels.slice(0, 2).join("、");
+    const suffix = labels.length > 2 ? " 等 " + labels.length + " 人" : "";
+    showToast(
+      "新角色 " + preview + suffix + " 已加入，可在「群设置」或「重新打标签」中设置标签",
+      "info",
+      4800
+    );
   }
 
   function sanitizeYouDogFeedSpeakerPoolRefs() {
@@ -36427,6 +37623,15 @@
     if (!Array.isArray(bundle.posts)) bundle.posts = [];
     if (!bundle.anonIdMap || typeof bundle.anonIdMap !== "object") bundle.anonIdMap = {};
     if (!bundle.userPersonaMap || typeof bundle.userPersonaMap !== "object") bundle.userPersonaMap = {};
+    (bundle.posts || []).forEach(function (p) {
+      if (!p) return;
+      if (p.text) p.text = stripYouDogBracketEmoji(p.text);
+      if (Array.isArray(p.comments)) {
+        p.comments.forEach(function (c) {
+          if (c && c.text) c.text = stripYouDogBracketEmoji(c.text);
+        });
+      }
+    });
     return bundle;
   }
 
@@ -36674,10 +37879,7 @@
   }
 
   function stripYouDogBracketEmoji(text) {
-    return String(text || "")
-      .replace(/\[[\u4e00-\u9fff]{1,10}\]/g, "")
-      .replace(/[ \t]{2,}/g, " ")
-      .trim();
+    return sanitizeChatBracketEmojiText(text).replace(/[ \t]{2,}/g, " ").trim();
   }
 
   function buildYouDogLatestMemoriesBlock(plot) {
@@ -38805,6 +40007,12 @@
     return { plotId: plotId, charId: charId, memberRef: ref };
   }
 
+  function getYouDogChatTextMaxForMember(memberRef) {
+    return String(memberRef || "").indexOf("user:") === 0
+      ? YOU_DOG_CHAT_USER_TEXT_MAX
+      : YOU_DOG_CHAT_TEXT_MAX;
+  }
+
   function normalizeYouDogChatCategory(raw) {
     if (!raw || typeof raw !== "object") return null;
     const name = truncateCharsWithEllipsis(String(raw.name || "").trim(), YOU_DOG_CHAT_CATEGORY_NAME_MAX);
@@ -38915,7 +40123,7 @@
         quote: null,
       };
     }
-    const text = String(raw.text || "").trim();
+    const text = stripYouDogBracketEmoji(String(raw.text || "").trim());
     if (!text) return null;
     const memberRef = String(raw.memberRef || "").trim();
     if (!memberRef) return null;
@@ -38939,7 +40147,7 @@
           .filter(Boolean)
       : [];
     const quoteRaw = raw.quote && typeof raw.quote === "object" ? raw.quote : null;
-    const quoteText = quoteRaw ? String(quoteRaw.text || "").trim() : "";
+    const quoteText = quoteRaw ? stripYouDogBracketEmoji(String(quoteRaw.text || "").trim()) : "";
     const quote = quoteText
       ? {
           text: quoteText.slice(0, 120),
@@ -38951,7 +40159,7 @@
       kind: "chat",
       batchId: String(raw.batchId || "").trim() || null,
       memberRef: memberRef,
-      text: text.slice(0, YOU_DOG_CHAT_TEXT_MAX),
+      text: text.slice(0, getYouDogChatTextMaxForMember(memberRef)),
       time: String(raw.time || "刚刚").trim(),
       tagName: tagName,
       tagColor: tagColor,
@@ -39106,24 +40314,55 @@
 
   function sanitizeYouDogChatState() {
     const candidates = getAllYouDogChatMemberCandidates();
-    const candidateSet = new Set(candidates.map(function (c) {
-      return c.memberRef;
-    }));
+    const candidateSet = new Set(
+      candidates.map(function (c) {
+        return c.memberRef;
+      })
+    );
+    const addedRefs = [];
     if (!youDogChatData || !youDogChatData.setupComplete) {
       youDogChatParticipantIds = [];
       youDogChatSpeakerPoolRefs = [];
+      youDogChatPendingTagRefs = [];
       ensureYouDogUserProfile();
-      return;
+      return addedRefs;
     }
     ensureYouDogChatData();
     const kickedSet = new Set(
-      (youDogChatData.kickedRefs || []).map(function (r) {
-        return String(r || "").trim();
-      }).filter(Boolean)
+      (youDogChatData.kickedRefs || [])
+        .map(function (r) {
+          return String(r || "").trim();
+        })
+        .filter(Boolean)
     );
-    youDogChatData.members = (youDogChatData.members || []).filter(function (m) {
-      return m && candidateSet.has(m.memberRef) && !kickedSet.has(m.memberRef);
+    youDogChatData.kickedRefs = (youDogChatData.kickedRefs || []).filter(function (r) {
+      return candidateSet.has(String(r || "").trim());
     });
+    const removedRefs = [];
+    youDogChatData.members = (youDogChatData.members || []).filter(function (m) {
+      const ref = m && m.memberRef ? String(m.memberRef).trim() : "";
+      const keep = ref && candidateSet.has(ref) && !kickedSet.has(ref);
+      if (ref && !keep) removedRefs.push(ref);
+      return keep;
+    });
+    if (removedRefs.length) {
+      const removedSet = new Set(removedRefs);
+      youDogChatData.messages = (youDogChatData.messages || []).filter(function (m) {
+        if (!m) return false;
+        if (m.kind === "system") return true;
+        const ref = String(m.memberRef || "").trim();
+        return !ref || !removedSet.has(ref);
+      });
+      youDogChatPendingTagRefs = (youDogChatPendingTagRefs || []).filter(function (ref) {
+        return !removedSet.has(ref);
+      });
+      youDogChatSpeakerPoolRefs = youDogChatSpeakerPoolRefs.filter(function (ref) {
+        return !removedSet.has(ref);
+      });
+      youDogFeedSpeakerPoolRefs = youDogFeedSpeakerPoolRefs.filter(function (ref) {
+        return !removedSet.has(ref);
+      });
+    }
     const memberSet = new Set(
       youDogChatData.members.map(function (m) {
         return m.memberRef;
@@ -39139,15 +40378,34 @@
         categoryId: defaultCat ? defaultCat.id : "ydc-cat-slacker",
         isAdmin: false,
       });
+      memberSet.add(c.memberRef);
+      addedRefs.push(c.memberRef);
+    });
+    youDogChatPendingTagRefs = (youDogChatPendingTagRefs || []).filter(function (ref) {
+      return candidateSet.has(ref) && !kickedSet.has(ref);
+    });
+    addedRefs.forEach(function (ref) {
+      if (youDogChatPendingTagRefs.indexOf(ref) < 0) youDogChatPendingTagRefs.push(ref);
+      if (youDogChatSpeakerPoolRefs.indexOf(ref) < 0) youDogChatSpeakerPoolRefs.push(ref);
+      if (youDogFeedSpeakerPoolRefs.indexOf(ref) < 0) youDogFeedSpeakerPoolRefs.push(ref);
     });
     ensureYouDogUserProfile();
     youDogChatData.messages = (youDogChatData.messages || [])
       .map(function (m) {
         return normalizeYouDogChatMessage(m, youDogChatData);
       })
-      .filter(Boolean);
+      .filter(function (m) {
+        if (!m) return false;
+        if (m.kind === "system") return true;
+        const ref = String(m.memberRef || "").trim();
+        if (!ref) return true;
+        if (ref.indexOf("user:") === 0) return true;
+        return memberSet.has(ref);
+      });
     sanitizeYouDogChatSpeakerPoolRefs();
+    youDogChatParticipantIds = youDogChatSpeakerPoolRefs.slice();
     updateYouDogChatPhase(false);
+    return addedRefs;
   }
 
   function isYouDogChatReady() {
@@ -39478,6 +40736,7 @@
         "」、有人猜过用户真名、其他人表示「你也认识」。\n" +
         "角色开始怀疑彼此是平行世界的同类，仍用标签互怼互嘲，像普通网友群。\n" +
         "可聊日常（游戏、外卖、天气、段子）；偶尔聊各自世界的事，但禁止人人每句都在汇报剧情。\n" +
+        "各角色不在同一现实世界：不可约定见面、帮对方点外卖/寄东西等实体行动。\n" +
         "仍用标签称呼，偶尔 @用户；等用户主动发言时可自然接话、追问细节。" +
         batchSizeHint
       );
@@ -39486,6 +40745,7 @@
       "【本批剧本 · 自由群聊】\n" +
       toneHint +
       "\n平行世界自觉已建立；标签互称、互损、接梗，话题不限。\n" +
+      "各角色不在同一现实世界：不可约定见面、帮对方点外卖/寄东西等实体行动。\n" +
       "像真实群聊：有人连发两三句短消息，有人只回「草」「确实」「？？？」；约半数消息与剧情无关。" +
       batchSizeHint
     );
@@ -39506,6 +40766,8 @@
     const lines = [
       "请为群聊「" + (data.groupName || "未命名群") + "」生成一批新消息 JSON。",
       YOU_DOG_CHAT_TONE_RULE,
+      YOU_DOG_EMOJI_STYLE_RULE,
+      YOU_DOG_GROUP_DM_SYNC_RULE,
       "",
       buildYouDogUserProfilePromptBlock(),
       "",
@@ -39537,11 +40799,12 @@
       if (!plot) return;
       lines.push("════ " + getYouDogChatMemberDisplayName(memberRef) + " · 性格参考（勿句句引用） ════");
       lines.push(buildYouDogChatPlotContextBlock(plot, parsed.charId));
+      appendYouDogGroupDmSyncForMember(lines, memberRef);
       lines.push("");
     });
     const history = buildYouDogChatHistoryBlock(data);
     if (history) {
-      lines.push("【群聊最近记录（须衔接，勿重复）】");
+      lines.push("【群聊最近记录（须衔接，勿重复；各角色须记得自己在群里的原话）】");
       lines.push(history);
       lines.push("");
     }
@@ -39613,7 +40876,7 @@
       id: uid("ydcm"),
       batchId: null,
       memberRef: YOU_DOG_USER_PROFILE_REF,
-      text: trimmed.slice(0, YOU_DOG_CHAT_TEXT_MAX),
+      text: trimmed.slice(0, YOU_DOG_CHAT_USER_TEXT_MAX),
       time: "刚刚",
       tagName: "",
       tagColor: "",
@@ -39775,10 +41038,6 @@
         '<svg class="icon-linear story-selection-bubble__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10h10a4 4 0 014 4v7"/><path d="M3 10l4-4"/><path d="M7 6L3 10l4 4"/></svg>' +
         '<span class="story-selection-bubble__label">引用</span>' +
         "</button>" +
-        '<button type="button" data-you-dog-chat-msg-action="knock">' +
-        '<svg class="icon-linear story-selection-bubble__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M21 12a8 8 0 01-8 8H8l-5 3V8a8 8 0 018-8h8a8 8 0 018 8z"/></svg>' +
-        '<span class="story-selection-bubble__label">敲敲</span>' +
-        "</button>" +
         '<button type="button" data-you-dog-chat-msg-action="delete">' +
         '<svg class="icon-linear story-selection-bubble__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>' +
         '<span class="story-selection-bubble__label">删除</span>' +
@@ -39912,13 +41171,8 @@
         const ctx = youDogChatMsgActionContext;
         const action = actionBtn.getAttribute("data-you-dog-chat-msg-action");
         if (ctx && ctx.msgId) {
-          const msg = getYouDogChatMessageById(ctx.msgId);
           if (action === "quote") setYouDogChatQuoteFromMessage(ctx.msgId);
-          else if (action === "knock") {
-            if (msg && msg.memberRef && String(msg.memberRef).indexOf("user:") !== 0) {
-              void openKnockFromYouDogMemberRef(msg.memberRef);
-            }
-          } else if (action === "delete") {
+          else if (action === "delete") {
             void showConfirm("确定删除这条消息？", "删除消息").then(function (ok) {
               if (!ok) return;
               deleteYouDogChatMessagesByIds([ctx.msgId]);
@@ -39957,9 +41211,15 @@
       return;
     }
     sanitizeYouDogChatState();
-    const poolRefs = getYouDogChatSpeakerPoolRefs();
+    let poolRefs = getYouDogChatSpeakerPoolRefs();
+    if (Array.isArray(opts.participantIds) && opts.participantIds.length) {
+      const pickSet = new Set(opts.participantIds.filter(Boolean));
+      poolRefs = poolRefs.filter(function (ref) {
+        return pickSet.has(ref);
+      });
+    }
     if (!poolRefs.length) {
-      showToast("请先在身份设置里勾选参与发言的角色。", "warning");
+      showToast("没有可发言的角色，请先在发言角色池中勾选。", "warning");
       openYouDogChatPersonaModal();
       return;
     }
@@ -39978,8 +41238,13 @@
         "你是中文互动叙事助手。生成「嗅闻博客·平行世界群聊」JSON。\n" +
         YOU_DOG_PARALLEL_WORLD_RULE +
         "\n" +
+        YOU_DOG_GROUP_DM_SYNC_RULE +
+        "\n" +
         YOU_DOG_CHAT_TONE_RULE +
+        "\n" +
+        YOU_DOG_EMOJI_STYLE_RULE +
         "\n角色彼此素不相识，只见头顶彩色标签；禁止输出角色真名（标签名可以）。\n" +
+        "各角色不在同一现实世界，不可约定见面、帮对方点外卖/寄东西等实体行动。\n" +
         (isOpening
           ? "破冰阶段例外：可有一次让某角色猜用户真名是否在胡闹，随后其他人可表示「你怎么也认识 TA」；" +
             "除此以外仍不可直呼角色真名，角色之间仍互不认识。\n"
@@ -40214,11 +41479,9 @@
     return (
       '<div class="you-dog-chat-participant-panel">' +
       '<div class="you-dog-participant-panel__head">' +
-      "<span>参与生成（最多 " +
-      YOU_DOG_CHAT_ACTIVE_LIMIT +
-      " 人，已选 " +
-      youDogChatParticipantIds.length +
-      "）</span>" +
+      "<span>发言角色池（已选 " +
+      getYouDogChatSpeakerPoolRefs().length +
+      " 人，仅勾选者可生成发言）</span>" +
       '<button type="button" class="you-dog-participant-panel__edit" data-you-dog-chat-settings-open>群设置</button>' +
       "</div>" +
       '<div class="you-dog-participant-panel__list">' +
@@ -40400,7 +41663,9 @@
       quoteBarHtml +
       '<div class="you-dog-chat__composer-row">' +
       buildYouDogSurveyComposerBtnHtml("group", composerDisabled) +
-      '<textarea class="you-dog-chat__input" data-you-dog-chat-input rows="1" placeholder="发言…"' +
+      '<textarea class="you-dog-chat__input" data-you-dog-chat-input rows="1" maxlength="' +
+      YOU_DOG_CHAT_USER_TEXT_MAX +
+      '" placeholder="发言…"' +
       (composerDisabled ? " disabled" : "") +
       "></textarea>" +
       '<button type="button" class="you-dog-chat__send" data-you-dog-chat-send aria-label="发送"' +
@@ -40421,7 +41686,8 @@
             return m.memberRef === c.memberRef;
           })
         : null;
-      if (hit) {
+      const isPendingTag = (youDogChatPendingTagRefs || []).indexOf(c.memberRef) >= 0;
+      if (hit && !isPendingTag) {
         const cat = (existing.categories || []).find(function (x) {
           return x.id === hit.categoryId;
         });
@@ -40451,9 +41717,12 @@
       titleEl.textContent = step === "tag" ? "打标签" : "群名称";
     }
     if (hintEl) {
+      const pendingCount = (youDogChatPendingTagRefs || []).length;
       hintEl.textContent =
         step === "tag"
-          ? "在每位角色后面输入标签名即可，颜色会自动分配"
+          ? pendingCount
+            ? "有 " + pendingCount + " 位新角色待设标签；在每位角色后面输入标签名即可，颜色会自动分配"
+            : "在每位角色后面输入标签名即可，颜色会自动分配"
           : "输入群聊名称（你的身份请在右上角头像处创建）";
     }
     if (backBtn) backBtn.hidden = step === "tag";
@@ -40465,10 +41734,14 @@
       html += '<div class="you-dog-chat-setup-members">';
       getAllYouDogChatMemberCandidates().forEach(function (c) {
         const tagName = youDogChatSetupDraft.memberTagNames[c.memberRef] || "";
+        const isPendingTag = (youDogChatPendingTagRefs || []).indexOf(c.memberRef) >= 0;
         html +=
-          '<div class="you-dog-chat-setup-member">' +
+          '<div class="you-dog-chat-setup-member' +
+          (isPendingTag ? " you-dog-chat-setup-member--pending" : "") +
+          '">' +
           '<span class="you-dog-chat-setup-member__name">' +
           escapeHtml(c.charName + " · " + c.plotTitle) +
+          (isPendingTag ? '<span class="you-dog-chat-setup-member__pending">新角色</span>' : "") +
           "</span>" +
           '<input type="text" class="field__input you-dog-chat-setup-member__tag" data-you-dog-chat-setup-tag-name="' +
           escapeHtml(c.memberRef) +
@@ -40616,6 +41889,7 @@
     youDogMessagesSegment = "group";
     syncYouDogLegacyChatSubScreen();
     sanitizeYouDogChatState();
+    youDogChatPendingTagRefs = [];
     schedulePersistNarrative();
     closeYouDogChatSetupModal();
     renderYouDogScreen(els.youDogContentSlot());
@@ -40715,28 +41989,6 @@
     if (input) input.value = "";
     renderYouDogScreen(root);
     scrollYouDogChatThreadToEnd(root);
-  }
-
-  async function openKnockFromYouDogMemberRef(memberRef) {
-    const parsed = parseYouDogChatMemberRef(memberRef);
-    if (!parsed) {
-      showToast("无法识别该标签对应的角色", "warning");
-      return;
-    }
-    const plot = plots.find(function (p) {
-      return p.id === parsed.plotId;
-    });
-    if (!plot) {
-      showToast("剧情不存在", "warning");
-      return;
-    }
-    overviewSubView = null;
-    syncOverviewSubViewUi();
-    knockPlotId = parsed.plotId;
-    knockPartnerCharId = parsed.charId;
-    if (plot.protagonistId) knockUserCharId = plot.protagonistId;
-    await openOverviewKnockView();
-    showToast("已跳转敲敲私聊", "info");
   }
 
   /* ── 你才是狗 · 活动 ── */
@@ -40870,13 +42122,10 @@
           (avatarUrl ? " phone-social-avatar--has-image" : "");
         const session = getYouDogActivityDmSession(ref);
         const msgs = session.messages || [];
-        const last = msgs.length ? msgs[msgs.length - 1] : null;
         const preview = getYouDogActivityDmPreview(ref);
-        const timeStr = last ? formatYouDogActivityDmListTime(last.time) : "";
-        const unread =
-          msgs.length && last && last.role === "char"
-            ? '<span class="you-dog-activity-chat-list__badge" aria-hidden="true"></span>'
-            : "";
+        const unread = hasYouDogActivityDmUnread(ref)
+          ? '<span class="you-dog-activity-chat-list__badge" aria-hidden="true"></span>'
+          : "";
         return (
           '<button type="button" class="phone-wechat-row you-dog-activity-chat-list__row" data-you-dog-activity-dm="' +
           escapeHtml(ref) +
@@ -40891,9 +42140,6 @@
           '<span class="phone-wechat-row__name">' +
           escapeHtml(label) +
           "</span>" +
-          (timeStr
-            ? '<span class="phone-wechat-row__time">' + escapeHtml(timeStr) + "</span>"
-            : "") +
           "</span>" +
           '<span class="phone-wechat-row__preview">' +
           escapeHtml(preview) +
@@ -41283,6 +42529,7 @@
     youDogActivityScreen = "dm";
     clearYouDogActivityDmInteractionState();
     youDogActivityDmRef = ref;
+    markYouDogActivityDmRead(ref);
     markYouDogChatScrollToEndPending();
     renderYouDogScreen(slot || els.youDogContentSlot());
   }
@@ -41372,10 +42619,6 @@
         '<svg class="icon-linear story-selection-bubble__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10h10a4 4 0 014 4v7"/><path d="M3 10l4-4"/><path d="M7 6L3 10l4 4"/></svg>' +
         '<span class="story-selection-bubble__label">引用</span>' +
         "</button>" +
-        '<button type="button" data-you-dog-activity-dm-msg-action="knock">' +
-        '<svg class="icon-linear story-selection-bubble__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M21 12a8 8 0 01-8 8H8l-5 3V8a8 8 0 018-8h8a8 8 0 018 8z"/></svg>' +
-        '<span class="story-selection-bubble__label">敲敲</span>' +
-        "</button>" +
         '<button type="button" data-you-dog-activity-dm-msg-action="delete">' +
         '<svg class="icon-linear story-selection-bubble__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>' +
         '<span class="story-selection-bubble__label">删除</span>' +
@@ -41400,10 +42643,6 @@
     if (!msg || !anchorEl) return;
     const bubble = ensureYouDogActivityDmMsgActionBubbleUi();
     youDogActivityDmMsgActionContext = { msgId: msg.id, anchorEl: anchorEl };
-    const knockBtn = bubble.querySelector('[data-you-dog-activity-dm-msg-action="knock"]');
-    if (knockBtn) {
-      knockBtn.hidden = msg.role === "user";
-    }
     const rect = anchorEl.getBoundingClientRect();
     const shellRect = getYouDogChatActionBubbleBounds();
     bubble.hidden = false;
@@ -41538,11 +42777,8 @@
         const action = actionBtn.getAttribute("data-you-dog-activity-dm-msg-action");
         const ref = youDogActivityDmRef;
         if (ctx && ctx.msgId && ref) {
-          const msg = getYouDogActivityDmMessageById(ref, ctx.msgId);
           if (action === "quote") setYouDogActivityDmQuoteFromMessage(ctx.msgId);
-          else if (action === "knock") {
-            if (msg && msg.role !== "user") void openKnockFromYouDogMemberRef(ref);
-          } else if (action === "delete") {
+          else if (action === "delete") {
             void showConfirm("确定删除这条消息？", "删除消息").then(function (ok) {
               if (!ok) return;
               deleteYouDogActivityDmMessagesByIds(ref, [ctx.msgId]);
@@ -41577,8 +42813,10 @@
     const lines = [
       "请为「你才是狗·活动私聊」生成角色回复 JSON。",
       YOU_DOG_PARALLEL_WORLD_RULE,
+      YOU_DOG_GROUP_DM_SYNC_RULE,
       YOU_DOG_ACTIVITY_DM_FRIEND_RULE,
       YOU_DOG_CHAT_TONE_RULE,
+      YOU_DOG_EMOJI_STYLE_RULE,
       "",
       buildYouDogUserProfilePromptBlock(),
       "",
@@ -41586,6 +42824,14 @@
       buildYouDogChatPlotContextBlock(plot, parsed.charId),
       "",
     ];
+    appendYouDogGroupDmSyncForMember(lines, memberRef);
+    const data = ensureYouDogChatData();
+    const groupHistory = buildYouDogChatHistoryBlock(data, 20);
+    if (groupHistory) {
+      lines.push("【群聊最近记录（该角色须记得自己在群里的原话，可私下延续话题但不可张冠李戴）】");
+      lines.push(groupHistory);
+      lines.push("");
+    }
     if (history) {
       lines.push("【最近私聊】");
       lines.push(history);
@@ -41611,6 +42857,10 @@
             role: "system",
             content:
               "你是中文互动叙事助手。生成活动私聊中角色的回复 JSON。\n" +
+              YOU_DOG_PARALLEL_WORLD_RULE +
+              "\n" +
+              YOU_DOG_GROUP_DM_SYNC_RULE +
+              "\n" +
               YOU_DOG_ACTIVITY_DM_FRIEND_RULE +
               "\n" +
               YOU_DOG_EMOJI_STYLE_RULE +
@@ -41634,6 +42884,7 @@
     } finally {
       clearGenCallContext();
       youDogActivityGenerating = false;
+      syncYouDogActivityDmReadIfViewing(ref);
       renderYouDogScreen(slot || els.youDogContentSlot());
       scheduleYouDogChatThreadsScrollToEnd(slot || els.youDogContentSlot());
     }
@@ -41693,6 +42944,10 @@
             role: "system",
             content:
               "你是中文互动叙事助手。生成活动私聊中角色主动找用户的消息 JSON。\n" +
+              YOU_DOG_PARALLEL_WORLD_RULE +
+              "\n" +
+              YOU_DOG_GROUP_DM_SYNC_RULE +
+              "\n" +
               YOU_DOG_ACTIVITY_DM_FRIEND_RULE +
               "\n" +
               YOU_DOG_EMOJI_STYLE_RULE +
@@ -41745,6 +43000,10 @@
             role: "system",
             content:
               "你是中文互动叙事助手。生成活动私聊中角色主动找用户的消息 JSON。\n" +
+              YOU_DOG_PARALLEL_WORLD_RULE +
+              "\n" +
+              YOU_DOG_GROUP_DM_SYNC_RULE +
+              "\n" +
               YOU_DOG_ACTIVITY_DM_FRIEND_RULE +
               "\n" +
               YOU_DOG_EMOJI_STYLE_RULE +
@@ -41778,6 +43037,7 @@
     } finally {
       clearGenCallContext();
       youDogActivityGenerating = false;
+      syncYouDogActivityDmReadIfViewing(ref);
       renderYouDogScreen(slot || els.youDogContentSlot());
       scheduleYouDogChatThreadsScrollToEnd(slot || els.youDogContentSlot());
     }
@@ -43277,16 +44537,14 @@
 
   function buildPhoneHolderProfileBlock(holder, plot) {
     if (!holder) return "未设定";
-    const parts = [];
-    if (holder.name) parts.push("姓名：" + String(holder.name).trim());
-    if (holder.style) parts.push("外貌及性格：" + String(holder.style).trim());
-    if (holder.bg) parts.push("背景设定：" + String(holder.bg).trim());
-    if (holder.relationships) parts.push("人物关系：" + String(holder.relationships).trim());
-    const ov = (plot && plot.characterOverrides ? plot.characterOverrides : []).find(function (it) {
-      return it && it.characterId === holder.id && it.profile;
-    });
-    if (ov && ov.profile) parts.push("剧情内形象覆盖：" + String(ov.profile).trim());
-    return parts.length ? parts.join("\n") : "未设定";
+    const name = holder.name ? String(holder.name).trim() : "";
+    const profile = plot
+      ? buildCharacterProfileFromPlot(plot, holder.id)
+      : buildCharacterProfileFromLibrary(holder);
+    const lines = [];
+    if (name) lines.push("姓名：" + name);
+    if (profile) lines.push(profile);
+    return lines.length ? lines.join("\n") : "未设定";
   }
 
   function normalizePhoneWechatMessageSide(msgObj, holderName, contactName) {
@@ -63391,74 +64649,13 @@
     return { row: row, body: body };
   }
 
-  function renderStoryPlay(p) {
-    const introEl = document.getElementById("story-play-intro");
-    if (!introEl) return;
-    ensurePlotExtendedState(p);
-    if (storyLineEditState && storyLineEditState.plotId === p.id) {
-      const ectx = getLineContext(p.id, storyLineEditState.turnIndex, storyLineEditState.lineIndex);
-      if (!ectx) {
-        storyLineEditState = null;
-        hideStorySelectionBubble();
-      }
-    }
-    applyStoryBackground(p);
-    const identityBlocks = getEffectiveIdentityBlocks(p);
-    const era = String(identityBlocks.eraBlock || "").trim();
-    const idSelf = String(identityBlocks.identitySelfBlock || "").trim();
-    const idOthers = String(identityBlocks.identityOthersBlock || "").trim();
-    introEl.innerHTML = "";
-    const eraParts = era ? splitSetupDisplayParagraphs(era) : [];
-    if (eraParts.length === 0) {
-      const b1 = document.createElement("div");
-      b1.className = "story-intro-block story-intro-block--empty";
-      b1.textContent = "时代与场景将由 API 生成…";
-      introEl.appendChild(b1);
-    } else {
-      eraParts.forEach(function (chunk) {
-        const blk = document.createElement("div");
-        blk.className = "story-intro-block";
-        blk.textContent = chunk;
-        introEl.appendChild(blk);
-      });
-    }
-    const selfChunks = splitStoryIdentitiesForBlocks(idSelf, p);
-    if (selfChunks.length === 0) {
-      const b2 = document.createElement("div");
-      b2.className = "story-intro-block story-intro-block--empty";
-      b2.textContent = "我的形象将由 API 生成…";
-      introEl.appendChild(b2);
-    } else {
-      selfChunks.forEach(function (chunk) {
-        const blk = document.createElement("div");
-        blk.className = "story-intro-block";
-        blk.textContent = chunk;
-        introEl.appendChild(blk);
-      });
-    }
-    const othersChunks = splitStoryIdentitiesForBlocks(idOthers, p);
-    if (othersChunks.length === 0) {
-      const b3 = document.createElement("div");
-      b3.className = "story-intro-block story-intro-block--empty";
-      b3.textContent = "其他角色将由 API 生成…";
-      introEl.appendChild(b3);
-    } else {
-      othersChunks.forEach(function (chunk) {
-        const blk = document.createElement("div");
-        blk.className = "story-intro-block";
-        blk.textContent = chunk;
-        introEl.appendChild(blk);
-      });
-    }
 
-    const feed = document.getElementById("story-play-feed");
-    if (feed) {
-      feed.innerHTML = "";
-      const pid = p.protagonistId;
-      ensureStoryLineIds(p);
-      (p.playTurns || []).forEach((turn, turnIndex) => {
-        const turnGroup = document.createElement("section");
-        turnGroup.className = "story-turn-group";
+  function buildStoryPlayTurnGroupDom(p, turnIndex) {
+    const turn = (p.playTurns || [])[turnIndex];
+    if (!turn) return null;
+    const pid = p.protagonistId;
+    const turnGroup = document.createElement("section");
+    turnGroup.className = "story-turn-group";
         turnGroup.id = "story-play-turn-" + String(turnIndex);
         turnGroup.setAttribute("data-turn-index", String(turnIndex));
         const turnActionText =
@@ -63741,10 +64938,105 @@
             turnGroup.appendChild(pNarr);
           }
         }
-        if (turnGroup.children.length) {
-          feed.appendChild(turnGroup);
-        }
+
+    return turnGroup.children.length ? turnGroup : null;
+  }
+  function renderStoryPlay(p) {
+    const introEl = document.getElementById("story-play-intro");
+    if (!introEl) return;
+    ensurePlotExtendedState(p);
+    if (storyLineEditState && storyLineEditState.plotId === p.id) {
+      const ectx = getLineContext(p.id, storyLineEditState.turnIndex, storyLineEditState.lineIndex);
+      if (!ectx) {
+        storyLineEditState = null;
+        hideStorySelectionBubble();
+      }
+    }
+    const feedEarly = document.getElementById("story-play-feed");
+    const turnsEarly = p.playTurns || [];
+    const streamPatchOnlyIntro =
+      !!p.playTurnInFlight &&
+      turnsEarly.length > 0 &&
+      turnsEarly[turnsEarly.length - 1].streaming &&
+      feedEarly &&
+      feedEarly.childElementCount > 0 &&
+      !storyLineEditState;
+    if (!streamPatchOnlyIntro) applyStoryBackground(p);
+    const identityBlocks = getEffectiveIdentityBlocks(p);
+    const era = String(identityBlocks.eraBlock || "").trim();
+    const idSelf = String(identityBlocks.identitySelfBlock || "").trim();
+    const idOthers = String(identityBlocks.identityOthersBlock || "").trim();
+    if (!streamPatchOnlyIntro) {
+    introEl.innerHTML = "";
+    const eraParts = era ? splitSetupDisplayParagraphs(era) : [];
+    if (eraParts.length === 0) {
+      const b1 = document.createElement("div");
+      b1.className = "story-intro-block story-intro-block--empty";
+      b1.textContent = "时代与场景将由 API 生成…";
+      introEl.appendChild(b1);
+    } else {
+      eraParts.forEach(function (chunk) {
+        const blk = document.createElement("div");
+        blk.className = "story-intro-block";
+        blk.textContent = chunk;
+        introEl.appendChild(blk);
       });
+    }
+    const selfChunks = splitStoryIdentitiesForBlocks(idSelf, p);
+    if (selfChunks.length === 0) {
+      const b2 = document.createElement("div");
+      b2.className = "story-intro-block story-intro-block--empty";
+      b2.textContent = "我的形象将由 API 生成…";
+      introEl.appendChild(b2);
+    } else {
+      selfChunks.forEach(function (chunk) {
+        const blk = document.createElement("div");
+        blk.className = "story-intro-block";
+        blk.textContent = chunk;
+        introEl.appendChild(blk);
+      });
+    }
+    const othersChunks = splitStoryIdentitiesForBlocks(idOthers, p);
+    if (othersChunks.length === 0) {
+      const b3 = document.createElement("div");
+      b3.className = "story-intro-block story-intro-block--empty";
+      b3.textContent = "其他角色将由 API 生成…";
+      introEl.appendChild(b3);
+    } else {
+      othersChunks.forEach(function (chunk) {
+        const blk = document.createElement("div");
+        blk.className = "story-intro-block";
+        blk.textContent = chunk;
+        introEl.appendChild(blk);
+      });
+    }
+    }
+
+    const feed = document.getElementById("story-play-feed");
+    if (feed) {
+      ensureStoryLineIds(p);
+      const turnsForFeed = p.playTurns || [];
+      const streamPatchOnly =
+        !!p.playTurnInFlight &&
+        turnsForFeed.length > 0 &&
+        turnsForFeed[turnsForFeed.length - 1].streaming &&
+        feed.childElementCount > 0 &&
+        !storyLineEditState;
+      if (streamPatchOnly) {
+        const ti = turnsForFeed.length - 1;
+        const newGroup = buildStoryPlayTurnGroupDom(p, ti);
+        const existing = document.getElementById("story-play-turn-" + ti);
+        if (newGroup) {
+          if (existing) existing.replaceWith(newGroup);
+          else feed.appendChild(newGroup);
+        } else if (existing) existing.remove();
+      } else {
+        feed.innerHTML = "";
+        turnsForFeed.forEach(function (_turn, turnIndex) {
+          const turnGroup = buildStoryPlayTurnGroupDom(p, turnIndex);
+          if (turnGroup) feed.appendChild(turnGroup);
+        });
+      }
     }
 
     const playPanelEl = document.getElementById("story-panel-play");
@@ -64180,11 +65472,39 @@
   }
 
   var storyPlayStreamUiRaf = 0;
+  var storyPlayStreamUiLastAt = 0;
+  var storyScrollNavRaf = 0;
+  var storyPlayScrolling = false;
+  var storyPlayScrollEndTimer = 0;
+  const STORY_STREAM_UI_MIN_MS = 100;
+
+  function scheduleUpdateStoryScrollNav() {
+    if (storyScrollNavRaf) return;
+    storyScrollNavRaf = requestAnimationFrame(function () {
+      storyScrollNavRaf = 0;
+      updateStoryScrollNav();
+    });
+  }
+
+  function markStoryPlayScrolling() {
+    storyPlayScrolling = true;
+    if (storyPlayScrollEndTimer) clearTimeout(storyPlayScrollEndTimer);
+    storyPlayScrollEndTimer = setTimeout(function () {
+      storyPlayScrollEndTimer = 0;
+      storyPlayScrolling = false;
+    }, 120);
+  }
 
   function scheduleStoryPlayStreamUi(plot, turnIndex, protagonist, supporting, streamText, streamDone) {
     if (storyPlayStreamUiRaf) return;
     storyPlayStreamUiRaf = requestAnimationFrame(function () {
       storyPlayStreamUiRaf = 0;
+      const now = Date.now();
+      if (!streamDone && now - storyPlayStreamUiLastAt < STORY_STREAM_UI_MIN_MS) {
+        scheduleStoryPlayStreamUi(plot, turnIndex, protagonist, supporting, streamText, streamDone);
+        return;
+      }
+      storyPlayStreamUiLastAt = now;
       const turns = plot.playTurns || [];
       const turn = turns[turnIndex];
       if (!turn || !turn.streaming) return;
@@ -64794,6 +66114,7 @@
     const atMax = count >= max;
     const refObj =
       refKey === "daily" ? visualImageSettings.dailyRef : visualImageSettings.appearanceRef;
+    const angleMeta = refKey === "appearance" ? getAppearanceRefAngleMeta() : [];
     const prompt = (refObj && refObj.prompt) || "";
     const celebrity =
       refKey === "appearance"
@@ -64805,6 +66126,10 @@
     for (let i = 0; i < max; i++) {
       const url = images[i] || "";
       if (url) {
+        const thumbLabel =
+          refKey === "appearance" && angleMeta[i] && angleMeta[i].angleLabel
+            ? angleMeta[i].angleLabel
+            : slotLabel + " " + (i + 1);
         thumbCells.push(
           '<div class="visual-image-appearance-thumb visual-image-appearance-thumb--filled">' +
           '<img class="visual-image-appearance-thumb__img" src="' +
@@ -64818,9 +66143,7 @@
           (i + 1) +
           ' 张参考图"><svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>' +
           '<span class="visual-image-appearance-thumb__label">' +
-          escapeHtml(slotLabel) +
-          " " +
-          (i + 1) +
+          escapeHtml(thumbLabel) +
           "</span></div>"
         );
       } else {
@@ -64863,6 +66186,9 @@
       '<input type="file" accept="image/*" id="' +
       inputId +
       '" hidden multiple /></div>' +
+      (refKey === "appearance"
+        ? '<p class="visual-image-upload-block__hint">上传 1～3 张同一人物不同角度（如正脸、侧脸、他拍）。仅 1 张时生成会固定该角度；多张时按场景描述自动选用对应参考图。</p>'
+        : "") +
       '<div class="visual-image-ref-fields">' +
       '<label class="field visual-image-ref-fields__prompt">' +
       '<span class="field__label">参考描述提示词</span>' +
@@ -67321,6 +68647,7 @@
       playBackgroundDark: "",
     };
     plots.unshift(newPlot);
+    sanitizeYouDogState();
     closePlotSheet();
     els.sheetOpening().value = "";
     renderDynamic();
@@ -67828,6 +69155,17 @@
       renderYouDogChatPersonaModal();
       return;
     }
+
+    if (target.matches("[data-you-dog-chat-toggle-participant]")) {
+      const ref = target.getAttribute("data-you-dog-chat-toggle-participant");
+      const ok = toggleYouDogChatParticipant(ref, target.checked);
+      if (!ok) {
+        target.checked = !target.checked;
+        return;
+      }
+      renderYouDogScreen(els.youDogContentSlot());
+      return;
+    }
   });
   if (els.youDogCommentClose()) {
     els.youDogCommentClose().addEventListener("click", closeYouDogCommentModal);
@@ -68106,14 +69444,6 @@
       if (idx >= 0) youDogChatSelectedMsgIds.splice(idx, 1);
       else youDogChatSelectedMsgIds.push(mid);
       renderYouDogScreen(slot);
-      return;
-    }
-
-    const chatToggle = e.target.closest("[data-you-dog-chat-toggle-participant]");
-    if (chatToggle) {
-      const ref = chatToggle.getAttribute("data-you-dog-chat-toggle-participant");
-      if (toggleYouDogChatParticipant(ref, chatToggle.checked)) renderYouDogScreen(slot);
-      else chatToggle.checked = !chatToggle.checked;
       return;
     }
 
@@ -68816,6 +70146,11 @@
       return;
     }
 
+    if (e.target.closest("[data-todo-focus]")) {
+      openTaskTodoFocusModal();
+      return;
+    }
+
     if (e.target.closest("[data-todo-context]")) {
       openTaskTodoHolderModal();
       return;
@@ -68883,11 +70218,62 @@
       const dayBtn = e.target.closest("[data-todo-calendar-day]");
       if (dayBtn) {
         taskTodoCalendarSelectedKey = dayBtn.getAttribute("data-todo-calendar-day");
+        resetTaskTodoCalendarExpanded();
         renderTaskTodoCalendarModal();
+        return;
+      }
+      const expandBtn = e.target.closest("[data-todo-calendar-expand]");
+      if (expandBtn) {
+        const side = expandBtn.getAttribute("data-todo-calendar-expand");
+        if (side === "char" || side === "user") {
+          taskTodoCalendarExpanded[side] = !taskTodoCalendarExpanded[side];
+          renderTaskTodoCalendarModal();
+        }
         return;
       }
       if (e.target.closest("[data-todo-calendar-settle]")) {
         void settleTaskTodoDay(els.todoContentSlot());
+      }
+    });
+  }
+  if (els.todoFocusClose()) {
+    els.todoFocusClose().addEventListener("click", closeTaskTodoFocusModal);
+  }
+  if (els.modalTodoFocus()) {
+    els.modalTodoFocus().addEventListener("click", function (e) {
+      if (e.target.id === "modal-todo-focus") {
+        closeTaskTodoFocusModal();
+        return;
+      }
+      const focusSlot = els.todoFocusSlot();
+      if (!focusSlot || !focusSlot.contains(e.target)) return;
+      const tabBtn = e.target.closest("[data-todo-focus-tab]");
+      if (tabBtn) {
+        taskTodoFocusModalTab = tabBtn.getAttribute("data-todo-focus-tab") === "review" ? "review" : "timer";
+        renderTaskTodoFocusModal();
+        return;
+      }
+      if (e.target.closest("[data-todo-focus-period]")) {
+        const p = e.target.closest("[data-todo-focus-period]").getAttribute("data-todo-focus-period");
+        if (p === "week" || p === "month" || p === "year") {
+          taskTodoFocusReviewPeriod = p;
+          renderTaskTodoFocusModal();
+        }
+        return;
+      }
+      if (e.target.closest("[data-todo-focus-start]") || e.target.closest("[data-todo-focus-resume]")) {
+        const input = document.getElementById("todo-focus-name-input");
+        const name = input ? input.value : taskTodoFocusState.name;
+        taskTodoFocusStart(name);
+        return;
+      }
+      if (e.target.closest("[data-todo-focus-pause]")) {
+        taskTodoFocusPause();
+        return;
+      }
+      if (e.target.closest("[data-todo-focus-stop]")) {
+        taskTodoFocusStop();
+        return;
       }
     });
   }
@@ -70446,11 +71832,16 @@
 
   const storyPlayScroll = document.getElementById("story-play-scroll");
   if (storyPlayScroll) {
-    storyPlayScroll.addEventListener("scroll", updateStoryScrollNav);
-    storyPlayScroll.addEventListener("scroll", function () {
-      hideStorySelectionBubble();
-      closeStoryThoughtPeekPanel();
-    });
+    storyPlayScroll.addEventListener(
+      "scroll",
+      function () {
+        markStoryPlayScrolling();
+        scheduleUpdateStoryScrollNav();
+        hideStorySelectionBubble();
+        closeStoryThoughtPeekPanel();
+      },
+      { passive: true }
+    );
     storyPlayScroll.addEventListener("click", async function (e) {
       if (Date.now() < storySelectionSuppressClickUntil) return;
       const thoughtHit = e.target.closest(".story-selection-thought[data-thought-id]");
@@ -70565,6 +71956,7 @@
     });
   }
   document.addEventListener("selectionchange", function () {
+    if (storyPlayScrolling) return;
     const plot = getStorySelectionActivePlot();
     if (!plot || plot.playSealed) {
       hideStorySelectionBubble();

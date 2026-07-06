@@ -19,7 +19,7 @@
   <link rel="stylesheet" href="https://unpkg.com/@chinese-fonts/syst@3.0.0/dist/SourceHanSerifCN/result.css" />
   <link rel="stylesheet" href="https://unpkg.com/@fontsource/noto-serif-tc@5.2.10/400.css" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Liu+Jian+Mao+Cao&family=Ma+Shan+Zheng&display=swap" />
-  <link rel="stylesheet" href="styles.css?v=176" />
+  <link rel="stylesheet" href="styles.css?v=177" />
 </head>
 <body>
   <div class="page-backdrop">
@@ -1143,6 +1143,19 @@
           </button>
         </div>
         <div id="todo-calendar-slot" class="todo-calendar-slot"></div>
+      </div>
+    </div>
+
+    <div id="modal-todo-focus" class="overlay overlay--dim" hidden>
+      <div class="modal-sheet modal-sheet--todo-focus">
+        <div class="sheet-handle"></div>
+        <div class="modal-header">
+          <h2 class="modal-title">专注</h2>
+          <button type="button" class="icon-btn" id="todo-focus-close" aria-label="关闭">
+            <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div id="todo-focus-slot" class="todo-focus-slot"></div>
       </div>
     </div>
 

@@ -1,9 +1,40 @@
 {
-  "name": "sweet-ark-proxy",
+  "name": "mystory-android",
+  "version": "1.0.0",
   "private": true,
-  "type": "module",
+  "description": "嗅嗅剧场 Android 离线包 + OTA 热更新",
   "scripts": {
-    "start": "node proxy-server.mjs",
-    "proxy": "node proxy-server.mjs"
+    "sync:www": "node scripts/sync-www.js",
+    "build:capacitor-js": "vite build --config vite.capacitor.config.mjs",
+    "build:web": "npm run sync:www && npm run build:capacitor-js",
+    "build:ota": "node scripts/build-ota-bundle.js",
+    "cap:sync": "npm run build:web && npx cap sync android",
+    "cap:open": "npx cap open android",
+    "android:debug": "npm run cap:sync && cd android && gradlew.bat assembleDebug",
+    "android:release": "npm run cap:sync && cd android && gradlew.bat assembleRelease"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.2.0",
+    "@capacitor/app": "^7.0.1",
+    "@capacitor/core": "^7.2.0",
+    "@capacitor/filesystem": "^7.1.1",
+    "@capacitor/network": "^7.0.1",
+    "@capgo/capacitor-updater": "^7.2.6"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.2.0",
+    "@fontsource/liu-jian-mao-cao": "^5.2.5",
+    "@fontsource/ma-shan-zheng": "^5.2.5",
+    "@fontsource/noto-serif-sc": "^5.2.5",
+    "@fontsource/noto-serif-tc": "^5.2.5",
+    "adm-zip": "^0.5.18",
+    "vite": "^6.3.5"
+  },
+  "appVersion": {
+    "web": "162",
+    "android": "1.0.0"
+  },
+  "ota": {
+    "manifestUrl": "https://qyngrace-sys.github.io/mystory/ota-update.json"
   }
 }

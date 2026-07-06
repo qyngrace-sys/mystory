@@ -1,4 +1,14 @@
 node_modules/
-.env
-.env.local
-_chat-test-body.json
+www/
+android/
+dist/
+.idea/
+*.iml
+local.properties
+.gradle/
+build/
+capacitor-app.js
+ota-bundle.zip
+.DS_Store
+__pycache__/
+*.pyc
