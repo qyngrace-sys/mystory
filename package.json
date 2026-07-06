@@ -33,7 +33,7 @@
     "vite": "^6.3.5"
   },
   "appVersion": {
-    "web": "165",
+    "web": "166",
     "android": "1.0.0"
   },
   "ota": {

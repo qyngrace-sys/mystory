@@ -1,8 +1,8 @@
 {
-  "version": "165",
+  "version": "166",
   "url": "https://qyngrace-sys.github.io/mystory/ota-bundle.zip",
-  "checksum": "9510ee4de149d8dfe87eba66c2920f8037dc9aa0d9231069e76bbc43853b68f0",
+  "checksum": "ed967951f9243806fee639bcb8845f2f7fda7086f81c2733be03e372191a51d5",
   "minAppVersion": "1.0.0",
-  "message": "嗅嗅剧场网页更新 v165",
-  "publishedAt": "2026-07-06T16:51:04.325Z"
+  "message": "嗅嗅剧场网页更新 v166",
+  "publishedAt": "2026-07-06T17:29:26.586Z"
 }
