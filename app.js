@@ -258,9 +258,22 @@
   /** 仍可接受的最旧 manifest.version（旧备份固定为 1） */
   const BACKUP_IMPORT_MIN_VERSION = 1;
   const BACKUP_IMPORT_MAX_SIZE = 100 * 1024 * 1024;
+  /** 已从产品移除的功能：导入/载入 narrative 时剥离对应字段，避免旧备份带入无效数据 */
+  const REMOVED_NARRATIVE_IMPORT_KEYS = [
+    "radioPlotId",
+    "radioHostCharId",
+    "radioActiveSession",
+    "radioHistoryData",
+  ];
   /** ZIP 内 IndexedDB 附加资源清单（TTS 语音缓存等；剧情 narrativeV1 与 userFont 单独处理） */
   const BACKUP_IDB_ASSETS_MANIFEST = "idb-assets/manifest.json";
   const IDB_USER_FONT_KEY = "userFont";
+  const IDB_CHAR_LETTER_FONT_KEY = "charLetterFont";
+  const CHAR_LETTER_FONT_FACE_NAME = "CharLetterCustomFont";
+  const CHAR_LETTER_FONT_STYLE_ID = "char-letter-custom-font-style";
+  const CHAR_LETTER_FONT_LINK_ID = "char-letter-custom-font-link";
+  const CHAR_LETTER_FONT_DEFAULT_STACK =
+    'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
   /** 单个自定义字体上限（节选/完整中文族、可变字体可达数十 MB） */
   const FONT_UPLOAD_MAX_BYTES = 96 * 1024 * 1024;
   const FONT_UPLOAD_MAX_LABEL = Math.round(FONT_UPLOAD_MAX_BYTES / (1024 * 1024)) + "MB";
@@ -893,6 +906,42 @@
     );
   }
 
+  function idbPutCharLetterFont(buffer) {
+    return idbOpen().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          const tx = db.transaction(IDB_STORE, "readwrite");
+          tx.objectStore(IDB_STORE).put(buffer, IDB_CHAR_LETTER_FONT_KEY);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        })
+    );
+  }
+
+  function idbGetCharLetterFont() {
+    return idbOpen().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          const tx = db.transaction(IDB_STORE, "readonly");
+          const r = tx.objectStore(IDB_STORE).get(IDB_CHAR_LETTER_FONT_KEY);
+          r.onsuccess = () => resolve(r.result);
+          r.onerror = () => reject(r.error);
+        })
+    );
+  }
+
+  function idbDeleteCharLetterFont() {
+    return idbOpen().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          const tx = db.transaction(IDB_STORE, "readwrite");
+          tx.objectStore(IDB_STORE).delete(IDB_CHAR_LETTER_FONT_KEY);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        })
+    );
+  }
+
   /** @returns {Promise<string|null>} */
   function idbGetNarrativeJson() {
     return idbOpen().then(
@@ -1164,6 +1213,9 @@
       await idbDeleteFont();
     } catch (e) {}
     try {
+      await idbDeleteCharLetterFont();
+    } catch (eClf) {}
+    try {
       await idbDeleteNarrativeJson();
     } catch (e2) {}
     try {
@@ -1309,7 +1361,7 @@
               "剧情正文/总结/记忆/收藏/划线/想法/背景图",
               "查手机各 App 生成内容与壁纸",
               "小狗饭剧情、分区与作品数据",
-              "收取、任务 ToDo、电台、传纸条、恩怨本",
+              "收取、任务 ToDo、手写信、传纸条、恩怨本",
               "你才是狗动态与群聊（含管理员/系统提示）",
               "点星助手、人设与聊天记录",
               "API 配置与密钥",
@@ -1850,7 +1902,40 @@
     });
   }
 
+  function stripRemovedNarrativeFieldsFromObject(o) {
+    if (!o || typeof o !== "object" || Array.isArray(o)) return false;
+    let touched = false;
+    REMOVED_NARRATIVE_IMPORT_KEYS.forEach(function (key) {
+      if (Object.prototype.hasOwnProperty.call(o, key)) {
+        delete o[key];
+        touched = true;
+      }
+    });
+    return touched;
+  }
+
+  function sanitizeImportedNarrativeJsonRaw(raw) {
+    if (typeof raw !== "string" || !raw.trim()) return raw;
+    try {
+      const o = JSON.parse(stripJsonUtf8Bom(raw));
+      if (!stripRemovedNarrativeFieldsFromObject(o)) return raw;
+      return JSON.stringify(o);
+    } catch (_eSan) {
+      return raw;
+    }
+  }
+
+  function purgeRemovedNarrativeRuntimeState() {
+    radioPlotId = null;
+    radioHostCharId = null;
+    radioActiveSession = null;
+    radioHistoryData = {};
+  }
+
   async function applyImportedNarrativeJson(importedNar) {
+    if (typeof importedNar === "string" && importedNar.length) {
+      importedNar = sanitizeImportedNarrativeJsonRaw(importedNar);
+    }
     if (typeof importedNar !== "string" || !importedNar.length) {
       try {
         await idbDeleteNarrativeJson();
@@ -2467,6 +2552,12 @@
     "互动须按陌生网友关系，不可直呼真名、不可假装线下熟人、不可提「我们剧情里」「上次那件事」等跨线熟人梗。" +
     "各角色不在同一现实世界：不能约定线下见面、帮对方点外卖/寄快递/代付、同城碰头、上门探望等任何需跨世界实体完成的行动；" +
     "若聊到此类话题，须以网友口吻带过（如「咱又不在一个城市」「线上说说得了」），不可当真执行或承诺。";
+  /** 群聊/私聊/树洞/活动：用户身份与剧情「我的形象」严格分离 */
+  const YOU_DOG_APP_USER_IDENTITY_RULE =
+    "用户在群聊、私聊、树洞与活动区的身份，仅由「我的身份」设定决定，与剧情库「我的形象」及主视角主角无关；" +
+    "二者即便同名、同性格，也是平行世界中的不同人物，严禁把剧情主角当成正在聊天的用户；" +
+    "角色与用户互动时，只能依据下方「用户」信息块理解其性格与处境，禁止调用剧情主角设定来扮演或揣测用户；" +
+    "剧情/总结/记忆仅供把握角色自身性格，不得用于推断「用户就是剧情里的谁」。";
   /** 群聊 ↔ 私聊：同一角色发言记忆互通 */
   const YOU_DOG_GROUP_DM_SYNC_RULE =
     "群聊与私聊记忆互通：每位角色须清楚记得自己在两个频道里说过的原话、立场与态度。" +
@@ -2512,8 +2603,9 @@
     "禁止每条都像在做剧情汇报或诉苦大会；禁止整齐划一每人一段小作文。";
   /** 活动私聊：朋友向，非攻略对象 */
   const YOU_DOG_ACTIVITY_DM_FRIEND_RULE =
-    "活动私聊里用户是普通朋友/网友，不是恋爱攻略对象：禁止暧昧撩拨、土味情话、占有欲、壁咚式告白、" +
-    "「你只能是我的」类台词；可以真诚关心、吐槽互损、请教意见、分享日常，语气自然像熟人私聊。" +
+    "活动私聊里用户是按「我的身份」设定的独立网友/朋友，不是剧情「我的形象」主角，也不是恋爱攻略对象：" +
+    "禁止暧昧撩拨、土味情话、占有欲、壁咚式告白、「你只能是我的」类台词；" +
+    "可以真诚关心、吐槽互损、请教意见、分享日常，语气自然像熟人私聊。" +
     "结合用户人设理解其性格与处境，但不要把每条消息都写成在「追」用户。";
   /** 活动私聊：批量主动消息最少角色数 / 每人最少条数 */
   const YOU_DOG_ACTIVITY_PROACTIVE_DM_MIN = 5;
@@ -2948,10 +3040,10 @@
     "settings",
   ];
   /** 旧版底栏 tab，hash 兼容重定向到点星子视图 */
-  const LEGACY_OVERVIEW_SUB_TAB_IDS = { phone: "phone", fanwork: "fanwork", knock: "knock", collect: "collect", todo: "todo", radio: "radio", "pass-note": "pass-note", "you-dog": "you-dog", "grudge-book": "grudge-book" };
+  const LEGACY_OVERVIEW_SUB_TAB_IDS = { phone: "phone", fanwork: "fanwork", knock: "knock", collect: "collect", todo: "todo", radio: "char-letter", "char-letter": "char-letter", "pass-note": "pass-note", "you-dog": "you-dog", "grudge-book": "grudge-book" };
 
   let activeTab = "overview";
-  /** 点星内嵌子页：null | "phone" | "fanwork" | "knock" | "collect" | "todo" | "radio" | "pass-note" | "you-dog" | "grudge-book" */
+  /** 点星内嵌子页：null | "phone" | "fanwork" | "knock" | "collect" | "todo" | "char-letter" | "pass-note" | "you-dog" | "grudge-book" */
   let overviewSubView = null;
   /** 敲敲：主视角角色 id（我的形象） */
   let knockUserCharId = null;
@@ -3243,27 +3335,47 @@
   /** 专注弹窗当前页：timer | review */
   let taskTodoFocusModalTab = "timer";
 
-  /** 电台：剧情 id */
+  /** 电台（已移除；保留变量供旧代码路径安全清空） */
   let radioPlotId = null;
-  /** 电台：主播角色 id（主要角色） */
   let radioHostCharId = null;
-  /** 电台：当前进行中的直播 session */
   let radioActiveSession = null;
-  /** 电台：历史 key = plotId + \u001e + hostCharId */
   let radioHistoryData = {};
-  const RADIO_HISTORY_MAX_PER_KEY = 50;
-  let radioGenerating = false;
-  let radioPlaying = false;
-  let radioPlayingMsgId = null;
-  let radioTtsPaused = false;
-  let radioPlayAbortToken = 0;
-  let radioTtsAudio = null;
-  let radioTtsObjectUrl = null;
-  let radioInputDraft = "";
-  let radioHolderModalStep = "plot";
-  let radioHolderModalPlotId = null;
-  let radioHolderModalMode = "first";
-  const radioNavBySlotId = Object.create(null);
+
+  /** 手写信：剧情 id */
+  let charLetterPlotId = null;
+  /** 手写信：主要角色 id */
+  let charLetterCharId = null;
+  /** 手写信草稿：key = plotId + \u001e + charId */
+  let charLetterDraftData = {};
+  /** 手写信：全局文笔偏好 */
+  let charLetterStylePrefs = { intro: "", reference: "", font: null };
+  let charLetterLoadedFontFace = null;
+  let charLetterFontPendingFile = null;
+  /** 手写信：瓶罐收藏（跨剧情） */
+  let charLetterSavedBottle = [];
+  const CHAR_LETTER_SAVED_MAX = 200;
+  const CHAR_LETTER_BODY_MAX = 5000;
+  const CHAR_LETTER_PAPER_KINDS = ["warm", "love", "night", "fresh", "vintage"];
+  const CHAR_LETTER_ANGLES = [
+    { id: "love", hint: "情书/告白：倾吐爱意与心动，可含蓄可炽热，不必紧贴最近剧情" },
+    { id: "daily", hint: "日常碎碎念：像随手写的便笺，分享生活细节、小吐槽或小确幸" },
+    { id: "miss", hint: "想念与问候：久未联系的挂念，或分别后的思念" },
+    { id: "plot", hint: "剧情回响：呼应近期剧情中的某场景、约定或没说出口的话（可选，非必须）" },
+    { id: "promise", hint: "承诺与约定：关于未来要做的事、要见的人、要一起完成的事" },
+    { id: "apology", hint: "道歉或和解：为某次争执、爽约或误会写下的心里话" },
+    { id: "gratitude", hint: "感谢：谢对方做过的一件具体小事，带细节" },
+    { id: "night", hint: "深夜独白：睡前的絮语，更私密、更安静" },
+  ];
+  let charLetterGenerating = false;
+  let charLetterHolderModalStep = "plot";
+  let charLetterHolderModalPlotId = null;
+  let charLetterHolderModalMode = "first";
+  let charLetterDraftDirty = false;
+  let charLetterDraftPersistTimer = null;
+  let charLetterSavedDetailDirty = false;
+  let charLetterBottleDetailId = null;
+  /** main | bottle | detail */
+  let charLetterNavScreen = "main";
 
   /** 传纸条：剧情 id */
   let passNotePlotId = null;
@@ -3539,12 +3651,27 @@
   function buildYouDogUserProfilePromptBlock() {
     const p = ensureYouDogUserProfile();
     const lines = [
-      "【用户（群友/活动区主角，角色仅按以下信息理解用户，不可引用剧情库「我的形象」）】",
-      "昵称：" + (p.nickname || "未设置"),
-      "真名：" + (p.realName || p.nickname || "未设置") + "（角色在平行世界互不相识，不可直呼真名）",
+      YOU_DOG_APP_USER_IDENTITY_RULE,
+      "",
+      "【用户（群聊群主/私聊对象/树洞与活动发帖人——角色理解用户的唯一依据）】",
+      "昵称（群聊显示名）：" + (p.nickname || "未设置"),
+      "真名：" + (p.realName || p.nickname || "未设置") + "（破冰阶段角色可猜一次是否在胡闹，除此以外不可直呼）",
       "人设：" + (truncateCharsWithEllipsis(p.persona, YOU_DOG_PROMPT_PROFILE_MAX_CHARS) || "未设定"),
+      "树洞马甲：" + (p.anonAlias || "@嗅友"),
     ];
     return lines.join("\n");
+  }
+
+  function postHasYouDogUserEngagement(post) {
+    if (!post) return false;
+    if (String(post.speakerRef || "").trim().indexOf("user:") === 0) return true;
+    const userAnon = getYouDogCurrentUserAnonId();
+    if (userAnon && Array.isArray(post.likes) && post.likes.indexOf(userAnon) >= 0) return true;
+    return (post.comments || []).some(function (c) {
+      if (!c) return false;
+      if (String(c.speakerRef || "").trim().indexOf("user:") === 0) return true;
+      return !!(userAnon && String(c.anonId || "").trim() === userAnon);
+    });
   }
 
   function saveYouDogUserProfileFromDom() {
@@ -4084,8 +4211,8 @@
     if (!survey || youDogSurveyGenerating) return;
     const refs = getYouDogChatSpeakerPoolRefs();
     if (!refs.length) {
-      showToast("请先在身份设置里勾选参与发言的角色。", "warning");
-      openYouDogChatPersonaModal();
+      showToast("请先在设置里勾选参与发言的角色。", "warning");
+      openYouDogSettingsModal();
       return;
     }
     youDogSurveyGenerating = true;
@@ -4099,6 +4226,8 @@
             role: "system",
             content:
               "你是中文互动叙事助手。生成角色填写问卷的 JSON。\n" +
+              YOU_DOG_APP_USER_IDENTITY_RULE +
+              "\n" +
               YOU_DOG_ACTIVITY_DM_FRIEND_RULE +
               "\n只输出一个 JSON 对象，不要用 markdown 代码围栏。",
           },
@@ -4144,6 +4273,8 @@
             role: "system",
             content:
               "你是中文互动叙事助手。生成角色填写问卷的 JSON。\n" +
+              YOU_DOG_APP_USER_IDENTITY_RULE +
+              "\n" +
               YOU_DOG_ACTIVITY_DM_FRIEND_RULE +
               "\n只输出一个 JSON 对象。",
           },
@@ -4711,7 +4842,7 @@
     overviewSubKnock: () => document.getElementById("overview-sub-knock"),
     overviewSubCollect: () => document.getElementById("overview-sub-collect"),
     overviewSubTodo: () => document.getElementById("overview-sub-todo"),
-    overviewSubRadio: () => document.getElementById("overview-sub-radio"),
+    overviewSubCharLetter: () => document.getElementById("overview-sub-char-letter"),
     overviewSubPassNote: () => document.getElementById("overview-sub-pass-note"),
     overviewSubYouDog: () => document.getElementById("overview-sub-you-dog"),
     overviewSubGrudgeBook: () => document.getElementById("overview-sub-grudge-book"),
@@ -4758,24 +4889,25 @@
     knockContentSlot: () => document.getElementById("knock-content-slot"),
     collectContentSlot: () => document.getElementById("collect-content-slot"),
     todoContentSlot: () => document.getElementById("todo-content-slot"),
-    radioContentSlot: () => document.getElementById("radio-content-slot"),
+    charLetterContentSlot: () => document.getElementById("char-letter-content-slot"),
     passNoteContentSlot: () => document.getElementById("pass-note-content-slot"),
-    modalRadioHolder: () => document.getElementById("modal-radio-holder"),
-    radioHolderClose: () => document.getElementById("radio-holder-close"),
-    radioHolderStepBack: () => document.getElementById("radio-holder-step-back"),
-    radioHolderTitle: () => document.getElementById("radio-holder-title"),
-    radioHolderHint: () => document.getElementById("radio-holder-hint"),
-    radioHolderPlotList: () => document.getElementById("radio-holder-plot-list"),
-    radioHolderPick: () => document.getElementById("radio-holder-pick"),
-    modalRadioLetter: () => document.getElementById("modal-radio-letter"),
-    radioLetterInput: () => document.getElementById("radio-letter-input"),
-    radioLetterClose: () => document.getElementById("radio-letter-close"),
-    radioLetterCancel: () => document.getElementById("radio-letter-cancel"),
-    radioLetterConfirm: () => document.getElementById("radio-letter-confirm"),
-    modalRadioEndCall: () => document.getElementById("modal-radio-end-call"),
-    radioEndCallClose: () => document.getElementById("radio-end-call-close"),
-    radioEndCallSkip: () => document.getElementById("radio-end-call-skip"),
-    radioEndCallNext: () => document.getElementById("radio-end-call-next"),
+    modalCharLetterHolder: () => document.getElementById("modal-char-letter-holder"),
+    charLetterHolderClose: () => document.getElementById("char-letter-holder-close"),
+    charLetterHolderStepBack: () => document.getElementById("char-letter-holder-step-back"),
+    charLetterHolderTitle: () => document.getElementById("char-letter-holder-title"),
+    charLetterHolderHint: () => document.getElementById("char-letter-holder-hint"),
+    charLetterHolderPlotList: () => document.getElementById("char-letter-holder-plot-list"),
+    charLetterHolderPick: () => document.getElementById("char-letter-holder-pick"),
+    modalCharLetterStyle: () => document.getElementById("modal-char-letter-style"),
+    charLetterStyleClose: () => document.getElementById("char-letter-style-close"),
+    charLetterStyleCancel: () => document.getElementById("char-letter-style-cancel"),
+    charLetterStyleSave: () => document.getElementById("char-letter-style-save"),
+    charLetterStyleIntro: () => document.getElementById("char-letter-style-intro"),
+    charLetterStyleReference: () => document.getElementById("char-letter-style-reference"),
+    charLetterStyleFontUrl: () => document.getElementById("char-letter-style-font-url"),
+    charLetterStyleFontFile: () => document.getElementById("char-letter-style-font-file"),
+    charLetterStyleFontClear: () => document.getElementById("char-letter-style-font-clear"),
+    charLetterFontStatus: () => document.getElementById("char-letter-font-status"),
     modalTodoCompose: () => document.getElementById("modal-todo-compose"),
     todoComposeTitle: () => document.getElementById("todo-compose-title"),
     todoComposeInput: () => document.getElementById("todo-compose-input"),
@@ -11827,10 +11959,11 @@
       taskTodoPlotId: taskTodoPlotId || null,
       taskTodoCharId: taskTodoCharId || null,
       taskTodoData: taskTodoData || {},
-      radioPlotId: radioPlotId || null,
-      radioHostCharId: radioHostCharId || null,
-      radioActiveSession: radioActiveSession || null,
-      radioHistoryData: radioHistoryData || {},
+      charLetterPlotId: charLetterPlotId || null,
+      charLetterCharId: charLetterCharId || null,
+      charLetterDraftData: charLetterDraftData || {},
+      charLetterStylePrefs: charLetterStylePrefs || { intro: "", reference: "" },
+      charLetterSavedBottle: Array.isArray(charLetterSavedBottle) ? charLetterSavedBottle.slice() : [],
       passNotePlotId: passNotePlotId || null,
       passNoteCharId: passNoteCharId || null,
       passNoteActiveSession: passNoteActiveSession || null,
@@ -11970,6 +12103,7 @@
       if (!raw || typeof raw !== "string") return;
       const o = JSON.parse(raw);
       if (!o || typeof o !== "object") return;
+      const needsRemovedFieldCleanupPersist = stripRemovedNarrativeFieldsFromObject(o);
 
       function normCats(arr) {
         if (!Array.isArray(arr)) return null;
@@ -12249,25 +12383,37 @@
         });
       }
       sanitizeTaskTodoState();
-      radioPlotId = null;
-      radioHostCharId = null;
-      if (typeof o.radioPlotId === "string" && o.radioPlotId.trim()) {
-        radioPlotId = o.radioPlotId.trim();
+      purgeRemovedNarrativeRuntimeState();
+      charLetterPlotId = null;
+      charLetterCharId = null;
+      if (typeof o.charLetterPlotId === "string" && o.charLetterPlotId.trim()) {
+        charLetterPlotId = o.charLetterPlotId.trim();
       }
-      if (typeof o.radioHostCharId === "string" && o.radioHostCharId.trim()) {
-        radioHostCharId = o.radioHostCharId.trim();
+      if (typeof o.charLetterCharId === "string" && o.charLetterCharId.trim()) {
+        charLetterCharId = o.charLetterCharId.trim();
       }
-      radioActiveSession = normalizeRadioSession(o.radioActiveSession);
-      radioHistoryData = {};
-      if (o.radioHistoryData && typeof o.radioHistoryData === "object" && !Array.isArray(o.radioHistoryData)) {
-        Object.keys(o.radioHistoryData).forEach(function (k) {
-          const arr = o.radioHistoryData[k];
-          if (!Array.isArray(arr)) return;
-          const normalized = arr.map(normalizeRadioSession).filter(Boolean);
-          if (normalized.length) radioHistoryData[k] = normalized;
+      charLetterDraftData = {};
+      if (o.charLetterDraftData && typeof o.charLetterDraftData === "object" && !Array.isArray(o.charLetterDraftData)) {
+        Object.keys(o.charLetterDraftData).forEach(function (k) {
+          const v = normalizeCharLetterEntry(o.charLetterDraftData[k]);
+          if (v) charLetterDraftData[k] = v;
         });
       }
-      sanitizeRadioState();
+      charLetterStylePrefs = normalizeCharLetterStylePrefs(o.charLetterStylePrefs);
+      charLetterSavedBottle = [];
+      if (Array.isArray(o.charLetterSavedBottle)) {
+        o.charLetterSavedBottle.forEach(function (row) {
+          const v = normalizeCharLetterEntry(row);
+          if (v && v.savedAt) charLetterSavedBottle.push(v);
+        });
+        charLetterSavedBottle.sort(function (a, b) {
+          return (b.savedAt || 0) - (a.savedAt || 0);
+        });
+        if (charLetterSavedBottle.length > CHAR_LETTER_SAVED_MAX) {
+          charLetterSavedBottle = charLetterSavedBottle.slice(0, CHAR_LETTER_SAVED_MAX);
+        }
+      }
+      sanitizeCharLetterState();
       passNotePlotId = null;
       passNoteCharId = null;
       if (typeof o.passNotePlotId === "string" && o.passNotePlotId.trim()) {
@@ -12560,6 +12706,8 @@
       }
       migratePlotsWorldBookWhitelistOnce();
       reconcilePhoneSharedSectionsAfterLoad();
+      purgeRemovedNarrativeRuntimeState();
+      if (needsRemovedFieldCleanupPersist) schedulePersistNarrative();
     } catch (e) {}
   }
 
@@ -15207,6 +15355,9 @@
     if (typeof plot.playChoicesRegenerateInFlight !== "boolean") plot.playChoicesRegenerateInFlight = false;
     if (typeof plot.playSealed !== "boolean") plot.playSealed = false;
     if (typeof plot.phoneStoryDateKey !== "string") plot.phoneStoryDateKey = "";
+    if (typeof plot.playScrollTop !== "number" || !Number.isFinite(plot.playScrollTop)) plot.playScrollTop = 0;
+    if (typeof plot.lastReadLineId !== "string") plot.lastReadLineId = "";
+    if (typeof plot.lastReadLineOffset !== "number" || !Number.isFinite(plot.lastReadLineOffset)) plot.lastReadLineOffset = 0;
   }
 
   function getPlotCharacterOverride(plot, characterId) {
@@ -15714,7 +15865,7 @@
   }
 
   function isOverviewFeatureFullscreenView(view) {
-    return view === "phone" || view === "knock" || view === "collect" || view === "todo" || view === "radio" || view === "fanwork" || view === "pass-note" || view === "you-dog" || view === "grudge-book";
+    return view === "phone" || view === "knock" || view === "collect" || view === "todo" || view === "char-letter" || view === "fanwork" || view === "pass-note" || view === "you-dog" || view === "grudge-book";
   }
 
   function syncOverviewSubViewUi() {
@@ -15724,7 +15875,7 @@
     const knockSub = els.overviewSubKnock();
     const collectSub = els.overviewSubCollect();
     const todoSub = els.overviewSubTodo();
-    const radioSub = els.overviewSubRadio();
+    const charLetterSub = els.overviewSubCharLetter();
     const passNoteSub = els.overviewSubPassNote();
     const youDogSub = els.overviewSubYouDog();
     const grudgeBookSub = els.overviewSubGrudgeBook();
@@ -15733,17 +15884,17 @@
     const showKnock = overviewSubView === "knock";
     const showCollect = overviewSubView === "collect";
     const showTodo = overviewSubView === "todo";
-    const showRadio = overviewSubView === "radio";
+    const showCharLetter = overviewSubView === "char-letter";
     const showPassNote = overviewSubView === "pass-note";
     const showYouDog = overviewSubView === "you-dog";
     const showGrudgeBook = overviewSubView === "grudge-book";
-    if (hub) hub.hidden = showPhone || showFan || showKnock || showCollect || showTodo || showRadio || showPassNote || showYouDog || showGrudgeBook;
+    if (hub) hub.hidden = showPhone || showFan || showKnock || showCollect || showTodo || showCharLetter || showPassNote || showYouDog || showGrudgeBook;
     if (phoneSub) phoneSub.hidden = !showPhone;
     if (fanSub) fanSub.hidden = !showFan;
     if (knockSub) knockSub.hidden = !showKnock;
     if (collectSub) collectSub.hidden = !showCollect;
     if (todoSub) todoSub.hidden = !showTodo;
-    if (radioSub) radioSub.hidden = !showRadio;
+    if (charLetterSub) charLetterSub.hidden = !showCharLetter;
     if (passNoteSub) passNoteSub.hidden = !showPassNote;
     if (youDogSub) youDogSub.hidden = !showYouDog;
     if (grudgeBookSub) grudgeBookSub.hidden = !showGrudgeBook;
@@ -15767,8 +15918,8 @@
               ? "collect"
               : view === "todo"
                 ? "todo"
-                : view === "radio"
-                  ? "radio"
+                : view === "char-letter" || view === "radio"
+                  ? "char-letter"
                   : view === "pass-note"
                     ? "pass-note"
                     : view === "you-dog"
@@ -15811,13 +15962,10 @@
         }
       }
       renderTaskTodoScreen(els.todoContentSlot());
-    } else if (v === "radio") {
-      stopStoryTts();
-      stopKnockTts();
-      stopCollectAudio();
-      sanitizeRadioState();
-      renderRadioScreen(els.radioContentSlot());
-      if (!radioPlotId || !radioHostCharId) openRadioHolderModal({ mode: "first" });
+    } else if (v === "char-letter") {
+      sanitizeCharLetterState();
+      renderCharLetterScreen(els.charLetterContentSlot());
+      if (!charLetterPlotId || !charLetterCharId) openCharLetterHolderModal({ mode: "first" });
     } else if (v === "pass-note") {
       sanitizePassNoteState();
       renderPassNoteScreen(els.passNoteContentSlot());
@@ -24656,7 +24804,7 @@
     else if (overviewSubView === "knock") renderKnockScreen(els.knockContentSlot(), { scrollToEnd: true });
     else if (overviewSubView === "collect") renderCollectScreen(els.collectContentSlot());
     else if (overviewSubView === "todo") renderTaskTodoScreen(els.todoContentSlot());
-    else if (overviewSubView === "radio") renderRadioScreen(els.radioContentSlot());
+    else if (overviewSubView === "char-letter") renderCharLetterScreen(els.charLetterContentSlot());
     else if (overviewSubView === "pass-note") renderPassNoteScreen(els.passNoteContentSlot());
     else if (overviewSubView === "you-dog") {
       markYouDogChatScrollToEndIfVisible();
@@ -25748,8 +25896,8 @@
       openOverviewSubView("todo");
       return;
     }
-    if (id === "radio") {
-      openOverviewSubView("radio");
+    if (id === "char-letter" || id === "radio") {
+      openOverviewSubView("char-letter");
       return;
     }
     if (id === "pass-note") {
@@ -25773,7 +25921,8 @@
       fanwork: "小狗饭",
       collect: "收取",
       todo: "任务ToDo",
-      radio: "电台",
+      "char-letter": "手写信",
+      radio: "手写信",
       "pass-note": "传纸条",
       "you-dog": "你才是狗",
       "grudge-book": "恩怨本",
@@ -26508,7 +26657,12 @@
               taskTodoPlotId = null;
               taskTodoCharId = null;
             }
+            if (charLetterPlotId === id) {
+              charLetterPlotId = null;
+              charLetterCharId = null;
+            }
             purgeCollectDataForPlot(id);
+            purgeCharLetterDataForPlot(id);
             purgePassNoteDataForPlot(id);
             purgeGrudgeBookDataForPlot(id);
             purgeYouDogDataForPlot(id);
@@ -27272,8 +27426,6 @@
     }
     knockPlotId = plot.id;
     knockPartnerCharId = focusChar.id;
-    radioPlotId = plot.id;
-    radioHostCharId = focusChar.id;
     if (plot.protagonistId) {
       const protag = getCharById(plot.protagonistId);
       if (protag && protag.categoryId === CHAR_CATEGORY_SELF_ID) {
@@ -27292,7 +27444,7 @@
     if (overviewSubView === "todo") renderTaskTodoScreen(els.todoContentSlot());
     if (overviewSubView === "pass-note") renderPassNoteScreen(els.passNoteContentSlot());
     if (overviewSubView === "grudge-book") renderGrudgeBookScreen(els.grudgeBookContentSlot());
-    if (overviewSubView === "radio") renderRadioScreen(els.radioContentSlot());
+    if (overviewSubView === "char-letter") renderCharLetterScreen(els.charLetterContentSlot());
     if (overviewSubView === "you-dog") {
       markYouDogChatScrollToEndIfVisible();
       renderYouDogScreen(els.youDogContentSlot());
@@ -27333,9 +27485,9 @@
     if (overviewSubView === "todo" && taskTodoPlotId === pid) {
       const slot = els.todoContentSlot();
       if (slot) renderTaskTodoScreen(slot);
-    } else if (overviewSubView === "radio" && radioPlotId === pid) {
-      const slot = els.radioContentSlot();
-      if (slot) renderRadioScreen(slot);
+    } else if (overviewSubView === "char-letter" && charLetterPlotId === pid) {
+      const slot = els.charLetterContentSlot();
+      if (slot) renderCharLetterScreen(slot);
     } else if (overviewSubView === "collect" && collectPlotId === pid) {
       const slot = els.collectContentSlot();
       if (slot) renderCollectScreen(slot);
@@ -31854,63 +32006,19 @@
   }
 
   /* ═══════════════════════════════════════════════════════════════
-     电台
+     电台（旧版存档兼容） & 手写信
      ═══════════════════════════════════════════════════════════════ */
-
-  function radioStorageKey(plotId, hostCharId) {
-    return String(plotId || "") + "\u001e" + String(hostCharId || "");
-  }
-
-  function getRadioNav(slot) {
-    const id = (slot && slot.id) || "radio-content-slot";
-    if (!radioNavBySlotId[id]) {
-      radioNavBySlotId[id] = { screen: "live", historyDetailId: null };
-    }
-    return radioNavBySlotId[id];
-  }
-
-  function getRadioPlot() {
-    if (!radioPlotId) return null;
-    return plots.find(function (p) {
-      return p.id === radioPlotId;
-    }) || null;
-  }
-
-  function getRadioHostChar() {
-    if (!radioHostCharId) return null;
-    return getCharById(radioHostCharId);
-  }
-
-  function getRadioHostCandidatesForPlot(plotId) {
-    return getCollectCharacterCandidatesForPlot(plotId);
-  }
 
   function sanitizeRadioState() {
     if (!radioPlotId || !plots.some(function (p) { return p.id === radioPlotId; })) {
-      if (radioActiveSession && radioPlotId && radioHostCharId) {
-        stashRadioSessionToHistory(radioPlotId, radioHostCharId, radioActiveSession);
-      }
       radioPlotId = null;
       radioHostCharId = null;
       radioActiveSession = null;
       return;
     }
-    const candidates = getRadioHostCandidatesForPlot(radioPlotId);
-    const hostValid =
-      radioHostCharId && candidates.some(function (c) { return c.id === radioHostCharId; });
-    if (!hostValid) {
-      if (radioActiveSession && radioHostCharId) {
-        stashRadioSessionToHistory(radioPlotId, radioHostCharId, radioActiveSession);
-      }
+    const candidates = getCollectCharacterCandidatesForPlot(radioPlotId);
+    if (!radioHostCharId || !candidates.some(function (c) { return c.id === radioHostCharId; })) {
       radioHostCharId = null;
-      radioActiveSession = null;
-    } else if (radioActiveSession) {
-      if (radioActiveSession.status === "live") {
-        radioActiveSession = normalizeRadioSession(radioActiveSession);
-      } else {
-        stashRadioSessionToHistory(radioPlotId, radioHostCharId, radioActiveSession);
-        radioActiveSession = null;
-      }
     }
   }
 
@@ -32003,25 +32111,6 @@
     };
   }
 
-  function formatRadioDefaultTitle(ts) {
-    const phase = getRadioTimePhaseLabel(getTaskTodoTimePhase());
-    return phase + "电台";
-  }
-
-  function getRadioDisplayTitle(session) {
-    const raw = session && session.title ? String(session.title).trim() : "";
-    if (!raw) return "深夜电台";
-    const stripped = raw.replace(/^\d{1,2}月\d{1,2}日\s*[·•]\s*/, "").trim();
-    return stripped || "深夜电台";
-  }
-
-  function formatRadioHistoryMeta(session) {
-    if (!session) return "";
-    const dateLabel = formatTaskTodoDateLabel(getRealWorldDateKey(new Date(session.createdAt)));
-    const count = session.transcript ? session.transcript.length : 0;
-    return dateLabel + " · " + count + "条记录";
-  }
-
   function getRadioTimePhaseLabel(phase) {
     if (phase === "morning") return "清晨";
     if (phase === "afternoon") return "午后";
@@ -32029,477 +32118,557 @@
     return "深夜";
   }
 
-  function createEmptyRadioSession() {
-    const now = Date.now();
-    return normalizeRadioSession({
-      id: uid("rs"),
-      title: formatRadioDefaultTitle(now),
-      createdAt: now,
-      status: "live",
-      hostAlias: "",
-      timePhase: getTaskTodoTimePhase(),
-      roundIndex: 0,
-      transcript: [],
-      danmaku: [],
-      pendingConnection: null,
-      pendingUserComment: "",
-      pendingUserLetter: "",
-      callerConnected: false,
-      rounds: [],
-    });
+  function formatRadioDefaultTitle(ts) {
+    const phase = getRadioTimePhaseLabel(getTaskTodoTimePhase());
+    return phase + "电台";
   }
 
-  function getRadioSessionMutable() {
-    if (!radioActiveSession || radioActiveSession.status !== "live") return null;
-    return radioActiveSession;
+  function charLetterStorageKey(plotId, charId) {
+    return String(plotId || "") + "\u001e" + String(charId || "");
   }
 
-  function getRadioHistoryKey() {
-    if (!radioPlotId || !radioHostCharId) return "";
-    return radioStorageKey(radioPlotId, radioHostCharId);
+  function normalizeCharLetterBodyIndent(text) {
+    const raw = String(text || "");
+    if (!raw.trim()) return raw;
+    return raw
+      .split(/\n\n+/)
+      .map(function (para) {
+        const trimmed = para.trim();
+        if (!trimmed) return "";
+        const lines = trimmed.split("\n");
+        const first = lines[0];
+        const firstTrim = first.replace(/^\u3000+/, "").trimStart();
+        if (!firstTrim) return trimmed;
+        lines[0] = "\u3000\u3000" + firstTrim;
+        return lines.join("\n");
+      })
+      .filter(function (p) {
+        return p.length;
+      })
+      .join("\n\n");
   }
 
-  function getRadioHistoryRows() {
-    const key = getRadioHistoryKey();
-    const rows = [];
-    const session = getRadioSessionMutable();
-    if (session) {
-      rows.push({
-        id: session.id,
-        session: session,
-        isLive: true,
-      });
-    }
-    (radioHistoryData[key] || []).forEach(function (entry) {
-      const s = normalizeRadioSession(entry);
-      if (s) {
-        rows.push({ id: s.id, session: s, isLive: false });
-      }
-    });
-    rows.sort(function (a, b) {
-      return (b.session.createdAt || 0) - (a.session.createdAt || 0);
-    });
-    return rows;
-  }
-
-  function stashRadioSessionToHistory(plotId, hostCharId, sessionRaw) {
-    const plot = String(plotId || "").trim();
-    const host = String(hostCharId || "").trim();
-    if (!plot || !host) return;
-    const session = normalizeRadioSession(sessionRaw);
-    if (!session) return;
-    session.status = "ended";
-    session.endedAt = session.endedAt || Date.now();
-    session.pendingConnection = null;
-    const key = radioStorageKey(plot, host);
-    if (!radioHistoryData[key]) radioHistoryData[key] = [];
-    radioHistoryData[key].unshift(JSON.parse(JSON.stringify(session)));
-    if (radioHistoryData[key].length > RADIO_HISTORY_MAX_PER_KEY) {
-      radioHistoryData[key] = radioHistoryData[key].slice(0, RADIO_HISTORY_MAX_PER_KEY);
+  function normalizeCharLetterFontUrl(raw) {
+    const s = String(raw || "").trim();
+    if (!s) return "";
+    try {
+      const u = new URL(s);
+      if (u.protocol !== "http:" && u.protocol !== "https:") return "";
+      return u.href;
+    } catch (e) {
+      return "";
     }
   }
 
-  function archiveRadioSession() {
-    const session = getRadioSessionMutable();
-    if (!session) return;
-    const key = getRadioHistoryKey();
-    if (!key) return;
-    session.status = "ended";
-    session.endedAt = Date.now();
-    session.pendingConnection = null;
-    if (!radioHistoryData[key]) radioHistoryData[key] = [];
-    radioHistoryData[key].unshift(JSON.parse(JSON.stringify(session)));
-    if (radioHistoryData[key].length > RADIO_HISTORY_MAX_PER_KEY) {
-      radioHistoryData[key] = radioHistoryData[key].slice(0, RADIO_HISTORY_MAX_PER_KEY);
+  function normalizeCharLetterFontPrefs(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const source = raw.source === "url" || raw.source === "file" ? raw.source : null;
+    if (source === "url") {
+      const url = normalizeCharLetterFontUrl(raw.url);
+      if (!url) return null;
+      return {
+        source: "url",
+        url: url,
+        family: String(raw.family || "").trim().slice(0, 120),
+      };
     }
-    radioActiveSession = null;
-    schedulePersistNarrative();
-  }
-
-  function estimateRadioCallerSilenceMs(text) {
-    const len = String(text || "").length;
-    return Math.min(18000, Math.max(3000, len * 85));
-  }
-
-  function clearRadioAudioElement() {
-    if (radioTtsAudio) {
-      try {
-        radioTtsAudio.pause();
-        radioTtsAudio.src = "";
-      } catch (_e) {}
-      radioTtsAudio = null;
+    if (source === "file") {
+      const fileName = String(raw.fileName || "").trim().slice(0, 200);
+      if (!fileName) return null;
+      return {
+        source: "file",
+        family: String(raw.family || CHAR_LETTER_FONT_FACE_NAME).trim().slice(0, 120),
+        fileName: fileName,
+      };
     }
-    if (radioTtsObjectUrl) {
-      try {
-        URL.revokeObjectURL(radioTtsObjectUrl);
-      } catch (_e2) {}
-      radioTtsObjectUrl = null;
-    }
+    return null;
   }
 
-  function stopRadioPlayback() {
-    radioPlayAbortToken += 1;
-    radioPlaying = false;
-    radioPlayingMsgId = null;
-    radioTtsPaused = false;
-    clearRadioAudioElement();
-  }
-
-  function captureRadioTranscriptScroll(slot) {
-    const el = slot && slot.querySelector("[data-radio-transcript]");
-    if (!el) return null;
+  function normalizeCharLetterStylePrefs(raw) {
+    if (!raw || typeof raw !== "object") return { intro: "", reference: "", font: null };
     return {
-      top: el.scrollTop,
-      height: el.scrollHeight,
-      clientHeight: el.clientHeight,
+      intro: String(raw.intro || "").trim().slice(0, 600),
+      reference: String(raw.reference || "").trim().slice(0, 2000),
+      font: normalizeCharLetterFontPrefs(raw.font),
     };
   }
 
-  function restoreRadioTranscriptScroll(slot, snap, opts) {
-    opts = opts || {};
-    const el = slot && slot.querySelector("[data-radio-transcript]");
-    if (!el || !snap) return;
-    if (opts.scrollToBottom) {
-      el.scrollTop = el.scrollHeight;
-      return;
-    }
-    if (opts.preserveScroll) {
-      el.scrollTop = snap.top;
-      return;
-    }
-    const nearBottom = snap.height - snap.top - snap.clientHeight < 96;
-    if (nearBottom) {
-      el.scrollTop = el.scrollHeight;
-    } else {
-      el.scrollTop = Math.max(0, snap.top + (el.scrollHeight - snap.height));
-    }
+  function removeCharLetterFontStyleElement() {
+    const el = document.getElementById(CHAR_LETTER_FONT_STYLE_ID);
+    if (el && el.parentNode) el.parentNode.removeChild(el);
   }
 
-  function buildRadioTtsSceneContext(sessionId, itemId) {
-    return "radio:" + String(sessionId || "") + ":" + String(itemId || "");
+  function removeCharLetterFontLinkElement() {
+    const el = document.getElementById(CHAR_LETTER_FONT_LINK_ID);
+    if (el && el.parentNode) el.parentNode.removeChild(el);
   }
 
-  async function synthesizeRadioHostLine(hostChar, text, session, item) {
-    syncTtsSettingsFromOpenForm();
-    const model = String(ttsSettings.model || "speech-2.8-hd").trim() || "speech-2.8-hd";
-    const speakText = enrichStoryTtsSpeakText(text, "", model);
-    const voicePrompt = buildMinimaxVoicePrompt(hostChar, "", getRadioPlot(), text, {
-      sceneContext: "radio-host",
-    });
-    const sceneContext = buildRadioTtsSceneContext(session && session.id, item && item.id);
-    const cacheKey = buildStoryTtsCacheKey(speakText, voicePrompt, "", sceneContext);
-    if (item) item.ttsAudioKey = cacheKey;
-    const blob = await getOrCreateStoryTtsBlob(speakText, voicePrompt, "", sceneContext);
-    return blob;
+  function injectCharLetterFontStyle(cssText) {
+    removeCharLetterFontStyleElement();
+    removeCharLetterFontLinkElement();
+    const style = document.createElement("style");
+    style.id = CHAR_LETTER_FONT_STYLE_ID;
+    style.textContent = cssText;
+    document.head.appendChild(style);
   }
 
-  function waitMs(ms, abortToken) {
-    return new Promise(function (resolve) {
-      const start = radioPlayAbortToken;
-      if (abortToken !== start) {
-        resolve(false);
-        return;
+  function injectCharLetterFontLink(url) {
+    removeCharLetterFontStyleElement();
+    removeCharLetterFontLinkElement();
+    const link = document.createElement("link");
+    link.id = CHAR_LETTER_FONT_LINK_ID;
+    link.rel = "stylesheet";
+    link.href = url;
+    document.head.appendChild(link);
+  }
+
+  function extractFontFamilyFromCss(cssText) {
+    const m = String(cssText || "").match(/font-family\s*:\s*["']?([^"';}]+)["']?/i);
+    if (!m) return "";
+    return m[1].trim().replace(/^["']|["']$/g, "");
+  }
+
+  function resolveCssRelativeUrls(cssText, baseUrl) {
+    return String(cssText || "").replace(
+      /url\s*\(\s*(['"]?)((?!data:)(?!https?:)[^)'"]+)\1\s*\)/gi,
+      function (_match, _quote, relPath) {
+        const trimmed = String(relPath || "").trim();
+        if (!trimmed || /^(https?:|data:)/i.test(trimmed)) return _match;
+        try {
+          return 'url("' + new URL(trimmed, baseUrl).href + '")';
+        } catch (e) {
+          return _match;
+        }
       }
-      setTimeout(function () {
-        resolve(radioPlayAbortToken === abortToken);
-      }, ms);
-    });
+    );
   }
 
-  function syncRadioPlaybackUi(slot) {
-    if (!slot) return;
-    slot.querySelectorAll(".radio-msg--host").forEach(function (article) {
-      const btn = article.querySelector("[data-radio-msg-play]");
-      if (!btn) return;
-      const msgId = btn.getAttribute("data-radio-msg-play");
-      const isActive = msgId === radioPlayingMsgId && !!radioTtsAudio;
-      const isPlaying = isActive && radioPlaying && !radioTtsPaused;
-      const isPaused = isActive && radioTtsPaused;
-      const label = isPlaying ? "暂停" : isPaused ? "继续播放" : "播放语音";
-      article.classList.toggle("is-playing", isActive && (isPlaying || isPaused));
-      btn.classList.toggle("is-playing", isPlaying);
-      btn.classList.toggle("is-paused", isPaused);
-      btn.innerHTML = isPlaying ? RADIO_MSG_PAUSE_SVG : RADIO_MSG_PLAY_SVG;
-      btn.setAttribute("aria-label", label);
-      btn.title = label;
-    });
-    const avBtn = slot.querySelector(".radio-deck__avatar-btn");
-    if (avBtn) avBtn.classList.toggle("is-speaking", !!(radioPlaying && !radioTtsPaused));
-    const meter = slot.querySelector(".radio-deck__meter");
-    if (meter) meter.classList.toggle("is-live", !!(radioPlaying && !radioTtsPaused));
-    const primaryBtn = slot.querySelector("[data-radio-primary]");
-    if (primaryBtn) {
-      const hasLive = !!getRadioSessionMutable();
-      const label = !hasLive
-        ? radioGenerating
-          ? "生成中…"
-          : "开始"
-        : radioGenerating
-          ? "生成中…"
-          : radioPlaying && !radioTtsPaused
-            ? "播放中…"
-            : "继续";
-      primaryBtn.textContent = label;
+  function applyCharLetterFontToDom(familyName) {
+    const safeFamily = familyName ? String(familyName).replace(/"/g, "").trim() : "";
+    const stack = safeFamily
+      ? '"' + safeFamily + '", ' + CHAR_LETTER_FONT_DEFAULT_STACK
+      : CHAR_LETTER_FONT_DEFAULT_STACK;
+    document.documentElement.style.setProperty("--char-letter-font-stack", stack);
+  }
+
+  async function unloadCharLetterFontFace() {
+    if (!charLetterLoadedFontFace) return;
+    try {
+      document.fonts.delete(charLetterLoadedFontFace);
+    } catch (e) {}
+    charLetterLoadedFontFace = null;
+  }
+
+  async function loadCharLetterFontFromBuffer(buf, familyName) {
+    await unloadCharLetterFontFace();
+    removeCharLetterFontStyleElement();
+    removeCharLetterFontLinkElement();
+    const ff = new FontFace(familyName || CHAR_LETTER_FONT_FACE_NAME, buf);
+    const loaded = await ff.load();
+    document.fonts.add(loaded);
+    charLetterLoadedFontFace = loaded;
+    applyCharLetterFontToDom(familyName || CHAR_LETTER_FONT_FACE_NAME);
+  }
+
+  async function loadCharLetterFontFromUrl(url, knownFamily) {
+    const normalizedUrl = normalizeCharLetterFontUrl(url);
+    if (!normalizedUrl) throw new Error("invalid url");
+    await unloadCharLetterFontFace();
+    await idbDeleteCharLetterFont();
+    let cssText = null;
+    let family = String(knownFamily || "").trim();
+    try {
+      const resp = await fetch(normalizedUrl, { mode: "cors" });
+      if (resp.ok) cssText = await resp.text();
+    } catch (e) {}
+    if (cssText && /@font-face/i.test(cssText)) {
+      family = extractFontFamilyFromCss(cssText) || family;
+      injectCharLetterFontStyle(resolveCssRelativeUrls(cssText, normalizedUrl));
+    } else if (family) {
+      injectCharLetterFontLink(normalizedUrl);
+    } else {
+      throw new Error("font css fetch failed");
+    }
+    if (!family) throw new Error("font family missing");
+    applyCharLetterFontToDom(family);
+    return { source: "url", url: normalizedUrl, family: family };
+  }
+
+  async function applyCharLetterFontFromFile(file) {
+    if (!file) throw new Error("no file");
+    const ok = /\.(ttf|otf|woff2?)$/i.test(file.name);
+    if (!ok) throw new Error("invalid format");
+    if (file.size > FONT_UPLOAD_MAX_BYTES) throw new Error("too large");
+    const buf = await file.arrayBuffer();
+    try {
+      await idbPutCharLetterFont(buf);
+    } catch (e) {
+      throw new Error("idb failed");
+    }
+    await loadCharLetterFontFromBuffer(buf, CHAR_LETTER_FONT_FACE_NAME);
+    return {
+      source: "file",
+      family: CHAR_LETTER_FONT_FACE_NAME,
+      fileName: file.name,
+    };
+  }
+
+  async function clearCharLetterFont() {
+    removeCharLetterFontStyleElement();
+    removeCharLetterFontLinkElement();
+    await unloadCharLetterFontFace();
+    try {
+      await idbDeleteCharLetterFont();
+    } catch (e) {}
+    if (charLetterStylePrefs && typeof charLetterStylePrefs === "object") {
+      charLetterStylePrefs.font = null;
+    }
+    applyCharLetterFontToDom(null);
+  }
+
+  async function tryLoadCharLetterFontFromPrefs() {
+    const font = charLetterStylePrefs && charLetterStylePrefs.font;
+    if (!font) {
+      applyCharLetterFontToDom(null);
+      return;
+    }
+    try {
+      if (font.source === "url" && font.url) {
+        const saved = await loadCharLetterFontFromUrl(font.url, font.family);
+        charLetterStylePrefs.font = saved;
+      } else if (font.source === "file") {
+        const buf = await idbGetCharLetterFont();
+        if (!buf) {
+          charLetterStylePrefs.font = null;
+          applyCharLetterFontToDom(null);
+          return;
+        }
+        await loadCharLetterFontFromBuffer(buf, font.family || CHAR_LETTER_FONT_FACE_NAME);
+      } else {
+        applyCharLetterFontToDom(null);
+      }
+    } catch (e) {
+      applyCharLetterFontToDom(null);
     }
   }
 
-  async function playRadioAudioBlob(blob, abortToken) {
-    if (abortToken !== radioPlayAbortToken) return false;
-    clearRadioAudioElement();
-    radioPlaying = true;
-    const objUrl = URL.createObjectURL(blob);
-    radioTtsObjectUrl = objUrl;
-    radioTtsAudio = new Audio(objUrl);
-    return new Promise(function (resolve) {
-      radioTtsAudio.addEventListener(
-        "ended",
-        function () {
-          resolve(radioPlayAbortToken === abortToken);
-        },
-        { once: true }
-      );
-      radioTtsAudio.addEventListener(
-        "error",
-        function () {
-          resolve(false);
-        },
-        { once: true }
-      );
-      radioTtsAudio.play().catch(function () {
-        resolve(false);
+  function getCharLetterFontStatusLabel() {
+    if (charLetterFontPendingFile) {
+      return "待保存：" + charLetterFontPendingFile.name;
+    }
+    const font = charLetterStylePrefs && charLetterStylePrefs.font;
+    if (!font) return "当前：系统默认字体";
+    if (font.source === "url") {
+      return "当前：" + (font.family || "链接字体") + "（CSS 链接）";
+    }
+    if (font.source === "file") {
+      return "当前：" + (font.fileName || font.family || "上传字体");
+    }
+    return "当前：系统默认字体";
+  }
+
+  function renderCharLetterFontStatusInModal() {
+    const status = els.charLetterFontStatus();
+    if (status) status.textContent = getCharLetterFontStatusLabel();
+  }
+
+  function normalizeCharLetterEntry(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const body = String(raw.body || "").trim();
+    if (!body) return null;
+    const now = Date.now();
+    return {
+      id: typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : uid("cl"),
+      title: String(raw.title || "").trim().slice(0, 40),
+      salutation: String(raw.salutation || "").trim().slice(0, 80),
+      body: normalizeCharLetterBodyIndent(body.slice(0, CHAR_LETTER_BODY_MAX)),
+      signOff: String(raw.signOff || "").trim().slice(0, 80),
+      plotId: String(raw.plotId || "").trim(),
+      plotTitle: String(raw.plotTitle || "").trim().slice(0, 80),
+      charId: String(raw.charId || "").trim(),
+      charName: String(raw.charName || "").trim().slice(0, 40),
+      paperKind: normalizeCharLetterPaperKind(raw.paperKind),
+      letterType: String(raw.letterType || "").trim().slice(0, 24),
+      generatedAt: typeof raw.generatedAt === "number" ? raw.generatedAt : now,
+      savedAt: typeof raw.savedAt === "number" ? raw.savedAt : null,
+      editedAt: typeof raw.editedAt === "number" ? raw.editedAt : null,
+    };
+  }
+
+  function sanitizeCharLetterState() {
+    if (
+      !charLetterPlotId ||
+      !plots.some(function (p) {
+        return p.id === charLetterPlotId;
+      })
+    ) {
+      charLetterPlotId = null;
+      charLetterCharId = null;
+      return;
+    }
+    const candidates = getCollectCharacterCandidatesForPlot(charLetterPlotId);
+    if (
+      !charLetterCharId ||
+      !candidates.some(function (c) {
+        return c.id === charLetterCharId;
+      })
+    ) {
+      charLetterCharId = null;
+    }
+  }
+
+  function getCharLetterPlot() {
+    sanitizeCharLetterState();
+    if (!charLetterPlotId) return null;
+    return (
+      plots.find(function (p) {
+        return p.id === charLetterPlotId;
+      }) || null
+    );
+  }
+
+  function getCharLetterCharacter() {
+    sanitizeCharLetterState();
+    if (!charLetterCharId) return null;
+    const c = getCharById(charLetterCharId);
+    if (!c || c.categoryId !== CHAR_CATEGORY_MAIN_ID) return null;
+    return c;
+  }
+
+  function getCharLetterDraftForCurrent() {
+    const plot = getCharLetterPlot();
+    const sender = getCharLetterCharacter();
+    if (!plot || !sender) return null;
+    return charLetterDraftData[charLetterStorageKey(plot.id, sender.id)] || null;
+  }
+
+  function purgeCharLetterDataForPlot(plotId) {
+    const pid = String(plotId || "").trim();
+    if (!pid) return;
+    Object.keys(charLetterDraftData).forEach(function (k) {
+      if (k.indexOf(pid + "\u001e") === 0) delete charLetterDraftData[k];
+    });
+    charLetterSavedBottle = charLetterSavedBottle.filter(function (e) {
+      return e.plotId !== pid;
+    });
+  }
+
+  function charLetterDraftHasContent(draft) {
+    return !!(draft && String(draft.body || "").trim());
+  }
+
+  function getCharLetterSavedById(id) {
+    const sid = String(id || "").trim();
+    if (!sid) return null;
+    return (
+      charLetterSavedBottle.find(function (e) {
+        return e.id === sid;
+      }) || null
+    );
+  }
+
+  function normalizeCharLetterPaperKind(raw) {
+    const k = String(raw || "").trim().toLowerCase();
+    if (k === "love" || k === "情书") return "love";
+    if (k === "night" || k === "夜信") return "night";
+    if (k === "fresh" || k === "淡蓝") return "fresh";
+    if (k === "vintage" || k === "怀旧") return "vintage";
+    return "warm";
+  }
+
+  function pickCharLetterAngle() {
+    return CHAR_LETTER_ANGLES[Math.floor(Math.random() * CHAR_LETTER_ANGLES.length)];
+  }
+
+  function getCharLetterPaperClass(kind) {
+    return "char-letter-paper char-letter-paper--" + normalizeCharLetterPaperKind(kind);
+  }
+
+  function fitCharLetterTextareaHeight(ta) {
+    if (!ta || ta.tagName !== "TEXTAREA") return;
+    ta.style.height = "auto";
+    ta.style.height = ta.scrollHeight + "px";
+  }
+
+  function bindCharLetterPaperTextareas(rootEl) {
+    if (!rootEl) return;
+    rootEl.querySelectorAll(".char-letter-paper__body, .char-letter-paper__salutation, .char-letter-paper__signoff").forEach(function (ta) {
+      fitCharLetterTextareaHeight(ta);
+      ta.addEventListener("input", function () {
+        fitCharLetterTextareaHeight(ta);
       });
     });
   }
 
-  async function playRadioRoundHostLines(slot, hostChar, lineItems, abortToken) {
-    for (let i = 0; i < lineItems.length; i++) {
-      if (abortToken !== radioPlayAbortToken) return;
-      const item = lineItems[i];
-      if (!item || !item.text) continue;
-      const session = getRadioSessionMutable();
-      try {
-        if (ttsSettings.enabled && resolveGlobalMinimaxVoiceId()) {
-          radioPlayingMsgId = item.id;
-          radioTtsPaused = false;
-          const blob = await synthesizeRadioHostLine(hostChar, item.text, session, item);
-          schedulePersistNarrative();
-          syncRadioPlaybackUi(slot);
-          const ok = await playRadioAudioBlob(blob, abortToken);
-          if (!ok) return;
-        }
-      } catch (err) {
-        showToast("语音播放失败：" + (err && err.message ? err.message : String(err)), "error", 4200);
-      }
-    }
-    if (abortToken === radioPlayAbortToken) {
-      radioPlayingMsgId = null;
-      syncRadioPlaybackUi(slot);
-    }
-  }
-
-  async function playRadioPendingConnection(slot, hostChar, pending, abortToken) {
-    if (!pending || abortToken !== radioPlayAbortToken) return;
-    const session = getRadioSessionMutable();
-    if (!session) return;
-    session.pendingConnection = null;
-    session.callerConnected = true;
-    schedulePersistNarrative();
-    renderRadioScreen(slot, { scrollToBottom: true });
-    const callerName =
-      (pending.preview && pending.preview.nickname) || "匿名听众";
-    if (pending.callerSpeech) {
-      const callerItem = {
-        id: uid("rt"),
-        role: "caller",
-        speaker: callerName,
-        text: pending.callerSpeech,
-        ts: Date.now(),
-        silenceMs: estimateRadioCallerSilenceMs(pending.callerSpeech),
-      };
-      session.transcript.push(callerItem);
-      schedulePersistNarrative();
-      renderRadioScreen(slot, { scrollToBottom: true });
-      const silenceOk = await waitMs(callerItem.silenceMs, abortToken);
-      if (!silenceOk) return;
-    }
-    const replyItems = [];
-    (pending.hostReplyLines || []).forEach(function (line) {
-      const item = {
-        id: uid("rt"),
-        role: "host",
-        speaker: session.hostAlias || (hostChar && hostChar.name) || "主播",
-        text: line,
-        ts: Date.now(),
-      };
-      session.transcript.push(item);
-      replyItems.push(item);
+  function bindCharLetterSavedDetailFields(slot) {
+    if (!slot) return;
+    charLetterSavedDetailDirty = false;
+    slot.querySelectorAll("[data-char-letter-saved-field]").forEach(function (el) {
+      el.addEventListener("input", function () {
+        charLetterSavedDetailDirty = true;
+        if (el.tagName === "TEXTAREA") fitCharLetterTextareaHeight(el);
+      });
+      if (el.tagName === "TEXTAREA") fitCharLetterTextareaHeight(el);
     });
-    schedulePersistNarrative();
-    renderRadioScreen(slot, { scrollToBottom: true });
-    await playRadioRoundHostLines(slot, hostChar, replyItems, abortToken);
-    session.callerConnected = false;
-    schedulePersistNarrative();
   }
 
-  async function playRadioHostLinesOnly(slot, hostChar, items) {
-    const abortToken = radioPlayAbortToken;
-    radioPlaying = true;
-    try {
-      await playRadioRoundHostLines(slot, hostChar, items, abortToken);
-    } finally {
-      if (abortToken === radioPlayAbortToken) radioPlaying = false;
-      syncRadioPlaybackUi(slot);
+  function tryAutoSaveCharLetterSavedDetail(slot) {
+    if (!slot || charLetterNavScreen !== "detail" || !charLetterSavedDetailDirty) return;
+    if (updateCharLetterSavedFromDom(slot)) {
+      charLetterSavedDetailDirty = false;
     }
   }
 
-  function buildRadioRoundPrompt(plot, hostChar, session, opts) {
-    opts = opts || {};
-    const mode = opts.mode || "continue";
-    const ctx = buildPhoneWechatPlotContextBlocks(plot, hostChar);
-    const hostName = hostChar && hostChar.name ? String(hostChar.name).trim() : "TA";
-    const phase = getTaskTodoTimePhase();
-    const phaseLabel = getRadioTimePhaseLabel(phase);
-    const dateLabel = formatTaskTodoDateLabel(getRealWorldDateKey());
+  function buildCharLetterPaperFieldsHtml(draft, fieldAttr) {
+    fieldAttr = fieldAttr || "data-char-letter-field";
+    function field(name) {
+      return fieldAttr + '="' + name + '"';
+    }
+    return (
+      '<div class="char-letter-paper__inner">' +
+      '<input type="text" class="char-letter-paper__title" ' +
+      field("title") +
+      ' maxlength="40" placeholder="信的主题…" value="' +
+      escapeHtml(draft.title || "") +
+      '"/>' +
+      '<textarea class="char-letter-paper__salutation" ' +
+      field("salutation") +
+      ' rows="1" maxlength="80" placeholder="称呼…">' +
+      escapeHtml(draft.salutation || "") +
+      "</textarea>" +
+      '<div class="char-letter-paper__body-wrap">' +
+      '<textarea class="char-letter-paper__body" ' +
+      field("body") +
+      ' rows="10" maxlength="' +
+      CHAR_LETTER_BODY_MAX +
+      '" placeholder="正文…">' +
+      escapeHtml(draft.body || "") +
+      "</textarea></div>" +
+      '<div class="char-letter-paper__footer">' +
+      '<textarea class="char-letter-paper__signoff" ' +
+      field("signOff") +
+      ' rows="2" maxlength="80" placeholder="署名…">' +
+      escapeHtml(draft.signOff || "") +
+      "</textarea></div></div>"
+    );
+  }
+
+  function buildCharLetterGenerationPrompt(plot, sender, stylePrefs, angle) {
+    const ctx = buildPhoneWechatPlotContextBlocks(plot, sender);
+    const senderName = sender && sender.name ? String(sender.name).trim() : "TA";
+    const personaBlock = buildPlotCharacterPersonaBlock(plot, sender, "写信人（发送者）人设", 1200);
+    const picked = angle || pickCharLetterAngle();
     const lines = [
-      "请为「电台深夜连线」功能生成 JSON。角色「" + hostName + "」在本场直播中担任匿名电台主播。",
-      "现实日期：" + dateLabel + "；现实时段：" + phaseLabel + "（须影响语气、话题与氛围）。",
-      "主播须使用匿名化名直播（hostAlias），与所有来电听众互不相识；听众可聊与剧情无关的话题，也可弱相关，但不得认出「我的形象」主角或真实听众身份。",
+      "请为「手写信」功能生成 JSON。写信人是「" + senderName + "」，收信人是剧情中的「我的形象」主角「" + ctx.protagName + "」。",
+      "须为第一人称手写信，语气、措辞严格符合写信人人设。",
+      "",
+      "【本次写信角度】" + picked.hint,
+      "剧情与总结仅作背景参考——不必每次紧扣最近几轮剧情；若本次是情书、日常碎碎念、深夜独白等，完全可以不引用近期剧情，只写符合人设与关系的内容即可。",
+      "",
+      personaBlock,
       "",
     ];
     lines.push.apply(lines, ctx.lines);
     lines.push("");
-    if (session && session.hostAlias) {
-      lines.push("【当前主播匿名化名】" + session.hostAlias);
+    const prefs = stylePrefs || normalizeCharLetterStylePrefs(null);
+    if (prefs.intro || prefs.reference) {
+      lines.push("【文笔要求】");
+      if (prefs.intro) lines.push("文风介绍：" + prefs.intro);
+      if (prefs.reference) {
+        lines.push("参考范文/字段（仅参考语气、节奏与修辞习惯，禁止照搬词句）：");
+        lines.push(truncateCharsWithEllipsis(prefs.reference, 1800));
+      }
       lines.push("");
     }
-    if (session && session.transcript.length) {
-      lines.push("【已有直播记录（最近若干条）】");
-      session.transcript.slice(-12).forEach(function (m) {
-        lines.push((m.speaker || m.role) + "：" + m.text);
-      });
-      lines.push("");
-    }
-    if (session && session.pendingUserComment) {
-      lines.push("【直播间匿名留言（待主播下轮朗读并回应，不可确认留言者身份）】");
-      lines.push(session.pendingUserComment);
-      lines.push("");
-    }
-    if (session && session.pendingUserLetter) {
-      lines.push("【用户来信（以匿名听众身份接入，callerSpeech 须基于此内容，可适度口语化但保留核心意思）】");
-      lines.push(session.pendingUserLetter);
-      lines.push("");
-    }
-    if (mode === "skipPreview") {
-      lines.push("【指令】听众 preview 未被接受，请换一位新的来电 preview，hostLines 可为简短过渡语。");
-    } else if (mode === "nextCaller" && opts.wrapUp) {
-      lines.push("【指令】请让主播先简短回应【已有直播记录】中最近一位听众的具体发言，再收尾本次连线；hostReplyLines 须承接该听众原话，然后给出新的 callerPreview + callerSpeech + hostReplyLines（新听众与主播回应同样须有问答衔接）。");
-    } else if (mode === "start") {
-      lines.push("【指令】首轮开播：hostLines 为开场白与欢迎来电；生成第一位听众 preview 及完整连线内容。");
-    } else {
-      lines.push("【指令】继续直播：hostLines 仅作简短过渡（如欢迎下一位、念留言），勿提前回应尚未接入的听众；生成下一位听众 preview 及完整连线内容。");
-    }
-    lines.push("");
     lines.push(
       "输出要求：\n" +
-        "1. 只输出一个 JSON 对象，无 markdown。\n" +
-        "2. 格式：\n" +
-        '{"hostAlias":"匿名电台名（首轮必填，后续可省略）","hostLines":["主播话1"],"callerPreview":{"nickname":"匿名…","tag":"标签","mood":"心情","topicSummary":"来电主题摘要"},"callerSpeech":"来电者发言全文","hostReplyLines":["主播回应1"]}\n' +
-        "3. hostLines：首轮 2~4 段、继续轮 1~2 段，每段 40~160 字；callerSpeech 120~380 字（第一人称倾诉，含具体细节与情绪）；hostReplyLines 2~4 段，每段 40~180 字。\n" +
-        "4. 互动规则（必守）：\n" +
-        "   · hostLines 是主播独自对着麦克风说的话，禁止替听众发言，禁止假装已听到 callerSpeech。\n" +
-        "   · callerSpeech 与 hostLines 不可重复同一倾诉内容；听众话须独立完整。\n" +
-        "   · hostReplyLines 必须逐条承接 callerSpeech：引用其中的具体信息（事件/情绪/原话），用「我听到你说…」「刚才你提到…」等口吻回应、共情或追问，像真实深夜电台主持。\n" +
-        "5. 口语自然，符合 " +
-        hostName +
-        " 人设；主播保持匿名直播状态。\n" +
-        "6. 若存在用户留言/来信，须在 hostLines 或 hostReplyLines 中自然回应。"
+        "1. 只输出一个 JSON 对象，无 markdown 围栏。\n" +
+        '2. 格式：{"title":"12字以内主题","letterType":"如：情书/日常/道歉","paperKind":"warm|love|night|fresh|vintage","salutation":"称呼","body":"380~650字正文，可分段换行","signOff":"署名"}\n' +
+        "3. paperKind 与信件气质对应：love=情书粉信纸，night=深夜信，fresh=淡蓝信，vintage=泛黄旧信，warm=日常暖信。\n" +
+        "4. body 须自然分段（段与段之间空一行），每段开头用两个全角空格（　　）首行缩进；有手写信私密感；若角度允许，可引用剧情细节，但不强求。\n" +
+        "5. 禁止出现「作为AI」等元叙述；salutation/signOff 符合角色关系。"
     );
-    return lines.join("\n");
+    return { prompt: lines.join("\n"), angle: picked };
   }
 
-  function parseRadioRoundResponse(raw) {
-    const parsed = parseAssistantJsonObject(raw);
-    if (!parsed || typeof parsed !== "object") throw new Error("无法解析电台 JSON");
-    const hostLines = Array.isArray(parsed.hostLines)
-      ? parsed.hostLines.map(function (l) { return String(l || "").trim(); }).filter(Boolean)
-      : [];
-    const hostReplyLines = Array.isArray(parsed.hostReplyLines)
-      ? parsed.hostReplyLines.map(function (l) { return String(l || "").trim(); }).filter(Boolean)
-      : [];
-    return {
-      hostAlias: String(parsed.hostAlias || "").trim(),
-      hostLines: hostLines,
-      callerPreview: normalizeRadioCallerPreview(parsed.callerPreview),
-      callerSpeech: String(parsed.callerSpeech || "").trim(),
-      hostReplyLines: hostReplyLines,
+  function syncCharLetterDraftFromDom(slot) {
+    if (!slot) return;
+    const plot = getCharLetterPlot();
+    const sender = getCharLetterCharacter();
+    if (!plot || !sender) return;
+    const key = charLetterStorageKey(plot.id, sender.id);
+    const titleEl = slot.querySelector("[data-char-letter-field='title']");
+    const salEl = slot.querySelector("[data-char-letter-field='salutation']");
+    const bodyEl = slot.querySelector("[data-char-letter-field='body']");
+    const signEl = slot.querySelector("[data-char-letter-field='signOff']");
+    if (!bodyEl) return;
+    const body = String(bodyEl.value || "").trim();
+    if (!body && !charLetterDraftData[key]) return;
+    const existing = charLetterDraftData[key] || {
+      id: uid("cl"),
+      generatedAt: Date.now(),
+      plotId: plot.id,
+      plotTitle: plot.title || "",
+      charId: sender.id,
+      charName: sender.name || "",
     };
+    charLetterDraftData[key] = normalizeCharLetterEntry({
+      id: existing.id,
+      title: titleEl ? titleEl.value : existing.title,
+      salutation: salEl ? salEl.value : existing.salutation,
+      body: body,
+      signOff: signEl ? signEl.value : existing.signOff,
+      plotId: plot.id,
+      plotTitle: plot.title || "",
+      charId: sender.id,
+      charName: sender.name || "",
+      paperKind: existing.paperKind || "warm",
+      letterType: existing.letterType || "",
+      generatedAt: existing.generatedAt || Date.now(),
+      savedAt: existing.savedAt || null,
+      editedAt: Date.now(),
+    });
+    charLetterDraftDirty = false;
+    schedulePersistNarrative();
   }
 
-  function applyRadioRoundToSession(session, round, hostChar) {
-    if (!session || !round) return [];
-    const hostSpeaker = session.hostAlias || (hostChar && hostChar.name) || "主播";
-    if (round.hostAlias && !session.hostAlias) session.hostAlias = round.hostAlias.slice(0, 40);
-    const newHostItems = [];
-    round.hostLines.forEach(function (line) {
-      const item = normalizeRadioTranscriptItem({
-        role: "host",
-        speaker: hostSpeaker,
-        text: line,
-        ts: Date.now(),
-      });
-      if (item) {
-        session.transcript.push(item);
-        newHostItems.push(item);
-      }
-    });
-    const preview =
-      round.callerPreview ||
-      (round.callerSpeech
-        ? { nickname: "匿名听众", tag: "", mood: "", topicSummary: "即将接入…" }
-        : null);
-    session.pendingConnection = normalizeRadioPendingConnection({
-      preview: preview,
-      callerSpeech: round.callerSpeech,
-      hostReplyLines: round.hostReplyLines,
-    });
-    const now = Date.now();
-    session.roundIndex = (session.roundIndex || 0) + 1;
-    session.rounds.push({
-      id: uid("rr"),
-      roundIndex: session.roundIndex,
-      at: now,
-    });
-    if (session.pendingUserComment) session.pendingUserComment = "";
-    if (session.pendingUserLetter) session.pendingUserLetter = "";
-    return newHostItems;
+  function scheduleCharLetterDraftPersist(slot) {
+    charLetterDraftDirty = true;
+    if (charLetterDraftPersistTimer) clearTimeout(charLetterDraftPersistTimer);
+    charLetterDraftPersistTimer = setTimeout(function () {
+      charLetterDraftPersistTimer = null;
+      syncCharLetterDraftFromDom(slot);
+    }, 480);
   }
 
-  async function generateRadioRound(slot, opts) {
+  async function generateCharLetterDraft(slot, opts) {
     opts = opts || {};
-    const plot = getRadioPlot();
-    const hostChar = getRadioHostChar();
-    if (!plot || !hostChar) {
-      showToast("请先选择剧情与主播角色。", "warning");
+    if (charLetterGenerating) return;
+    sanitizeCharLetterState();
+    const plot = getCharLetterPlot();
+    const sender = getCharLetterCharacter();
+    if (!plot || !sender) {
+      showToast("请先选择剧情与角色。", "warning");
       return;
     }
-    if (radioGenerating || radioPlaying) return;
-    let session = getRadioSessionMutable();
-    if (opts.mode === "start" || !session) {
-      session = createEmptyRadioSession();
-      radioActiveSession = session;
+    syncCharLetterDraftFromDom(slot);
+    const key = charLetterStorageKey(plot.id, sender.id);
+    const existing = charLetterDraftData[key];
+    if (existing && charLetterDraftHasContent(existing) && !opts.confirmed) {
+      const ok = await showConfirm("当前信件将被新生成的内容覆盖，是否继续？", "重新生成");
+      if (!ok) return;
     }
-    if (opts.mode === "skipPreview" && session) {
-      session.pendingConnection = null;
-    }
-    if (opts.mode === "nextCaller" && opts.wrapUp && session) {
-      session.pendingConnection = null;
-    }
-    radioGenerating = true;
-    renderRadioScreen(slot);
+    charLetterGenerating = true;
+    if (slot) renderCharLetterScreen(slot);
     try {
+      preparePhoneStoryDateForGeneration(plot);
+      showToast("正在撰写来自「" + (sender.name || "TA") + "」的手写信…", "info");
+      const _genCtx = beginGenCall("char-letter", { slot: slot });
       const systemPrompt =
-        "你是中文互动叙事助手，擅长模拟有来有往的匿名深夜电台连线。主播与听众必须像真实电话互动：听众先倾诉，主播再针对性回应，避免各说各话。只输出 JSON，不要 markdown 围栏。";
-      const userPrompt = buildRadioRoundPrompt(plot, hostChar, session, opts);
+        "你是中文互动叙事助手。根据剧情与人设生成手写信 JSON，只输出 JSON，无 markdown 围栏。";
+      const angle = pickCharLetterAngle();
+      const promptPack = buildCharLetterGenerationPrompt(plot, sender, charLetterStylePrefs, angle);
+      const userPrompt = promptPack.prompt;
       const raw = await callChatCompletion(
         [
           { role: "system", content: systemPrompt },
@@ -32507,423 +32676,403 @@
         ],
         0.82,
         4096,
-        { apiConfigId: getWorkbenchApiId() }
+        chatApiOptsFromGen(_genCtx)
       );
-      const round = parseRadioRoundResponse(raw);
-      const newHostItems = applyRadioRoundToSession(session, round, hostChar);
-      schedulePersistNarrative();
-      radioGenerating = false;
-      renderRadioScreen(slot, { scrollToBottom: true });
-      await playRadioHostLinesOnly(slot, hostChar, newHostItems);
-    } catch (err) {
-      radioGenerating = false;
-      renderRadioScreen(slot);
-      showToast(err && err.message ? err.message : "电台生成失败", "error", 4800);
-    }
-  }
-
-  async function radioAcceptPendingConnection(slot) {
-    const session = getRadioSessionMutable();
-    const hostChar = getRadioHostChar();
-    if (!session || !hostChar || !session.pendingConnection) return;
-    if (radioGenerating || (radioPlaying && !radioTtsPaused)) return;
-    stopRadioPlayback();
-    const pending = session.pendingConnection;
-    const abortToken = radioPlayAbortToken;
-    radioPlaying = true;
-    renderRadioScreen(slot, { preserveScroll: true });
-    try {
-      await playRadioPendingConnection(slot, hostChar, pending, abortToken);
-    } finally {
-      if (abortToken === radioPlayAbortToken) radioPlaying = false;
-      renderRadioScreen(slot, { preserveScroll: true });
-    }
-  }
-
-  async function radioContinueOrConnect(slot) {
-    const session = getRadioSessionMutable();
-    const hostChar = getRadioHostChar();
-    if (!session || !hostChar) {
-      void generateRadioRound(slot, { mode: "start" });
-      return;
-    }
-    void generateRadioRound(slot, { mode: "continue" });
-  }
-
-  function getRadioSessionForView(slot) {
-    const nav = getRadioNav(slot);
-    if (nav.screen === "history" && nav.historyDetailId) {
-      const row = getRadioHistoryRows().find(function (r) {
-        return r.id === nav.historyDetailId;
+      const parsed = parseAssistantJsonObject(raw);
+      const draft = normalizeCharLetterEntry({
+        id: uid("cl"),
+        title: parsed.title,
+        letterType: parsed.letterType || angle.id,
+        paperKind: parsed.paperKind,
+        salutation: parsed.salutation,
+        body: parsed.body,
+        signOff: parsed.signOff,
+        plotId: plot.id,
+        plotTitle: plot.title || "",
+        charId: sender.id,
+        charName: sender.name || "",
+        generatedAt: Date.now(),
+        editedAt: null,
+        savedAt: null,
       });
-      return row && row.session ? row.session : null;
+      if (!draft) throw new Error("生成结果不完整，请重试");
+      charLetterDraftData[key] = draft;
+      charLetterDraftDirty = false;
+      schedulePersistNarrative();
+      finalizePhoneStoryDateAfterGeneration(plot);
+      showToast("手写信已送达", "success");
+    } catch (err) {
+      try {
+        console.error(err);
+      } catch (_e) {}
+      showToast(err && err.message ? err.message : "生成失败，请检查 API 配置", "error", 4200);
+    } finally {
+      clearGenCallContext();
+      charLetterGenerating = false;
+      if (slot) renderCharLetterScreen(slot);
     }
-    return getRadioSessionMutable();
   }
 
-  const RADIO_MSG_PLAY_SVG =
-    '<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
-  const RADIO_MSG_PAUSE_SVG =
-    '<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true"><path d="M7 5h4v14H7zm6 0h4v14h-4z"/></svg>';
-
-  function buildRadioMsgPlayBtnHtml(msgId) {
-    const isActive = msgId === radioPlayingMsgId && !!radioTtsAudio;
-    const isPlaying = isActive && radioPlaying && !radioTtsPaused;
-    const isPaused = isActive && radioTtsPaused;
-    const label = isPlaying ? "暂停" : isPaused ? "继续播放" : "播放语音";
-    const svg = isPlaying ? RADIO_MSG_PAUSE_SVG : RADIO_MSG_PLAY_SVG;
-    let cls = "radio-msg__play-btn";
-    if (isPlaying) cls += " is-playing";
-    if (isPaused) cls += " is-paused";
-    return (
-      '<button type="button" class="' +
-      cls +
-      '" data-radio-msg-play="' +
-      escapeHtml(msgId) +
-      '" aria-label="' +
-      label +
-      '" title="' +
-      label +
-      '">' +
-      svg +
-      "</button>"
-    );
-  }
-
-  async function toggleRadioHostLinePlayback(slot, msgId) {
-    if (radioGenerating) return;
-    const hostChar = getRadioHostChar();
-    const session = getRadioSessionForView(slot);
-    if (!hostChar || !session || !msgId) return;
-    const item = session.transcript.find(function (m) {
-      return m.id === msgId && m.role === "host";
-    });
-    if (!item || !item.text) return;
-
-    if (radioPlayingMsgId === msgId && radioTtsAudio) {
-      if (radioPlaying && !radioTtsPaused) {
-        radioTtsAudio.pause();
-        radioPlaying = false;
-        radioTtsPaused = true;
-        syncRadioPlaybackUi(slot);
-        return;
-      }
-      if (radioTtsPaused) {
-        radioTtsPaused = false;
-        radioPlaying = true;
-        try {
-          await radioTtsAudio.play();
-        } catch (_playErr) {
-          showToast("语音播放失败", "error", 3200);
-        }
-        syncRadioPlaybackUi(slot);
-        return;
-      }
-    }
-
-    if (!ttsSettings.enabled || !resolveGlobalMinimaxVoiceId()) {
-      showToast("请先在设置中开启语音合成。", "warning");
+  function saveCharLetterToBottle(slot) {
+    syncCharLetterDraftFromDom(slot);
+    const plot = getCharLetterPlot();
+    const sender = getCharLetterCharacter();
+    const draft = getCharLetterDraftForCurrent();
+    if (!plot || !sender || !charLetterDraftHasContent(draft)) {
+      showToast("暂无信件可存入。", "info");
       return;
     }
-    stopRadioPlayback();
-    const abortToken = radioPlayAbortToken;
-    radioPlaying = true;
-    radioPlayingMsgId = item.id;
-    radioTtsPaused = false;
-    syncRadioPlaybackUi(slot);
-    try {
-      const blob = await synthesizeRadioHostLine(hostChar, item.text, session, item);
-      schedulePersistNarrative();
-      await playRadioAudioBlob(blob, abortToken);
-    } catch (err) {
-      showToast("语音播放失败：" + (err && err.message ? err.message : String(err)), "error", 4200);
-    } finally {
-      if (abortToken === radioPlayAbortToken) {
-        radioPlaying = false;
-        radioPlayingMsgId = null;
-        radioTtsPaused = false;
-      }
-      syncRadioPlaybackUi(slot);
+    const entry = normalizeCharLetterEntry({
+      id: uid("cl"),
+      title: draft.title,
+      salutation: draft.salutation,
+      body: draft.body,
+      signOff: draft.signOff,
+      plotId: plot.id,
+      plotTitle: plot.title || "",
+      charId: sender.id,
+      charName: sender.name || "",
+      paperKind: draft.paperKind,
+      letterType: draft.letterType,
+      generatedAt: draft.generatedAt || Date.now(),
+      savedAt: Date.now(),
+      editedAt: draft.editedAt || null,
+    });
+    if (!entry) return;
+    charLetterSavedBottle.unshift(entry);
+    if (charLetterSavedBottle.length > CHAR_LETTER_SAVED_MAX) {
+      charLetterSavedBottle = charLetterSavedBottle.slice(0, CHAR_LETTER_SAVED_MAX);
     }
+    schedulePersistNarrative();
+    showToast("已存入瓶罐", "success");
   }
 
-  function buildRadioTranscriptHtml(session) {
-    if (!session || !session.transcript.length) {
-      return '<p class="radio-transcript__empty">点击「开始」，让主播开启本场匿名直播。</p>';
+  function removeCharLetterFromBottle(id) {
+    const sid = String(id || "").trim();
+    if (!sid) return;
+    charLetterSavedBottle = charLetterSavedBottle.filter(function (e) {
+      return e.id !== sid;
+    });
+    if (charLetterBottleDetailId === sid) {
+      charLetterBottleDetailId = null;
+      if (charLetterNavScreen === "detail") charLetterNavScreen = "bottle";
     }
-    return session.transcript
-      .map(function (m) {
-        const roleCls =
-          m.role === "caller" ? "radio-msg--caller" : m.role === "system" ? "radio-msg--system" : "radio-msg--host";
-        const playingCls = m.id === radioPlayingMsgId ? " is-playing" : "";
-        let silenceHtml = "";
-        if (m.role === "caller" && m.silenceMs) {
-          silenceHtml =
-            '<span class="radio-msg__silence"><span class="radio-msg__silence-dots"><span>·</span><span>·</span><span>·</span></span> 连线发言中</span>';
-        }
-        let bubbleHtml =
-          '<div class="radio-msg__bubble">' + escapeHtml(m.text) + "</div>";
-        if (m.role === "host") {
-          bubbleHtml =
-            '<div class="radio-msg__bubble-wrap">' +
-            bubbleHtml +
-            buildRadioMsgPlayBtnHtml(m.id) +
-            "</div>";
-        }
-        return (
-          '<article class="radio-msg ' +
-          roleCls +
-          playingCls +
-          '">' +
-          (m.speaker ? '<span class="radio-msg__speaker">' + escapeHtml(m.speaker) + "</span>" : "") +
-          bubbleHtml +
-          silenceHtml +
-          "</article>"
-        );
-      })
-      .join("");
+    schedulePersistNarrative();
   }
 
-  function buildRadioPreviewHtml(session, disabled) {
-    const pending = session && session.pendingConnection;
-    const preview = pending && pending.preview;
-    if (!preview) return "";
+  function updateCharLetterSavedFromDom(rootEl) {
+    if (!rootEl || !charLetterBottleDetailId) return false;
+    const entry = getCharLetterSavedById(charLetterBottleDetailId);
+    if (!entry) return false;
+    const titleEl = rootEl.querySelector("[data-char-letter-saved-field='title']");
+    const salEl = rootEl.querySelector("[data-char-letter-saved-field='salutation']");
+    const bodyEl = rootEl.querySelector("[data-char-letter-saved-field='body']");
+    const signEl = rootEl.querySelector("[data-char-letter-saved-field='signOff']");
+    if (!bodyEl) return false;
+    const body = String(bodyEl.value || "").trim();
+    if (!body) {
+      showToast("正文不能为空。", "warning");
+      return false;
+    }
+    entry.title = titleEl ? String(titleEl.value || "").trim().slice(0, 40) : entry.title;
+    entry.salutation = salEl ? String(salEl.value || "").trim().slice(0, 80) : entry.salutation;
+    entry.body = normalizeCharLetterBodyIndent(body.slice(0, CHAR_LETTER_BODY_MAX));
+    entry.signOff = signEl ? String(signEl.value || "").trim().slice(0, 80) : entry.signOff;
+    entry.editedAt = Date.now();
+    schedulePersistNarrative();
+    return true;
+  }
+
+  function buildCharLetterSubHeaderHtml(title, subtitle) {
     return (
-      '<div class="radio-preview">' +
-      '<div class="radio-preview__row">' +
-      '<div class="radio-preview__main">' +
-      '<div class="radio-preview__label">待接入 · INCOMING</div>' +
-      '<div class="radio-preview__name">' +
-      escapeHtml(preview.nickname) +
-      "</div>" +
-      (preview.tag ? '<div class="radio-preview__tag">' + escapeHtml(preview.tag) + "</div>" : "") +
-      (preview.topicSummary
-        ? '<div class="radio-preview__topic">' + escapeHtml(preview.topicSummary) + "</div>"
-        : "") +
-      "</div>" +
-      '<button type="button" class="radio-preview__connect"' +
-      (disabled ? " disabled" : "") +
-      ' data-radio-connect>选择接入</button>' +
-      "</div>" +
-      '<button type="button" class="radio-preview__skip"' +
-      (disabled ? " disabled" : "") +
-      ' data-radio-skip>换一位</button>' +
-      "</div>"
-    );
-  }
-
-  function buildRadioLiveHtml(slot, session, hostChar, plot) {
-    const hostName = hostChar && hostChar.name ? hostChar.name : "主播";
-    const title =
-      (session && session.hostAlias ? session.hostAlias : hostName) + "的电台";
-    const phaseLabel = getRadioTimePhaseLabel(
-      (session && session.timePhase) || getTaskTodoTimePhase()
-    );
-    const hasLive = session && session.status === "live";
-    const hasPending = !!(session && session.pendingConnection);
-    const primaryLabel = !hasLive
-      ? radioGenerating
-        ? "生成中…"
-        : "开始"
-      : radioGenerating
-        ? "生成中…"
-        : radioPlaying
-          ? "播放中…"
-          : "继续";
-    const pendingHint = [];
-    if (session && session.pendingUserComment) {
-      pendingHint.push("已发送留言，下次继续时将由主播朗读");
-    }
-    if (session && session.pendingUserLetter) {
-      pendingHint.push("信件已寄出，下次继续时将作为来电接入");
-    }
-    const actionDisabled = radioGenerating || radioPlaying;
-    const primaryDisabled = actionDisabled || (hasPending && hasLive);
-    const endDisabled = radioGenerating;
-    const meterLiveCls = radioPlaying ? " is-live" : "";
-
-    return (
-      '<div class="radio-shell" data-radio-root>' +
-      '<div class="radio-shell__backdrop" aria-hidden="true">' +
-      '<div class="radio-shell__glow"></div>' +
-      '<div class="radio-shell__wave"></div>' +
-      "</div>" +
-      '<header class="radio-shell__bar star-header">' +
+      '<header class="char-letter-header char-letter-subheader star-header">' +
       '<div class="star-header__lead">' +
-      '<button type="button" class="icon-btn radio-shell__icon star-header__back" data-radio-back aria-label="返回">' +
-      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M15 6l-6 6 6 6"/></svg>' +
+      '<button type="button" class="icon-btn char-letter-header__back star-header__back" data-char-letter-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M15 6l-6 6 6 6"/></svg>' +
       "</button>" +
-      '<h1 class="radio-shell__title star-header__title"><span class="radio-shell__live-tag">ON AIR</span>' +
+      '<h1 class="char-letter-header__title star-header__title">' +
       escapeHtml(title) +
       "</h1></div>" +
-      '<div class="star-header__actions">' +
-      '<button type="button" class="icon-btn radio-shell__icon" data-radio-settings aria-label="设置">' +
-      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>' +
-      "</button></div></header>" +
-      '<section class="radio-deck">' +
-      '<div class="radio-deck__player">' +
-      '<button type="button" class="radio-deck__avatar-btn' +
-      (radioPlaying ? " is-speaking" : "") +
-      '" data-radio-history aria-label="查看历史直播">' +
-      '<div class="avatar" data-radio-host-avatar></div>' +
-      '<span class="radio-deck__ring" aria-hidden="true"></span>' +
-      "</button>" +
-      '<div class="radio-deck__meta">' +
-      '<span class="radio-deck__phase">' +
-      escapeHtml(phaseLabel) +
-      " · 深夜电台</span>" +
-      '<div class="radio-deck__meter' +
-      meterLiveCls +
-      '" aria-hidden="true">' +
-      "<span></span><span></span><span></span><span></span><span></span>" +
-      "</div></div>" +
-      '<button type="button" class="radio-deck__primary" data-radio-primary' +
-      (primaryDisabled ? " disabled" : "") +
-      ">" +
-      escapeHtml(primaryLabel) +
-      "</button></div>" +
-      '<div class="radio-deck__tools">' +
-      '<button type="button" class="radio-deck__tool" data-radio-letter' +
-      (actionDisabled ? " disabled" : "") +
-      '>' +
-      '<svg class="icon-linear" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 4h16v16H4z"/><path d="M22 6l-10 7L2 6"/></svg>' +
-      "写信</button>" +
-      '<button type="button" class="radio-deck__tool radio-deck__tool--end" data-radio-hangup' +
-      (endDisabled ? " disabled" : "") +
-      ">结束</button>" +
-      "</div></section>" +
-      '<div class="radio-shell__body">' +
-      '<section class="radio-transcript" data-radio-transcript>' +
-      '<div class="radio-transcript__head"><span class="radio-transcript__dot"></span>电波记录</div>' +
-      buildRadioTranscriptHtml(session) +
-      "</section></div>" +
-      '<div class="radio-shell__dock">' +
-      buildRadioPreviewHtml(session, actionDisabled) +
-      '<footer class="radio-footer">' +
-      (pendingHint.length
-        ? '<p class="radio-footer__pending">' + escapeHtml(pendingHint.join(" · ")) + "</p>"
+      (subtitle
+        ? '<p class="char-letter-subheader__subtitle">' + escapeHtml(subtitle) + "</p>"
         : "") +
-      '<div class="radio-footer__compose">' +
-      '<input type="text" class="radio-footer__input" data-radio-input maxlength="280" placeholder="悄悄留一句给主播…" value="' +
-      escapeHtml(radioInputDraft) +
-      '">' +
-      '<button type="button" class="radio-footer__send" data-radio-send>发送</button>' +
-      "</div></footer></div></div>"
+      "</header>"
     );
   }
 
-  function buildRadioHistoryHtml(slot) {
-    const hostChar = getRadioHostChar();
-    const hostName = hostChar && hostChar.name ? hostChar.name : "主播";
-    const rows = getRadioHistoryRows();
-    const listHtml = rows.length
-      ? rows
-          .map(function (row) {
-            const s = row.session;
-            const meta = formatRadioHistoryMeta(s);
-            const displayTitle = getRadioDisplayTitle(s);
-            return (
-              '<div class="radio-history-row" data-radio-history-row="' +
-              escapeHtml(s.id) +
-              '">' +
-              '<div class="radio-history-row__main">' +
-              '<div class="radio-history-row__top">' +
-              '<div class="radio-history-row__name" data-radio-history-name="' +
-              escapeHtml(s.id) +
-              '">' +
-              escapeHtml(displayTitle) +
-              "</div>" +
-              '<div class="radio-history-row__actions">' +
-              (row.isLive ? '<span class="radio-history-card__badge">进行中</span>' : "") +
-              '<button type="button" class="radio-history-icon-btn" data-radio-history-rename="' +
-              escapeHtml(s.id) +
-              '" aria-label="改名">' +
-              '<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M17 3a2.828 2.828 0 114 4L7 21H3v-4L17 3z"/></svg>' +
-              "</button>" +
-              '<button type="button" class="radio-history-icon-btn radio-history-icon-btn--danger" data-radio-history-delete="' +
-              escapeHtml(s.id) +
-              '" aria-label="删除">' +
-              '<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>' +
-              "</button>" +
-              '<button type="button" class="radio-history-icon-btn" data-radio-history-open="' +
-              escapeHtml(s.id) +
-              '" aria-label="查看">' +
-              '<svg class="icon-linear" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M9 18l6-6-6-6"/></svg>' +
-              "</button></div></div>" +
-              '<div class="radio-history-row__meta">' +
-              escapeHtml(meta) +
-              "</div></div></div>"
-            );
-          })
-          .join("")
-      : '<p class="radio-transcript__empty">暂无历史直播记录</p>';
+  function hashCharLetterScatter(id, index) {
+    let h = 0;
+    const s = String(id || "x") + ":" + index;
+    for (let i = 0; i < s.length; i++) {
+      h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+    }
+    return Math.abs(h);
+  }
 
+  function getCharLetterScatterStyle(id, index) {
+    const h = hashCharLetterScatter(id, index);
+    const rot = ((h % 140) - 70) / 10;
+    const ty = ((h >> 4) % 28) - 10;
+    const tx = ((h >> 9) % 24) - 12;
+    const z = index + 1;
     return (
-      '<div class="radio-history">' +
-      '<header class="radio-history__bar star-header">' +
-      '<div class="star-header__lead">' +
-      '<button type="button" class="icon-btn star-header__back" data-radio-history-back aria-label="返回">' +
-      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M15 6l-6 6 6 6"/></svg>' +
-      "</button>" +
-      "<h2 class=\"radio-history__title star-header__title\">" +
-      escapeHtml(hostName) +
-      " · 历史直播</h2></div></header>" +
-      listHtml +
+      "--rot:" + rot + "deg;--tx:" + tx + "px;--ty:" + ty + "px;--z:" + z + ";"
+    );
+  }
+
+  function buildCharLetterScatterCardHtml(entry, index) {
+    const kind = normalizeCharLetterPaperKind(entry.paperKind);
+    const style = getCharLetterScatterStyle(entry.id, index);
+    const preview = entry.title || String(entry.body || "").slice(0, 18);
+    const snippet = String(entry.body || "")
+      .replace(/^\u3000+/gm, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 52);
+    const dateLabel = buildStorySelectionCardTime(entry.savedAt || entry.generatedAt);
+    const typeHint = entry.letterType ? " · " + escapeHtml(entry.letterType) : "";
+    return (
+      '<button type="button" class="char-letter-scatter-card char-letter-scatter-card--' +
+      kind +
+      '" style="' +
+      style +
+      '" data-char-letter-saved-open="' +
+      escapeHtml(entry.id) +
+      '">' +
+      '<span class="char-letter-scatter-card__fold" aria-hidden="true"></span>' +
+      '<span class="char-letter-scatter-card__lines" aria-hidden="true"></span>' +
+      '<span class="char-letter-scatter-card__title">' +
+      escapeHtml(preview) +
+      "</span>" +
+      '<span class="char-letter-scatter-card__snippet">' +
+      escapeHtml(snippet) +
+      "</span>" +
+      '<span class="char-letter-scatter-card__meta">' +
+      escapeHtml(entry.charName || "TA") +
+      typeHint +
+      " · " +
+      escapeHtml(dateLabel) +
+      "</span></button>"
+    );
+  }
+
+  function buildCharLetterBottleScreenHtml() {
+    const count = charLetterSavedBottle.length;
+    const hero =
+      '<div class="char-letter-bottle-hero" aria-hidden="true">' +
+      '<div class="char-letter-bottle-hero__jar">🍶</div>' +
+      '<div class="char-letter-bottle-hero__spill"></div>' +
+      '<div class="char-letter-bottle-hero__letters">' +
+      '<span class="char-letter-bottle-hero__letter char-letter-bottle-hero__letter--1">✉</span>' +
+      '<span class="char-letter-bottle-hero__letter char-letter-bottle-hero__letter--2">✉</span>' +
+      '<span class="char-letter-bottle-hero__letter char-letter-bottle-hero__letter--3">✉</span>' +
+      "</div></div>";
+    let scatter = "";
+    if (!count) {
+      scatter =
+        '<p class="char-letter-scatter-empty">瓶罐还是空的。在主界面写好信后点「存入瓶罐」。</p>';
+    } else {
+      scatter =
+        '<div class="char-letter-scatter">' +
+        charLetterSavedBottle
+          .map(function (entry, i) {
+            return buildCharLetterScatterCardHtml(entry, i);
+          })
+          .join("") +
+        "</div>";
+    }
+    const subtitle = count ? "共 " + count + " 封书信" : "尚无收藏";
+    const sparseClass = count > 0 && count <= 2 ? " char-letter-shell--bottle-sparse" : "";
+    return (
+      '<div class="char-letter-shell char-letter-shell--bottle' +
+      sparseClass +
+      '">' +
+      buildCharLetterSubHeaderHtml("瓶罐收藏", subtitle) +
+      '<div class="char-letter-bottle-scene">' +
+      hero +
+      scatter +
+      "</div></div>"
+    );
+  }
+
+  function buildCharLetterSavedDetailContentHtml(entry) {
+    return (
+      '<p class="char-letter-detail__label">' +
+      escapeHtml(entry.plotTitle || "") +
+      " · " +
+      escapeHtml(entry.charName || "") +
+      (entry.letterType ? " · " + escapeHtml(entry.letterType) : "") +
+      "</p>" +
+      '<div class="char-letter-paper-wrap char-letter-paper-wrap--detail">' +
+      '<div class="' +
+      getCharLetterPaperClass(entry.paperKind) +
+      ' char-letter-paper--saved">' +
+      '<div class="char-letter-paper__texture" aria-hidden="true"></div>' +
+      buildCharLetterPaperFieldsHtml(entry, "data-char-letter-saved-field") +
+      "</div></div>" +
+      '<div class="char-letter-detail__actions">' +
+      '<button type="button" class="char-letter-detail__remove" data-char-letter-saved-remove>取消收藏</button>' +
       "</div>"
     );
   }
 
-  function buildRadioHistoryDetailHtml(session) {
-    if (!session) return "";
+  function buildCharLetterDetailScreenHtml(entry) {
+    const title = entry.title || String(entry.body || "").slice(0, 12) + "…";
     return (
-      '<div class="radio-history-detail">' +
-      '<header class="radio-history__bar star-header">' +
-      '<div class="star-header__lead">' +
-      '<button type="button" class="icon-btn star-header__back" data-radio-history-back aria-label="返回">' +
-      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M15 6l-6 6 6 6"/></svg>' +
-      "</button>" +
-      "<h2 class=\"radio-history__title star-header__title\">" +
-      escapeHtml(getRadioDisplayTitle(session)) +
-      "</h2></div></header>" +
-      '<section class="radio-transcript radio-transcript--detail" data-radio-transcript>' +
-      '<div class="radio-transcript__head"><span class="radio-transcript__dot"></span>电波记录</div>' +
-      buildRadioTranscriptHtml(session) +
-      "</section></div>"
+      '<div class="char-letter-shell char-letter-shell--detail">' +
+      buildCharLetterSubHeaderHtml("阅读书信", title) +
+      '<div class="char-letter-detail-main">' +
+      buildCharLetterSavedDetailContentHtml(entry) +
+      "</div></div>"
     );
   }
 
-  function renderRadioScreen(slot, opts) {
-    opts = opts || {};
-    if (!slot) return;
-    const scrollSnap = captureRadioTranscriptScroll(slot);
-    slot.classList.remove("story-placeholder");
-    const nav = getRadioNav(slot);
-    const plot = getRadioPlot();
-    const hostChar = getRadioHostChar();
-    const session = getRadioSessionMutable();
-
-    if (nav.screen === "history" && nav.historyDetailId) {
-      const row = getRadioHistoryRows().find(function (r) {
-        return r.id === nav.historyDetailId;
-      });
-      slot.innerHTML = buildRadioHistoryDetailHtml(row && row.session);
-      restoreRadioTranscriptScroll(slot, scrollSnap, opts);
-      return;
-    }
-    if (nav.screen === "history") {
-      slot.innerHTML = buildRadioHistoryHtml(slot);
-      return;
-    }
-
-    slot.innerHTML = buildRadioLiveHtml(slot, session, hostChar, plot);
-    const av = slot.querySelector("[data-radio-host-avatar]");
-    if (av && hostChar && plot) fillPlotAvatarElement(av, plot, hostChar.id);
-    restoreRadioTranscriptScroll(slot, scrollSnap, opts);
+  function buildCharLetterHeaderHtml() {
+    const genDisabled = charLetterGenerating ? " disabled" : "";
+    const genTitle = charLetterGenerating ? "生成中…" : "生成手写信";
+    return (
+      '<header class="char-letter-header star-header">' +
+      '<div class="star-header__lead">' +
+      '<button type="button" class="icon-btn char-letter-header__back star-header__back" data-char-letter-back aria-label="返回">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85"><path d="M15 6l-6 6 6 6"/></svg>' +
+      "</button>" +
+      '<h1 class="char-letter-header__title star-header__title">手写信</h1></div>' +
+      '<div class="star-header__actions char-letter-header__actions">' +
+      '<button type="button" class="icon-btn char-letter-header__action" data-char-letter-switch aria-label="切换剧情与角色">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">' +
+      '<circle cx="9" cy="8" r="3.5"/><path d="M2 20v-1a5 5 0 015-5h4a5 5 0 015 5v1"/>' +
+      '<circle cx="17" cy="9" r="2.5"/><path d="M14 20v-1a3.5 3.5 0 013.5-3.5"/></svg>' +
+      "</button>" +
+      '<button type="button" class="icon-btn char-letter-header__action char-letter-header__action--gen' +
+      (charLetterGenerating ? " is-loading" : "") +
+      '" data-char-letter-generate aria-label="' +
+      escapeHtml(genTitle) +
+      '"' +
+      genDisabled +
+      ">" +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">' +
+      '<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 7l9 6 9-6"/>' +
+      '<circle cx="18" cy="6" r="3.5" fill="var(--bg)" stroke="currentColor"/>' +
+      '<path d="M18 4.5v3M16.5 6h3"/></svg>' +
+      "</button>" +
+      '<button type="button" class="icon-btn char-letter-header__action" data-char-letter-style aria-label="文笔设置">' +
+      '<svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/>' +
+      '<path d="M3 8h8M3 12h6M3 16h4"/></svg>' +
+      "</button></div></header>"
+    );
   }
 
-  function closeOverviewRadioView() {
-    stopRadioPlayback();
-    stopCollectAudio();
+  function buildCharLetterBannerHtml(plot, sender) {
+    const plotTitle = plot ? plot.title || "未命名剧情" : "未选择剧情";
+    const name = sender ? sender.name || "TA" : "未选择角色";
+    return (
+      '<div class="char-letter-banner collect-banner collect-banner--dock">' +
+      '<div class="collect-banner__glow" aria-hidden="true"></div>' +
+      '<div class="collect-banner__avatar avatar" data-char-letter-avatar></div>' +
+      '<div class="collect-banner__meta">' +
+      '<p class="collect-banner__from"><span class="collect-banner__label">来自</span> <strong>' +
+      escapeHtml(name) +
+      "</strong></p>" +
+      '<p class="collect-banner__plot">' +
+      escapeHtml(plotTitle) +
+      "</p></div></div>"
+    );
+  }
+
+  function buildCharLetterPaperHtml(draft, generating) {
+    if (generating) {
+      return (
+        '<div class="char-letter-paper-wrap">' +
+        '<div class="char-letter-paper char-letter-paper--warm char-letter-paper--loading">' +
+        '<div class="char-letter-paper__inner">' +
+        '<div class="char-letter-paper__skeleton"></div>' +
+        '<div class="char-letter-paper__skeleton char-letter-paper__skeleton--short"></div>' +
+        '<div class="char-letter-paper__skeleton"></div>' +
+        '<p class="char-letter-paper__hint">正在落笔…</p></div></div></div>'
+      );
+    }
+    if (!draft || !charLetterDraftHasContent(draft)) {
+      return (
+        '<div class="char-letter-paper-wrap">' +
+        '<div class="char-letter-paper char-letter-paper--warm char-letter-paper--empty">' +
+        '<div class="char-letter-paper__inner">' +
+        '<p class="char-letter-paper__empty-title">尚未收到手写信</p>' +
+        '<p class="char-letter-paper__empty-hint">点右上角信封按钮，让 TA 写一封长信给你</p>' +
+        "</div></div></div>"
+      );
+    }
+    const paperClass = getCharLetterPaperClass(draft.paperKind);
+    const typeTag = draft.letterType
+      ? '<span class="char-letter-paper__type-tag">' + escapeHtml(draft.letterType) + "</span>"
+      : "";
+    return (
+      '<div class="char-letter-paper-wrap">' +
+      '<div class="' +
+      paperClass +
+      '">' +
+      '<div class="char-letter-paper__texture" aria-hidden="true"></div>' +
+      typeTag +
+      buildCharLetterPaperFieldsHtml(draft, "data-char-letter-field") +
+      "</div></div>"
+    );
+  }
+
+  function buildCharLetterScreenHtml(slot, draft, plot, sender) {
+    const canSave = charLetterDraftHasContent(draft) && !charLetterGenerating;
+    const bottleCount = charLetterSavedBottle.length;
+    return (
+      '<div class="char-letter-shell">' +
+      buildCharLetterHeaderHtml() +
+      '<div class="char-letter-main">' +
+      buildCharLetterBannerHtml(plot, sender) +
+      buildCharLetterPaperHtml(draft, charLetterGenerating) +
+      '<div class="char-letter-save-row">' +
+      '<button type="button" class="btn btn--primary btn--pill char-letter-save-btn" data-char-letter-save' +
+      (canSave ? "" : " disabled") +
+      ">存入瓶罐</button></div></div>" +
+      '<button type="button" class="char-letter-bottle-fab" data-char-letter-bottle aria-label="打开瓶罐收藏">' +
+      '<span class="char-letter-bottle-fab__icon" aria-hidden="true">🍶</span>' +
+      (bottleCount
+        ? '<span class="char-letter-bottle-fab__badge">' + bottleCount + "</span>"
+        : "") +
+      "</button></div>"
+    );
+  }
+
+  function renderCharLetterScreen(slot) {
+    if (!slot) return;
+    slot.classList.remove("story-placeholder");
+    if (charLetterNavScreen === "detail" && charLetterBottleDetailId) {
+      const entry = getCharLetterSavedById(charLetterBottleDetailId);
+      if (!entry) {
+        charLetterNavScreen = "bottle";
+        charLetterBottleDetailId = null;
+      } else {
+        slot.innerHTML = buildCharLetterDetailScreenHtml(entry);
+        bindCharLetterSavedDetailFields(slot);
+        return;
+      }
+    }
+    if (charLetterNavScreen === "bottle") {
+      slot.innerHTML = buildCharLetterBottleScreenHtml();
+      return;
+    }
+    const plot = getCharLetterPlot();
+    const sender = getCharLetterCharacter();
+    const draft = getCharLetterDraftForCurrent();
+    slot.innerHTML = buildCharLetterScreenHtml(slot, draft, plot, sender);
+    bindCharLetterPaperTextareas(slot);
+    const av = slot.querySelector("[data-char-letter-avatar]");
+    if (av && sender && plot) fillPlotAvatarElement(av, plot, sender.id);
+  }
+
+  function closeOverviewCharLetterView() {
+    if (charLetterNavScreen === "main") {
+      syncCharLetterDraftFromDom(els.charLetterContentSlot());
+    }
+    charLetterNavScreen = "main";
+    charLetterBottleDetailId = null;
     overviewSubView = null;
     if (!location.hash.startsWith("#/story") && location.hash !== "#/tab/overview") {
       location.hash = "#/tab/overview";
@@ -32931,26 +33080,26 @@
     syncOverviewSubViewUi();
   }
 
-  function syncRadioHolderModalChrome() {
-    const onCharStep = radioHolderModalStep === "char";
-    const titleEl = els.radioHolderTitle();
-    const hintEl = els.radioHolderHint();
-    const backBtn = els.radioHolderStepBack();
-    const plotList = els.radioHolderPlotList();
-    const pick = els.radioHolderPick();
+  function syncCharLetterHolderModalChrome() {
+    const onCharStep = charLetterHolderModalStep === "char";
+    const titleEl = els.charLetterHolderTitle();
+    const hintEl = els.charLetterHolderHint();
+    const backBtn = els.charLetterHolderStepBack();
+    const plotList = els.charLetterHolderPlotList();
+    const pick = els.charLetterHolderPick();
     const plot = plots.find(function (p) {
-      return p.id === radioHolderModalPlotId;
+      return p.id === charLetterHolderModalPlotId;
     });
-    if (titleEl) titleEl.textContent = onCharStep ? "选择主播" : "选择剧情";
+    if (titleEl) titleEl.textContent = onCharStep ? "选择角色" : "选择剧情";
     if (hintEl) {
       if (onCharStep) {
         hintEl.hidden = false;
         hintEl.textContent = plot
-          ? "《" + (plot.title || "未命名剧情") + "》· 点选一名主要角色担任电台主播"
-          : "点选主要角色担任电台主播";
+          ? "《" + (plot.title || "未命名剧情") + "》· 点选一名主要角色"
+          : "点选主要角色";
       } else {
         hintEl.hidden = false;
-        hintEl.textContent = "先选择电台主播所在的剧情";
+        hintEl.textContent = "先选择手写信角色所在的剧情";
       }
     }
     if (backBtn) backBtn.hidden = !onCharStep;
@@ -32958,8 +33107,8 @@
     if (pick) pick.hidden = !onCharStep;
   }
 
-  function renderRadioHolderPlotList() {
-    const listEl = els.radioHolderPlotList();
+  function renderCharLetterHolderPlotList() {
+    const listEl = els.charLetterHolderPlotList();
     if (!listEl) return;
     listEl.innerHTML = "";
     if (!plots.length) {
@@ -32970,47 +33119,47 @@
       return;
     }
     plots.forEach(function (p) {
-      const candidates = getRadioHostCandidatesForPlot(p.id);
-      const btn = buildPhoneHolderPlotRowBtn(p, radioPlotId === p.id);
+      const candidates = getCollectCharacterCandidatesForPlot(p.id);
+      const btn = buildPhoneHolderPlotRowBtn(p, charLetterPlotId === p.id);
       btn.addEventListener("click", function () {
         if (!candidates.length) {
-          showToast("该剧情下没有可担任主播的主要角色。", "warning");
+          showToast("该剧情下没有「主要角色」可写信。", "warning");
           return;
         }
-        radioHolderModalPlotId = p.id;
-        radioHolderModalStep = "char";
-        renderRadioHolderModal();
+        charLetterHolderModalPlotId = p.id;
+        charLetterHolderModalStep = "char";
+        renderCharLetterHolderModal();
       });
       listEl.appendChild(btn);
     });
   }
 
-  function finishRadioHolderSelection(charId) {
-    const plotId = radioHolderModalPlotId;
+  function finishCharLetterHolderSelection(charId) {
+    const plotId = charLetterHolderModalPlotId;
     const plot = plots.find(function (p) {
       return p.id === plotId;
     });
-    const host = getCharById(charId);
-    if (!plot || !host) return;
-    radioPlotId = plotId;
-    radioHostCharId = charId;
-    sanitizeRadioState();
+    const sender = getCharById(charId);
+    if (!plot || !sender) return;
+    charLetterPlotId = plotId;
+    charLetterCharId = charId;
+    sanitizeCharLetterState();
     schedulePersistNarrative();
-    closeRadioHolderModal();
-    const slot = els.radioContentSlot();
-    if (slot) renderRadioScreen(slot);
-    showToast("已选择主播「" + (host.name || "TA") + "」", "success");
+    closeCharLetterHolderModal();
+    const slot = els.charLetterContentSlot();
+    showToast("已选择「" + (sender.name || "TA") + "」", "success");
+    if (slot) renderCharLetterScreen(slot);
   }
 
-  function renderRadioHolderCharPick() {
-    const pick = els.radioHolderPick();
+  function renderCharLetterHolderCharPick() {
+    const pick = els.charLetterHolderPick();
     if (!pick) return;
     pick.innerHTML = "";
-    const list = getRadioHostCandidatesForPlot(radioHolderModalPlotId);
+    const list = getCollectCharacterCandidatesForPlot(charLetterHolderModalPlotId);
     if (!list.length) {
       const ph = document.createElement("p");
       ph.className = "field__hint phone-holder-empty";
-      ph.textContent = "该剧情下没有主要角色。";
+      ph.textContent = "该剧情下没有「主要角色」可选。";
       pick.appendChild(ph);
       return;
     }
@@ -33019,337 +33168,233 @@
       b.type = "button";
       b.className =
         "char-pick-avatar" +
-        (c.id === radioHostCharId && radioPlotId === radioHolderModalPlotId ? " is-selected" : "");
+        (c.id === charLetterCharId && charLetterPlotId === charLetterHolderModalPlotId
+          ? " is-selected"
+          : "");
+      b.dataset.id = c.id;
       b.title = c.name || "未命名";
       b.setAttribute("aria-label", c.name || "未命名");
       const av = document.createElement("div");
       av.className = "avatar";
       b.appendChild(av);
-      fillPlotAvatarElement(av, getPlotById(radioHolderModalPlotId), c.id);
+      fillPlotAvatarElement(av, getPlotById(charLetterHolderModalPlotId), c.id);
       b.addEventListener("click", function () {
-        finishRadioHolderSelection(c.id);
+        finishCharLetterHolderSelection(c.id);
       });
       pick.appendChild(b);
     });
   }
 
-  function renderRadioHolderModal() {
-    syncRadioHolderModalChrome();
-    if (radioHolderModalStep === "char") {
-      renderRadioHolderCharPick();
+  function renderCharLetterHolderModal() {
+    syncCharLetterHolderModalChrome();
+    if (charLetterHolderModalStep === "char") {
+      renderCharLetterHolderCharPick();
       return;
     }
-    renderRadioHolderPlotList();
+    renderCharLetterHolderPlotList();
   }
 
-  function openRadioHolderModal(opts) {
+  function openCharLetterHolderModal(opts) {
     opts = opts || {};
-    const modal = els.modalRadioHolder();
+    const modal = els.modalCharLetterHolder();
     if (!modal) return;
-    radioHolderModalMode = opts.mode === "settings" ? "settings" : "first";
-    radioHolderModalStep = "plot";
-    radioHolderModalPlotId = radioPlotId;
-    renderRadioHolderModal();
+    charLetterHolderModalMode = opts.mode === "switch" ? "switch" : "first";
+    charLetterHolderModalStep = "plot";
+    charLetterHolderModalPlotId = charLetterPlotId;
+    renderCharLetterHolderModal();
     modal.hidden = false;
   }
 
-  function radioHolderModalBackToPlot() {
-    radioHolderModalStep = "plot";
-    renderRadioHolderModal();
+  function charLetterHolderModalBackToPlot() {
+    charLetterHolderModalStep = "plot";
+    renderCharLetterHolderModal();
   }
 
-  function closeRadioHolderModal() {
-    const modal = els.modalRadioHolder();
-    if (!modal) return;
-    modal.hidden = true;
-    radioHolderModalStep = "plot";
-    radioHolderModalPlotId = null;
-    if (radioHolderModalMode === "first" && (!radioPlotId || !radioHostCharId)) {
-      closeOverviewRadioView();
+  function closeCharLetterHolderModal() {
+    const modal = els.modalCharLetterHolder();
+    if (modal) modal.hidden = true;
+    charLetterHolderModalStep = "plot";
+    charLetterHolderModalPlotId = null;
+    if (
+      charLetterHolderModalMode === "first" &&
+      (!charLetterPlotId || !charLetterCharId)
+    ) {
+      closeOverviewCharLetterView();
     }
   }
 
-  function openRadioLetterModal() {
-    const modal = els.modalRadioLetter();
-    const input = els.radioLetterInput();
+  function openCharLetterStyleModal() {
+    const modal = els.modalCharLetterStyle();
     if (!modal) return;
-    if (input) {
-      const session = getRadioSessionMutable();
-      input.value = (session && session.pendingUserLetter) || "";
+    charLetterFontPendingFile = null;
+    const intro = els.charLetterStyleIntro();
+    const ref = els.charLetterStyleReference();
+    const fontUrl = els.charLetterStyleFontUrl();
+    const fontFile = els.charLetterStyleFontFile();
+    if (intro) intro.value = charLetterStylePrefs.intro || "";
+    if (ref) ref.value = charLetterStylePrefs.reference || "";
+    if (fontUrl) {
+      fontUrl.value =
+        charLetterStylePrefs.font && charLetterStylePrefs.font.source === "url"
+          ? charLetterStylePrefs.font.url || ""
+          : "";
     }
+    if (fontFile) fontFile.value = "";
+    renderCharLetterFontStatusInModal();
     modal.hidden = false;
   }
 
-  function closeRadioLetterModal() {
-    const modal = els.modalRadioLetter();
+  function closeCharLetterStyleModal() {
+    charLetterFontPendingFile = null;
+    const modal = els.modalCharLetterStyle();
     if (modal) modal.hidden = true;
   }
 
-  function confirmRadioLetter() {
-    const input = els.radioLetterInput();
-    const text = input ? String(input.value || "").trim() : "";
-    if (!text) {
-      showToast("请先写下信件内容。", "warning");
-      return;
-    }
-    let session = getRadioSessionMutable();
-    if (!session) {
-      session = createEmptyRadioSession();
-      radioActiveSession = session;
-    }
-    session.pendingUserLetter = text.slice(0, 800);
-    schedulePersistNarrative();
-    closeRadioLetterModal();
-    renderRadioScreen(els.radioContentSlot());
-    showToast("信件已寄出，点击「继续/接入」时将来电接入", "success");
-  }
-
-  function openRadioEndCallModal() {
-    const modal = els.modalRadioEndCall();
-    if (modal) modal.hidden = false;
-  }
-
-  function closeRadioEndCallModal() {
-    const modal = els.modalRadioEndCall();
-    if (modal) modal.hidden = true;
-  }
-
-  function radioEndCallSkipGenerate() {
-    const session = getRadioSessionMutable();
-    if (session) {
-      session.pendingConnection = null;
-      session.callerConnected = false;
-      session.transcript.push(
-        normalizeRadioTranscriptItem({
-          role: "system",
-          speaker: "",
-          text: "已结束本次连线",
-          ts: Date.now(),
-        })
-      );
-      schedulePersistNarrative();
-    }
-    closeRadioEndCallModal();
-    renderRadioScreen(els.radioContentSlot());
-  }
-
-  function radioEndCallGenerateNext(slot) {
-    closeRadioEndCallModal();
-    void generateRadioRound(slot, { mode: "nextCaller", wrapUp: true });
-  }
-
-  function radioHangup(slot) {
-    stopRadioPlayback();
-    if (getRadioSessionMutable()) {
-      archiveRadioSession();
-    }
-    renderRadioScreen(slot);
-    showToast("已挂断，本场直播已保存", "success");
-  }
-
-  function radioSendComment(slot) {
-    const input = slot && slot.querySelector("[data-radio-input]");
-    const text = input ? String(input.value || "").trim() : String(radioInputDraft || "").trim();
-    if (!text) {
-      showToast("请输入留言内容。", "warning");
-      return;
-    }
-    let session = getRadioSessionMutable();
-    if (!session) {
-      session = createEmptyRadioSession();
-      radioActiveSession = session;
-    }
-    session.pendingUserComment = text.slice(0, 280);
-    radioInputDraft = "";
-    schedulePersistNarrative();
-    renderRadioScreen(slot);
-    showToast("留言已发送，下次继续时主播将朗读并回应", "success");
-  }
-
-  function radioHandleNext(slot) {
-    const session = getRadioSessionMutable();
-    if (!session) {
-      void generateRadioRound(slot, { mode: "start" });
-      return;
-    }
-    if (session.pendingConnection) {
-      void generateRadioRound(slot, { mode: "skipPreview" });
-      return;
-    }
-    const hasCaller = session.transcript.some(function (m) {
-      return m.role === "caller";
-    });
-    if (hasCaller) {
-      openRadioEndCallModal();
-      return;
-    }
-    void generateRadioRound(slot, { mode: "continue" });
-  }
-
-  function radioRenameHistoryEntry(sessionId, newTitle) {
-    const title = String(newTitle || "").trim().slice(0, 60);
-    if (!title || !sessionId) return;
-    const live = getRadioSessionMutable();
-    if (live && live.id === sessionId) {
-      live.title = title;
-      schedulePersistNarrative();
-      return;
-    }
-    const key = getRadioHistoryKey();
-    const arr = radioHistoryData[key] || [];
-    const hit = arr.find(function (s) {
-      return s && s.id === sessionId;
-    });
-    if (hit) {
-      hit.title = title;
-      schedulePersistNarrative();
-    }
-  }
-
-  function radioDeleteHistoryEntry(sessionId) {
-    if (!sessionId) return;
-    const live = getRadioSessionMutable();
-    if (live && live.id === sessionId) {
-      stopRadioPlayback();
-      radioActiveSession = null;
-      schedulePersistNarrative();
-      return;
-    }
-    const key = getRadioHistoryKey();
-    if (!key || !radioHistoryData[key]) return;
-    radioHistoryData[key] = radioHistoryData[key].filter(function (s) {
-      return s && s.id !== sessionId;
-    });
-    schedulePersistNarrative();
-  }
-
-  function handleRadioSlotClick(e, slot) {
-    if (e.target.closest("[data-radio-back]")) {
-      const nav = getRadioNav(slot);
-      if (nav.screen === "history") {
-        if (nav.historyDetailId) {
-          nav.historyDetailId = null;
-          renderRadioScreen(slot);
-        } else {
-          nav.screen = "live";
-          renderRadioScreen(slot);
+  async function saveCharLetterStyleFromModal() {
+    const saveBtn = els.charLetterStyleSave();
+    if (saveBtn) saveBtn.disabled = true;
+    try {
+      let nextFont = charLetterStylePrefs.font || null;
+      if (charLetterFontPendingFile) {
+        nextFont = await applyCharLetterFontFromFile(charLetterFontPendingFile);
+        charLetterFontPendingFile = null;
+      } else {
+        const urlRaw = els.charLetterStyleFontUrl() ? els.charLetterStyleFontUrl().value : "";
+        const url = normalizeCharLetterFontUrl(urlRaw);
+        if (url) {
+          nextFont = await loadCharLetterFontFromUrl(url);
+        } else if (nextFont && nextFont.source === "url") {
+          await clearCharLetterFont();
+          nextFont = null;
         }
-      } else {
-        closeOverviewRadioView();
       }
-      return;
-    }
-    if (e.target.closest("[data-radio-settings]")) {
-      openRadioHolderModal({ mode: "settings" });
-      return;
-    }
-    if (e.target.closest("[data-radio-history]")) {
-      const nav = getRadioNav(slot);
-      nav.screen = "history";
-      nav.historyDetailId = null;
-      renderRadioScreen(slot);
-      return;
-    }
-    if (e.target.closest("[data-radio-history-back]")) {
-      const nav = getRadioNav(slot);
-      if (nav.historyDetailId) {
-        nav.historyDetailId = null;
-      } else {
-        nav.screen = "live";
-      }
-      renderRadioScreen(slot);
-      return;
-    }
-    if (e.target.closest("[data-radio-primary]")) {
-      const btn = e.target.closest("[data-radio-primary]");
-      if (btn && btn.disabled) return;
-      const session = getRadioSessionMutable();
-      if (!session) {
-        void generateRadioRound(slot, { mode: "start" });
-      } else {
-        void radioContinueOrConnect(slot);
-      }
-      return;
-    }
-    if (e.target.closest("[data-radio-letter]")) {
-      const btn = e.target.closest("[data-radio-letter]");
-      if (btn && btn.disabled) return;
-      openRadioLetterModal();
-      return;
-    }
-    if (e.target.closest("[data-radio-connect]")) {
-      const btn = e.target.closest("[data-radio-connect]");
-      if (btn && btn.disabled) return;
-      void radioAcceptPendingConnection(slot);
-      return;
-    }
-    if (e.target.closest("[data-radio-skip]")) {
-      const btn = e.target.closest("[data-radio-skip]");
-      if (btn && btn.disabled) return;
-      void generateRadioRound(slot, { mode: "skipPreview" });
-      return;
-    }
-    if (e.target.closest("[data-radio-send]")) {
-      radioSendComment(slot);
-      return;
-    }
-    if (e.target.closest("[data-radio-hangup]")) {
-      radioHangup(slot);
-      return;
-    }
-    const playBtn = e.target.closest("[data-radio-msg-play]");
-    if (playBtn) {
-      e.preventDefault();
-      const msgId = playBtn.getAttribute("data-radio-msg-play");
-      void toggleRadioHostLinePlayback(slot, msgId);
-      return;
-    }
-
-    const renameBtn = e.target.closest("[data-radio-history-rename]");
-    if (renameBtn) {
-      const sessionId = renameBtn.getAttribute("data-radio-history-rename");
-      const row = renameBtn.closest("[data-radio-history-row]");
-      const nameEl = row && row.querySelector("[data-radio-history-name]");
-      if (!nameEl || !sessionId) return;
-      const input = document.createElement("input");
-      input.className = "cat-manage-row__name-input field__input radio-history-row__name-input";
-      input.value = nameEl.textContent || "";
-      nameEl.replaceWith(input);
-      input.focus();
-      const commit = function () {
-        radioRenameHistoryEntry(sessionId, input.value);
-        renderRadioScreen(slot);
-      };
-      input.addEventListener("blur", commit);
-      input.addEventListener("keydown", function (ev) {
-        if (ev.key === "Enter") {
-          ev.preventDefault();
-          commit();
-        }
+      charLetterStylePrefs = normalizeCharLetterStylePrefs({
+        intro: els.charLetterStyleIntro() ? els.charLetterStyleIntro().value : "",
+        reference: els.charLetterStyleReference() ? els.charLetterStyleReference().value : "",
+        font: nextFont,
       });
+      schedulePersistNarrative();
+      closeCharLetterStyleModal();
+      showToast("文笔设置已保存", "success");
+      const slot = els.charLetterContentSlot();
+      if (slot) renderCharLetterScreen(slot);
+    } catch (e) {
+      showToast("字体加载失败，请检查 CSS 链接或字体文件", "error");
+    } finally {
+      if (saveBtn) saveBtn.disabled = false;
+    }
+  }
+
+  async function clearCharLetterFontFromModal() {
+    charLetterFontPendingFile = null;
+    const fontUrl = els.charLetterStyleFontUrl();
+    const fontFile = els.charLetterStyleFontFile();
+    if (fontUrl) fontUrl.value = "";
+    if (fontFile) fontFile.value = "";
+    await clearCharLetterFont();
+    schedulePersistNarrative();
+    renderCharLetterFontStatusInModal();
+    showToast("已恢复系统默认字体", "success");
+    const slot = els.charLetterContentSlot();
+    if (slot) renderCharLetterScreen(slot);
+  }
+
+  function handleCharLetterStyleFontFileChange(e) {
+    const input = e.target;
+    const file = input && input.files && input.files[0];
+    if (!file) return;
+    const ok = /\.(ttf|otf|woff2?)$/i.test(file.name);
+    if (!ok) {
+      showToast("请选择 TTF、OTF、WOFF 或 WOFF2 格式的字体文件", "error");
+      input.value = "";
       return;
     }
-
-    const deleteBtn = e.target.closest("[data-radio-history-delete]");
-    if (deleteBtn) {
-      const sessionId = deleteBtn.getAttribute("data-radio-history-delete");
-      showConfirm("确认删除这条直播记录？", "删除记录").then(function (ok) {
-        if (!ok) return;
-        radioDeleteHistoryEntry(sessionId);
-        renderRadioScreen(slot);
-      });
+    if (file.size > FONT_UPLOAD_MAX_BYTES) {
+      showToast("字体文件过大（超过 " + FONT_UPLOAD_MAX_LABEL + "）", "error");
+      input.value = "";
       return;
     }
+    charLetterFontPendingFile = file;
+    const fontUrl = els.charLetterStyleFontUrl();
+    if (fontUrl) fontUrl.value = "";
+    renderCharLetterFontStatusInModal();
+  }
 
-    const openBtn = e.target.closest("[data-radio-history-open]");
+  function handleCharLetterSlotClick(e, slot) {
+    if (e.target.closest("[data-char-letter-back]")) {
+      if (charLetterNavScreen === "detail") {
+        tryAutoSaveCharLetterSavedDetail(slot);
+        charLetterNavScreen = "bottle";
+        charLetterBottleDetailId = null;
+        renderCharLetterScreen(slot);
+        return;
+      }
+      if (charLetterNavScreen === "bottle") {
+        charLetterNavScreen = "main";
+        renderCharLetterScreen(slot);
+        return;
+      }
+      closeOverviewCharLetterView();
+      return;
+    }
+    const openBtn = e.target.closest("[data-char-letter-saved-open]");
     if (openBtn) {
-      const nav = getRadioNav(slot);
-      nav.historyDetailId = openBtn.getAttribute("data-radio-history-open");
-      renderRadioScreen(slot);
+      charLetterBottleDetailId = openBtn.getAttribute("data-char-letter-saved-open");
+      charLetterNavScreen = "detail";
+      renderCharLetterScreen(slot);
+      return;
+    }
+    if (
+      charLetterNavScreen === "detail" &&
+      e.target.closest(".char-letter-detail-main") &&
+      !e.target.closest("[data-char-letter-saved-field]") &&
+      !e.target.closest("[data-char-letter-saved-remove]")
+    ) {
+      const active = document.activeElement;
+      if (active && slot.contains(active) && active.closest("[data-char-letter-saved-field]") && active.blur) {
+        active.blur();
+      }
+      return;
+    }
+    if (e.target.closest("[data-char-letter-saved-remove]")) {
+      const id = charLetterBottleDetailId;
+      showConfirm("确定取消收藏这封信？", "取消收藏").then(function (ok) {
+        if (!ok) return;
+        removeCharLetterFromBottle(id);
+        charLetterNavScreen = "bottle";
+        renderCharLetterScreen(slot);
+        showToast("已取消收藏", "success");
+      });
+      return;
+    }
+    if (e.target.closest("[data-char-letter-switch]")) {
+      openCharLetterHolderModal({ mode: "switch" });
+      return;
+    }
+    if (e.target.closest("[data-char-letter-generate]")) {
+      const btn = e.target.closest("[data-char-letter-generate]");
+      if (btn && btn.disabled) return;
+      void generateCharLetterDraft(slot);
+      return;
+    }
+    if (e.target.closest("[data-char-letter-style]")) {
+      openCharLetterStyleModal();
+      return;
+    }
+    if (e.target.closest("[data-char-letter-save]")) {
+      const btn = e.target.closest("[data-char-letter-save]");
+      if (btn && btn.disabled) return;
+      saveCharLetterToBottle(slot);
+      renderCharLetterScreen(slot);
+      return;
+    }
+    if (e.target.closest("[data-char-letter-bottle]")) {
+      charLetterNavScreen = "bottle";
+      charLetterBottleDetailId = null;
+      renderCharLetterScreen(slot);
       return;
     }
   }
-
   /* ── 传纸条 Pass Note ── */
 
   function passNoteStorageKey(plotId, charId) {
@@ -37477,7 +37522,7 @@
     const preview = labels.slice(0, 2).join("、");
     const suffix = labels.length > 2 ? " 等 " + labels.length + " 人" : "";
     showToast(
-      "新角色 " + preview + suffix + " 已加入，可在「群设置」或「重新打标签」中设置标签",
+      "新角色 " + preview + suffix + " 已加入，可在群聊设置里直接改标签",
       "info",
       4800
     );
@@ -37706,8 +37751,8 @@
     if (!isYouDogChatReady()) {
       return (
         '<section class="you-dog-feed-speaker-pool">' +
-        '<p class="you-dog-feed-speaker-pool__title">发言角色池</p>' +
-        '<p class="you-dog-persona-empty">请先完成群聊建群，再勾选可参与发言的角色。</p></section>'
+        '<p class="you-dog-feed-speaker-pool__title">群聊与私聊角色池</p>' +
+        '<p class="you-dog-persona-empty">请先完成群聊建群，再勾选可参与群聊与私聊的角色。</p></section>'
       );
     }
     sanitizeYouDogChatSpeakerPoolRefs();
@@ -37723,8 +37768,8 @@
       });
     return (
       '<section class="you-dog-feed-speaker-pool">' +
-      '<p class="you-dog-feed-speaker-pool__title">发言角色池</p>' +
-      '<p class="you-dog-feed-speaker-pool__hint">勾选可参与群聊生成的角色；每次点 ✦ 由 AI 根据上文决定谁发言（已选 ' +
+      '<p class="you-dog-feed-speaker-pool__title">群聊与私聊角色池</p>' +
+      '<p class="you-dog-feed-speaker-pool__hint">勾选可参与群聊与私聊生成的角色；群聊点 ✦ 由 AI 决定谁发言，私聊同理（已选 ' +
       pickedCount +
       " 人）</p>" +
       '<div class="you-dog-feed-speaker-pool__list">' +
@@ -38467,11 +38512,21 @@
       YOU_DOG_REPLY_TONE_RULE,
       YOU_DOG_EMOJI_STYLE_RULE,
       "",
+    ];
+    if (
+      postContexts.some(function (ctx) {
+        return postHasYouDogUserEngagement(ctx && ctx.post);
+      })
+    ) {
+      lines.push(buildYouDogUserProfilePromptBlock());
+      lines.push("");
+    }
+    lines.push(
       "【本批优先参与回复的剧情角色（随机抽取，须穿插使用）】",
       speakerLabels.length ? speakerLabels.join("\n") : "（无）",
       "",
-      "【待回复帖子】",
-    ];
+      "【待回复帖子】"
+    );
     postContexts.forEach(function (ctx, idx) {
       const post = ctx.post;
       const plot = ctx.plot;
@@ -38612,6 +38667,10 @@
       "发帖人 anonId：" + (post.anonId || "@?") + "；speakerRef：" + (post.speakerRef || "?") + "；正文：" + (post.text || ""),
       "",
     ];
+    if (postHasYouDogUserEngagement(post)) {
+      lines.push(buildYouDogUserProfilePromptBlock());
+      lines.push("");
+    }
     lines.push.apply(lines, ctx.lines);
     lines.push("");
     if (commentLines.length) {
@@ -39635,8 +39694,8 @@
       sanitizeYouDogChatState();
       const refs = getYouDogChatSpeakerPoolRefs();
       if (!refs.length) {
-        showToast("请先在身份设置里勾选参与发言的角色。", "warning");
-        openYouDogChatPersonaModal();
+        showToast("请先在设置里勾选参与发言的角色。", "warning");
+        openYouDogSettingsModal();
         return;
       }
       youDogGenPickDraft = resolveYouDogGenPickDraftFromLast(refs, "chat");
@@ -39794,29 +39853,18 @@
     renderYouDogScreen(els.youDogContentSlot());
   }
 
-  function buildYouDogPersonaHeaderHtml() {
-    const profile = ensureYouDogUserProfile();
-    if (!isYouDogUserProfileReady()) {
-      return (
-        '<button type="button" class="you-dog-app__avatar-btn you-dog-app__avatar-btn--empty" data-you-dog-persona-open aria-label="创建身份">' +
-        '<span class="avatar">?</span></button>'
-      );
-    }
-    const avatarUrl = profile.avatarUrl || "";
-    const avInner = avatarUrl
-      ? '<img src="' + escapeHtml(avatarUrl) + '" alt="" />'
-      : escapeHtml(String(profile.nickname || "?").slice(0, 1));
-    const avCls = "avatar" + (avatarUrl ? " avatar--has-image" : "");
+  function buildYouDogSettingsHeaderHtml() {
     return (
-      '<button type="button" class="you-dog-app__avatar-btn" data-you-dog-persona-open aria-label="编辑身份：' +
-      escapeHtml(profile.nickname || "用户") +
-      '">' +
-      '<span class="' +
-      avCls +
-      '">' +
-      avInner +
-      "</span></button>"
+      '<button type="button" class="you-dog-app__action-btn you-dog-app__settings-btn" data-you-dog-settings-open aria-label="设置" title="设置">' +
+      '<svg class="icon-linear" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<circle cx="12" cy="12" r="3"/>' +
+      '<path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>' +
+      "</svg></button>"
     );
+  }
+
+  function buildYouDogPersonaHeaderHtml() {
+    return buildYouDogSettingsHeaderHtml();
   }
 
   function buildYouDogChatPersonaHeaderHtml() {
@@ -39879,7 +39927,7 @@
     if (!posts.length && !youDogFeedGenerating) {
       const emptyHint =
         youDogFeedTag === "all"
-          ? "点右上角 ✦ 生成树洞帖（可在「我的」里设置发帖角色池）"
+          ? "点右上角 ✦ 生成树洞帖（可在右上角设置里配置发帖角色池）"
           : "该分区暂无内容，试试切换分区或生成新推文";
       html +=
         '<div class="you-dog-empty">' +
@@ -40075,7 +40123,7 @@
       '<div class="you-dog-profile-hero__main">' +
       '<button type="button" class="' +
       avCls +
-      '" data-you-dog-persona-open aria-label="编辑身份">' +
+      '" data-you-dog-settings-open aria-label="设置">' +
       avInner +
       "</button>" +
       '<div class="you-dog-profile-hero__info">' +
@@ -40101,9 +40149,9 @@
       escapeHtml(String(bookmarked.length)) +
       '</strong><span>收藏</span></span></div>' +
       '<div class="you-dog-profile-hero__actions">' +
-      '<button type="button" class="you-dog-profile-hero__action" data-you-dog-persona-open>' +
-      '<svg class="icon-linear" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>' +
-      "编辑身份</button>" +
+      '<button type="button" class="you-dog-profile-hero__action" data-you-dog-settings-open>' +
+      '<svg class="icon-linear" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>' +
+      "设置</button>" +
       '<button type="button" class="you-dog-profile-hero__action" data-you-dog-pick-plot>' +
       '<svg class="icon-linear" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>' +
       "管理剧情</button></div></div>" +
@@ -40181,6 +40229,150 @@
     let h = 0;
     for (let i = 0; i < s.length; i++) h = (h + s.charCodeAt(i) * (i + 3)) % palette.length;
     return palette[h];
+  }
+
+  function getYouDogChatSettingsTagInputColor(tagName, data, currentCat) {
+    const name = String(tagName || "").trim();
+    if (!name) return "#c8cdd4";
+    const categories = data && data.categories ? data.categories : [];
+    for (let i = 0; i < categories.length; i++) {
+      const c = categories[i];
+      if (c && c.name === name) return c.color;
+    }
+    if (currentCat && currentCat.name === name) return currentCat.color;
+    return youDogChatTagColorForPreview(name);
+  }
+
+  function updateYouDogChatSettingsTagPillPreview(inputEl) {
+    if (!inputEl) return;
+    const pill = inputEl.closest("[data-you-dog-chat-settings-tag-pill]");
+    if (!pill) return;
+    const data = ensureYouDogChatData();
+    if (!data) return;
+    const ref = inputEl.getAttribute("data-you-dog-chat-settings-tag-name");
+    const member = (data.members || []).find(function (m) {
+      return m && m.memberRef === ref;
+    });
+    const currentCat = member ? getYouDogChatCategory(member.categoryId, data) : null;
+    const tagName = String(inputEl.value || "").trim();
+    const color = getYouDogChatSettingsTagInputColor(tagName, data, currentCat);
+    pill.style.setProperty("--ydc-tag", color);
+    pill.classList.toggle("is-empty", !tagName);
+  }
+
+  function refreshYouDogChatSettingsTagPillDisplay(pill, memberRef, tagName) {
+    if (!pill) return;
+    const data = ensureYouDogChatData();
+    const member = (data.members || []).find(function (m) {
+      return m && m.memberRef === memberRef;
+    });
+    const cat = member ? getYouDogChatCategory(member.categoryId, data) : null;
+    const name = String(tagName || "").trim();
+    const color = getYouDogChatSettingsTagInputColor(name, data, cat);
+    const textEl = pill.querySelector(".you-dog-chat-settings__tag-pill-text");
+    const input = pill.querySelector("[data-you-dog-chat-settings-tag-name]");
+    pill.style.setProperty("--ydc-tag", color);
+    pill.classList.toggle("is-empty", !name);
+    pill.setAttribute("data-you-dog-chat-settings-tag-saved", name);
+    if (textEl) textEl.textContent = name || "设置标签";
+    if (input) input.value = name;
+  }
+
+  function applyYouDogChatMemberTagUpdate(memberRef, tagName) {
+    const data = ensureYouDogChatData();
+    if (!data) return false;
+    const name = truncateCharsWithEllipsis(String(tagName || "").trim(), YOU_DOG_CHAT_CATEGORY_NAME_MAX);
+    if (!name) return false;
+    const memberTagNames = {};
+    (data.members || []).forEach(function (m) {
+      if (!m) return;
+      const cat = getYouDogChatCategory(m.categoryId, data);
+      memberTagNames[m.memberRef] = cat ? cat.name : "";
+    });
+    memberTagNames[memberRef] = name;
+    const built = buildYouDogChatCategoriesFromMemberTagNames(memberTagNames, data.categories || []);
+    data.categories = built.categories;
+    data.members = (data.members || []).map(function (m) {
+      if (!m) return m;
+      const tn = memberTagNames[m.memberRef] || "";
+      const categoryId = tn ? built.tagNameToCategoryId[tn] || m.categoryId : m.categoryId;
+      return Object.assign({}, m, { categoryId: categoryId });
+    });
+    (data.messages || []).forEach(function (msg) {
+      if (!msg || msg.kind === "system") return;
+      const ref = String(msg.memberRef || "");
+      if (ref.indexOf("user:") === 0) return;
+      const tag = getYouDogChatMemberTag(ref, data);
+      if (tag.name) {
+        msg.tagName = tag.name;
+        msg.tagColor = tag.color;
+      }
+    });
+    youDogChatPendingTagRefs = (youDogChatPendingTagRefs || []).filter(function (ref) {
+      return ref !== memberRef;
+    });
+    schedulePersistNarrative();
+    return true;
+  }
+
+  function cancelYouDogChatSettingsTagEdit(inputEl) {
+    if (!inputEl) return;
+    const pill = inputEl.closest("[data-you-dog-chat-settings-tag-pill]");
+    if (!pill) return;
+    const ref = inputEl.getAttribute("data-you-dog-chat-settings-tag-name");
+    const saved = pill.getAttribute("data-you-dog-chat-settings-tag-saved") || "";
+    inputEl.value = saved;
+    pill.classList.remove("is-editing");
+    inputEl.hidden = true;
+    refreshYouDogChatSettingsTagPillDisplay(pill, ref, saved);
+  }
+
+  function commitYouDogChatSettingsTagEdit(inputEl, options) {
+    options = options || {};
+    if (!inputEl) return false;
+    const pill = inputEl.closest("[data-you-dog-chat-settings-tag-pill]");
+    if (!pill || !pill.classList.contains("is-editing")) return false;
+    const ref = inputEl.getAttribute("data-you-dog-chat-settings-tag-name");
+    const tagName = truncateCharsWithEllipsis(String(inputEl.value || "").trim(), YOU_DOG_CHAT_CATEGORY_NAME_MAX);
+    const original = String(pill.getAttribute("data-you-dog-chat-settings-tag-saved") || "").trim();
+    if (!tagName) {
+      if (options.silent !== true) showToast("标签不能为空", "warning");
+      inputEl.value = original;
+      updateYouDogChatSettingsTagPillPreview(inputEl);
+      inputEl.focus();
+      return false;
+    }
+    pill.classList.remove("is-editing");
+    inputEl.hidden = true;
+    if (tagName !== original) {
+      applyYouDogChatMemberTagUpdate(ref, tagName);
+      if (options.silent !== true) showToast("标签已保存", "success", 1600);
+    }
+    refreshYouDogChatSettingsTagPillDisplay(pill, ref, tagName);
+    return true;
+  }
+
+  function finishYouDogChatSettingsTagEditing(commit) {
+    const editing = document.querySelector(".you-dog-chat-settings__tag-pill.is-editing");
+    if (!editing) return;
+    const input = editing.querySelector("[data-you-dog-chat-settings-tag-name]");
+    if (!input) return;
+    if (commit) commitYouDogChatSettingsTagEdit(input, { silent: true });
+    else cancelYouDogChatSettingsTagEdit(input);
+  }
+
+  function beginYouDogChatSettingsTagEdit(pillEl) {
+    if (!pillEl || pillEl.classList.contains("is-editing")) return;
+    finishYouDogChatSettingsTagEditing(true);
+    const input = pillEl.querySelector("[data-you-dog-chat-settings-tag-name]");
+    if (!input) return;
+    const saved = pillEl.getAttribute("data-you-dog-chat-settings-tag-saved") || input.value || "";
+    input.value = saved;
+    pillEl.classList.add("is-editing");
+    updateYouDogChatSettingsTagPillPreview(input);
+    input.hidden = false;
+    input.focus();
+    input.select();
   }
 
   function buildYouDogChatCategoriesFromMemberTagNames(memberTagNames, existingCategories) {
@@ -40602,6 +40794,8 @@
       "",
       "【最近剧情（背景参考，可完全不提）】",
       history || "剧情尚未开始。",
+      "",
+      "（剧情中的主视角主角与用户（群主/私聊对象）是平行世界的不同人物，不可混为一谈。）",
     ];
     return lines.join("\n");
   }
@@ -40900,6 +41094,7 @@
       .filter(Boolean);
     const lines = [
       "请为群聊「" + (data.groupName || "未命名群") + "」生成一批新消息 JSON。",
+      YOU_DOG_APP_USER_IDENTITY_RULE,
       YOU_DOG_CHAT_TONE_RULE,
       YOU_DOG_EMOJI_STYLE_RULE,
       YOU_DOG_GROUP_DM_SYNC_RULE,
@@ -41354,8 +41549,8 @@
       });
     }
     if (!poolRefs.length) {
-      showToast("没有可发言的角色，请先在发言角色池中勾选。", "warning");
-      openYouDogChatPersonaModal();
+      showToast("没有可发言的角色，请先在设置里勾选群聊与私聊角色池。", "warning");
+      openYouDogSettingsModal();
       return;
     }
     const data = ensureYouDogChatData();
@@ -41371,6 +41566,8 @@
       const isFirstBatch = !getYouDogChatCharMessages(data).length;
       const systemPrompt =
         "你是中文互动叙事助手。生成「嗅闻博客·平行世界群聊」JSON。\n" +
+        YOU_DOG_APP_USER_IDENTITY_RULE +
+        "\n" +
         YOU_DOG_PARALLEL_WORLD_RULE +
         "\n" +
         YOU_DOG_GROUP_DM_SYNC_RULE +
@@ -41628,14 +41825,13 @@
   function buildYouDogChatSettingsOverlayHtml() {
     if (!youDogChatSettingsOpen || !isYouDogChatReady()) return "";
     const data = ensureYouDogChatData();
-    const persona = getYouDogChatUserPersonaChar();
-    const personaName = getYouDogUserDisplayNickname();
     const memberRows = (data.members || [])
       .map(function (m) {
         const cand = getAllYouDogChatMemberCandidates().find(function (c) {
           return c.memberRef === m.memberRef;
         });
         const cat = getYouDogChatCategory(m.categoryId, data);
+        const tagName = cat ? cat.name : "";
         const adminBadge = m.isAdmin
           ? '<span class="you-dog-chat-settings__admin-badge">管理员</span>'
           : "";
@@ -41646,19 +41842,42 @@
           : '<button type="button" class="you-dog-chat-settings__admin" data-you-dog-chat-set-admin="' +
             escapeHtml(m.memberRef) +
             '" data-admin="1">设为管理</button>';
+        const tagColor = getYouDogChatSettingsTagInputColor(tagName, data, cat);
+        const tagEmptyCls = tagName ? "" : " is-empty";
         return (
           '<div class="you-dog-chat-settings__member-row">' +
           buildYouDogChatMemberAvatarHtml(m.memberRef, "avatar you-dog-chat-settings__member-av") +
+          '<div class="you-dog-chat-settings__member-body">' +
+          '<div class="you-dog-chat-settings__member-top">' +
           '<div class="you-dog-chat-settings__member-info">' +
           adminBadge +
-          buildYouDogChatTagPillHtml(cat) +
           buildYouDogChatMemberMetaHtml(cand, m.memberRef) +
           "</div>" +
-          '<div class="you-dog-chat-settings__member-actions">' +
+          '<div class="you-dog-chat-settings__member-btns">' +
           adminBtn +
           '<button type="button" class="you-dog-chat-settings__kick" data-you-dog-chat-delete-member="' +
           escapeHtml(m.memberRef) +
-          '" title="踢出群聊并删除全部发言">踢出</button></div></div>'
+          '" title="踢出群聊并删除全部发言">踢出</button></div></div>' +
+          '<div class="you-dog-chat-settings__tag-row">' +
+          '<span class="you-dog-chat-settings__tag-pill' +
+          tagEmptyCls +
+          '" style="--ydc-tag:' +
+          escapeHtml(tagColor) +
+          '" data-you-dog-chat-settings-tag-pill="' +
+          escapeHtml(m.memberRef) +
+          '" data-you-dog-chat-settings-tag-saved="' +
+          escapeHtml(tagName) +
+          '" role="button" tabindex="0" title="点击修改标签">' +
+          '<span class="you-dog-chat-settings__tag-pill-text">' +
+          escapeHtml(tagName || "设置标签") +
+          '</span><input type="text" class="you-dog-chat-settings__tag-pill-input" data-you-dog-chat-settings-tag-name="' +
+          escapeHtml(m.memberRef) +
+          '" value="' +
+          escapeHtml(tagName) +
+          '" maxlength="' +
+          YOU_DOG_CHAT_CATEGORY_NAME_MAX +
+          '" placeholder="标签" autocomplete="off" aria-label="群内标签" hidden />' +
+          "</span></div></div></div>"
         );
       })
       .join("");
@@ -41677,14 +41896,10 @@
       '" maxlength="' +
       YOU_DOG_CHAT_GROUP_NAME_MAX +
       '" /></label>' +
-      '<button type="button" class="btn btn--secondary btn--pill you-dog-chat-settings__persona-btn" data-you-dog-persona-open>编辑身份（当前：' +
-      escapeHtml(personaName) +
-      "）</button>" +
-      '<div class="you-dog-chat-settings__members"><p class="you-dog-chat-settings__members-title">群成员 · 踢出后将删除其全部发言</p>' +
+      '<div class="you-dog-chat-settings__members"><p class="you-dog-chat-settings__members-title">群成员 · 点击标签可修改；踢出将删除其全部发言</p>' +
       '<div class="you-dog-chat-settings__members-list">' +
       memberRows +
       "</div></div>" +
-      '<button type="button" class="btn btn--secondary btn--pill" data-you-dog-chat-setup-reopen>重新打标签 / 建群</button>' +
       "</div>" +
       '<div class="you-dog-chat-settings__footer">' +
       '<button type="button" class="btn btn--primary btn--pill" data-you-dog-chat-settings-save>保存</button>' +
@@ -41858,7 +42073,7 @@
           ? pendingCount
             ? "有 " + pendingCount + " 位新角色待设标签；在每位角色后面输入标签名即可，颜色会自动分配"
             : "在每位角色后面输入标签名即可，颜色会自动分配"
-          : "输入群聊名称（你的身份请在右上角头像处创建）";
+          : "输入群聊名称（你的身份请在右上角设置里创建）";
     }
     if (backBtn) backBtn.hidden = step === "tag";
     if (confirmBtn) {
@@ -41965,8 +42180,8 @@
       }
       youDogChatSetupDraft.groupName = name;
       if (!isYouDogUserProfileReady()) {
-        showToast("请先在右上角创建你的身份（昵称与人设）。", "warning");
-        openYouDogPersonaModal();
+        showToast("请先在右上角设置里创建你的身份（昵称与人设）。", "warning");
+        openYouDogSettingsModal();
         return;
       }
     } else {
@@ -42038,33 +42253,54 @@
     renderYouDogChatSetupModal();
   }
 
-  function renderYouDogChatPersonaModal() {
-    const pick = els.youDogChatPersonaPick();
-    if (!pick) return;
-    const profile = ensureYouDogUserProfile();
-    pick.innerHTML =
-      '<p class="you-dog-persona-sheet__hint you-dog-persona-sheet__hint--top">群聊发言使用你在「你才是狗」中创建的身份；与剧情库「我的形象」无关。</p>' +
-      '<div class="you-dog-user-profile you-dog-user-profile--summary">' +
-      '<p><strong>昵称：</strong>' +
-      escapeHtml(profile.nickname || "未设置") +
-      "</p>" +
-      '<p><strong>真名：</strong>' +
-      escapeHtml(profile.realName || "未设置") +
-      "</p>" +
-      '<button type="button" class="btn btn--secondary btn--pill" data-you-dog-persona-open>编辑身份</button></div>' +
-      buildYouDogChatSpeakerPoolSectionHtml();
-  }
-
   function openYouDogChatPersonaModal() {
-    const modal = els.modalYouDogChatPersona();
-    if (!modal) return;
-    renderYouDogChatPersonaModal();
-    modal.hidden = false;
+    openYouDogSettingsModal();
   }
 
   function closeYouDogChatPersonaModal() {
-    const modal = els.modalYouDogChatPersona();
-    if (modal) modal.hidden = true;
+    closeYouDogPersonaModal();
+  }
+
+  function syncYouDogChatMemberTagsFromSettingsDom() {
+    const data = ensureYouDogChatData();
+    if (!data) return false;
+    finishYouDogChatSettingsTagEditing(true);
+    const memberTagNames = {};
+    let missing = false;
+    document.querySelectorAll("[data-you-dog-chat-settings-tag-pill]").forEach(function (pill) {
+      const ref = pill.getAttribute("data-you-dog-chat-settings-tag-pill");
+      if (!ref) return;
+      const saved = pill.getAttribute("data-you-dog-chat-settings-tag-saved") || "";
+      const name = truncateCharsWithEllipsis(String(saved).trim(), YOU_DOG_CHAT_CATEGORY_NAME_MAX);
+      if (!name) missing = true;
+      memberTagNames[ref] = name;
+    });
+    if (missing) {
+      showToast("请为每位角色填写标签名。", "warning");
+      return false;
+    }
+    const built = buildYouDogChatCategoriesFromMemberTagNames(memberTagNames, data.categories || []);
+    data.categories = built.categories;
+    data.members = (data.members || []).map(function (m) {
+      if (!m) return m;
+      const tagName = memberTagNames[m.memberRef] || "";
+      const categoryId = tagName ? built.tagNameToCategoryId[tagName] || m.categoryId : m.categoryId;
+      return Object.assign({}, m, { categoryId: categoryId });
+    });
+    (data.messages || []).forEach(function (msg) {
+      if (!msg || msg.kind === "system") return;
+      const ref = String(msg.memberRef || "");
+      if (ref.indexOf("user:") === 0) return;
+      const tag = getYouDogChatMemberTag(ref, data);
+      if (tag.name) {
+        msg.tagName = tag.name;
+        msg.tagColor = tag.color;
+      }
+    });
+    youDogChatPendingTagRefs = (youDogChatPendingTagRefs || []).filter(function (ref) {
+      return !memberTagNames[ref];
+    });
+    return true;
   }
 
   function saveYouDogChatSettingsFromDom() {
@@ -42074,6 +42310,7 @@
       const name = truncateCharsWithEllipsis(String(nameEl.value || "").trim(), YOU_DOG_CHAT_GROUP_NAME_MAX);
       if (name) data.groupName = name;
     }
+    if (!syncYouDogChatMemberTagsFromSettingsDom()) return;
     youDogChatSettingsOpen = false;
     youDogChatMoreOpen = false;
     schedulePersistNarrative();
@@ -42141,6 +42378,7 @@
       .filter(Boolean);
     const lines = [
       "请为以下用户活动帖生成互动回复 JSON（点赞 + 评论）。",
+      YOU_DOG_APP_USER_IDENTITY_RULE,
       YOU_DOG_PARALLEL_WORLD_RULE,
       YOU_DOG_REPLY_OP_RULE,
       YOU_DOG_REPLY_TONE_RULE,
@@ -42992,6 +43230,8 @@
             role: "system",
             content:
               "你是中文互动叙事助手。生成活动私聊中角色的回复 JSON。\n" +
+              YOU_DOG_APP_USER_IDENTITY_RULE +
+              "\n" +
               YOU_DOG_PARALLEL_WORLD_RULE +
               "\n" +
               YOU_DOG_GROUP_DM_SYNC_RULE +
@@ -43079,6 +43319,8 @@
             role: "system",
             content:
               "你是中文互动叙事助手。生成活动私聊中角色主动找用户的消息 JSON。\n" +
+              YOU_DOG_APP_USER_IDENTITY_RULE +
+              "\n" +
               YOU_DOG_PARALLEL_WORLD_RULE +
               "\n" +
               YOU_DOG_GROUP_DM_SYNC_RULE +
@@ -43135,6 +43377,8 @@
             role: "system",
             content:
               "你是中文互动叙事助手。生成活动私聊中角色主动找用户的消息 JSON。\n" +
+              YOU_DOG_APP_USER_IDENTITY_RULE +
+              "\n" +
               YOU_DOG_PARALLEL_WORLD_RULE +
               "\n" +
               YOU_DOG_GROUP_DM_SYNC_RULE +
@@ -43227,6 +43471,8 @@
       const memberRefs = getYouDogActivityMemberRefs();
       const systemPrompt =
         "你是中文互动叙事助手。为用户活动帖生成点赞与评论 JSON。\n" +
+        YOU_DOG_APP_USER_IDENTITY_RULE +
+        "\n" +
         YOU_DOG_PARALLEL_WORLD_RULE +
         "\n" +
         YOU_DOG_REPLY_TONE_RULE +
@@ -43900,7 +44146,7 @@
     }
   }
 
-  function renderYouDogPersonaModal() {
+  function renderYouDogSettingsModal() {
     const pick = els.youDogPersonaPick();
     if (!pick) return;
     const profile = ensureYouDogUserProfile();
@@ -43910,7 +44156,7 @@
       : escapeHtml(String(profile.nickname || "?").slice(0, 1));
     const avCls = "you-dog-user-profile__av avatar" + (profile.avatarUrl ? " avatar--has-image" : "");
     pick.innerHTML =
-      '<p class="you-dog-persona-sheet__hint you-dog-persona-sheet__hint--top">在此从零创建你在「你才是狗」中的身份，与剧情库「我的形象」无关；角色只会读取以下信息。</p>' +
+      '<p class="you-dog-persona-sheet__hint you-dog-persona-sheet__hint--top">在此创建你在本功能内的唯一身份（群聊、私聊、树洞、活动通用），与剧情库「我的形象」无关；角色只会读取以下信息。</p>' +
       '<div class="you-dog-user-profile">' +
       '<label class="you-dog-user-profile__avatar-slot">' +
       '<input type="file" accept="image/*" class="you-dog-user-profile__file" id="you-dog-profile-avatar-file" hidden />' +
@@ -43940,14 +44186,23 @@
       escapeHtml(aliasInput) +
       '" maxlength="24" placeholder="嗅友3847" autocomplete="off" /></div></div>' +
       '<button type="button" class="btn btn--primary btn--pill you-dog-user-profile__save" data-you-dog-profile-save>保存身份</button></div>' +
-      buildYouDogFeedSpeakerPoolSectionHtml();
+      buildYouDogFeedSpeakerPoolSectionHtml() +
+      buildYouDogChatSpeakerPoolSectionHtml();
+  }
+
+  function renderYouDogPersonaModal() {
+    renderYouDogSettingsModal();
+  }
+
+  function openYouDogSettingsModal() {
+    const modal = els.modalYouDogPersona();
+    if (!modal) return;
+    renderYouDogSettingsModal();
+    modal.hidden = false;
   }
 
   function openYouDogPersonaModal() {
-    const modal = els.modalYouDogPersona();
-    if (!modal) return;
-    renderYouDogPersonaModal();
-    modal.hidden = false;
+    openYouDogSettingsModal();
   }
 
   function closeYouDogPersonaModal() {
@@ -62074,11 +62329,6 @@
           navigate: function () {
             if (!plot) return;
             openStoryLayer(plot, "play");
-            requestAnimationFrame(function () {
-              requestAnimationFrame(function () {
-                scrollStoryPlayToLatest(false);
-              });
-            });
           },
         },
       };
@@ -62240,21 +62490,25 @@
 
   function jumpToStoryLineById(plot, lineId) {
     if (!plot || !lineId) return;
-    renderStoryPlay(plot);
+    renderStoryPlay(plot, { scrollToLineId: lineId });
     requestAnimationFrame(function () {
-      const selector = '[data-story-line-id="' + String(lineId) + '"]';
-      const target = document.querySelector(selector);
-      if (!target) {
-        showToast("没有定位到该剧情条目。", "info");
+      if (scrollStoryPlayToLineAnchor(plot, lineId, 0, "smooth")) {
+        persistStoryPlayScrollState(plot);
+        flushPersistNarrative();
+        const scrollEl = getStoryPlayScrollEl();
+        const selector = '[data-story-line-id="' + String(lineId) + '"]';
+        const target = scrollEl ? scrollEl.querySelector(selector) : document.querySelector(selector);
+        if (target) {
+          target.classList.add("story-search-hit");
+          if (storySearchHighlightTimer) clearTimeout(storySearchHighlightTimer);
+          storySearchHighlightTimer = setTimeout(function () {
+            storySearchHighlightTimer = null;
+            target.classList.remove("story-search-hit");
+          }, 1800);
+        }
         return;
       }
-      target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
-      target.classList.add("story-search-hit");
-      if (storySearchHighlightTimer) clearTimeout(storySearchHighlightTimer);
-      storySearchHighlightTimer = setTimeout(function () {
-        storySearchHighlightTimer = null;
-        target.classList.remove("story-search-hit");
-      }, 1800);
+      showToast("没有定位到该剧情条目。", "info");
     });
   }
 
@@ -65076,10 +65330,12 @@
 
     return turnGroup.children.length ? turnGroup : null;
   }
-  function renderStoryPlay(p) {
+  function renderStoryPlay(p, opts) {
+    opts = opts && typeof opts === "object" ? opts : {};
     const introEl = document.getElementById("story-play-intro");
     if (!introEl) return;
     ensurePlotExtendedState(p);
+    const scrollSnapshot = captureStoryPlayScrollSnapshot(p, opts);
     if (storyLineEditState && storyLineEditState.plotId === p.id) {
       const ectx = getLineContext(p.id, storyLineEditState.turnIndex, storyLineEditState.lineIndex);
       if (!ectx) {
@@ -65190,7 +65446,7 @@
     if (p.playSealed) {
       choicesWrap.hidden = true;
       choicesWrap.innerHTML = "";
-      updateStoryScrollNav();
+      finishStoryPlayScrollRestore(p, opts, scrollSnapshot);
       return;
     }
 
@@ -65330,7 +65586,7 @@
         choicesWrap.hidden = true;
       }
     }
-    updateStoryScrollNav();
+    finishStoryPlayScrollRestore(p, opts, scrollSnapshot);
   }
 
   function updateStoryScrollNav() {
@@ -65351,10 +65607,40 @@
   }
 
   function scrollStoryPlayToLatest(smooth) {
-    const scrollEl = document.getElementById("story-play-scroll");
+    const scrollEl = getStoryPlayScrollEl();
     if (!scrollEl) return;
-    scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: smooth ? "smooth" : "auto" });
-    updateStoryScrollNav();
+    function maxTop() {
+      return Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+    }
+    function goInstant() {
+      scrollEl.scrollTop = maxTop();
+    }
+    if (smooth) {
+      scrollEl.scrollTo({ top: maxTop(), behavior: "smooth" });
+      setTimeout(goInstant, 420);
+    } else {
+      goInstant();
+      requestAnimationFrame(function () {
+        goInstant();
+        requestAnimationFrame(goInstant);
+      });
+      setTimeout(goInstant, 80);
+    }
+    const plot = getCurrentStoryPlot();
+    if (plot) {
+      ensurePlotExtendedState(plot);
+      const persist = function () {
+        plot.playScrollTop = scrollEl.scrollTop;
+        plot.lastReadLineId = "";
+        plot.lastReadLineOffset = 0;
+        updateStoryScrollNav();
+        flushPersistNarrative();
+      };
+      if (smooth) setTimeout(persist, 460);
+      else persist();
+    } else {
+      updateStoryScrollNav();
+    }
   }
 
   /** AI 新回合落地后：将本回合首条剧情滚至剧情滚动区顶部附近，便于立刻看到新生成内容 */
@@ -65611,7 +65897,206 @@
   var storyScrollNavRaf = 0;
   var storyPlayScrolling = false;
   var storyPlayScrollEndTimer = 0;
+  var storyPlayScrollPersistTimer = 0;
   const STORY_STREAM_UI_MIN_MS = 100;
+
+  function getStoryPlayScrollEl() {
+    return document.getElementById("story-play-scroll");
+  }
+
+  function findTopVisibleStoryLineAnchor() {
+    const scrollEl = getStoryPlayScrollEl();
+    if (!scrollEl) return null;
+    const scrollRect = scrollEl.getBoundingClientRect();
+    const pad = 8;
+    const nodes = scrollEl.querySelectorAll("[data-story-line-id]");
+    for (let i = 0; i < nodes.length; i++) {
+      const el = nodes[i];
+      const rect = el.getBoundingClientRect();
+      if (rect.bottom > scrollRect.top + pad) {
+        const lineId = String(el.getAttribute("data-story-line-id") || "").trim();
+        if (!lineId) continue;
+        return { lineId: lineId, offset: Math.round(rect.top - scrollRect.top) };
+      }
+    }
+    return null;
+  }
+
+  function persistStoryPlayScrollState(plot) {
+    if (!plot) return;
+    ensurePlotExtendedState(plot);
+    const el = getStoryPlayScrollEl();
+    const playPanel = document.getElementById("story-panel-play");
+    const layer = els.layerStory();
+    if (!el || !playPanel || playPanel.hidden || !layer || layer.hidden) return;
+    if (String(lastStoryPlotId || "") !== String(plot.id || "")) return;
+    const anchor = findTopVisibleStoryLineAnchor();
+    if (anchor) {
+      plot.lastReadLineId = anchor.lineId;
+      plot.lastReadLineOffset = anchor.offset;
+    }
+    plot.playScrollTop = el.scrollTop;
+  }
+
+  function captureStoryPlayScrollSnapshot(plot, opts) {
+    opts = opts && typeof opts === "object" ? opts : {};
+    ensurePlotExtendedState(plot);
+    if (opts.scrollToLatest) return { scrollToLatest: true };
+    if (opts.scrollToLineId) return { scrollToLineId: opts.scrollToLineId };
+    if (opts.skipScrollRestore) return { skip: true };
+
+    const layer = els.layerStory();
+    const el = getStoryPlayScrollEl();
+    const playPanel = document.getElementById("story-panel-play");
+    const sessionActive =
+      layer &&
+      !layer.hidden &&
+      plot &&
+      String(lastStoryPlotId || "") === String(plot.id || "") &&
+      playPanel &&
+      !playPanel.hidden &&
+      el;
+
+    if (sessionActive) persistStoryPlayScrollState(plot);
+
+    return {
+      lineId: plot.lastReadLineId || "",
+      offset: plot.lastReadLineOffset || 0,
+      top: typeof plot.playScrollTop === "number" && Number.isFinite(plot.playScrollTop) ? plot.playScrollTop : 0,
+    };
+  }
+
+  function scrollStoryPlayToLineAnchor(plot, lineId, offset, behavior) {
+    const scrollEl = getStoryPlayScrollEl();
+    const lid = String(lineId || "").trim();
+    if (!scrollEl || !lid) return false;
+    let target = null;
+    try {
+      target = scrollEl.querySelector(
+        '[data-story-line-id="' + lid.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]'
+      );
+    } catch (_selErr) {
+      target = null;
+    }
+    if (!target) return false;
+    const off = typeof offset === "number" && Number.isFinite(offset) ? offset : 8;
+    const rel = target.getBoundingClientRect().top - scrollEl.getBoundingClientRect().top + scrollEl.scrollTop;
+    const top = Math.max(0, rel - off);
+    if (behavior === "smooth") scrollEl.scrollTo({ top: top, behavior: "smooth" });
+    else scrollEl.scrollTop = top;
+    if (plot) {
+      ensurePlotExtendedState(plot);
+      plot.playScrollTop = top;
+      plot.lastReadLineId = lid;
+      plot.lastReadLineOffset = off;
+    }
+    return true;
+  }
+
+  function restoreStoryPlayScrollTop(top) {
+    const el = getStoryPlayScrollEl();
+    if (!el || typeof top !== "number" || !Number.isFinite(top)) return;
+    function apply() {
+      el.scrollTop = top;
+    }
+    apply();
+    requestAnimationFrame(apply);
+  }
+
+  function restoreStoryPlayScrollState(plot, opts) {
+    opts = opts && typeof opts === "object" ? opts : {};
+    if (!plot) return;
+    ensurePlotExtendedState(plot);
+    if (opts.scrollToLatest) {
+      scrollStoryPlayToLatest(false);
+      return;
+    }
+    const lineId =
+      opts.lineId != null && String(opts.lineId || "").trim()
+        ? String(opts.lineId)
+        : plot.lastReadLineId || "";
+    const offset = opts.offset != null ? opts.offset : plot.lastReadLineOffset;
+    if (lineId && scrollStoryPlayToLineAnchor(plot, lineId, offset, "auto")) {
+      updateStoryScrollNav();
+      return;
+    }
+    const fallbackTop =
+      opts.top != null && Number.isFinite(opts.top)
+        ? opts.top
+        : typeof plot.playScrollTop === "number" && Number.isFinite(plot.playScrollTop)
+          ? plot.playScrollTop
+          : 0;
+    restoreStoryPlayScrollTop(fallbackTop);
+    plot.playScrollTop = fallbackTop;
+    updateStoryScrollNav();
+  }
+
+  function setStoryPlayScrollRestoring(on) {
+    const body = document.querySelector("#story-panel-play .story-play-body");
+    if (body) body.classList.toggle("story-play-body--scroll-restoring", !!on);
+  }
+
+  function plotHasSavedScrollPosition(plot) {
+    if (!plot) return false;
+    ensurePlotExtendedState(plot);
+    if (String(plot.lastReadLineId || "").trim()) return true;
+    return typeof plot.playScrollTop === "number" && Number.isFinite(plot.playScrollTop) && plot.playScrollTop > 24;
+  }
+
+  function revealStoryPlayScrollWhenReady(plot, masked) {
+    if (!plot) {
+      if (masked) setStoryPlayScrollRestoring(false);
+      return;
+    }
+    restoreStoryPlayScrollState(plot);
+    requestAnimationFrame(function () {
+      restoreStoryPlayScrollState(plot);
+      requestAnimationFrame(function () {
+        restoreStoryPlayScrollState(plot);
+        if (masked) setStoryPlayScrollRestoring(false);
+      });
+    });
+  }
+
+  function restoreStoryPlayScrollStateDeferred(plot, opts) {
+    if (!plot) return;
+    opts = opts && typeof opts === "object" ? opts : {};
+    revealStoryPlayScrollWhenReady(plot, !!opts.maskUntilRestored);
+  }
+
+  function schedulePersistStoryPlayScroll() {
+    if (storyPlayScrollPersistTimer) return;
+    storyPlayScrollPersistTimer = setTimeout(function () {
+      storyPlayScrollPersistTimer = 0;
+      const plot = getCurrentStoryPlot();
+      if (!plot) return;
+      persistStoryPlayScrollState(plot);
+      flushPersistNarrative();
+    }, 400);
+  }
+
+  function finishStoryPlayScrollRestore(plot, opts, snapshot) {
+    opts = opts && typeof opts === "object" ? opts : {};
+    snapshot = snapshot && typeof snapshot === "object" ? snapshot : {};
+    if (opts.skipScrollRestore || snapshot.skip) {
+      updateStoryScrollNav();
+      return;
+    }
+    if (opts.scrollToLatest || snapshot.scrollToLatest) {
+      scrollStoryPlayToLatest(false);
+      if (plot) persistStoryPlayScrollState(plot);
+      return;
+    }
+    if (opts.scrollToLineId || snapshot.scrollToLineId) {
+      updateStoryScrollNav();
+      return;
+    }
+    restoreStoryPlayScrollState(plot, {
+      lineId: snapshot.lineId,
+      offset: snapshot.offset,
+      top: snapshot.top,
+    });
+  }
 
   function scheduleUpdateStoryScrollNav() {
     if (storyScrollNavRaf) return;
@@ -65919,7 +66404,6 @@
       if (compIn) compIn.value = "";
     }
 
-    let scrollToNewTurnFirstLineId = "";
     let streamTurnIndex = -1;
     const playGenOpts = beginGenCall("story-play", { plot: plot });
     let storyTurnGenOk = false;
@@ -65968,7 +66452,7 @@
         storyPlayStreamUiRaf = 0;
       }
       scheduleStoryPlayStreamUi(plot, streamTurnIndex, protagonist, supporting, rawResp, true);
-      scrollToNewTurnFirstLineId = finalizeStoryPlayTurnFromRaw(
+      finalizeStoryPlayTurnFromRaw(
         plot,
         streamingTurn,
         rawResp,
@@ -66003,11 +66487,6 @@
         }, 0);
       }
       flushPersistNarrative();
-      const lineIdForScrollTop = scrollToNewTurnFirstLineId;
-      requestAnimationFrame(function () {
-        if (lineIdForScrollTop) scrollStoryPlayNewTurnToTop(plot, lineIdForScrollTop);
-        updateStoryScrollNav();
-      });
     }
   }
 
@@ -66041,7 +66520,6 @@
     plot.pendingPlayerTurnAction = pending;
     if (!plot.playTurns) plot.playTurns = [];
     void requestNextStoryTurn(plot);
-    scrollStoryPlayToLatest(false);
     flushPersistNarrative();
   }
 
@@ -66091,6 +66569,8 @@
     opts = opts || {};
     closeStoryLineActionSheet();
     closeAvatarActionSheet();
+    const prevPlot = getCurrentStoryPlot();
+    if (prevPlot && prevPlot.id !== plot.id) persistStoryPlayScrollState(prevPlot);
     ensurePlotSummaryState(plot);
     ensurePlotExtendedState(plot);
     lastStoryPlotId = plot.id;
@@ -66103,25 +66583,24 @@
       setStorySetupEditing(false);
       renderStorySetup(plot);
     } else {
-      renderStoryPlay(plot);
+      renderStoryPlay(plot, { skipScrollRestore: true });
       fillStoryComposerAvatar(plot);
       if (shouldAutoRequestFirstStoryTurn(plot)) void requestNextStoryTurn(plot);
     }
+    const needScrollMask = mode === "play" && plotHasSavedScrollPosition(plot);
+    if (needScrollMask) setStoryPlayScrollRestoring(true);
     els.layerStory().hidden = false;
     if (!opts.skipHashSet) {
       const want = "#/story/" + plot.id + "/" + mode;
       if ((location.hash || "") !== want) location.hash = want;
     }
     if (mode === "play") {
-      requestAnimationFrame(function () {
-        requestAnimationFrame(function () {
-          scrollStoryPlayToLatest(false);
-        });
-      });
+      revealStoryPlayScrollWhenReady(plot, needScrollMask);
     }
   }
 
   function closeStoryLayer(targetTab) {
+    persistStoryPlayScrollState(getCurrentStoryPlot());
     closeStoryLineActionSheet();
     storyLineEditState = null;
     hideStorySelectionBubble();
@@ -66149,6 +66628,7 @@
     applyHash();
     syncOverviewSubViewUi();
     renderDynamic();
+    flushPersistNarrative();
   }
 
   function isNewApiFormComplete(form) {
@@ -67323,7 +67803,7 @@
       else if (overviewSubView === "knock") renderKnockScreen(els.knockContentSlot(), { scrollToEnd: true });
       else if (overviewSubView === "collect") renderCollectScreen(els.collectContentSlot());
       else if (overviewSubView === "todo") renderTaskTodoScreen(els.todoContentSlot());
-      else if (overviewSubView === "radio") renderRadioScreen(els.radioContentSlot());
+      else if (overviewSubView === "char-letter") renderCharLetterScreen(els.charLetterContentSlot());
       else if (overviewSubView === "pass-note") renderPassNoteScreen(els.passNoteContentSlot());
       else if (overviewSubView === "you-dog") {
         markYouDogChatScrollToEndIfVisible();
@@ -67406,6 +67886,8 @@
       let t = h.replace("#/tab/", "").split("/")[0];
       if (LEGACY_OVERVIEW_SUB_TAB_IDS[t]) {
         if (t === "knock") {
+          persistStoryPlayScrollState(getCurrentStoryPlot());
+          flushPersistNarrative();
           els.layerStory().hidden = true;
           activeTab = "overview";
           els.views().forEach((v) => v.classList.toggle("view--active", v.dataset.view === "overview"));
@@ -67420,6 +67902,8 @@
         overviewSubView = null;
       }
       if (MAIN_TAB_IDS.includes(t)) {
+        persistStoryPlayScrollState(getCurrentStoryPlot());
+        flushPersistNarrative();
         els.layerStory().hidden = true;
         if (t !== "overview") overviewSubView = null;
         activeTab = t;
@@ -69163,45 +69647,39 @@
       return;
     }
   });
-  if (els.radioHolderClose()) {
-    els.radioHolderClose().addEventListener("click", closeRadioHolderModal);
+  if (els.charLetterHolderClose()) {
+    els.charLetterHolderClose().addEventListener("click", closeCharLetterHolderModal);
   }
-  if (els.radioHolderStepBack()) {
-    els.radioHolderStepBack().addEventListener("click", radioHolderModalBackToPlot);
+  if (els.charLetterHolderStepBack()) {
+    els.charLetterHolderStepBack().addEventListener("click", charLetterHolderModalBackToPlot);
   }
-  if (els.modalRadioHolder()) {
-    els.modalRadioHolder().addEventListener("click", function (e) {
-      if (e.target.id === "modal-radio-holder") closeRadioHolderModal();
+  if (els.modalCharLetterHolder()) {
+    els.modalCharLetterHolder().addEventListener("click", function (e) {
+      if (e.target.id === "modal-char-letter-holder") closeCharLetterHolderModal();
     });
   }
-  if (els.radioLetterClose()) {
-    els.radioLetterClose().addEventListener("click", closeRadioLetterModal);
+  if (els.charLetterStyleClose()) {
+    els.charLetterStyleClose().addEventListener("click", closeCharLetterStyleModal);
   }
-  if (els.radioLetterCancel()) {
-    els.radioLetterCancel().addEventListener("click", closeRadioLetterModal);
+  if (els.charLetterStyleCancel()) {
+    els.charLetterStyleCancel().addEventListener("click", closeCharLetterStyleModal);
   }
-  if (els.radioLetterConfirm()) {
-    els.radioLetterConfirm().addEventListener("click", confirmRadioLetter);
-  }
-  if (els.modalRadioLetter()) {
-    els.modalRadioLetter().addEventListener("click", function (e) {
-      if (e.target.id === "modal-radio-letter") closeRadioLetterModal();
+  if (els.charLetterStyleSave()) {
+    els.charLetterStyleSave().addEventListener("click", function () {
+      void saveCharLetterStyleFromModal();
     });
   }
-  if (els.radioEndCallClose()) {
-    els.radioEndCallClose().addEventListener("click", closeRadioEndCallModal);
+  if (els.charLetterStyleFontFile()) {
+    els.charLetterStyleFontFile().addEventListener("change", handleCharLetterStyleFontFileChange);
   }
-  if (els.radioEndCallSkip()) {
-    els.radioEndCallSkip().addEventListener("click", radioEndCallSkipGenerate);
-  }
-  if (els.radioEndCallNext()) {
-    els.radioEndCallNext().addEventListener("click", function () {
-      radioEndCallGenerateNext(els.radioContentSlot());
+  if (els.charLetterStyleFontClear()) {
+    els.charLetterStyleFontClear().addEventListener("click", function () {
+      void clearCharLetterFontFromModal();
     });
   }
-  if (els.modalRadioEndCall()) {
-    els.modalRadioEndCall().addEventListener("click", function (e) {
-      if (e.target.id === "modal-radio-end-call") closeRadioEndCallModal();
+  if (els.modalCharLetterStyle()) {
+    els.modalCharLetterStyle().addEventListener("click", function (e) {
+      if (e.target.id === "modal-char-letter-style") closeCharLetterStyleModal();
     });
   }
   if (els.passNoteHolderClose()) {
@@ -69370,6 +69848,47 @@
       void sendYouDogActivityDmMessage(els.youDogContentSlot());
     }
   });
+  document.addEventListener("input", function (e) {
+    const tagInput = e.target.closest("[data-you-dog-chat-settings-tag-name]");
+    if (!tagInput || !tagInput.closest("#you-dog-content-slot")) return;
+    updateYouDogChatSettingsTagPillPreview(tagInput);
+  });
+  document.addEventListener(
+    "focusout",
+    function (e) {
+      const input = e.target.closest("[data-you-dog-chat-settings-tag-name]");
+      if (!input || !input.closest(".you-dog-chat-settings__tag-pill.is-editing")) return;
+      setTimeout(function () {
+        const pill = input.closest("[data-you-dog-chat-settings-tag-pill]");
+        if (!pill || !pill.classList.contains("is-editing")) return;
+        if (pill.contains(document.activeElement)) return;
+        commitYouDogChatSettingsTagEdit(input);
+      }, 0);
+    },
+    true
+  );
+  document.addEventListener("keydown", function (e) {
+    const input = e.target.closest("[data-you-dog-chat-settings-tag-name]");
+    if (input && input.closest(".you-dog-chat-settings__tag-pill.is-editing")) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        commitYouDogChatSettingsTagEdit(input);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cancelYouDogChatSettingsTagEdit(input);
+      }
+      return;
+    }
+    const tagPill = e.target.closest("[data-you-dog-chat-settings-tag-pill]");
+    if (
+      tagPill &&
+      !tagPill.classList.contains("is-editing") &&
+      (e.key === "Enter" || e.key === " ")
+    ) {
+      e.preventDefault();
+      beginYouDogChatSettingsTagEdit(tagPill);
+    }
+  });
   document.addEventListener("click", function (e) {
     const slot = e.target.closest("#you-dog-content-slot");
     if (!slot || !slot.contains(e.target)) return;
@@ -69384,8 +69903,13 @@
       return;
     }
 
+    if (e.target.closest("[data-you-dog-settings-open]")) {
+      openYouDogSettingsModal();
+      return;
+    }
+
     if (e.target.closest("[data-you-dog-persona-open]")) {
-      openYouDogPersonaModal();
+      openYouDogSettingsModal();
       return;
     }
 
@@ -69544,7 +70068,7 @@
 
     if (e.target.closest("[data-you-dog-chat-persona-open]")) {
       youDogChatMoreOpen = false;
-      openYouDogChatPersonaModal();
+      openYouDogSettingsModal();
       return;
     }
 
@@ -69555,7 +70079,15 @@
       return;
     }
 
+    const tagPill = e.target.closest("[data-you-dog-chat-settings-tag-pill]");
+    if (tagPill && !tagPill.classList.contains("is-editing")) {
+      e.preventDefault();
+      beginYouDogChatSettingsTagEdit(tagPill);
+      return;
+    }
+
     if (e.target.closest("[data-you-dog-chat-settings-close]")) {
+      finishYouDogChatSettingsTagEditing(true);
       youDogChatSettingsOpen = false;
       renderYouDogScreen(slot);
       return;
@@ -70244,24 +70776,32 @@
     }
   });
   document.addEventListener("click", function (e) {
-    const slot = e.target.closest("#radio-content-slot");
+    const slot = e.target.closest("#char-letter-content-slot");
     if (!slot || !slot.contains(e.target)) return;
-    handleRadioSlotClick(e, slot);
+    handleCharLetterSlotClick(e, slot);
   });
   document.addEventListener("input", function (e) {
-    if (e.target && e.target.matches && e.target.matches("[data-radio-input]")) {
-      radioInputDraft = String(e.target.value || "");
+    if (!e.target || !e.target.matches) return;
+    if (e.target.matches("[data-char-letter-field]")) {
+      const slot = e.target.closest("#char-letter-content-slot");
+      if (slot) scheduleCharLetterDraftPersist(slot);
     }
   });
-  document.addEventListener("keydown", function (e) {
-    if (e.key !== "Enter" || e.isComposing || e.shiftKey) return;
-    const input = e.target && e.target.closest && e.target.closest("[data-radio-input]");
-    if (!input) return;
-    const slot = input.closest("#radio-content-slot");
-    if (!slot) return;
-    e.preventDefault();
-    radioSendComment(slot);
-  });
+  document.addEventListener(
+    "focusout",
+    function (e) {
+      const el = e.target.closest("[data-char-letter-saved-field]");
+      if (!el) return;
+      const slot = el.closest("#char-letter-content-slot");
+      if (!slot || charLetterNavScreen !== "detail") return;
+      setTimeout(function () {
+        const active = document.activeElement;
+        if (active && slot.contains(active) && active.closest("[data-char-letter-saved-field]")) return;
+        tryAutoSaveCharLetterSavedDetail(slot);
+      }, 0);
+    },
+    true
+  );
   document.addEventListener("click", function (e) {
     const slot = e.target.closest("#todo-content-slot");
     if (!slot || !slot.contains(e.target)) return;
@@ -71972,6 +72512,7 @@
       function () {
         markStoryPlayScrolling();
         scheduleUpdateStoryScrollNav();
+        schedulePersistStoryPlayScroll();
         hideStorySelectionBubble();
         closeStoryThoughtPeekPanel();
       },
@@ -72326,6 +72867,9 @@
     try {
       await requestPersistentDeviceStorage();
       await hydrateNarrativeFromStorage();
+      try {
+        await tryLoadCharLetterFontFromPrefs();
+      } catch (eClFont) {}
     } catch (hydErr) {
       try {
         console.error(hydErr);

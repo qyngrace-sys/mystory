@@ -252,23 +252,20 @@
               </span>
               <span class="gallery-item-label">小狗饭</span>
             </button>
-            <button type="button" class="workbench-card workbench-card--feature workbench-card--radio" data-assistant-action="radio" aria-label="电台">
+            <button type="button" class="workbench-card workbench-card--feature workbench-card--char-letter" data-assistant-action="char-letter" aria-label="手写信">
               <span class="gframe-piece gframe-double">
                 <span class="workbench-card__visual gframe-canvas" aria-hidden="true">
                   <svg class="workbench-glyph" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <rect class="wb-g__deep" x="8" y="22" width="48" height="28" rx="6"/>
-                    <rect class="wb-g__paper" x="12" y="26" width="40" height="20" rx="3"/>
-                    <circle class="wb-g__mid" cx="22" cy="36" r="6"/>
-                    <circle class="wb-g__soft" cx="22" cy="36" r="2.5"/>
-                    <rect class="wb-g__solid" x="32" y="32" width="16" height="3" rx="1.5"/>
-                    <rect class="wb-g__solid" x="32" y="38" width="12" height="3" rx="1.5"/>
-                    <path class="wb-g__stroke-soft" d="M20 14 C24 10 40 10 44 14"/>
-                    <path class="wb-g__stroke-soft" d="M24 14 V22 M40 14 V22"/>
-                    <circle class="wb-g__stroke" cx="48" cy="18" r="3"/>
+                    <rect class="wb-g__soft" x="10" y="18" width="44" height="30" rx="3"/>
+                    <path class="wb-g__paper" d="M14 22 H50 V44 H14 Z"/>
+                    <path class="wb-g__solid" d="M10 18 L32 8 L54 18"/>
+                    <path class="wb-g__stroke-soft" d="M20 28 H44 M20 33 H38 M20 38 H32"/>
+                    <path class="wb-g__deep" d="M46 40 C48 38 52 40 50 44 C48 48 44 46 46 40 Z"/>
+                    <path class="wb-g__stroke" d="M20 48 Q32 52 44 48"/>
                   </svg>
                 </span>
               </span>
-              <span class="gallery-item-label">电台</span>
+              <span class="gallery-item-label">手写信</span>
             </button>
             <button type="button" class="workbench-card workbench-card--feature workbench-card--pass-note" data-assistant-action="pass-note" aria-label="传纸条">
               <span class="gframe-piece gframe-lace">
@@ -345,8 +342,8 @@
         <div id="overview-sub-todo" class="overview-subview" hidden>
           <div id="todo-content-slot" class="feature-view-body" aria-label="任务ToDo内容区"></div>
         </div>
-        <div id="overview-sub-radio" class="overview-subview" hidden>
-          <div id="radio-content-slot" class="feature-view-body" aria-label="电台内容区"></div>
+        <div id="overview-sub-char-letter" class="overview-subview" hidden>
+          <div id="char-letter-content-slot" class="feature-view-body" aria-label="手写信内容区"></div>
         </div>
         <div id="overview-sub-pass-note" class="overview-subview" hidden>
           <div id="pass-note-content-slot" class="feature-view-body" aria-label="传纸条内容区"></div>
@@ -1239,7 +1236,7 @@
         <div class="sheet-handle"></div>
         <div class="modal-header phone-holder-header star-header">
           <div class="phone-holder-header__lead star-header__lead">
-          <h2 class="modal-title star-header__title">我的身份</h2>
+          <h2 class="modal-title star-header__title">设置</h2>
           </div>
           <button type="button" class="icon-btn" id="you-dog-persona-close" aria-label="关闭">
             <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -1376,59 +1373,64 @@
       </div>
     </div>
 
-    <div id="modal-radio-holder" class="overlay overlay--dim" hidden>
-      <div class="modal-sheet modal-sheet--phone-holder modal-sheet--radio-holder">
+    <div id="modal-char-letter-holder" class="overlay overlay--dim" hidden>
+      <div class="modal-sheet modal-sheet--phone-holder modal-sheet--char-letter-holder">
         <div class="sheet-handle"></div>
         <div class="modal-header phone-holder-header star-header">
           <div class="phone-holder-header__lead star-header__lead">
-          <button type="button" class="icon-btn phone-holder-header__back star-header__back" id="radio-holder-step-back" hidden aria-label="返回选择剧情">
+          <button type="button" class="icon-btn phone-holder-header__back star-header__back" id="char-letter-holder-step-back" hidden aria-label="返回选择剧情">
             <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M15 6l-6 6 6 6"/></svg>
           </button>
-          <h2 class="modal-title star-header__title" id="radio-holder-title">选择剧情</h2>
+          <h2 class="modal-title star-header__title" id="char-letter-holder-title">选择剧情</h2>
           </div>
-          <button type="button" class="icon-btn" id="radio-holder-close" aria-label="关闭">
+          <button type="button" class="icon-btn" id="char-letter-holder-close" aria-label="关闭">
             <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg>
           </button>
         </div>
         <div class="phone-holder-body">
-          <p class="phone-holder-hint" id="radio-holder-hint">先选择电台主播所在的剧情</p>
-          <div id="radio-holder-plot-list" class="phone-holder-plot-list"></div>
-          <div id="radio-holder-pick" class="phone-holder-pick" hidden></div>
+          <p class="phone-holder-hint" id="char-letter-holder-hint">先选择手写信角色所在的剧情</p>
+          <div id="char-letter-holder-plot-list" class="phone-holder-plot-list"></div>
+          <div id="char-letter-holder-pick" class="phone-holder-pick" hidden></div>
         </div>
       </div>
     </div>
 
-    <div id="modal-radio-letter" class="overlay overlay--dim" hidden>
+    <div id="modal-char-letter-style" class="overlay overlay--dim" hidden>
       <div class="modal-sheet modal-sheet--tall">
         <div class="sheet-handle"></div>
         <div class="modal-header">
-          <h2 class="modal-title">写信来电</h2>
-          <button type="button" class="icon-btn" id="radio-letter-close" aria-label="关闭">
+          <h2 class="modal-title">文笔设置</h2>
+          <button type="button" class="icon-btn" id="char-letter-style-close" aria-label="关闭">
             <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg>
           </button>
         </div>
-        <p class="phone-holder-hint">以匿名听众身份写信，主播将在下次继续时回应</p>
-        <textarea id="radio-letter-input" class="field__input radio-letter-input" rows="8" maxlength="800" placeholder="写下你想对主播说的话…"></textarea>
-        <div class="confirm-actions">
-          <button type="button" class="btn btn--secondary" id="radio-letter-cancel">取消</button>
-          <button type="button" class="btn btn--primary" id="radio-letter-confirm">寄出信件</button>
+        <div class="form-stack char-letter-style-form">
+          <label class="field">
+            <span class="field__label">文笔介绍</span>
+            <textarea id="char-letter-style-intro" class="field__input" rows="3" maxlength="600" placeholder="例如：克制温柔、短句居多、偶尔用比喻…"></textarea>
+          </label>
+          <label class="field">
+            <span class="field__label">参考范文 / 字段</span>
+            <textarea id="char-letter-style-reference" class="field__input" rows="6" maxlength="2000" placeholder="粘贴喜欢的文风片段或写作要点，生成时会参考语气与节奏（不会照搬）…"></textarea>
+          </label>
+          <p class="char-letter-style-hint">可不填，直接生成；填写后将影响下一次及之后的生成。</p>
+          <div class="char-letter-font-section">
+            <label class="field">
+              <span class="field__label">手写信字体</span>
+              <input type="url" id="char-letter-style-font-url" class="field__input" placeholder="粘贴字体 CSS 链接，如 https://fontsapi.zeoseven.com/504/main/result.css" autocomplete="off" />
+            </label>
+            <label class="font-file-label">
+              <span class="field__label">或上传字体文件</span>
+              <input type="file" id="char-letter-style-font-file" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" />
+            </label>
+            <p class="char-letter-font-status" id="char-letter-font-status">当前：系统默认字体</p>
+            <button type="button" class="btn btn--secondary" id="char-letter-style-font-clear">恢复系统默认字体</button>
+            <p class="char-letter-style-hint">不设置则使用手机系统字体；CSS 链接与上传二选一，保存后生效。</p>
+          </div>
         </div>
-      </div>
-    </div>
-
-    <div id="modal-radio-end-call" class="overlay overlay--dim" hidden>
-      <div class="modal-sheet modal-sheet--confirm radio-end-call-sheet">
-        <div class="sheet-handle"></div>
-        <div class="modal-header">
-          <h2 class="modal-title">结束本次连线</h2>
-          <button type="button" class="icon-btn" id="radio-end-call-close" aria-label="关闭">
-            <svg class="icon-linear" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 6L6 18M6 6l12 12"/></svg>
-          </button>
-        </div>
-        <p class="radio-end-call-sheet__msg">是否让主持人收尾并接入下一位来电？</p>
         <div class="confirm-actions">
-          <button type="button" class="btn btn--secondary" id="radio-end-call-skip">暂不生成</button>
-          <button type="button" class="btn btn--primary" id="radio-end-call-next">生成下一位</button>
+          <button type="button" class="btn btn--secondary" id="char-letter-style-cancel">取消</button>
+          <button type="button" class="btn btn--primary" id="char-letter-style-save">保存</button>
         </div>
       </div>
     </div>
