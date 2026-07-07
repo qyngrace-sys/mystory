@@ -43,6 +43,14 @@ npx cap sync android
 npm run cap:open
 ```
 
+> **常见误区（必读）**
+>
+> - **只上传到 GitHub ≠ APK 会自动更新。** GitHub Pages 只影响网站和 OTA 热更新；Android Studio 打 APK 用的是**本机** `play/android/` 里的文件，不会从 GitHub 拉代码。
+> - **Android Studio 里「Sync Project with Gradle Files」（大象刷新）≠ `cap sync`。** Gradle Sync 只同步依赖；必须把 `www/` 复制进 `android/app/src/main/assets/public/` 的是 **`npx cap sync android`**（或 `npm run cap:sync`）。
+> - 改完 `app.js` 后若跳过 `build:web` + `cap sync` 就直接 Build APK，打出来的包会和旧版一模一样（大小也可能相同）。
+> - 正确顺序：**改代码 → `npm run build:web` → `npx cap sync android` → Android Studio Clean → Build APK**。
+> - 打完后可检查：`android/app/src/main/assets/public/app-version.json` 里的 `webVersion` 是否与 `index.html` 中 `app.js?v=` 一致。
+
 在 Android Studio 中：**Build → Build Bundle(s) / APK(s) → Build APK(s)**
 
 Debug APK 输出路径：
@@ -87,7 +95,7 @@ npm run build:ota
 
 将以下两个文件放到 **mystory 仓库根目录**（与 `index.html` 同级）：
 
-- `ota-bundle.zip`
+- `ota-bundle.zip`（**必须上传**，仅 `ota-update.json` 不够；缺 zip 会 404，App 可能一直用旧缓存）
 - `ota-update.json`
 
 推送后，已安装 APK 的用户**下次打开 App** 时会自动检测并下载更新。

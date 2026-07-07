@@ -1620,6 +1620,11 @@
     const cap = typeof window !== "undefined" ? window.Capacitor : null;
     const FP = cap && cap.Plugins ? cap.Plugins.FilePicker : null;
     if (!FP || typeof FP.pickFiles !== "function") return { status: "unavailable" };
+    if (typeof FP.requestPermissions === "function") {
+      try {
+        await FP.requestPermissions();
+      } catch (_ePerm) {}
+    }
     let result;
     try {
       result = await FP.pickFiles({
