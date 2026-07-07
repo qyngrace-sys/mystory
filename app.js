@@ -258,6 +258,8 @@
   /** 仍可接受的最旧 manifest.version（旧备份固定为 1） */
   const BACKUP_IMPORT_MIN_VERSION = 1;
   const BACKUP_IMPORT_MAX_SIZE = 100 * 1024 * 1024;
+  /** localStorage 剧情镜像上限；更大体积只走 IndexedDB，避免关页时 OOM / QuotaExceeded。 */
+  const LS_NARRATIVE_MIRROR_MAX_BYTES = 4 * 1024 * 1024;
   /** 已从产品移除的功能：导入/载入 narrative 时剥离对应字段，避免旧备份带入无效数据 */
   const REMOVED_NARRATIVE_IMPORT_KEYS = [
     "radioPlotId",
@@ -1258,6 +1260,65 @@
     }, 2500);
   }
 
+  /** Android WebView 对 <a download> 支持差；优先系统分享，小文件再写 Documents。 */
+  async function trySaveBackupToNativeFilesystem(blob, filename) {
+    const cap = typeof window !== "undefined" ? window.Capacitor : null;
+    const FS = cap && cap.Plugins ? cap.Plugins.Filesystem : null;
+    if (!FS || typeof FS.writeFile !== "function") return null;
+    const maxBytes = 12 * 1024 * 1024;
+    if (!blob || blob.size <= 0 || blob.size > maxBytes) return null;
+    try {
+      const buf = await blob.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      let binary = "";
+      const step = 0x8000;
+      for (let i = 0; i < bytes.length; i += step) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + step));
+      }
+      const res = await FS.writeFile({
+        path: filename,
+        data: btoa(binary),
+        directory: "DOCUMENTS",
+      });
+      return res && res.uri ? res.uri : "saved";
+    } catch (_eFs) {
+      return null;
+    }
+  }
+
+  async function deliverBackupExportBlob(blob, filename) {
+    if (!blob || !blob.size) throw new Error("BACKUP_EXPORT_EMPTY");
+    const zipFile =
+      typeof File !== "undefined"
+        ? new File([blob], filename, { type: blob.type || "application/zip" })
+        : null;
+    const tryShare = async function () {
+      if (!zipFile || !navigator.share) return false;
+      const shareData = { files: [zipFile], title: "嗅嗅剧场备份", text: filename };
+      if (navigator.canShare && !navigator.canShare(shareData)) return false;
+      await navigator.share(shareData);
+      return true;
+    };
+    if (isNativeAppShell()) {
+      try {
+        if (await tryShare()) return "share";
+      } catch (eShare) {
+        if (eShare && eShare.name === "AbortError") throw eShare;
+      }
+      const savedUri = await trySaveBackupToNativeFilesystem(blob, filename);
+      if (savedUri) return "filesystem";
+      triggerDownloadBlob(blob, filename);
+      return "download-fallback";
+    }
+    try {
+      if (await tryShare()) return "share";
+    } catch (eShareWeb) {
+      if (eShareWeb && eShareWeb.name === "AbortError") throw eShareWeb;
+    }
+    triggerDownloadBlob(blob, filename);
+    return "download";
+  }
+
   /** 导出备份用的 narrative JSON：优先当前内存（最全），再与 IndexedDB / localStorage 镜像取较新者。 */
   async function collectBackupNarrativeJson() {
     var memNar = null;
@@ -1397,9 +1458,39 @@
     }
     try {
       const blob = await buildBackupZipBlob();
-      triggerDownloadBlob(blob, formatBackupFilename(Date.now()));
-      var sizeLabel = formatApproxStoredBytes(blob.size);
-      showToast("备份已导出（" + sizeLabel + "）。", "success");
+      if (!blob || !blob.size) {
+        showToast("导出失败：备份包为空。", "error");
+        return;
+      }
+      if (blob.size > BACKUP_IMPORT_MAX_SIZE) {
+        showToast("导出失败：备份超过 100MB 上限，请精简剧情或头像后再试。", "error");
+        return;
+      }
+      const filename = formatBackupFilename(Date.now());
+      const sizeLabel = formatApproxStoredBytes(blob.size);
+      let method;
+      try {
+        method = await deliverBackupExportBlob(blob, filename);
+      } catch (eDel) {
+        if (eDel && eDel.name === "AbortError") {
+          showToast("已取消导出。", "info");
+          return;
+        }
+        throw eDel;
+      }
+      if (method === "share") {
+        showToast("备份已打包（" + sizeLabel + "），请在分享界面选择保存位置。", "success", 10000);
+      } else if (method === "filesystem") {
+        showToast("备份已保存到 Documents/" + filename + "（" + sizeLabel + "）。", "success");
+      } else if (method === "download-fallback") {
+        showToast(
+          "备份已导出（" + sizeLabel + "）。若未看到文件，请重试并通过系统分享保存到「下载」。",
+          "success",
+          10000
+        );
+      } else {
+        showToast("备份已导出（" + sizeLabel + "）。", "success");
+      }
     } catch (e) {
       if (e && e.message === "BACKUP_NARRATIVE_EXPORT_FAILED") {
         showToast("导出失败：剧情数据未能写入备份包，请刷新页面后重试。", "error");
@@ -11994,9 +12085,70 @@
 
   function persistNarrativeSyncMirror(payload) {
     try {
+      if (typeof payload !== "string" || payload.length > LS_NARRATIVE_MIRROR_MAX_BYTES) return;
       localStorage.setItem(STORAGE_NARRATIVE, payload);
       localStorage.setItem(STORAGE_NARRATIVE_SYNC_AT, String(Date.now()));
     } catch (e) {}
+  }
+
+  let backgroundPersistPromise = null;
+
+  async function flushPersistNarrativeOnBackgroundAsync() {
+    if (suppressUserDataPersistence) return;
+    if (narrativePersistTimer) {
+      clearTimeout(narrativePersistTimer);
+      narrativePersistTimer = null;
+    }
+    var payload = serializeNarrativePayload();
+    persistNarrativeSyncMirror(payload);
+    try {
+      await idbPutNarrativeJson(payload);
+      try {
+        localStorage.removeItem(STORAGE_NARRATIVE);
+        localStorage.removeItem(STORAGE_NARRATIVE_SYNC_AT);
+      } catch (eRm) {}
+    } catch (_eIdb) {}
+  }
+
+  function flushLightweightSettingsSync() {
+    if (suppressUserDataPersistence) return;
+    try {
+      persistAssistantState();
+      persistApiConfigs();
+      persistAppearance();
+      persistTtsSettings();
+      persistVisualImageSettings();
+    } catch (_eLight) {}
+  }
+
+  /** 切后台 / 关页：先同步写小设置，再 await IndexedDB 落盘（大备份关键路径）。 */
+  function scheduleBackgroundUserDataPersist() {
+    if (suppressUserDataPersistence) return;
+    flushLightweightSettingsSync();
+    if (narrativePersistTimer) {
+      clearTimeout(narrativePersistTimer);
+      narrativePersistTimer = null;
+    }
+    persistNarrativeSyncMirror(serializeNarrativePayload());
+    if (backgroundPersistPromise) return backgroundPersistPromise;
+    backgroundPersistPromise = flushPersistNarrativeOnBackgroundAsync()
+      .catch(function () {})
+      .finally(function () {
+        backgroundPersistPromise = null;
+      });
+    return backgroundPersistPromise;
+  }
+
+  function bindNativeAppBackgroundPersist() {
+    try {
+      const cap = typeof window !== "undefined" ? window.Capacitor : null;
+      if (!cap || !cap.isNativePlatform || !cap.isNativePlatform()) return;
+      const App = cap.Plugins && cap.Plugins.App;
+      if (!App || typeof App.addListener !== "function") return;
+      void App.addListener("appStateChange", function (state) {
+        if (state && state.isActive === false) scheduleBackgroundUserDataPersist();
+      });
+    } catch (_eBind) {}
   }
 
   function serializeNarrativePayload() {
@@ -12132,16 +12284,9 @@
     persistNarrative();
   }
 
-  /** 关页/切后台：先同步写入 localStorage（避免异步 IndexedDB 来不及落盘），再尽力写 IndexedDB。 */
+  /** 关页/切后台：触发后台持久化（含 await IndexedDB，大体积剧情依赖此路径）。 */
   function flushPersistNarrativeSync() {
-    if (narrativePersistTimer) {
-      clearTimeout(narrativePersistTimer);
-      narrativePersistTimer = null;
-    }
-    if (suppressUserDataPersistence) return;
-    var payload = serializeNarrativePayload();
-    persistNarrativeSyncMirror(payload);
-    void idbPutNarrativeJson(payload).catch(function () {});
+    scheduleBackgroundUserDataPersist();
   }
 
   async function requestPersistentDeviceStorage() {
@@ -72926,6 +73071,7 @@
       refreshStoryUiAfterTabVisible();
     }
   });
+  bindNativeAppBackgroundPersist();
 
   const appShell = document.getElementById("app-shell");
 
