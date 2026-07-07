@@ -1,0 +1,29 @@
+/* 离线字体：由 scripts/sync-www.js 自动生成 */
+@font-face {
+  font-family: "Source Han Serif CN";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./files/noto-serif-sc-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Noto Serif TC";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./files/noto-serif-tc-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Liu Jian Mao Cao";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./files/liu-jian-mao-cao-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Ma Shan Zheng";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./files/ma-shan-zheng-400.woff2") format("woff2");
+}
